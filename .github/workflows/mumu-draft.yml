@@ -37,6 +37,7 @@ jobs:
           arch: x86_64
           target: default
           disable-animations: true
+          pre-emulator-launch-script: python3 mumu-draft/android/configure-ci-display.py
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash mumu-draft/android/test-emulator.sh
       - uses: actions/upload-artifact@v4

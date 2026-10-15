@@ -4,7 +4,6 @@ cd "$(dirname "$0")"
 python3 -m venv out/pixel-venv
 . out/pixel-venv/bin/activate
 python -m pip -q install Pillow==12.3.0
-adb shell wm size 900x1600
 adb install -t -r out/helper.apk
 adb install -r out/fixture.apk
 component=com.dvk.drafthelper.visual/com.dvk.drafthelper.DraftInstrumentation
@@ -18,7 +17,7 @@ header_hash() {
  python - <<'PY'
 from PIL import Image
 import hashlib
-im=Image.open('out/reference.png').convert('RGB');assert im.size==(900,1600)
+im=Image.open('out/reference.png').convert('RGB');assert im.size==(900,1600), im.size
 print(hashlib.sha256(im.crop((0,48,900,224)).tobytes()).hexdigest())
 PY
 }
