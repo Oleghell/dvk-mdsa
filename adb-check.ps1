@@ -78,7 +78,6 @@ function Invoke-FirstAdbCheck([string]$Executable, [string]$PhoneId, $Entries, [
         Stop-Safely 'MoreLogin вернул некорректный порт ADB.'
     }
     $password = [string](Get-Field $entry 'adbPassword')
-    if ($password -notmatch '^[A-Za-z0-9_-]{1,256}$') { Stop-Safely 'Код ADB имеет неподдерживаемый формат. Его содержимое скрыто; произвольные shell-команды не выполняются.' }
     $serial = $ip.ToString() + ':' + $port
     try {
         Write-Host 'Проверяю adb.exe...'
@@ -89,18 +88,37 @@ function Invoke-FirstAdbCheck([string]$Executable, [string]$PhoneId, $Entries, [
         if ($connect.exit_code -ne 0 -or $connect.stdout -notmatch '(?i)(already )?connected to') {
             Stop-Safely 'ADB не смог подключиться к первому телефону. Возможны сетевые ограничения или истёкшие параметры. Сырые адреса скрыты.'
         }
-        # Official MoreLogin direct authentication: adb -s IP:PORT shell CODE.
-        # CODE is validated as a single safe token. It is briefly a local process
-        # argument; do not run on an untrusted/shared computer or capture processes.
-        $auth = Invoke-AdbProcess $Executable @('-s', $serial, 'shell', $password) 'exit'
-        if ($auth.exit_code -ne 0) { Stop-Safely 'ADB-код первого телефона не принят или сессия недоступна. Повторите проверку со свежими параметрами.' }
-        $password = $null
+        # Idempotent: first test an existing authorized shell before sending CODE.
+        $script:AdbProbeDiagnostics = [ordered]@{authentication_attempted=$false}
         $probe = Invoke-AdbProcess $Executable @('-s', $serial, 'shell', 'getprop', 'ro.build.version.release')
+        $script:AdbProbeDiagnostics.probe_before_auth_exit_code = $probe.exit_code
         $android = $probe.stdout.Trim()
-        if ($probe.exit_code -ne 0 -or $android -notmatch '^[0-9]+(\.[0-9]+){0,3}$') {
-            Stop-Safely 'Соединение открыто, но подтвердить Android shell не удалось. Ответ с возможными секретами скрыт.'
+        $shellReady = $probe.exit_code -eq 0 -and $android -match '^[0-9]+(\.[0-9]+){0,3}$'
+        $authMode = 'existing_session'
+        if (-not $shellReady) {
+            if ($password -notmatch '^[A-Za-z0-9_-]{1,256}$') {
+                Stop-Safely 'Для новой авторизации код ADB имеет неподдерживаемый формат. Его содержимое скрыто; произвольные shell-команды не выполняются.'
+            }
+            $script:AdbProbeDiagnostics.authentication_attempted = $true
+            $authMode = 'code_then_probe'
+            # Official MoreLogin direct authentication. Safe single-token CODE may
+            # briefly be visible to local process monitoring; never log arguments.
+            $auth = Invoke-AdbProcess $Executable @('-s', $serial, 'shell', $password) 'exit'
+            $script:AdbProbeDiagnostics.auth_command_exit_code = $auth.exit_code
+            # The auth command's exit code alone does not prove whether the session
+            # is authorized. The subsequent read-only Android probe is decisive.
+            $probe = Invoke-AdbProcess $Executable @('-s', $serial, 'shell', 'getprop', 'ro.build.version.release')
+            $script:AdbProbeDiagnostics.probe_after_auth_exit_code = $probe.exit_code
+            $android = $probe.stdout.Trim()
+            $shellReady = $probe.exit_code -eq 0 -and $android -match '^[0-9]+(\.[0-9]+){0,3}$'
+        }
+        $password = $null
+        if (-not $shellReady) {
+            Stop-Safely 'Не удалось подтвердить Android shell после проверки текущей сессии и штатной авторизации. Причина по одному коду не установлена. Передайте отчёт с adb_probe_diagnostics, без секретов.'
         }
         $result = [ordered]@{status='ok'; phone_id=$PhoneId; connection_mode='direct'; android_version=$android; messages_sent=0; chat_content_read=$false}
+        $result.authentication_mode = $authMode
+        $result.adb_probe_diagnostics = $script:AdbProbeDiagnostics
         $screen = Invoke-AdbProcess $Executable @('-s', $serial, 'shell', 'wm', 'size')
         if ($screen.exit_code -eq 0 -and $screen.stdout -match '(?m)Physical size:\s*([0-9]{2,5})x([0-9]{2,5})') {
             $result.physical_screen_size = $Matches[1] + 'x' + $Matches[2]
