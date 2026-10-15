@@ -12,8 +12,8 @@ public class FixtureActivity extends Activity {
   EditText input=new EditText(this);input.setHint("Message");input.setSingleLine(true);
   if("nonempty".equals(getIntent().getStringExtra("scenario")))input.setText("KEEP_EXISTING");
   root.addView(input);
-  TextView sent=new TextView(this);sent.setText("sent=0");root.addView(sent);
-  Button send=new Button(this);send.setText("SEND");send.setOnClickListener(v -> sent.setText("sent=1"));root.addView(send);
+  final TextView sent=new TextView(this);sent.setText("sent=0");root.addView(sent);
+  Button send=new Button(this);send.setText("SEND");send.setOnClickListener(new android.view.View.OnClickListener() { public void onClick(android.view.View v) {sent.setText("sent=1");} });root.addView(send);
   setContentView(root);
  }
 }
