@@ -44,7 +44,23 @@ function Invoke-PortableOcr($Engine, $Bitmap, [switch]$SyntheticCiDiagnostics) {
     try {
         $Bitmap.Save($stream,[Drawing.Imaging.ImageFormat]::Png)
         $buffer=$stream.ToArray()
-        [void]$process.Start()
+        # .NET Framework creates an AutoFlush StreamWriter during Start(). If
+        # Console.InputEncoding has a BOM, it precedes the raw PNG bytes and
+        # Leptonica treats the image as a filename list instead of a PNG.
+        $originalInputEncoding=$null
+        try {
+            if ($null -ne $info.PSObject.Properties['StandardInputEncoding']) {
+                $info.StandardInputEncoding=[Text.UTF8Encoding]::new($false)
+            }
+            else {
+                $originalInputEncoding=[Console]::InputEncoding
+                [Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
+            }
+            [void]$process.Start()
+        }
+        finally {
+            if ($null -ne $originalInputEncoding) { [Console]::InputEncoding=$originalInputEncoding }
+        }
         $outTask=$process.StandardOutput.ReadToEndAsync()
         $errTask=$process.StandardError.ReadToEndAsync()
         $process.StandardInput.BaseStream.Write($buffer,0,$buffer.Length)

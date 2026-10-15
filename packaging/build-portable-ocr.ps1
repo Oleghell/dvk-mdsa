@@ -41,7 +41,16 @@ try {
     $graphics.Clear([Drawing.Color]::White)
     $graphics.DrawString("Привет`nТест входящего 123",$font,[Drawing.Brushes]::Black,25,25)
     $engine=[pscustomobject]@{Executable=(Join-Path $runtime 'tesseract.exe'); DataDirectory=$data}
-    $recognized=Invoke-PortableOcr $engine $bitmap -SyntheticCiDiagnostics
+    # Regression: BOM-bearing console input must not corrupt binary PNG stdin.
+    $savedInputEncoding=[Console]::InputEncoding
+    try {
+        [Console]::InputEncoding=[Text.Encoding]::UTF8
+        $recognized=Invoke-PortableOcr $engine $bitmap -SyntheticCiDiagnostics
+        if ([Console]::InputEncoding.CodePage -ne 65001 -or [Console]::InputEncoding.GetPreamble().Length -ne 3) {
+            throw 'OCR adapter did not restore console input encoding'
+        }
+    }
+    finally { [Console]::InputEncoding=$savedInputEncoding }
     $text=($recognized.Lines | ForEach-Object {$_.Text}) -join ' '
     if ($text -notmatch 'Привет' -or $text -notmatch '123') {throw 'Synthetic Russian OCR smoke test failed'}
     Write-Host 'Portable runtime: Russian synthetic OCR smoke test passed.'
