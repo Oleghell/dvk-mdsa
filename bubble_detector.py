@@ -55,6 +55,19 @@ def detect(image, roi):
         if not (rw*.10 <= bw <= rw*.85 and max(12, rw*.018) <= bh <= rh*.65): continue
         if area / ((x1-x0+1)*(y1-y0+1)) < .68: continue
         left,right=x0*step,(x1+1)*step
+        # A one-pixel gap may disappear on the bounded grid. Recheck every
+        # full-resolution row across the component interior; if a complete
+        # separator exists, reject the merged region rather than merge chats.
+        margin=max(3,step*2)
+        sample_left=rx+left+max(2,bw//10)
+        sample_right=rx+right-max(2,bw//10)-1
+        xs=sorted(set(sample_left+(sample_right-sample_left)*i//20 for i in range(21)))
+        separated=False
+        for py in range(ry+y0*step+margin,ry+(y1+1)*step-margin):
+            if not any(_family(pixels[px,py]) == family for px in xs):
+                separated=True
+                break
+        if separated: continue
         if family == 1:
             if left > rw*.18: continue
             direction='incoming_candidate'

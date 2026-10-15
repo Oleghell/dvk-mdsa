@@ -44,6 +44,14 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(len(detect(im,[0,0,800,600])),3)
     def test_two_same_sender_separate(self):
         self.assertEqual(sum(b['direction']=='incoming_candidate' for b in detect(scene(),[0,0,800,600])),2)
+    def test_one_pixel_gap_not_merged(self):
+        im=Image.new('RGB',(800,600),(235,237,242))
+        draw=ImageDraw.Draw(im)
+        draw.rectangle((20,220,359,289),fill='white')
+        draw.rectangle((20,291,359,360),fill='white')
+        bubbles=detect(im,[0,0,800,600])
+        # Two results or no results are safe; one spanning both is not.
+        self.assertFalse(any(b['bounds'][1] < 290 and b['bounds'][1]+b['bounds'][3] > 291 for b in bubbles))
     def test_roi_offsets(self):
         result=detect(scene(),[0,10,800,550])
         self.assertEqual(len(result),3)
