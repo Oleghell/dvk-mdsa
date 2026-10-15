@@ -42,6 +42,13 @@ jobs:
           Copy-Item mumu-bridge/README.md "$root/README.md"
           $hashes=Get-ChildItem $root -File | Sort-Object Name | ForEach-Object {'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash,$_.Name}
           $hashes | Set-Content "$root/SHA256SUMS.txt" -Encoding ASCII
+      - name: Test real public HTTPS MCP on synthetic data only
+        shell: powershell
+        run: |
+          $env:PYTHONPATH='mumu-bridge'
+          $env:CLOUDFLARED_TEST_PATH=(Resolve-Path 'out/MuMu-bridge-windows-x64/cloudflared.exe').Path
+          python mumu-bridge/test_tunnel.py
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
       - uses: actions/upload-artifact@v4
         with:
           name: MuMu-bridge-windows-x64
