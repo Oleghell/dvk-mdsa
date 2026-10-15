@@ -50,6 +50,103 @@ function Read-Configuration {
     return @{api_base='https://api.morelogin.com'; phone_ids=$ids}
 }
 
+function Read-CredentialsDialog {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    [Windows.Forms.Application]::EnableVisualStyles()
+    $form = New-Object Windows.Forms.Form
+    $form.Text = 'MoreLogin Open API — локальная проверка'
+    $form.ClientSize = New-Object Drawing.Size(570, 300)
+    $form.StartPosition = 'CenterScreen'
+    $form.FormBorderStyle = 'FixedDialog'
+    $form.MaximizeBox = $false
+    $form.MinimizeBox = $false
+    $form.TopMost = $true
+    $form.Font = New-Object Drawing.Font('Segoe UI', 10)
+
+    $notice = New-Object Windows.Forms.Label
+    $notice.Text = "Данные отправляются только на https://api.morelogin.com.`r`nНе публикуйте ключ в чате или на сайте обмена текстом."
+    $notice.Location = New-Object Drawing.Point(18, 15)
+    $notice.Size = New-Object Drawing.Size(535, 50)
+    $form.Controls.Add($notice)
+
+    $appLabel = New-Object Windows.Forms.Label
+    $appLabel.Text = 'APP ID'
+    $appLabel.Location = New-Object Drawing.Point(18, 77)
+    $appLabel.Size = New-Object Drawing.Size(95, 25)
+    $form.Controls.Add($appLabel)
+    $appBox = New-Object Windows.Forms.TextBox
+    $appBox.Location = New-Object Drawing.Point(120, 74)
+    $appBox.Size = New-Object Drawing.Size(425, 28)
+    $form.Controls.Add($appBox)
+
+    $keyLabel = New-Object Windows.Forms.Label
+    $keyLabel.Text = 'API Key'
+    $keyLabel.Location = New-Object Drawing.Point(18, 124)
+    $keyLabel.Size = New-Object Drawing.Size(95, 25)
+    $form.Controls.Add($keyLabel)
+    $keyBox = New-Object Windows.Forms.TextBox
+    $keyBox.Location = New-Object Drawing.Point(120, 121)
+    $keyBox.Size = New-Object Drawing.Size(425, 28)
+    $keyBox.UseSystemPasswordChar = $true
+    $keyBox.ShortcutsEnabled = $true
+    $form.Controls.Add($keyBox)
+
+    $lengthLabel = New-Object Windows.Forms.Label
+    $lengthLabel.Text = 'В ключе символов: 0. Вставка: Ctrl+V.'
+    $lengthLabel.Location = New-Object Drawing.Point(120, 155)
+    $lengthLabel.Size = New-Object Drawing.Size(425, 25)
+    $form.Controls.Add($lengthLabel)
+    $keyBox.Add_TextChanged({ $lengthLabel.Text = 'В ключе символов: ' + $keyBox.TextLength + '. Вставка: Ctrl+V.' })
+
+    $validation = New-Object Windows.Forms.Label
+    $validation.ForeColor = [Drawing.Color]::DarkRed
+    $validation.Location = New-Object Drawing.Point(18, 187)
+    $validation.Size = New-Object Drawing.Size(530, 42)
+    $form.Controls.Add($validation)
+
+    $ok = New-Object Windows.Forms.Button
+    $ok.Text = 'Проверить'
+    $ok.Location = New-Object Drawing.Point(300, 244)
+    $ok.Size = New-Object Drawing.Size(115, 34)
+    $ok.Add_Click({
+        if ($appBox.Text.Trim() -notmatch '^[0-9]+$') {
+            $validation.Text = 'APP ID должен состоять из цифр.'
+            return
+        }
+        if ($keyBox.TextLength -le 1) {
+            $validation.Text = 'Ключ пустой или содержит один символ. Скопируйте полный API Key из MoreLogin.'
+            return
+        }
+        if ($keyBox.Text -match '\s') {
+            $validation.Text = 'В ключе есть пробел или перенос строки. Скопируйте API Key заново.'
+            return
+        }
+        $form.DialogResult = [Windows.Forms.DialogResult]::OK
+        $form.Close()
+    })
+    $form.Controls.Add($ok)
+    $cancel = New-Object Windows.Forms.Button
+    $cancel.Text = 'Отмена'
+    $cancel.Location = New-Object Drawing.Point(430, 244)
+    $cancel.Size = New-Object Drawing.Size(115, 34)
+    $cancel.DialogResult = [Windows.Forms.DialogResult]::Cancel
+    $form.Controls.Add($cancel)
+    $form.AcceptButton = $ok
+    $form.CancelButton = $cancel
+    try {
+        $result = $form.ShowDialog()
+        if ($result -ne [Windows.Forms.DialogResult]::OK) { Stop-Safely 'Проверка отменена пользователем.' }
+        $secure = ConvertTo-SecureString -String $keyBox.Text -AsPlainText -Force
+        return [pscustomobject]@{AppId=$appBox.Text.Trim(); SecureKey=$secure}
+    }
+    finally {
+        $keyBox.Clear()
+        $appBox.Clear()
+        $form.Dispose()
+    }
+}
+
 function Invoke-OpenApi([string]$Path, $Body, [string]$Token) {
     # Allowlist exactly two read-only diagnostic operations.
     if ($Path -notin @('/oauth2/token', '/cloudphone/batchAdbInfo')) {
@@ -87,8 +184,11 @@ function Invoke-OpenApi([string]$Path, $Body, [string]$Token) {
         catch { Stop-Safely 'Open API вернул неожиданный формат ответа.' }
         $code = Get-Field $payload 'code'
         if ($code -isnot [int] -and $code -isnot [long]) { Stop-Safely 'В ответе нет корректного кода результата.' }
+        if ($code -eq 35002) { Stop-Safely 'MoreLogin 35002: APP ID/API Key не прошли проверку. Скопируйте полную пару из одного блока Open API. Ключ в чат не отправляйте.' }
+        if ($code -eq 35005) { Stop-Safely 'MoreLogin 35005: операция запрещена. Проверьте активность участника и разрешённые IP у владельца команды.' }
+        if ($code -eq 12002) { Stop-Safely 'MoreLogin 12002: команда не существует. Обратитесь в поддержку MoreLogin.' }
         if ($code -ne 0) {
-            Stop-Safely ("MoreLogin вернул код {0}. Проверьте APP ID/API Key, права команды и разрешённые IP. Сырые сообщения скрыты." -f $code)
+            Stop-Safely ("MoreLogin вернул код {0}. Ответ сервиса скрыт для защиты секретов." -f $code)
         }
         return $payload
     }
@@ -171,10 +271,11 @@ try {
     Write-Host 'Проверка MoreLogin Open API на вашем ноутбуке.'
     Write-Host 'Секрет будет отправлен только на https://api.morelogin.com, не в GitHub и не в чат.'
     Write-Host 'Телефоны не запускаются/останавливаются. Сообщения не отправляются.'
-    $appId = (Read-Host 'Введите APP ID из блока Open API').Trim()
-    if ($appId -notmatch '^[0-9]+$') { Stop-Safely 'APP ID должен состоять из цифр. Не используйте Cloud Phone ID вместо APP ID.' }
-    $secureKey = Read-Host 'Вставьте API Key и нажмите Enter (ввод скрыт)' -AsSecureString
-    if ($secureKey.Length -eq 0) { Stop-Safely 'Пустой API Key. Проверка остановлена.' }
+    Write-Host 'Введите данные в отдельном окне MoreLogin Open API. Ключ в консоль не вставляйте.'
+    $credentials = Read-CredentialsDialog
+    $appId = $credentials.AppId
+    $secureKey = $credentials.SecureKey
+    $credentials = $null
     $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
     $key = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
