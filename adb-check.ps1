@@ -57,7 +57,7 @@ function Invoke-AdbProcess([string]$Executable, [string[]]$CommandArgs, [string]
     }
 }
 
-function Invoke-FirstAdbCheck([string]$Executable, [string]$PhoneId, $Entries, [switch]$InspectUi, [switch]$VisualPreview) {
+function Invoke-FirstAdbCheck([string]$Executable, [string]$PhoneId, $Entries, [switch]$InspectUi, [switch]$VisualPreview, [switch]$ReadChatPreview) {
     $matching = @($Entries | Where-Object { [string](Get-Field $_ 'id') -ceq $PhoneId })
     if ($matching.Count -ne 1) { Stop-Safely 'Нет однозначных параметров первого телефона.' }
     $entry = $matching[0]
@@ -139,6 +139,7 @@ function Invoke-FirstAdbCheck([string]$Executable, [string]$PhoneId, $Entries, [
             $result.chat_content_read = $true
             $result.ui_inspection = Invoke-UiInspection $Executable $serial
             if ($VisualPreview) { $result.visual_preview = Show-LocalVisualPreview $Executable $serial $result.ui_inspection }
+            if ($ReadChatPreview) { $result.chat_read_preview = Show-LocalChatOcr $Executable $serial $result.ui_inspection }
             Write-Host 'Текст экрана мог присутствовать в исходном XML, но в отчёт не экспортировался.'
         }
         Write-Host ('Android {0}: связь с первым телефоном подтверждена.' -f $android)

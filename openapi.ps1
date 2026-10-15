@@ -5,12 +5,13 @@ param(
     [string]$ReportPath = (Join-Path $PSScriptRoot 'reports\openapi-diagnostic.json'),
     [switch]$CheckFirstAdb,
     [switch]$InspectUi,
-    [switch]$VisualPreview
+    [switch]$VisualPreview,
+    [switch]$ReadChatPreview
 )
 if ($CheckFirstAdb -and -not $PSBoundParameters.ContainsKey('ReportPath')) {
     $ReportPath = Join-Path $PSScriptRoot 'reports\adb-diagnostic.json'
 }
-if ($VisualPreview) { $InspectUi = $true }
+if ($VisualPreview -or $ReadChatPreview) { $InspectUi = $true }
 if ($InspectUi) {
     $CheckFirstAdb = $true
     if (-not $PSBoundParameters.ContainsKey('ReportPath')) { $ReportPath = Join-Path $PSScriptRoot 'reports\ui-diagnostic.json' }
@@ -18,12 +19,16 @@ if ($InspectUi) {
 if ($VisualPreview -and -not $PSBoundParameters.ContainsKey('ReportPath')) {
     $ReportPath = Join-Path $PSScriptRoot 'reports\visual-diagnostic.json'
 }
+if ($ReadChatPreview -and -not $PSBoundParameters.ContainsKey('ReportPath')) {
+    $ReportPath = Join-Path $PSScriptRoot 'reports\chat-read-diagnostic.json'
+}
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $script:SafeError = $null
 $script:UiForegroundProbe = @()
 $script:AdbProbeDiagnostics = $null
+$script:OcrDiagnostics = $null
 
 function Stop-Safely([string]$Message) {
     $script:SafeError = $Message
@@ -287,7 +292,8 @@ try {
     if ($CheckFirstAdb) {
         . (Join-Path $PSScriptRoot 'adb-check.ps1')
         if ($InspectUi) { . (Join-Path $PSScriptRoot 'ui-inspect.ps1') }
-        if ($VisualPreview) { . (Join-Path $PSScriptRoot 'visual-preview.ps1') }
+        if ($VisualPreview -or $ReadChatPreview) { . (Join-Path $PSScriptRoot 'visual-preview.ps1') }
+        if ($ReadChatPreview) { . (Join-Path $PSScriptRoot 'chat-ocr.ps1') }
         $adbExecutable = Select-AdbExecutable
         $report.adb_check = @{status='not_checked'}
     }
@@ -336,7 +342,7 @@ try {
     $report.phones = $phones
     if ($CheckFirstAdb) {
         $currentStage = 'adb_check'
-        $report.adb_check = Invoke-FirstAdbCheck $adbExecutable $config.phone_ids[0] $entries -InspectUi:$InspectUi -VisualPreview:$VisualPreview
+        $report.adb_check = Invoke-FirstAdbCheck $adbExecutable $config.phone_ids[0] $entries -InspectUi:$InspectUi -VisualPreview:$VisualPreview -ReadChatPreview:$ReadChatPreview
     }
     $entries = $null
     $response = $null
@@ -355,6 +361,7 @@ catch {
     if ($currentStage -eq 'authentication') { $report.authentication = 'failed' }
     if ($currentStage -eq 'phone_query') { $report.phone_query = 'failed' }
     if ($currentStage -eq 'adb_check') { $report.adb_check = @{status='failed'} }
+    if ($ReadChatPreview -and $null -ne $script:OcrDiagnostics) { $report.ocr_diagnostics = $script:OcrDiagnostics }
     if ($CheckFirstAdb -and $null -ne $script:AdbProbeDiagnostics) { $report.adb_probe_diagnostics = $script:AdbProbeDiagnostics }
     if ($InspectUi -and $script:UiForegroundProbe.Count -gt 0) { $report.ui_foreground_probe = @($script:UiForegroundProbe) }
     $report.failed_stage = $currentStage
@@ -374,7 +381,8 @@ try {
     [void][IO.Directory]::CreateDirectory($directory)
     $json = $report | ConvertTo-Json -Depth 8
     [IO.File]::WriteAllText($ReportPath, $json, (New-Object Text.UTF8Encoding($true)))
-    if ($VisualPreview) { Write-Host 'Отчёт: reports\visual-diagnostic.json. PNG-предпросмотр хранится отдельно и может содержать текст экрана.' }
+    if ($ReadChatPreview) { Write-Host 'Отчёт без текста переписки: reports\chat-read-diagnostic.json. Локальный TXT содержит распознанную переписку.' }
+    elseif ($VisualPreview) { Write-Host 'Отчёт: reports\visual-diagnostic.json. PNG-предпросмотр хранится отдельно и может содержать текст экрана.' }
     elseif ($InspectUi) { Write-Host 'Отчёт со структурой без текстов: reports\ui-diagnostic.json' }
     elseif ($CheckFirstAdb) { Write-Host 'Отчёт без секретов: reports\adb-diagnostic.json' }
     else { Write-Host 'Отчёт без ключей, токенов, паролей и адресов ADB: reports\openapi-diagnostic.json' }
