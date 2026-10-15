@@ -18,7 +18,7 @@ function Select-AdbExecutable {
 function Invoke-AdbProcess([string]$Executable, [string[]]$CommandArgs, [string]$InputText = '') {
     # No cmd.exe or arbitrary shell expansion. All CLI tokens have a strict alphabet.
     foreach ($arg in $CommandArgs) {
-        if ($arg -notmatch '^[A-Za-z0-9_.:\-]+$') { Stop-Safely 'Небезопасный формат аргумента ADB. Выполнение остановлено.' }
+        if ($arg -notmatch '^[A-Za-z0-9_.:/\-]+$') { Stop-Safely 'Небезопасный формат аргумента ADB. Выполнение остановлено.' }
     }
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $Executable
@@ -57,7 +57,7 @@ function Invoke-AdbProcess([string]$Executable, [string[]]$CommandArgs, [string]
     }
 }
 
-function Invoke-FirstAdbCheck([string]$Executable, [string]$PhoneId, $Entries) {
+function Invoke-FirstAdbCheck([string]$Executable, [string]$PhoneId, $Entries, [switch]$InspectUi) {
     $matching = @($Entries | Where-Object { [string](Get-Field $_ 'id') -ceq $PhoneId })
     if ($matching.Count -ne 1) { Stop-Safely 'Нет однозначных параметров первого телефона.' }
     $entry = $matching[0]
@@ -117,8 +117,14 @@ function Invoke-FirstAdbCheck([string]$Executable, [string]$PhoneId, $Entries) {
             }
         }
         $result.app_package_candidates = @($candidates | Select-Object -Unique)
+        if ($InspectUi) {
+            $result.chat_content_read = $true
+            $result.ui_inspection = Invoke-UiInspection $Executable $serial
+            Write-Host 'Текст экрана мог присутствовать в исходном XML, но в отчёт не экспортировался.'
+        }
         Write-Host ('Android {0}: связь с первым телефоном подтверждена.' -f $android)
-        Write-Host 'Переписки не читались. Другие три телефона не подключались.'
+        if (-not $InspectUi) { Write-Host 'Переписки не читались.' }
+        Write-Host 'Другие три телефона не подключались. Нажатия и отправка не выполнялись.'
         return $result
     }
     finally {
