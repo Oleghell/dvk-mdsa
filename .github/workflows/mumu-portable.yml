@@ -1,0 +1,47 @@
+name: Build MuMu local reader
+"on":
+  push:
+    branches: [feature/mumu-local]
+    paths: ['mumu-*.ps1', 'START_MUMU_READ.bat', 'tests/test-mumu.ps1', '.github/workflows/mumu-portable.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check Windows and loopback transport
+        shell: powershell
+        run: |
+          ./ci/run-tests.ps1
+          ./tests/test-mumu.ps1
+      - name: Build core
+        shell: powershell
+        run: |
+          python -m pip install pyinstaller==6.16.0 -r requirements-core.txt
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          python -m PyInstaller --clean --noconfirm --onefile --console --name dvk-chat-core chat_core.py
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+      - name: Build complete reader and real Russian OCR runtime
+        shell: powershell
+        run: ./packaging/build-portable-ocr.ps1
+      - name: Verify packaged files
+        shell: powershell
+        run: |
+          $root='out/dvk-local-ocr-windows-x64'
+          foreach ($file in @('START_MUMU_READ.bat','mumu-local.ps1','mumu-read.ps1','runtime/chat-core/dvk-chat-core.exe','runtime/tesseract/tesseract.exe')) {
+            if (-not (Test-Path (Join-Path $root $file))) {throw ('Missing: '+$file)}
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dvk-mumu-windows-x64
+          path: out/dvk-local-ocr-windows-x64/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
