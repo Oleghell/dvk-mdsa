@@ -1,0 +1,50 @@
+name: Build MuMu read-only bridge
+"on":
+  push:
+    branches: [feature/mumu-local]
+    paths: ['mumu-bridge/**', '.github/workflows/mumu-bridge.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test authenticated read-only transport and ADB guards
+        shell: powershell
+        run: |
+          $env:PYTHONPATH='mumu-bridge'
+          python -m unittest discover -s mumu-bridge/tests -v
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+      - name: Build Windows GUI
+        shell: powershell
+        run: |
+          python -m pip install pyinstaller==6.16.0
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --name MuMu-bridge --distpath out/MuMu-bridge-windows-x64 mumu-bridge/mumu_bridge.py
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          $app=Start-Process -FilePath out/MuMu-bridge-windows-x64/MuMu-bridge.exe -ArgumentList '--self-check' -PassThru
+          if (-not $app.WaitForExit(45000)) {$app.Kill();throw 'Packaged GUI runtime timed out'}
+          if ($app.ExitCode -ne 0) {throw 'Packaged GUI runtime failed'}
+      - name: Include pinned and hash-verified Cloudflare tunnel
+        shell: powershell
+        run: |
+          $root='out/MuMu-bridge-windows-x64'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-windows-amd64.exe' -OutFile "$root/cloudflared.exe"
+          if ((Get-FileHash "$root/cloudflared.exe" -Algorithm SHA256).Hash.ToLowerInvariant() -ne '86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c') {throw 'Cloudflare checksum mismatch'}
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
+          Copy-Item mumu-bridge/README.md "$root/README.md"
+          $hashes=Get-ChildItem $root -File | Sort-Object Name | ForEach-Object {'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash,$_.Name}
+          $hashes | Set-Content "$root/SHA256SUMS.txt" -Encoding ASCII
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MuMu-bridge-windows-x64
+          path: out/MuMu-bridge-windows-x64/
+          if-no-files-found: error
+          retention-days: 14
