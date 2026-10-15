@@ -4,14 +4,19 @@ param(
     [string]$ConfigPath = (Join-Path $PSScriptRoot 'openapi.config.json'),
     [string]$ReportPath = (Join-Path $PSScriptRoot 'reports\openapi-diagnostic.json'),
     [switch]$CheckFirstAdb,
-    [switch]$InspectUi
+    [switch]$InspectUi,
+    [switch]$VisualPreview
 )
 if ($CheckFirstAdb -and -not $PSBoundParameters.ContainsKey('ReportPath')) {
     $ReportPath = Join-Path $PSScriptRoot 'reports\adb-diagnostic.json'
 }
+if ($VisualPreview) { $InspectUi = $true }
 if ($InspectUi) {
     $CheckFirstAdb = $true
     if (-not $PSBoundParameters.ContainsKey('ReportPath')) { $ReportPath = Join-Path $PSScriptRoot 'reports\ui-diagnostic.json' }
+}
+if ($VisualPreview -and -not $PSBoundParameters.ContainsKey('ReportPath')) {
+    $ReportPath = Join-Path $PSScriptRoot 'reports\visual-diagnostic.json'
 }
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
@@ -282,6 +287,7 @@ try {
     if ($CheckFirstAdb) {
         . (Join-Path $PSScriptRoot 'adb-check.ps1')
         if ($InspectUi) { . (Join-Path $PSScriptRoot 'ui-inspect.ps1') }
+        if ($VisualPreview) { . (Join-Path $PSScriptRoot 'visual-preview.ps1') }
         $adbExecutable = Select-AdbExecutable
         $report.adb_check = @{status='not_checked'}
     }
@@ -330,7 +336,7 @@ try {
     $report.phones = $phones
     if ($CheckFirstAdb) {
         $currentStage = 'adb_check'
-        $report.adb_check = Invoke-FirstAdbCheck $adbExecutable $config.phone_ids[0] $entries -InspectUi:$InspectUi
+        $report.adb_check = Invoke-FirstAdbCheck $adbExecutable $config.phone_ids[0] $entries -InspectUi:$InspectUi -VisualPreview:$VisualPreview
     }
     $entries = $null
     $response = $null
@@ -368,7 +374,8 @@ try {
     [void][IO.Directory]::CreateDirectory($directory)
     $json = $report | ConvertTo-Json -Depth 8
     [IO.File]::WriteAllText($ReportPath, $json, (New-Object Text.UTF8Encoding($true)))
-    if ($InspectUi) { Write-Host 'Отчёт со структурой без текстов: reports\ui-diagnostic.json' }
+    if ($VisualPreview) { Write-Host 'Отчёт: reports\visual-diagnostic.json. PNG-предпросмотр хранится отдельно и может содержать текст экрана.' }
+    elseif ($InspectUi) { Write-Host 'Отчёт со структурой без текстов: reports\ui-diagnostic.json' }
     elseif ($CheckFirstAdb) { Write-Host 'Отчёт без секретов: reports\adb-diagnostic.json' }
     else { Write-Host 'Отчёт без ключей, токенов, паролей и адресов ADB: reports\openapi-diagnostic.json' }
 }
