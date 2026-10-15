@@ -81,8 +81,8 @@ public final class NavigationInstrumentation extends Instrumentation {
     MotionEvent up=MotionEvent.obtain(now,now+60,MotionEvent.ACTION_UP,x,y,0);up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
     try{first=a.injectInputEvent(down,true);second=a.injectInputEvent(up,true);}finally{down.recycle();up.recycle();}
    }else{
-    first=a.injectInputEvent(new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_BACK),true);
-    second=a.injectInputEvent(new KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_BACK),true);
+    first=a.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
+    second=first;
    }
    done(first && second?"input_injected":"indeterminate_after_attempt");
   }catch(Exception e){Bundle b=new Bundle();b.putString("navigation_status",attempted?"indeterminate_after_attempt":"denied_context_or_layout");b.putString("failure_stage",stage);b.putString("failure_type",e.getClass().getSimpleName());finish(0,b);}
