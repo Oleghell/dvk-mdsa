@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "image_width": 800,
+  "image_height": 600,
+  "bubbles": [
+    {"id": "a", "bounds": [380, 30, 390, 140], "direction": "outgoing_candidate"},
+    {"id": "b", "bounds": [20, 220, 340, 70], "direction": "incoming_candidate"}
+  ],
+  "lines": [
+    {"bounds": [400, 50, 290, 30], "text": "Это синтетический"},
+    {"bounds": [400, 90, 260, 30], "text": "пример переноса"},
+    {"bounds": [680, 135, 60, 20], "text": "18:19", "role": "timestamp"},
+    {"bounds": [40, 240, 210, 30], "text": "Тестовый ответ"},
+    {"bounds": [20, 400, 300, 30], "text": "Неопределённый элемент"}
+  ]
+}
