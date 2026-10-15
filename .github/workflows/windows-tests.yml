@@ -1,0 +1,35 @@
+name: Windows offline tests
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-tests:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Parse PowerShell and run mocked/synthetic tests
+        shell: powershell
+        run: ./ci/run-tests.ps1
+      - name: Set up Python for the optional diagnostic module tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Run Python unit tests
+        shell: powershell
+        run: |
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
