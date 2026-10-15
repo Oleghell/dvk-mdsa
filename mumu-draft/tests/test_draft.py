@@ -56,13 +56,13 @@ class DraftTests(unittest.TestCase):
         (self.base/'helper-manifest.json').write_text(json.dumps({'helper_sha256':hashlib.sha256(data).hexdigest()}))
         self.reader._run=Mock(return_value=b'Success\n');self.reader.install_helper(self.base)
         self.assertTrue(self.reader.helper_ready)
-        self.assertEqual(self.reader._run.call_args.args[0],['-s',b.SERIAL,'install','-t','-r',str(self.base/'helper.apk')])
+        self.assertEqual(self.reader._run.call_args.args[0],['-s',b.SERIAL,'install','-t','-r',str((self.base/'helper.apk').resolve())])
     def test_java_has_no_send_input_or_network(self):
         root=Path(__file__).resolve().parents[1]
-        source=(root/'android/src/com/dvk/drafthelper/DraftInstrumentation.java').read_text()
+        source=(root/'android/src/com/dvk/drafthelper/DraftInstrumentation.java').read_text(encoding='utf-8')
         for forbidden in ['ACTION_CLICK','performEditorAction','sendKey','KEYCODE_ENTER','executeShellCommand','ACTION_IME_ENTER']:
             self.assertNotIn(forbidden,source)
         self.assertIn('ACTION_SET_TEXT',source)
-        self.assertNotIn('uses-permission',(root/'android/AndroidManifest.xml').read_text())
+        self.assertNotIn('uses-permission',(root/'android/AndroidManifest.xml').read_text(encoding='utf-8'))
 
 if __name__=='__main__':unittest.main()
