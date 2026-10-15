@@ -25,6 +25,10 @@ assert any(n.get('text')=='sent=0' for n in r.iter('node'))
 PY
 }
 start_fixture empty
+inspection=$(adb shell am instrument -w -r -e op inspect -e expected_name_b64 "$name" com.dvk.drafthelper/com.dvk.drafthelper.DraftInstrumentation)
+echo "$inspection"
+grep -q 'draft_status=inspection_ok' <<< "$inspection"
+grep -q 'field_empty=true' <<< "$inspection"
 result=$(run_helper "$name"); echo "$result"; grep -q 'draft_status=draft_set_verified' <<< "$result"
 check_ui 'Как настроение?)'
 start_fixture nonempty

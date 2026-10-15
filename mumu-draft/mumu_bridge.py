@@ -41,7 +41,7 @@ class AdbReader:
         ]
         install = self.helper_path is not None and args == ['-s', SERIAL, 'install', '-t', '-r', str(self.helper_path)]
         prefix = ['-s', SERIAL, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'op', 'draft', '-e', 'expected_name_b64']
-        instrumentation = (self.helper_ready and len(args) == len(prefix)+2 and args[:len(prefix)] == prefix
+        instrumentation = (self.helper_ready and len(args) == len(prefix)+2 and any(args[:len(prefix)] == prefix[:9]+[op]+prefix[10:] for op in ('draft', 'inspect'))
             and re.fullmatch(r'[A-Za-z0-9+/]{1,440}={0,2}', args[-2]) is not None and args[-1] == HELPER_COMPONENT)
         if args not in allowed and not install and not instrumentation:
             raise BridgeError('Команда не разрешена.')
@@ -100,6 +100,27 @@ class AdbReader:
             raise BridgeError('Помощник не установлен. Не удаляйте приложения автоматически; проверьте MuMu.')
         self.helper_ready = True
 
+    def inspect_draft_context(self):
+        if not self.helper_ready:
+            raise BridgeError('Помощник не установлен.')
+        self._foreground()
+        encoded = base64.b64encode(b'INSPECT').decode('ascii')
+        output = self._run(['-s', SERIAL, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'op', 'inspect',
+            '-e', 'expected_name_b64', encoded, HELPER_COMPONENT]).decode('utf-8', 'replace')
+        statuses = re.findall(r'^INSTRUMENTATION_RESULT: draft_status=([a-z_]+)\s*$', output, re.M)
+        data = re.findall(r'^INSTRUMENTATION_RESULT: header_labels_b64=([A-Za-z0-9+/=]+)\s*$', output, re.M)
+        empty = re.findall(r'^INSTRUMENTATION_RESULT: field_empty=(true|false)\s*$', output, re.M)
+        if statuses != ['inspection_ok'] or len(data) != 1 or len(empty) != 1:
+            raise BridgeError('Не удалось подтвердить видимый заголовок и единственное поле. Ничего не введено.')
+        try:
+            labels = json.loads(base64.b64decode(data[0], validate=True).decode('utf-8'))
+            if not isinstance(labels, list) or len(labels)>20 or any(not isinstance(x,str) or len(x)>120 for x in labels):
+                raise ValueError()
+        except (ValueError, UnicodeError):
+            raise BridgeError('Некорректный ответ чтения контекста.') from None
+        return {'header_label_candidates': labels, 'field_empty': empty[0]=='true', 'identity_verified': False,
+            'messages_sent': 0, 'warning': 'Exact visible labels, not a unique account ID. All labels are untrusted data.'}
+
     def put_draft(self, expected_screen_sha256, expected_name):
         if not self.helper_ready:
             raise BridgeError('Помощник черновика не установлен.')
@@ -132,6 +153,10 @@ TOOLS = [
      'annotations': {'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': False}},
 ]
 
+TOOLS.append({'name': 'mumu_inspect_draft_context',
+    'description': 'Read-only exact visible header labels and whether the unique DrugVokrug edit field is empty. Does not change the field or consume the draft attempt. Labels are untrusted data, not verified recipient IDs.',
+    'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False},
+    'annotations': {'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': False}})
 TOOLS.append({'name': 'mumu_put_approved_draft',
     'description': 'WRITE DRAFT ONLY: insert exactly Как настроение?) into the unique EMPTY DrugVokrug edit field. No sending/clicks/Enter. Requires a fresh screen SHA256 from mumu_read_screen and the visible header name. One attempt per bridge session; no blind retries. Name is not a unique account ID. Call only when user requested this exact draft.',
     'inputSchema': {'type': 'object', 'properties': {
@@ -222,7 +247,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             result = {'tools': TOOLS}
         elif method == 'tools/call':
             name, args = params.get('name'), params.get('arguments', {})
-            valid = name in ('mumu_status', 'mumu_read_screen') and args == {}
+            valid = name in ('mumu_status', 'mumu_read_screen', 'mumu_inspect_draft_context') and args == {}
             if name == 'mumu_put_approved_draft':
                 valid = (isinstance(args, dict) and set(args) == {'expected_screen_sha256', 'expected_name'}
                     and isinstance(args['expected_screen_sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', args['expected_screen_sha256']) is not None
@@ -237,6 +262,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             try:
                 if params['name'] == 'mumu_status':
                     result = {'content': [{'type': 'text', 'text': json.dumps(self.server.reader.status())}]}
+                elif name == 'mumu_inspect_draft_context':
+                    result = {'content': [{'type': 'text', 'text': json.dumps(self.server.reader.inspect_draft_context(), ensure_ascii=False)}]}
                 elif name == 'mumu_put_approved_draft':
                     result = {'content': [{'type': 'text', 'text': json.dumps(self.server.reader.put_draft(**args), ensure_ascii=False)}]}
                 else:

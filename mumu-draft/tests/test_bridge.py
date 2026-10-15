@@ -38,8 +38,8 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(status,200); self.assertEqual(obj['result']['protocolVersion'],'2025-03-26')
     def test_notification(self): self.assertEqual(self.call({'jsonrpc':'2.0','method':'notifications/initialized'})[0],202)
     def test_tools(self):
-        _,obj=self.rpc('tools/list'); self.assertEqual([t['name'] for t in obj['result']['tools']],['mumu_status','mumu_read_screen','mumu_put_approved_draft'])
-        self.assertTrue(all(t['annotations']['readOnlyHint'] for t in obj['result']['tools'][:2]));self.assertFalse(obj['result']['tools'][2]['annotations']['readOnlyHint'])
+        _,obj=self.rpc('tools/list'); self.assertEqual([t['name'] for t in obj['result']['tools']],['mumu_status','mumu_read_screen','mumu_inspect_draft_context','mumu_put_approved_draft'])
+        self.assertTrue(all(t['annotations']['readOnlyHint'] for t in obj['result']['tools'][:3]));self.assertFalse(obj['result']['tools'][3]['annotations']['readOnlyHint'])
     def test_status(self):
         _,obj=self.rpc('tools/call',{'name':'mumu_status'}); self.assertIn('connected',obj['result']['content'][0]['text'])
     def test_image(self):

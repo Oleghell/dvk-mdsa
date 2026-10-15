@@ -15,10 +15,13 @@ public final class DraftInstrumentation extends Instrumentation {
     private static final String TARGET = "drug.vokrug";
     private static final String DRAFT = "Как настроение?)";
     private String expectedName;
+    private String operation;
+    private final org.json.JSONArray headerLabels = new org.json.JSONArray();
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         try {
-            if (arguments == null || !"draft".equals(arguments.getString("op"))) { done("denied_operation"); return; }
+            operation = arguments == null ? "" : arguments.getString("op", "");
+            if (!"draft".equals(operation) && !"inspect".equals(operation)) { done("denied_operation"); return; }
             expectedName = new String(Base64.decode(arguments.getString("expected_name_b64", ""), Base64.NO_WRAP), StandardCharsets.UTF_8).trim();
             if (expectedName.isEmpty() || expectedName.length() > 80 || expectedName.contains("\n") || expectedName.contains("\r")) { done("denied_name"); return; }
             start();
@@ -46,12 +49,13 @@ public final class DraftInstrumentation extends Instrumentation {
             if (!node.isVisibleToUser()) continue;
             Rect bounds=new Rect();node.getBoundsInScreen(bounds);
             String label=node.getText()==null?"":node.getText().toString().trim();
+            if(bounds.top<headerBottom && !label.isEmpty() && label.length()<=120 && headerLabels.length()<20) headerLabels.put(label);
             if(bounds.top<headerBottom && expectedName.equals(label)) headerMatch=true;
             if(node.isEditable() || "android.widget.EditText".contentEquals(node.getClassName()==null?"":node.getClassName())) {
                 count++;field=node;
             }
         }
-        if(!headerMatch) throw new Exception("name not confirmed");
+        if(!headerMatch && !"inspect".equals(operation)) throw new Exception("name not confirmed");
         if(count!=1 || field==null || !field.isEnabled() || field.isPassword() || !field.isEditable()) throw new Exception("field not unique");
         return field;
     }
@@ -66,6 +70,12 @@ public final class DraftInstrumentation extends Instrumentation {
             AccessibilityNodeInfo root=null;
             for(int i=0;i<10 && root==null;i++) {root=automation.getRootInActiveWindow();if(root==null)SystemClock.sleep(200);}
             AccessibilityNodeInfo field=checkedField(root);
+            if ("inspect".equals(operation)) {
+                Bundle out = new Bundle(); out.putString("draft_status", "inspection_ok");
+                out.putString("header_labels_b64", Base64.encodeToString(headerLabels.toString().getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
+                out.putString("field_empty", hasDraft(field)?"false":"true");
+                out.putString("send_action", "not_implemented"); finish(0,out); return;
+            }
             if(hasDraft(field)) {done("denied_nonempty_draft");return;}
             // Re-resolve the active tree immediately before the one allowed mutation.
             field=checkedField(automation.getRootInActiveWindow());

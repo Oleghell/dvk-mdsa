@@ -13,7 +13,7 @@ Opt-in replacement for the read-only bridge. Old read-only files and MoreLogin s
 
 ## Guards and limits
 
-The agent must first read a fresh screenshot. The draft tool requires that screenshot's SHA256 and the exact visible header name. Before mutation the bridge checks the screenshot has not changed. Android then checks the foreground package, visible header name, unique enabled non-password editable field and that the field is empty. It re-resolves the active tree immediately before ACTION_SET_TEXT and verifies text readback afterward. No focus/click/key actions are used.
+The agent first reads the exact visible accessibility header labels with the read-only context tool (no full-history dump), then a fresh screenshot. This supports header text that combines display name and age without guessing its spacing. The draft tool requires that screenshot's SHA256 and the exact visible header name. Before mutation the bridge checks the screenshot has not changed. Android then checks the foreground package, visible header name, unique enabled non-password editable field and that the field is empty. It re-resolves the active tree immediately before ACTION_SET_TEXT and verifies text readback afterward. No focus/click/key actions are used.
 
 These checks are best-effort, not atomic and **not a unique recipient/account identity**. Same display names can collide. Do not switch chat during the operation. Apps can implement unexpected behavior; test fixtures cannot prove third-party app internals. Only a fresh real-device screenshot and field readback confirm the actual draft. The program does not implement any send action, but cannot make promises about undocumented target-app behavior.
 
