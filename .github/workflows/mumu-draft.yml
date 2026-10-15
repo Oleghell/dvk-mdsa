@@ -17,10 +17,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Build minimal helper and synthetic no-network fixture
         run: |
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
           bash mumu-draft/android/build.sh
       - name: Enable emulator KVM
         run: |
