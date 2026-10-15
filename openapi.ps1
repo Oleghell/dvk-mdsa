@@ -2,8 +2,12 @@
 # Run on your own authorized laptop, not on a restricted remote desktop.
 param(
     [string]$ConfigPath = (Join-Path $PSScriptRoot 'openapi.config.json'),
-    [string]$ReportPath = (Join-Path $PSScriptRoot 'reports\openapi-diagnostic.json')
+    [string]$ReportPath = (Join-Path $PSScriptRoot 'reports\openapi-diagnostic.json'),
+    [switch]$CheckFirstAdb
 )
+if ($CheckFirstAdb -and -not $PSBoundParameters.ContainsKey('ReportPath')) {
+    $ReportPath = Join-Path $PSScriptRoot 'reports\adb-diagnostic.json'
+}
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -268,6 +272,11 @@ $tokenResponse = $null
 $currentStage = 'configuration'
 try {
     $config = Read-Configuration
+    if ($CheckFirstAdb) {
+        . (Join-Path $PSScriptRoot 'adb-check.ps1')
+        $adbExecutable = Select-AdbExecutable
+        $report.adb_check = @{status='not_checked'}
+    }
     Write-Host 'Проверка MoreLogin Open API на вашем ноутбуке.'
     Write-Host 'Секрет будет отправлен только на https://api.morelogin.com, не в GitHub и не в чат.'
     Write-Host 'Телефоны не запускаются/останавливаются. Сообщения не отправляются.'
@@ -311,6 +320,10 @@ try {
     $phones = @(Get-SafePhoneReport $config.phone_ids $entries)
     $report.phone_query = 'ok'
     $report.phones = $phones
+    if ($CheckFirstAdb) {
+        $currentStage = 'adb_check'
+        $report.adb_check = Invoke-FirstAdbCheck $adbExecutable $config.phone_ids[0] $entries
+    }
     $entries = $null
     $response = $null
     $allReady = @($phones | Where-Object { -not $_.ready }).Count -eq 0
@@ -319,7 +332,7 @@ try {
         $summary = if ($phone.ready) { 'параметры ADB доступны' } else { $phone.issues -join ', ' }
         Write-Host ("  {0}: {1}" -f $phone.phone_id, $summary)
     }
-    Write-Host 'Фактическое подключение к Android ещё НЕ проверялось. Сообщения НЕ отправлялись.'
+    if (-not $CheckFirstAdb) { Write-Host 'Фактическое подключение к Android ещё НЕ проверялось. Сообщения НЕ отправлялись.' }
     if (-not $allReady) { $exitCode = 2 }
 }
 catch {
@@ -327,6 +340,7 @@ catch {
     if (-not $message) { $message = 'Диагностика остановлена из-за локальной ошибки. Сырые данные скрыты. Ключи в чат не отправляйте.' }
     if ($currentStage -eq 'authentication') { $report.authentication = 'failed' }
     if ($currentStage -eq 'phone_query') { $report.phone_query = 'failed' }
+    if ($currentStage -eq 'adb_check') { $report.adb_check = @{status='failed'} }
     $report.failed_stage = $currentStage
     $report.error = $message
     Write-Host $message
@@ -344,7 +358,8 @@ try {
     [void][IO.Directory]::CreateDirectory($directory)
     $json = $report | ConvertTo-Json -Depth 8
     [IO.File]::WriteAllText($ReportPath, $json, (New-Object Text.UTF8Encoding($true)))
-    Write-Host 'Отчёт без ключей, токенов, паролей и адресов ADB: reports\openapi-diagnostic.json'
+    if ($CheckFirstAdb) { Write-Host 'Отчёт без секретов: reports\adb-diagnostic.json' }
+    else { Write-Host 'Отчёт без ключей, токенов, паролей и адресов ADB: reports\openapi-diagnostic.json' }
 }
 catch {
     Write-Host 'Не удалось записать отчёт. Распакуйте проект в свою папку с правом записи.'
