@@ -1,10 +1,45 @@
 ﻿# Structural UI diagnostics only. Never tap, type or send.
-function Get-ForegroundPackage([string]$Executable, [string]$Serial) {
-    $focus = Invoke-AdbProcess $Executable @('-s', $Serial, 'shell', 'dumpsys', 'window', 'windows')
-    if ($focus.exit_code -ne 0 -or $focus.stdout -notmatch '(?m)mCurrentFocus=Window\{[^\r\n}]*?\s([A-Za-z0-9_.]+)/') {
-        Stop-Safely 'Не удалось определить приложение на переднем плане. Откройте ДругВокруг на первом телефоне.'
+function Find-ForegroundPackage([string]$Text) {
+    # Prefer actual focused window. If unavailable, use top-resumed activity,
+    # then resumed activity. Do not match arbitrary historical activity lines.
+    $patterns = @(
+        '(?m)mCurrentFocus\s*[:=]\s*Window\{[^\r\n}]*?\s([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+)/',
+        '(?m)topResumedActivity\s*[:=]\s*ActivityRecord\{[^\r\n}]*?\s([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+)/',
+        '(?m)mResumedActivity\s*[:=]\s*ActivityRecord\{[^\r\n}]*?\s([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+)/'
+    )
+    foreach ($pattern in $patterns) {
+        $found = [regex]::Matches($Text, $pattern)
+        if ($found.Count -eq 0) { continue }
+        $packages = @($found | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+        if ($packages.Count -eq 1) { return $packages[0] }
+        Stop-Safely 'Android сообщает несколько активных приложений. Закройте разделение экрана/всплывающие окна и повторите проверку.'
     }
-    return $Matches[1]
+    return $null
+}
+
+function Get-ForegroundPackage([string]$Executable, [string]$Serial) {
+    $queries = @(
+        @{name='window_default'; tokens=@('dumpsys', 'window')},
+        @{name='window_windows'; tokens=@('dumpsys', 'window', 'windows')},
+        @{name='activity_activities'; tokens=@('dumpsys', 'activity', 'activities')}
+    )
+    foreach ($query in $queries) {
+        $argsForAdb = @('-s', $Serial, 'shell') + $query.tokens
+        $response = Invoke-AdbProcess $Executable $argsForAdb
+        $package = $null
+        if ($response.exit_code -eq 0) { $package = Find-ForegroundPackage $response.stdout }
+        # Safe diagnostics: no raw activity/window text or component names.
+        $script:UiForegroundProbe += [pscustomobject]@{
+            probe=$query.name
+            exit_code=$response.exit_code
+            output_present=(-not [string]::IsNullOrWhiteSpace($response.stdout))
+            current_focus_marker_present=($response.stdout -match 'mCurrentFocus')
+            resumed_activity_marker_present=($response.stdout -match '(topResumedActivity|mResumedActivity)')
+            package_detected=(-not [string]::IsNullOrEmpty($package))
+        }
+        if ($package) { return $package }
+    }
+    Stop-Safely 'Не удалось распознать активное окно Android. Проверьте первый телефон: drug.vokrug должен быть открыт поверх остальных приложений. Отправьте новый отчёт с ui_foreground_probe; сырые dumpsys-данные не нужны.'
 }
 
 function Get-SafeResourceId([string]$Value) {
@@ -109,6 +144,7 @@ function Invoke-UiInspection([string]$Executable, [string]$Serial) {
         }
     }
     $safe.raw_dump_deleted = $true
+    $safe.foreground_probes = @($script:UiForegroundProbe)
     Write-Host ('Получено технических элементов: {0}. Тексты исключены из отчёта.' -f $safe.exported_node_count)
     return $safe
 }

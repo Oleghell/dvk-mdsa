@@ -24,4 +24,12 @@ if ($null -ne (Get-SafeResourceId 'INVALID with spaces')) { throw 'Invalid id ac
 $rejected = $false
 try { ConvertTo-SafeUiReport '<!DOCTYPE x [<!ENTITY a "secret">]><hierarchy>&a;</hierarchy>' } catch { $rejected = $true }
 if (-not $rejected) { throw 'DTD accepted' }
-Write-Host 'Offline UI sanitizer tests passed.'
+$window = 'mCurrentFocus=Window{aa11 u0 drug.vokrug/.MainActivity}'
+if ((Find-ForegroundPackage $window) -cne 'drug.vokrug') { throw 'Window parser failed' }
+$activity = 'topResumedActivity=ActivityRecord{ab12 u0 drug.vokrug/.MainActivity t12}'
+if ((Find-ForegroundPackage $activity) -cne 'drug.vokrug') { throw 'Top resumed parser failed' }
+$legacy = 'mResumedActivity: ActivityRecord{ac13 u0 drug.vokrug/.MainActivity t12}'
+if ((Find-ForegroundPackage $legacy) -cne 'drug.vokrug') { throw 'Resumed parser failed' }
+if ($null -ne (Find-ForegroundPackage 'mCurrentFocus=null')) { throw 'Null focus accepted' }
+if ($null -ne (Find-ForegroundPackage 'Hist #1: ActivityRecord{ab u0 drug.vokrug/.MainActivity t1}')) { throw 'Historical activity accepted' }
+Write-Host 'Offline UI sanitizer and foreground parser tests passed.'

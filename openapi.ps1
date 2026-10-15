@@ -17,6 +17,7 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $script:SafeError = $null
+$script:UiForegroundProbe = @()
 
 function Stop-Safely([string]$Message) {
     $script:SafeError = $Message
@@ -347,6 +348,7 @@ catch {
     if ($currentStage -eq 'authentication') { $report.authentication = 'failed' }
     if ($currentStage -eq 'phone_query') { $report.phone_query = 'failed' }
     if ($currentStage -eq 'adb_check') { $report.adb_check = @{status='failed'} }
+    if ($InspectUi -and $script:UiForegroundProbe.Count -gt 0) { $report.ui_foreground_probe = @($script:UiForegroundProbe) }
     $report.failed_stage = $currentStage
     $report.error = $message
     Write-Host $message
