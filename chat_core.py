@@ -23,7 +23,7 @@ def rect(value, width, height):
     if any(type(n) not in (int, float) or (type(n) is float and not math.isfinite(n)) for n in value):
         raise InputError('Invalid rectangle')
     x, y, w, h = value
-    if x < 0 or y < 0 or w <= 0 or h <= 0 or x+w > width or y+h > height:
+    if any(n < 0 or n > 32768 for n in value) or w <= 0 or h <= 0 or x+w > width or y+h > height:
         raise InputError('Rectangle outside image')
     return value
 
@@ -97,12 +97,26 @@ def main():
     parser = argparse.ArgumentParser(description='Offline OCR candidate grouping; no sending')
     parser.add_argument('--input', type=Path, help='UTF-8 JSON; otherwise stdin')
     parser.add_argument('--output', type=Path, help='Local UTF-8 JSON; otherwise stdout')
+    parser.add_argument('--image', type=Path, help='Local image for candidate bubble detection')
+    parser.add_argument('--roi', type=int, nargs=4, metavar=('X','Y','W','H'), help='Explicit conversation rectangle')
     args = parser.parse_args()
     try:
         if args.input:
             with args.input.open('rb') as stream: data = stream.read(MAX_INPUT+1)
         else: data = sys.stdin.buffer.read(MAX_INPUT+1)
-        result = process(decode(data))
+        document = decode(data)
+        if args.image:
+            from bubble_detector import detect_file
+            if args.roi is None: raise InputError('Explicit ROI required')
+            bubbles, size = detect_file(args.image, args.roi)
+            if not isinstance(document, dict) or (document.get('image_width'),document.get('image_height')) != size:
+                raise InputError('Image and OCR coordinates do not match')
+            document['bubbles'] = bubbles
+        elif args.roi is not None:
+            raise InputError('ROI requires an image')
+        result = process(document)
+        if args.image:
+            result['bubble_detection'] = {'method':'light_background_components_v1', 'candidate_count':len(bubbles), 'roi':args.roi, 'verified':False}
         output = (json.dumps(result, ensure_ascii=False, allow_nan=False)+'\n').encode('utf-8')
         if args.output: args.output.write_bytes(output)
         else: sys.stdout.buffer.write(output)
