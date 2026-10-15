@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="drug.vokrug" android:versionCode="1" android:versionName="1">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="32" />
+ <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="SYNTHETIC fixture ONLY">
+  <activity android:name="drug.vokrug.FixtureActivity" android:exported="true" />
+ </application>
+</manifest>
