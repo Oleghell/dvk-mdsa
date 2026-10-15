@@ -1,5 +1,16 @@
-﻿# Local Windows OCR diagnostic only. No AI responses, taps or sending.
+﻿# Local OCR diagnostic only. No AI responses, taps or sending.
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'portable-ocr.ps1')) { . (Join-Path $PSScriptRoot 'portable-ocr.ps1') }
 function Initialize-LocalOcr {
+    # Prefer the bundled portable backend; no Windows services or language packs.
+    Add-Type -AssemblyName System.Drawing
+    Add-Type -AssemblyName System.Windows.Forms
+    $portableExe=Join-Path $PSScriptRoot 'runtime\tesseract\tesseract.exe'
+    $portableData=Join-Path $PSScriptRoot 'runtime\tesseract\tessdata'
+    if ((Test-Path -LiteralPath $portableExe) -and (Test-Path -LiteralPath (Join-Path $portableData 'rus.traineddata')) -and (Test-Path -LiteralPath (Join-Path $portableData 'eng.traineddata'))) {
+        . (Join-Path $PSScriptRoot 'portable-ocr.ps1')
+        $script:OcrDiagnostics=[ordered]@{engine='tesseract_local'; status='initialized'; language_requested='rus+eng'; windows_language_pack_required=$false}
+        return [pscustomobject]@{Backend='tesseract_local'; Executable=$portableExe; DataDirectory=$portableData; RecognizerLanguage=[pscustomobject]@{LanguageTag='rus+eng'}}
+    }
     try {
         Add-Type -AssemblyName System.Runtime.WindowsRuntime
         Add-Type -AssemblyName System.Drawing
@@ -100,8 +111,12 @@ function Show-LocalChatOcr([string]$Executable, [string]$Serial, $UiReport) {
         if ($cropBottom -le $cropTop) { Stop-Safely 'Недостаточно видимой области переписки. Закройте клавиатуру.' }
         $rect=[Drawing.Rectangle]::new(0,$cropTop,$bitmap.Width,$cropBottom - $cropTop)
         $crop=$bitmap.Clone($rect,[Drawing.Imaging.PixelFormat]::Format32bppArgb)
-        $max=[Windows.Media.Ocr.OcrEngine]::MaxImageDimension
+        $max=if ($engine.Backend -eq 'tesseract_local') {8192} else {[Windows.Media.Ocr.OcrEngine]::MaxImageDimension}
         if ($crop.Width -gt $max -or $crop.Height -gt $max) { Stop-Safely 'Изображение больше предела встроенного OCR; автоматическое масштабирование пока не реализовано.' }
+        if ($engine.Backend -eq 'tesseract_local') {
+            $ocr=Invoke-PortableOcr $engine $crop
+        }
+        else {
         $pngStream=New-Object IO.MemoryStream
         $crop.Save($pngStream,[Drawing.Imaging.ImageFormat]::Png)
         $pngBytes=$pngStream.ToArray()
@@ -114,6 +129,7 @@ function Show-LocalChatOcr([string]$Executable, [string]$Serial, $UiReport) {
         $decoder=Wait-LocalWinRt ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($winStream)) ([Windows.Graphics.Imaging.BitmapDecoder])
         $softwareBitmap=Wait-LocalWinRt ($decoder.GetSoftwareBitmapAsync([Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,[Windows.Graphics.Imaging.BitmapAlphaMode]::Premultiplied)) ([Windows.Graphics.Imaging.SoftwareBitmap])
         $ocr=Wait-LocalWinRt ($engine.RecognizeAsync($softwareBitmap)) ([Windows.Media.Ocr.OcrResult])
+        }
         $rows=@()
         foreach ($line in $ocr.Lines) {
             $words=@($line.Words)
@@ -156,7 +172,7 @@ function Show-LocalChatOcr([string]$Executable, [string]$Serial, $UiReport) {
         [IO.File]::WriteAllText((Join-Path $folder $name),$preview.ToString(),[Text.UTF8Encoding]::new($true))
         $script:OcrDiagnostics.status='recognized'
         $result=[ordered]@{
-            status='ok'; engine='windows_local'; language=$engine.RecognizerLanguage.LanguageTag
+            status='ok'; engine=$script:OcrDiagnostics.engine; language=$engine.RecognizerLanguage.LanguageTag
             ocr_line_count=$rows.Count; incoming_candidate_lines=$incoming.Count
             outgoing_candidate_lines=$outgoing.Count; unknown_lines=$unknown.Count
             text_values_exported_in_json=$false; local_text_preview_saved=$true; local_preview_file=$name

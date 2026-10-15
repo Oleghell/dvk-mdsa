@@ -1,0 +1,30 @@
+name: Build portable local OCR
+"on":
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/**'
+      - 'portable-ocr.ps1'
+      - 'chat-ocr.ps1'
+      - '.github/workflows/portable-ocr.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build and test local OCR runtime on CI only
+        shell: powershell
+        run: ./packaging/build-portable-ocr.ps1
+      - name: Upload complete project with tested runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: dvk-local-ocr-windows-x64
+          path: out/dvk-local-ocr-windows-x64/
+          if-no-files-found: error
+          retention-days: 14

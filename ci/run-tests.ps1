@@ -15,7 +15,7 @@ Get-ChildItem -LiteralPath $root -Filter '*.ps1' -Recurse | ForEach-Object {
 }
 if ($syntaxFailed) { throw 'PowerShell syntax validation failed. Do not distribute this revision.' }
 Write-Host 'All PowerShell files parsed successfully.'
-$tests = @('test-ui.ps1', 'test-adb-auth.ps1', 'test-visual.ps1', 'test-chat-direction.ps1')
+$tests = @('test-ui.ps1', 'test-adb-auth.ps1', 'test-visual.ps1', 'test-chat-direction.ps1', 'test-portable-ocr.ps1')
 foreach ($name in $tests) {
     Write-Host ('RUN OFFLINE TEST: {0}' -f $name)
     & (Join-Path (Join-Path $root 'tests') $name)
