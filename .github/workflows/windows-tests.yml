@@ -2,9 +2,9 @@ name: Windows offline tests
 
 "on":
   push:
-    branches: [main]
+    branches: [main, feature/mumu-local]
   pull_request:
-    branches: [main]
+    branches: [main, feature/mumu-local]
   workflow_dispatch:
 
 permissions:
