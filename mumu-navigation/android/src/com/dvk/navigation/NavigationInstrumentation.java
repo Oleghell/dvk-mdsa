@@ -20,7 +20,7 @@ import org.json.JSONObject;
  * A tap CAN activate a button. Caller must inspect the fresh image before use.
  */
 public final class NavigationInstrumentation extends Instrumentation {
- private String op,expected; private int x,y;
+ private String op,expected; private int x,y; private String stage="initialization";
  @Override public void onCreate(Bundle args){
   super.onCreate(args);
   op=args==null?"":args.getString("op","");
@@ -33,7 +33,8 @@ public final class NavigationInstrumentation extends Instrumentation {
  }
  private void done(String status){Bundle b=new Bundle();b.putString("navigation_status",status);finish(0,b);}
  private static AccessibilityNodeInfo root(UiAutomation a) throws Exception {
-  AccessibilityNodeInfo n=a.getRootInActiveWindow();
+  AccessibilityNodeInfo n=null;
+  for(int i=0;i<10 && n==null;i++){n=a.getRootInActiveWindow();if(n==null)SystemClock.sleep(200);}
   if(n==null || n.getPackageName()==null || !"drug.vokrug".contentEquals(n.getPackageName()))throw new Exception();
   return n;
  }
@@ -69,11 +70,12 @@ public final class NavigationInstrumentation extends Instrumentation {
  }
  @Override public void onStart(){boolean attempted=false;
   try{
-   UiAutomation a=getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);root(a);
-   if("inspect".equals(op)){inspect(a);return;}
+   UiAutomation a=getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);stage="foreground_root";root(a);
+   if("inspect".equals(op)){stage="inspect_layout";inspect(a);return;}
+   stage="screen_guard";
    if(!expected.equals(hash(a))){done("denied_screen_changed");return;}
    root(a);if(!expected.equals(hash(a))){done("denied_screen_changed");return;}
-   attempted=true;boolean first,second;
+   stage="input_event";attempted=true;boolean first,second;
    if("tap".equals(op)){
     long now=SystemClock.uptimeMillis();MotionEvent down=MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,x,y,0);down.setSource(InputDevice.SOURCE_TOUCHSCREEN);
     MotionEvent up=MotionEvent.obtain(now,now+60,MotionEvent.ACTION_UP,x,y,0);up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
@@ -83,6 +85,6 @@ public final class NavigationInstrumentation extends Instrumentation {
     second=a.injectInputEvent(new KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_BACK),true);
    }
    done(first && second?"input_injected":"indeterminate_after_attempt");
-  }catch(Exception e){done(attempted?"indeterminate_after_attempt":"denied_context_or_layout");}
+  }catch(Exception e){Bundle b=new Bundle();b.putString("navigation_status",attempted?"indeterminate_after_attempt":"denied_context_or_layout");b.putString("failure_stage",stage);b.putString("failure_type",e.getClass().getSimpleName());finish(0,b);}
  }
 }
