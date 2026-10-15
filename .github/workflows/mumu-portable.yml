@@ -31,6 +31,18 @@ jobs:
       - name: Build complete reader and real Russian OCR runtime
         shell: powershell
         run: ./packaging/build-portable-ocr.ps1
+      - name: Set MuMu startup instructions and refresh manifest
+        shell: powershell
+        run: |
+          $root=[IO.Path]::GetFullPath('out/dvk-local-ocr-windows-x64')
+          'MuMu: run START_MUMU_READ.bat. Target: 127.0.0.1:5555. No MoreLogin credentials. Keep MuMu and the authorized test chat open, clear the draft and close the Android keyboard. Read-only OCR preview, no clicks or sending. Images are processed in memory. Recognized text is saved locally only after consent. This is NOT a remote access bridge.' | Set-Content (Join-Path $root 'HOW_TO_START.txt') -Encoding UTF8
+          $info=Get-Content (Join-Path $root 'BUILD-INFO.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          $info | Add-Member -NotePropertyName transport_variant -NotePropertyValue 'mumu_loopback_readonly'
+          $info | ConvertTo-Json | Set-Content (Join-Path $root 'BUILD-INFO.json') -Encoding UTF8
+          $hashes=Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {$_.Name -ne 'SHA256SUMS.txt'} | Sort-Object FullName | ForEach-Object {
+            '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash,$_.FullName.Substring($root.Length+1)
+          }
+          $hashes | Set-Content (Join-Path $root 'SHA256SUMS.txt') -Encoding ASCII
       - name: Verify packaged files
         shell: powershell
         run: |
