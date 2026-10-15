@@ -17,6 +17,11 @@ $runtime=Join-Path $bundle 'runtime\tesseract'
 [void][IO.Directory]::CreateDirectory($runtime)
 Copy-Item -Path (Join-Path $installed '*') -Destination $runtime -Recurse -Force
 Get-ChildItem -LiteralPath $runtime -Filter '*uninstall*.exe' -File | Remove-Item -Force
+$coreRuntime=Join-Path $bundle 'runtime\chat-core'
+[void][IO.Directory]::CreateDirectory($coreRuntime)
+$coreExe=Join-Path $root 'dist\dvk-chat-core.exe'
+if (-not (Test-Path -LiteralPath $coreExe -PathType Leaf)) {throw 'Compiled common core missing'}
+Copy-Item -LiteralPath $coreExe -Destination (Join-Path $coreRuntime 'dvk-chat-core.exe')
 $data=Join-Path $runtime 'tessdata'
 [void][IO.Directory]::CreateDirectory($data)
 foreach ($language in @('rus','eng')) {
@@ -59,6 +64,7 @@ finally {$font.Dispose(); $graphics.Dispose(); $bitmap.Dispose()}
 $provenance=[ordered]@{
     engine='tesseract'; version='5.5.3.20260724'; platform='windows-x64'
     installer_url=$url; installer_sha256=$expected; models='tesseract-ocr/tessdata_fast tag 4.1.0'
+    common_core='runtime/chat-core/dvk-chat-core.exe'; image_transfer='in_memory_pipes'
     smoke_test='synthetic_russian_passed'; built_from_commit=$env:GITHUB_SHA
     installs_on_user_device=$false; changes_windows_services_on_user_device=$false
 }

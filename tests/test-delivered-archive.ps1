@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop'
 if ((Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash -ine $ExpectedSha256) { throw 'Downloaded ZIP hash mismatch' }
 $destination=Join-Path $env:RUNNER_TEMP ('delivered archive with spaces '+[Guid]::NewGuid().ToString('N'))
 Expand-Archive -LiteralPath $ArchivePath -DestinationPath $destination
-$required=@('START_CHAT_READ.bat','portable-ocr.ps1','chat-ocr.ps1','openapi.ps1','runtime\tesseract\tesseract.exe','runtime\tesseract\tessdata\rus.traineddata','runtime\tesseract\tessdata\eng.traineddata','BUILD-INFO.json','SHA256SUMS.txt')
+$required=@('chat-core.ps1','runtime\chat-core\dvk-chat-core.exe','START_CHAT_READ.bat','portable-ocr.ps1','chat-ocr.ps1','openapi.ps1','runtime\tesseract\tesseract.exe','runtime\tesseract\tessdata\rus.traineddata','runtime\tesseract\tessdata\eng.traineddata','BUILD-INFO.json','SHA256SUMS.txt')
 foreach ($relative in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $destination $relative) -PathType Leaf)) { throw ('Missing delivered file: '+$relative) }
 }
@@ -53,6 +53,7 @@ try {
             }
             finally { [Console]::InputEncoding=$originalEncoding }
             $foundIncoming=$false; $foundOutgoing=$false; $foundWrapped=$false
+            $groupRows=@()
             foreach ($line in $ocr.Lines) {
                 $words=@($line.Words)
                 if ($words.Count -eq 0) { continue }
@@ -60,12 +61,21 @@ try {
                 $y=($words | ForEach-Object {$_.BoundingRect.Y} | Measure-Object -Minimum).Minimum
                 $right=($words | ForEach-Object {$_.BoundingRect.X+$_.BoundingRect.Width} | Measure-Object -Maximum).Maximum
                 $bottom=($words | ForEach-Object {$_.BoundingRect.Y+$_.BoundingRect.Height} | Measure-Object -Maximum).Maximum
+                $groupRows += [pscustomobject]@{x=[int]$x;y=[int]$y;width=[int]($right-$x);height=[int]($bottom-$y);text=[string]$line.Text}
                 $direction=Get-LineDirection $bitmap $x $y ($right-$x) ($bottom-$y)
                 if ($line.Text -match 'Привет' -and $direction -eq 'outgoing_candidate') {$foundOutgoing=$true}
                 if ($line.Text -match 'Отлично' -and $direction -eq 'incoming_candidate') {$foundIncoming=$true}
                 if ($line.Text -match 'Вторая' -and $direction -eq 'outgoing_candidate') {$foundWrapped=$true}
             }
             if (-not ($foundIncoming -and $foundOutgoing -and $foundWrapped)) { throw ('Synthetic delivered chat OCR/directions failed at width '+$size) }
+            $grouping=Invoke-ChatGrouping $bitmap $groupRows -SyntheticCiDiagnostics
+            if ($grouping.status -ne 'ok' -or @($grouping.message_candidates).Count -ne 3) {throw ('Delivered full pipeline grouping count failed at width '+$size)}
+            $wrapped=@($grouping.message_candidates | Where-Object {$_.text -match 'Тест сообщения' -and $_.text -match 'Вторая строка'})
+            if ($wrapped.Count -ne 1 -or $wrapped[0].source_indices.Count -lt 2) {throw 'Multiline message was not grouped'}
+            if ($grouping.messages_sent -ne 0 -or $grouping.automatic_reply_enabled) {throw 'Unexpected action capability'}
+            $preview=Format-ChatCandidates $grouping
+            if ($preview -notmatch 'ИСХОДНЫЕ OCR-СТРОКИ' -or $preview -notmatch 'Вторая строка') {throw 'Integrated preview formatting failed'}
+            Write-Host ('Delivered full pipeline PNG -> real Tesseract -> bubble detector -> grouped preview passed at width '+$size)
             Write-Host ('Delivered OCR + directions + multiline text passed at width '+$size)
         }
         finally { $g.Dispose(); $bitmap.Dispose() }
@@ -76,9 +86,16 @@ try {
         $g.Clear($background)
         $ocr=Invoke-PortableOcr $engine $blank -SyntheticCiDiagnostics
         if (@($ocr.Lines).Count -ne 0) { throw 'Blank image produced OCR text' }
-        Write-Host 'Delivered OCR: blank-image regression passed.'
+        $grouping=Invoke-ChatGrouping $blank @() -SyntheticCiDiagnostics
+        if ($grouping.status -ne 'ok' -or @($grouping.message_candidates).Count -ne 0) {throw 'Blank full pipeline produced candidates'}
+        Write-Host 'Delivered OCR and grouping: blank-image regression passed.'
     }
     finally {$g.Dispose();$blank.Dispose()}
 }
 finally { $font.Dispose(); $cyan.Dispose() }
+# Missing executable must preserve source-line preview, not invent messages.
+$missing=Join-Path $destination 'not-present-core.exe'
+$fallback=Invoke-ChatGrouping $null @() -CoreExecutable $missing
+if ($fallback.status -ne 'unavailable' -or @($fallback.message_candidates).Count -ne 0) {throw 'Missing-core fallback failed'}
+Write-Host 'Delivered missing-core fallback passed.'
 Write-Host 'PASS: actual downloaded ZIP executed on Windows. Live phone, GUI, message identity and sending NOT tested.'

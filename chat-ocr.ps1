@@ -1,5 +1,6 @@
 ﻿# Local OCR diagnostic only. No AI responses, taps or sending.
 if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'portable-ocr.ps1')) { . (Join-Path $PSScriptRoot 'portable-ocr.ps1') }
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'chat-core.ps1')) { . (Join-Path $PSScriptRoot 'chat-core.ps1') }
 function Initialize-LocalOcr {
     # Prefer the bundled portable backend; no Windows services or language packs.
     Add-Type -AssemblyName System.Drawing
@@ -145,9 +146,10 @@ function Show-LocalChatOcr([string]$Executable, [string]$Serial, $UiReport) {
             $direction=Get-LineDirection $crop $ix $iy $width $height
             $text=[string]$line.Text
             $timeOnly=$text.Trim() -match '^[0-9]{1,2}[:.][0-9]{2}[\s✓✔]*$'
-            $rows += [pscustomobject]@{x=$ix; y=$iy; direction=$direction; text=$text; timestamp_only=$timeOnly}
+            $rows += [pscustomobject]@{x=$ix; y=$iy; width=$width; height=$height; direction=$direction; text=$text; timestamp_only=$timeOnly}
         }
         $rows=@($rows | Sort-Object y,x)
+        $grouping=Invoke-ChatGrouping $crop $rows
         $incoming=@($rows | Where-Object { $_.direction -eq 'incoming_candidate' -and -not $_.timestamp_only })
         $outgoing=@($rows | Where-Object { $_.direction -eq 'outgoing_candidate' -and -not $_.timestamp_only })
         $unknown=@($rows | Where-Object { $_.direction -eq 'unknown' })
@@ -156,6 +158,7 @@ function Show-LocalChatOcr([string]$Executable, [string]$Serial, $UiReport) {
         [void]$preview.AppendLine('Строки OCR не равны сообщениям. Направления предположительные. Время/разделители могут распознаться как текст.')
         [void]$preview.AppendLine('Показана только часть текущего экрана, не вся история. Новизна сообщений и собеседник не проверены.')
         [void]$preview.AppendLine('')
+        [void]$preview.Append((Format-ChatCandidates $grouping))
         foreach ($row in $rows) {
             $label=switch ($row.direction) {
                 'incoming_candidate' { 'ВХОДЯЩАЯ?' }
@@ -176,6 +179,8 @@ function Show-LocalChatOcr([string]$Executable, [string]$Serial, $UiReport) {
             ocr_line_count=$rows.Count; incoming_candidate_lines=$incoming.Count
             outgoing_candidate_lines=$outgoing.Count; unknown_lines=$unknown.Count
             text_values_exported_in_json=$false; local_text_preview_saved=$true; local_preview_file=$name
+            grouping_status=$grouping.status; message_candidate_count=@($grouping.message_candidates).Count
+            message_candidate_grouping_applied=($grouping.status -eq 'ok'); bubble_boundaries_verified=$false
             directions_verified=$false; messages_grouped=$false; new_messages_detected=$false
             automatic_reply_enabled=$false; messages_sent=0; screenshot_saved=$false
         }
@@ -205,6 +210,6 @@ function Show-LocalChatOcr([string]$Executable, [string]$Serial, $UiReport) {
             if ($null -ne $item -and $item -is [IDisposable]) { $item.Dispose() }
         }
         foreach ($buffer in @($bytes,$pngBytes)) { if ($null -ne $buffer) { [Array]::Clear($buffer,0,$buffer.Length) } }
-        $rows=$null; $ocr=$null; $preview=$null; $text=$null; $bytes=$null; $pngBytes=$null
+        $grouping=$null; $rows=$null; $ocr=$null; $preview=$null; $text=$null; $bytes=$null; $pngBytes=$null
     }
 }

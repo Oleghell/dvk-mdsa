@@ -12,3 +12,7 @@ openapi.config.json
 
 runtime/
 out/
+
+dist/
+build/
+*.spec

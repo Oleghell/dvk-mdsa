@@ -5,6 +5,8 @@ validated message identities. Geometry alone never establishes a new message.
 """
 from __future__ import annotations
 import argparse
+import base64
+import binascii
 import json
 import math
 from pathlib import Path
@@ -93,6 +95,28 @@ def decode(data):
     except (UnicodeError, ValueError, RecursionError):
         raise InputError('Invalid JSON input') from None
 
+def process_memory_document(document):
+    if not isinstance(document, dict): raise InputError('Invalid document')
+    if 'image_png_base64' not in document: return process(document)
+    from bubble_detector import detect_png_bytes
+    encoded = document.get('image_png_base64')
+    roi = document.get('roi')
+    if not isinstance(encoded, str) or len(encoded) > MAX_INPUT or roi is None:
+        raise InputError('Invalid PNG payload')
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise InputError('Invalid PNG payload') from None
+    bubbles, size = detect_png_bytes(image_bytes, roi)
+    if (document.get('image_width'), document.get('image_height')) != size:
+        raise InputError('Image and OCR coordinates do not match')
+    payload = dict(document)
+    payload.pop('image_png_base64', None)
+    payload['bubbles'] = bubbles
+    result = process(payload)
+    result['bubble_detection'] = {'method':'light_background_components_v1', 'candidate_count':len(bubbles), 'roi':roi, 'verified':False}
+    return result
+
 def main():
     parser = argparse.ArgumentParser(description='Offline OCR candidate grouping; no sending')
     parser.add_argument('--input', type=Path, help='UTF-8 JSON; otherwise stdin')
@@ -105,6 +129,8 @@ def main():
             with args.input.open('rb') as stream: data = stream.read(MAX_INPUT+1)
         else: data = sys.stdin.buffer.read(MAX_INPUT+1)
         document = decode(data)
+        if args.image and isinstance(document,dict) and 'image_png_base64' in document:
+            raise InputError('Ambiguous image sources')
         if args.image:
             from bubble_detector import detect_file
             if args.roi is None: raise InputError('Explicit ROI required')
@@ -114,13 +140,13 @@ def main():
             document['bubbles'] = bubbles
         elif args.roi is not None:
             raise InputError('ROI requires an image')
-        result = process(document)
+        result = process_memory_document(document)
         if args.image:
             result['bubble_detection'] = {'method':'light_background_components_v1', 'candidate_count':len(bubbles), 'roi':args.roi, 'verified':False}
         output = (json.dumps(result, ensure_ascii=False, allow_nan=False)+'\n').encode('utf-8')
         if args.output: args.output.write_bytes(output)
         else: sys.stdout.buffer.write(output)
-    except (InputError, OSError, TypeError, RecursionError):
+    except (ValueError, OSError, TypeError, RecursionError):
         # No raw OCR, keys, filenames or remote data in error diagnostics.
         sys.stderr.write('Invalid input or unavailable local file. No action performed.\n')
         return 2

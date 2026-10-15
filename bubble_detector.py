@@ -95,3 +95,14 @@ def detect_file(path, roi):
             return detect(image, roi), image.size
     except (OSError, ValueError, Image.DecompressionBombError) as exc:
         raise InputError('Invalid or unsupported image') from None
+
+
+def detect_png_bytes(data, roi):
+    from io import BytesIO
+    try:
+        with Image.open(BytesIO(data)) as image:
+            if image.format != 'PNG' or image.width*image.height > MAX_PIXELS:
+                raise InputError('Unsupported PNG')
+            return detect(image, roi), image.size
+    except (OSError, ValueError, Image.DecompressionBombError):
+        raise InputError('Invalid PNG') from None
