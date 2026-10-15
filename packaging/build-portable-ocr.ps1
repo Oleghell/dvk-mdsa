@@ -41,7 +41,7 @@ try {
     $graphics.Clear([Drawing.Color]::White)
     $graphics.DrawString("Привет`nТест входящего 123",$font,[Drawing.Brushes]::Black,25,25)
     $engine=[pscustomobject]@{Executable=(Join-Path $runtime 'tesseract.exe'); DataDirectory=$data}
-    $recognized=Invoke-PortableOcr $engine $bitmap
+    $recognized=Invoke-PortableOcr $engine $bitmap -SyntheticCiDiagnostics
     $text=($recognized.Lines | ForEach-Object {$_.Text}) -join ' '
     if ($text -notmatch 'Привет' -or $text -notmatch '123') {throw 'Synthetic Russian OCR smoke test failed'}
     Write-Host 'Portable runtime: Russian synthetic OCR smoke test passed.'

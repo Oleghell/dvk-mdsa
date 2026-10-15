@@ -26,7 +26,7 @@ function ConvertFrom-TesseractTsv([string]$Tsv, [int]$ImageWidth, [int]$ImageHei
     return [pscustomobject]@{Lines=$lines}
 }
 
-function Invoke-PortableOcr($Engine, $Bitmap) {
+function Invoke-PortableOcr($Engine, $Bitmap, [switch]$SyntheticCiDiagnostics) {
     $info=New-Object Diagnostics.ProcessStartInfo
     $info.FileName=$Engine.Executable
     $info.Arguments='stdin stdout --tessdata-dir "'+$Engine.DataDirectory+'" -l rus+eng --oem 1 --psm 6 tsv'
@@ -55,10 +55,13 @@ function Invoke-PortableOcr($Engine, $Bitmap) {
         }
         $output=$outTask.GetAwaiter().GetResult()
         $privateError=$errTask.GetAwaiter().GetResult()
-        if ($process.ExitCode -ne 0) { Stop-Safely 'Локальный Tesseract вернул ошибку. Убедитесь, что runtime распакован целиком и запуск разрешён.' }
+        if ($process.ExitCode -ne 0) {
+            if ($SyntheticCiDiagnostics) { Write-Host ('Synthetic CI Tesseract exit: '+$process.ExitCode); Write-Host $privateError }
+            Stop-Safely 'Локальный Tesseract вернул ошибку. Убедитесь, что runtime распакован целиком и запуск разрешён.' }
         return (ConvertFrom-TesseractTsv $output $Bitmap.Width $Bitmap.Height)
     }
     catch {
+        if ($SyntheticCiDiagnostics) { Write-Host ('Synthetic CI exception: '+$_.Exception.ToString()); Write-Host $_.ScriptStackTrace; throw }
         if ($script:SafeError) {throw}
         Stop-Safely 'Не удалось выполнить локальный Tesseract. Права служб и политики Windows не изменяются.'
     }
