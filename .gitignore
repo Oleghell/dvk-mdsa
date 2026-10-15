@@ -8,3 +8,4 @@ __pycache__/
 .venv/
 connections*.json
 *.log
+openapi.config.json
