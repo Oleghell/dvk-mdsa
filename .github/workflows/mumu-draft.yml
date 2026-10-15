@@ -1,0 +1,94 @@
+name: Build MuMu draft-only bridge
+"on":
+  push:
+    branches: [feature/mumu-local]
+    paths: ['mumu-draft/**', '.github/workflows/mumu-draft.yml']
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Build minimal helper and synthetic no-network fixture
+        run: |
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          bash mumu-draft/android/build.sh
+      - name: Enable emulator KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify actual Android draft behavior on synthetic fixture only
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          target: default
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash mumu-draft/android/test-emulator.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: draft-helper-runtime
+          path: |
+            mumu-draft/android/out/helper.apk
+            mumu-draft/android/out/helper-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+  windows:
+    needs: android
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test guards and authenticated protocol
+        shell: powershell
+        run: |
+          $env:PYTHONPATH='mumu-draft'
+          python -m unittest discover -s mumu-draft/tests -v
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+      - uses: actions/download-artifact@v4
+        with:
+          name: draft-helper-runtime
+          path: out/MuMu-draft-only-windows-x64/
+      - name: Build Windows GUI and verify startup
+        shell: powershell
+        run: |
+          python -m pip install pyinstaller==6.16.0
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --name MuMu-draft-only --distpath out/MuMu-draft-only-windows-x64 mumu-draft/mumu_bridge.py
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          $app=Start-Process out/MuMu-draft-only-windows-x64/MuMu-draft-only.exe -ArgumentList '--self-check' -PassThru
+          if (-not $app.WaitForExit(45000)) {$app.Kill();throw 'GUI runtime timed out'}
+          if ($app.ExitCode -ne 0) {throw 'GUI runtime failed'}
+      - name: Include pinned tunnel and verify package
+        shell: powershell
+        run: |
+          $root='out/MuMu-draft-only-windows-x64'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-windows-amd64.exe' -OutFile "$root/cloudflared.exe"
+          if ((Get-FileHash "$root/cloudflared.exe" -Algorithm SHA256).Hash.ToLowerInvariant() -ne '86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c') {throw 'Cloudflare checksum mismatch'}
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
+          Copy-Item mumu-draft/README.md "$root/README.md"
+          foreach ($file in @('helper.apk','helper-manifest.json','MuMu-draft-only.exe','cloudflared.exe')) {if (-not(Test-Path "$root/$file")) {throw "Missing $file"}}
+          $hashes=Get-ChildItem $root -File | Sort-Object Name | ForEach-Object {'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash,$_.Name}
+          $hashes | Set-Content "$root/SHA256SUMS.txt" -Encoding ASCII
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MuMu-draft-only-windows-x64
+          path: out/MuMu-draft-only-windows-x64/
+          if-no-files-found: error
+          retention-days: 14
