@@ -65,7 +65,7 @@ class DetectorTests(unittest.TestCase):
         for roi in ([0,0,801,600],[-1,0,800,600],[0.,0,800,600],[0,0,0,600]):
             with self.subTest(roi=roi),self.assertRaises(InputError):detect(scene(),roi)
     def test_pipeline(self):
-        doc=json.loads((ROOT/'examples/synthetic-chat.json').read_text())
+        doc=json.loads((ROOT/'examples/synthetic-chat.json').read_text(encoding='utf-8'))
         doc['bubbles']=detect(scene(),[0,0,800,600])
         result=process(doc)
         self.assertEqual(len(result['message_candidates']),2)
