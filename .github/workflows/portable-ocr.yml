@@ -26,5 +26,6 @@ jobs:
         with:
           name: dvk-local-ocr-windows-x64
           path: out/dvk-local-ocr-windows-x64/
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14

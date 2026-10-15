@@ -1,0 +1,39 @@
+name: Test delivered Windows archive
+"on":
+  workflow_run:
+    workflows: ['Build portable local OCR']
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  delivered-zip:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download published ZIP, not source ZIP
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json'}
+          $base='https://api.github.com/repos/'+$env:GITHUB_REPOSITORY
+          if ($env:SOURCE_RUN_ID) {$url=$base+'/actions/runs/'+$env:SOURCE_RUN_ID+'/artifacts'}
+          else {$url=$base+'/actions/artifacts?per_page=100'}
+          $items=(Invoke-RestMethod -Headers $headers -Uri $url).artifacts
+          $artifact=@($items | Where-Object {$_.name -eq 'dvk-local-ocr-windows-x64' -and -not $_.expired} | Sort-Object created_at -Descending)[0]
+          if ($null -eq $artifact -or $artifact.digest -notmatch '^sha256:([a-fA-F0-9]{64})$') {throw 'No verifiable published OCR artifact found'}
+          $expected=$Matches[1]
+          Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri $artifact.archive_download_url -OutFile (Join-Path $env:RUNNER_TEMP 'delivered.zip')
+          ('DELIVERED_ZIP_SHA256='+$expected) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host ('Downloaded artifact '+$artifact.id+' from run '+$artifact.workflow_run.id)
+      - name: Execute downloaded archive offline on Windows
+        shell: powershell
+        run: ./tests/test-delivered-archive.ps1 -ArchivePath (Join-Path $env:RUNNER_TEMP 'delivered.zip') -ExpectedSha256 $env:DELIVERED_ZIP_SHA256
