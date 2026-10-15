@@ -114,7 +114,7 @@ def process_memory_document(document):
     payload.pop('image_png_base64', None)
     payload['bubbles'] = bubbles
     result = process(payload)
-    result['bubble_detection'] = {'method':'light_background_components_v1', 'candidate_count':len(bubbles), 'roi':roi, 'verified':False}
+    result['bubble_detection'] = {'method':'background_components_v2', 'candidate_count':len(bubbles), 'roi':roi, 'verified':False}
     return result
 
 def main():
@@ -142,7 +142,7 @@ def main():
             raise InputError('ROI requires an image')
         result = process_memory_document(document)
         if args.image:
-            result['bubble_detection'] = {'method':'light_background_components_v1', 'candidate_count':len(bubbles), 'roi':args.roi, 'verified':False}
+            result['bubble_detection'] = {'method':'background_components_v2', 'candidate_count':len(bubbles), 'roi':args.roi, 'verified':False}
         output = (json.dumps(result, ensure_ascii=False, allow_nan=False)+'\n').encode('utf-8')
         if args.output: args.output.write_bytes(output)
         else: sys.stdout.buffer.write(output)

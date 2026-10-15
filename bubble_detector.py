@@ -1,16 +1,26 @@
-"""Conservative light-theme bubble candidates; no OCR or message identity.
+"""Conservative light/known-dark-palette bubble candidates; no OCR or message identity.
 
 Uses connected background-colour regions in an explicit conversation ROI.
 Unsupported/ambiguous regions are left unassigned, never used for sending.
 """
-from collections import deque
+from collections import Counter, deque
 from PIL import Image, UnidentifiedImageError
 from chat_core import InputError, rect
 
 MAX_PIXELS = 16_000_000
 
-def _family(rgb):
+def _family(rgb, theme='light', background=None):
     r, g, b = rgb
+    if theme == 'dark':
+        # Known DrugVokrug dark palette, not arbitrary themes or photos.
+        # Suppress the dominant background even when its shade looks bubble-like.
+        if background is not None and max(abs(a-c) for a,c in zip(rgb,background)) <= 10:
+            return 0
+        if 35 <= r <= 58 and 36 <= g <= 61 and 40 <= b <= 68 and max(rgb)-min(rgb) <= 18:
+            return 1
+        if r <= 20 and 32 <= g <= 68 and 30 <= b <= 68 and g-r >= 22 and abs(g-b) <= 14:
+            return 2
+        return 0
     if r >= 245 and g >= 245 and b >= 245 and max(rgb)-min(rgb) <= 10:
         return 1
     if 150 <= r <= 238 and g >= 195 and b >= 195 and g-r >= 7 and b-r >= 7 and abs(g-b) <= 28:
@@ -29,11 +39,20 @@ def detect(image, roi):
     step = max(1, (max(rw, rh)+599)//600)
     gw, gh = (rw+step-1)//step, (rh+step-1)//step
     pixels = image.convert('RGB').load()
+    # Theme is inferred from a bounded 11x11 sample of this explicit ROI only.
+    # A dominant dark neutral colour is required; do not mix light text into
+    # incoming candidates on a dark screen.
+    sample = [pixels[rx+(rw-1)*i//10,ry+(rh-1)*j//10] for i in range(11) for j in range(11)]
+    background, frequency = Counter(sample).most_common(1)[0]
+    dark = frequency >= 24 and max(background) <= 80 and max(background)-min(background) <= 28
+    theme = 'dark' if dark else 'light'
+    def classify(rgb):
+        return _family(rgb, theme, background)
     grid = bytearray(gw*gh)
     for gy in range(gh):
         for gx in range(gw):
             x, y = min(rx+gx*step+step//2, rx+rw-1), min(ry+gy*step+step//2, ry+rh-1)
-            grid[gy*gw+gx] = _family(pixels[x, y])
+            grid[gy*gw+gx] = classify(pixels[x, y])
     visited = bytearray(len(grid))
     candidates = []
     for seed, family in enumerate(grid):
@@ -64,7 +83,7 @@ def detect(image, roi):
         xs=sorted(set(sample_left+(sample_right-sample_left)*i//20 for i in range(21)))
         separated=False
         for py in range(ry+y0*step+margin,ry+(y1+1)*step-margin):
-            if not any(_family(pixels[px,py]) == family for px in xs):
+            if not any(classify(pixels[px,py]) == family for px in xs):
                 separated=True
                 break
         if separated: continue
