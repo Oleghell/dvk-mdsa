@@ -17,6 +17,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - name: Build minimal helper and synthetic no-network fixture
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)
@@ -58,6 +61,8 @@ jobs:
       - name: Test guards and authenticated protocol
         shell: powershell
         run: |
+          python -m pip install Pillow==12.3.0
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
           $env:PYTHONPATH='mumu-draft'
           python -m unittest discover -s mumu-draft/tests -v
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}

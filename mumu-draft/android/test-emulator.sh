@@ -1,51 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+python3 -m venv out/pixel-venv
+. out/pixel-venv/bin/activate
+python -m pip -q install Pillow==12.3.0
+adb shell wm size 900x1600
 adb install -t -r out/helper.apk
 adb install -r out/fixture.apk
-name=$(printf TEST_RECIPIENT | base64 -w0)
+component=com.dvk.drafthelper.visual/com.dvk.drafthelper.DraftInstrumentation
 start_fixture() {
  adb shell am force-stop drug.vokrug
  adb shell am start -W -n drug.vokrug/drug.vokrug.FixtureActivity --es scenario "$1"
  sleep 2
 }
-run_helper() {
- adb shell am instrument -w -r -e op draft -e expected_name_b64 "$1" com.dvk.drafthelper/com.dvk.drafthelper.DraftInstrumentation
+header_hash() {
+ adb exec-out screencap -p > out/reference.png
+ python - <<'PY'
+from PIL import Image
+import hashlib
+im=Image.open('out/reference.png').convert('RGB');assert im.size==(900,1600)
+print(hashlib.sha256(im.crop((0,48,900,224)).tobytes()).hexdigest())
+PY
 }
+run_helper() { adb shell am instrument -w -r -e op draft -e expected_header_sha256 "$1" "$component"; }
 check_ui() {
  adb shell uiautomator dump /data/local/tmp/draft-fixture.xml >/dev/null
  adb pull /data/local/tmp/draft-fixture.xml out/check.xml >/dev/null
- python3 - "$1" <<'PY'
+ python - "$1" <<'PY'
 import sys,xml.etree.ElementTree as E
-r=E.parse('out/check.xml')
-fields=[n for n in r.iter('node') if n.get('class')=='android.widget.EditText']
+r=E.parse('out/check.xml');fields=[n for n in r.iter('node') if n.get('class')=='android.widget.EditText']
 assert len(fields)==1
-assert fields[0].get('text')==sys.argv[1], fields[0].get('text')
+if sys.argv[1]=='EMPTY':assert fields[0].get('text') in ('','Message')
+else:assert fields[0].get('text')==sys.argv[1],fields[0].get('text')
 assert any(n.get('text')=='sent=0' for n in r.iter('node'))
 PY
 }
 start_fixture empty
-inspection=$(adb shell am instrument -w -r -e op inspect -e expected_name_b64 "$name" com.dvk.drafthelper/com.dvk.drafthelper.DraftInstrumentation)
-echo "$inspection"
-grep -q 'draft_status=inspection_ok' <<< "$inspection"
-grep -q 'field_empty=true' <<< "$inspection"
-result=$(run_helper "$name"); echo "$result"; grep -q 'draft_status=draft_set_verified' <<< "$result"
+reference=$(header_hash)
+inspection=$(adb shell am instrument -w -r -e op inspect -e expected_header_sha256 "$reference" "$component")
+echo "$inspection";grep -q 'draft_status=inspection_ok' <<< "$inspection";grep -q 'field_empty=true' <<< "$inspection"
+grep -q "visual_header_sha256=$reference" <<< "$inspection"
+result=$(run_helper "$reference");echo "$result";grep -q 'draft_status=draft_set_verified' <<< "$result"
 check_ui 'Как настроение?)'
 start_fixture nonempty
-result=$(run_helper "$name"); echo "$result"; grep -q 'draft_status=denied_nonempty_draft' <<< "$result"
+result=$(run_helper "$(header_hash)");echo "$result";grep -q 'draft_status=denied_nonempty_draft' <<< "$result"
 check_ui KEEP_EXISTING
 start_fixture empty
-wrong=$(printf WRONG_RECIPIENT | base64 -w0)
-result=$(run_helper "$wrong"); echo "$result"; grep -q 'draft_status=denied_context_or_field' <<< "$result"
-# Empty EditText may expose its hint as text in uiautomator; verify no phrase inserted and send count remains zero.
-adb shell uiautomator dump /data/local/tmp/draft-fixture.xml >/dev/null
-adb pull /data/local/tmp/draft-fixture.xml out/check.xml >/dev/null
-python3 - <<'PY'
-import xml.etree.ElementTree as E
-r=E.parse('out/check.xml');assert not any(n.get('text')=='Как настроение?)' for n in r.iter('node'))
-assert any(n.get('text')=='sent=0' for n in r.iter('node'))
-PY
+result=$(run_helper "$(printf '0%.0s' {1..64})");echo "$result";grep -q 'draft_status=denied_header_changed' <<< "$result"
+check_ui EMPTY
+start_fixture other
+result=$(run_helper "$reference");echo "$result";grep -q 'draft_status=denied_header_changed' <<< "$result"
+check_ui EMPTY
 adb shell am start -W -a android.settings.SETTINGS >/dev/null
 sleep 2
-result=$(run_helper "$name"); echo "$result"; grep -q 'draft_status=denied_context_or_field' <<< "$result"
-echo 'ANDROID_DRAFT_TESTS_PASSED: Cyrillic exact text, no SEND click, existing draft preserved, wrong name and wrong app refused.'
+result=$(run_helper "$reference");echo "$result";grep -q 'draft_status=denied_context_or_field' <<< "$result"
+echo 'ANDROID_VISUAL_DRAFT_TESTS_PASSED: ADB/UiAutomation RGB hashes equal; inaccessible name supported; exact Cyrillic; send count zero; existing draft preserved; stale or different header and wrong app refused.'

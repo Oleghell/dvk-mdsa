@@ -14,14 +14,14 @@ class DraftProtocolTests(unittest.TestCase):
         conn.request('POST','/mcp',json.dumps(req),{'Content-Type':'application/json','Authorization':'Bearer synthetic-key'})
         response=conn.getresponse();data=json.loads(response.read());conn.close();return data
     def test_valid_draft_dispatch(self):
-        args={'expected_screen_sha256':'a'*64,'expected_name':'TEST_RECIPIENT'}
+        args={'expected_screen_sha256':'a'*64,'expected_header_sha256':'b'*64}
         r=self.call(args);self.assertNotIn('error',r);self.assertEqual(self.backend.calls,[args])
         self.assertIn('Как настроение?)',r['result']['content'][0]['text'])
     def test_arbitrary_text_argument_rejected(self):
-        r=self.call({'expected_screen_sha256':'a'*64,'expected_name':'TEST_RECIPIENT','text':'OTHER'})
+        r=self.call({'expected_screen_sha256':'a'*64,'expected_header_sha256':'b'*64,'text':'OTHER'})
         self.assertIn('error',r);self.assertEqual(self.backend.calls,[])
     def test_missing_guard_rejected(self):
-        r=self.call({'expected_name':'TEST_RECIPIENT'});self.assertIn('error',r);self.assertEqual(self.backend.calls,[])
-    def test_bad_name_type_rejected(self):
-        r=self.call({'expected_screen_sha256':'a'*64,'expected_name':[]});self.assertIn('error',r);self.assertEqual(self.backend.calls,[])
+        r=self.call({'expected_header_sha256':'b'*64});self.assertIn('error',r);self.assertEqual(self.backend.calls,[])
+    def test_bad_header_type_rejected(self):
+        r=self.call({'expected_screen_sha256':'a'*64,'expected_header_sha256':[]});self.assertIn('error',r);self.assertEqual(self.backend.calls,[])
 if __name__=='__main__':unittest.main()

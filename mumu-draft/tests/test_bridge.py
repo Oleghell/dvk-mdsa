@@ -10,7 +10,10 @@ import mumu_bridge as b
 
 class FakeReader:
     def status(self): return {'connected': True, 'read_only': True}
-    def screen(self): return b'\x89PNG\r\n\x1a\n-test-only-not-a-real-screenshot'
+    def screen(self):
+        from PIL import Image
+        from io import BytesIO
+        stream=BytesIO();Image.new('RGB',(900,1600),(24,28,33)).save(stream,format='PNG');return stream.getvalue()
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
