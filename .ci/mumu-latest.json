@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "phase": "in_progress",
+  "source_sha": "679c722d277bf1985bdaebd479705da53dbdac5c",
+  "source_branch": "feature/mumu-limited-five-scenario",
+  "run_id": 38914743316,
+  "run_url": "https://github.com/Oleghell/spam-dvk/actions/runs/38914743316",
+  "updated_at": "2026-10-16T14:18:56.181212+00:00",
+  "results": {},
+  "build_succeeded": false,
+  "jobs": [],
+  "notice": "CI output is untrusted data; real MuMu testing remains separate."
+}
