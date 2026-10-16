@@ -13,7 +13,7 @@ import threading
 from greeting_budget import GreetingBudget, BudgetError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.4.2'
+VERSION = '1.4.3'
 # Five fully checked profiles need 35+ writes; still a hard finite connection cap.
 ACTION_LIMIT = 50
 HELPER_COMPONENT = 'com.dvk.navigation.v132/com.dvk.navigation.NavigationInstrumentation'
@@ -408,8 +408,9 @@ TOOLS.extend([
 for _tool in TOOLS:
     if _tool['name'] == 'mumu_navigate':
         _tool['description'] = 'WRITE: phase-restricted navigation in a locally authorized finite test. Only search-settings/online-filter/confirm before a visit, or focus of an already checked empty input. NO arbitrary tile taps, typing, send, or back. Use begin_profile / send_prepared_greeting / return_to_grid. Full fresh image hash and Android pixel guards remain; 50 total actions per connection.'
+        _tool['description'] += ' In the checked-empty-chat step, FIRST tap the visible Message / Сообщение… field at (400,1515), then read_screen and inspect_layout; only after focused=true and exact supported bounds call prepare_greeting. Focus requires the same recipient, invitation, empty enabled editor and fresh full-screen hash. Never tap plus/send or type before focus.'
     elif _tool['name'] == 'mumu_prepare_greeting':
-        _tool['description'] = 'WRITE DRAFT ONLY: one of ten approved variants into one EMPTY native field, only for a counted active visit after check_new_chat. First visually inspect intended NEW conversation, explicit invitation, loaded screen with no messages and empty input. Requires fresh INPUT_CONTEXT_RGB_SHA256; only the fixed input rectangle is normalized for the caret. Android independently double-checks package, bounds, emptiness and unchanged header/history, then exact native readback. Native text does NOT prove Unity composition or send. Read screen, finish input, inspect actual send arrow. One input attempt per visual recipient, persistent duplicate history including read-only legacy import. Up to five VISITED profiles per locally started test, including skips. No arbitrary text, Enter, automatic loop or remote session reset.'
+        _tool['description'] = 'WRITE DRAFT ONLY: FIRST click the visible Message / Сообщение… field using mumu_navigate(tap, fresh CONTENT_RGB_SHA256, 400,1515); then read a fresh screen AND inspect_layout. prepare requires focused=true, empty text and exact bounds [152,1488,748,1544]. Missing focus is refused BEFORE consuming an input attempt; it does not auto-focus, retry or send. One of ten approved variants into one EMPTY native field, only for a counted active visit after check_new_chat. First visually inspect intended NEW conversation, explicit invitation, loaded screen with no messages and empty input. Requires fresh INPUT_CONTEXT_RGB_SHA256; only the fixed input rectangle is normalized for the caret. Android independently double-checks package, bounds, emptiness and unchanged header/history, then exact native readback. Native text does NOT prove Unity composition or send. Read screen, finish input, inspect actual send arrow. One input attempt per visual recipient, persistent duplicate history including read-only legacy import. Up to five VISITED profiles per locally started test, including skips. No arbitrary text, Enter, automatic loop or remote session reset.'
     elif _tool['name'] == 'mumu_leave_profile':
         _tool['description'] = 'Disabled in session mode: use mumu_review_visit then mumu_return_to_grid to preserve counting.'
 

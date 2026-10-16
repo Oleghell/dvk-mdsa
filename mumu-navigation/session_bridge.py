@@ -147,6 +147,17 @@ class SupervisedReader:
                 'identity_verified':False, 'full_history_automatically_verified':False,
                 'requires_agent_visual_review':True, 'test_session':self.ledger.status()}
 
+    def _checked_empty_editor(self, png):
+        layout = self.inspect_layout()
+        edits = [n for n in layout.get('nodes', []) if n.get('editable')]
+        if (layout.get('truncated') or layout.get('content_sha256') != content_pixel_sha256(png)
+                or len(edits) != 1 or edits[0].get('text')
+                or not edits[0].get('enabled')
+                or edits[0].get('class') != 'android.widget.EditText'):
+            raise BridgeError('Пустое поле и свежий полный экран не подтверждены. '
+                              'Ничего не нажато и не введено; попытка ввода не израсходована.')
+        return edits[0]
+
     @_convert_error
     def prepare_greeting(self, expected_input_sha256, variant):
         self._run_ready()
@@ -155,6 +166,16 @@ class SupervisedReader:
         if (not matches(png, EMPTY_BOX, EMPTY_SHA)
                 or visual_header_fingerprint(png) != visit['fingerprint']):
             raise BridgeError('Диалог или приглашение изменились. Ввод не начат.')
+        # Read-only preflight BEFORE reserving an input attempt. Merely opening
+        # a Unity chat does not activate its native message editor.
+        if (not isinstance(expected_input_sha256, str) or len(expected_input_sha256) != 64
+                or not hmac.compare_digest(input_context_sha256(png), expected_input_sha256)):
+            raise BridgeError('Экран изменился. Прочитайте новый снимок после фокуса поля.')
+        edit = self._checked_empty_editor(png)
+        if not edit.get('focused') or edit.get('bounds') != [152,1488,748,1544]:
+            raise BridgeError('Сначала нажмите «Сообщение…» через mumu_navigate(tap, CONTENT_RGB_SHA256, 400,1515), '
+                              'затем прочитайте экран и дерево. Нужны фокус и границы [152,1488,748,1544]. '
+                              'Попытка ввода не израсходована.')
         self.budget.variant = variant
         return self._dispatch(self.inner.prepare_greeting, expected_input_sha256, variant)
 
@@ -259,6 +280,18 @@ class SupervisedReader:
         if step == 'empty_checked':
             if action != 'tap' or type(x) is not int or type(y) is not int or not (200 <= x < 748 and 1488 <= y < 1544):
                 raise BridgeError('В этом шаге разрешён только фокус пустого поля.')
+            png = self._fresh(expected_content_sha256)
+            if (visual_header_fingerprint(png) != visit['fingerprint']
+                    or not matches(png, EMPTY_BOX, EMPTY_SHA)):
+                raise BridgeError('Диалог или приглашение изменились. Фокус не начат.')
+            edit = self._checked_empty_editor(png)
+            bounds = edit.get('bounds')
+            if (not isinstance(bounds, list) or len(bounds) != 4
+                    or any(type(v) is not int for v in bounds)
+                    or not (0 <= bounds[0] < bounds[2] <= 900
+                            and 1460 <= bounds[1] < bounds[3] <= 1560
+                            and bounds[0] <= x < bounds[2] and bounds[1] <= y < bounds[3])):
+                raise BridgeError('Точка не внутри подтверждённого поля «Сообщение…». Фокус не начат.')
             return self._dispatch(self.inner.navigate, action, expected_content_sha256, x, y)
         if visit is not None and step not in ('returned_sent', 'returned_skipped'):
             raise BridgeError('Используйте команды текущего шага; произвольное нажатие/отправка запрещены.')
