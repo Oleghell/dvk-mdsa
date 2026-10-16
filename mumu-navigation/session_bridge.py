@@ -61,6 +61,14 @@ class SupervisedReader:
         self.budget = _SessionBudget(ledger)
         self.inner.greeting_budget = self.budget
 
+    def control_inspect(self):
+        from universal_control import UniversalControl
+        return UniversalControl(self.inner,self.ledger).inspect()
+
+    def control_execute(self,name,args):
+        from universal_control import UniversalControl
+        return UniversalControl(self.inner,self.ledger).execute(name,args)
+
     def connect(self):
         return self.inner.connect()
     def install_helper(self, base):

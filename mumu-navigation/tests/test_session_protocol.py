@@ -7,6 +7,8 @@ from mumu_bridge import BridgeServer, TOOLS
 class SessionProtocolTests(unittest.TestCase):
     def setUp(self):
         class Reader:
+            def control_inspect(self):return {'called':'control_inspect'}
+            def control_execute(self,name,args):return {'called':name,**args}
             def autotest_city(self):return {'called':'autotest_city'}
             def autofocus_city(self,**kw):return {'called':'autofocus_city',**kw}
             def inspect_city_input(self):return {'called':'inspect_city_input'}
@@ -66,6 +68,15 @@ class SessionProtocolTests(unittest.TestCase):
         tools={t['name']:t for t in TOOLS}
         self.assertTrue(tools['mumu_autotest_city']['annotations']['readOnlyHint'])
         self.assertFalse(tools['mumu_autofocus_city']['annotations']['readOnlyHint'])
+
+    def test_universal_tools_route_strictly_without_remote_enable(self):
+        self.assertNotIn('isError',self.request('mumu_control_inspect',{})['result'])
+        args={'action_id':'b'*32,'expected_content_sha256':'a'*64,'key':'BACK'}
+        self.assertNotIn('isError',self.request('mumu_control_key',args)['result'])
+        for extra in ({'shell':'x'},{'enable':True},{'reset':True},{'key':'HOME'}):
+            self.assertEqual(self.request('mumu_control_key',{**args,**extra})['error']['code'],-32602)
+        for name in ('mumu_control_enable','mumu_install_apk','mumu_shell'):
+            self.assertEqual(self.request(name,{})['error']['code'],-32602)
 
     def test_profile_boolean_coordinate_refused(self):
         self.assertEqual(self.request('mumu_begin_profile',{'expected_content_sha256':'a'*64,'x':True,'y':200})['error']['code'],-32602)

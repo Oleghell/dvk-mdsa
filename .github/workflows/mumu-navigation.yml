@@ -47,6 +47,10 @@ jobs:
           CITY_VERIFY_ONLY=1 bash mumu-navigation/city-android/build.sh
           python3 mumu-navigation/city-android/pack-city-helper.py
           "$ANDROID_BUILD_TOOLS/apksigner" verify --verbose mumu-navigation/city-android/out/city-helper.apk
+          CONTROL_VERIFY_ONLY=1 bash mumu-navigation/control-android/build.sh
+          python3 mumu-navigation/control-android/pack-control.py
+          "$ANDROID_BUILD_TOOLS/apksigner" verify --verbose mumu-navigation/control-android/out/control-helper.apk
+          "$ANDROID_BUILD_TOOLS/apksigner" verify --verbose mumu-navigation/control-android/out/keyboard-helper.apk
           FIXTURE_KEYSTORE="$PWD/mumu-navigation/android/out/test-signing.jks" bash mumu-navigation/city-android/build-fixture.sh
           python3 -m pip install Pillow==12.3.0
       - name: Enable emulator KVM
@@ -66,6 +70,7 @@ jobs:
           script: |
             bash mumu-navigation/android/test-emulator.sh
             bash mumu-navigation/city-android/test-emulator.sh
+            python3 mumu-navigation/control-android/test-emulator.py
       - uses: actions/upload-artifact@v4
         with:
           name: navigation-helper-runtime
@@ -74,6 +79,8 @@ jobs:
             mumu-navigation/android/out/helper-manifest.json
             mumu-navigation/city-android/out/city-helper.apk
             mumu-navigation/city-android/out/city-helper-manifest.json
+            mumu-navigation/control-android/out/control-helper.apk
+            mumu-navigation/control-android/out/keyboard-helper.apk
           if-no-files-found: error
           retention-days: 14
   windows:
@@ -99,11 +106,11 @@ jobs:
         with:
           name: navigation-helper-runtime
           path: out/helper-artifact/
-      - name: Stage both pinned helpers
+      - name: Stage all pinned helpers
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force out/MuMu-navigation-windows-x64 | Out-Null
-          foreach ($name in @('helper.apk','helper-manifest.json','city-helper.apk','city-helper-manifest.json')) {
+          foreach ($name in @('helper.apk','helper-manifest.json','city-helper.apk','city-helper-manifest.json','control-helper.apk','keyboard-helper.apk')) {
             $files=@(Get-ChildItem out/helper-artifact -Recurse -File -Filter $name)
             if ($files.Count -ne 1) {throw "Missing or ambiguous helper $name"}
             Copy-Item $files[0].FullName "out/MuMu-navigation-windows-x64/$name"
@@ -127,7 +134,10 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
           @{
-            bridge_version='1.4.4-city-preview.4'
+            bridge_version='1.5.0-control-preview.1'
+            universal_control='explicit-local-opt-in-app-scoped-gestures-keys-unicode-ime'
+            control_package='com.dvk.control.v1'
+            keyboard_package='com.dvk.keyboard.v1'
             city_helper_package='com.dvk.city.v1'
             city_mode='catalog-query-only-no-result-selection-no-filter-application'
             release_stage='development-preview'
@@ -140,7 +150,7 @@ jobs:
             mode='explicit-local-finite-supervised-test'
             real_drugvokrug_tested=$false
           } | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
-          foreach ($file in @('helper.apk','helper-manifest.json','city-helper.apk','city-helper-manifest.json','MuMu-navigation.exe','cloudflared.exe')) {if (-not(Test-Path "$root/$file")) {throw "Missing $file"}}
+          foreach ($file in @('helper.apk','helper-manifest.json','city-helper.apk','city-helper-manifest.json','control-helper.apk','keyboard-helper.apk','MuMu-navigation.exe','cloudflared.exe')) {if (-not(Test-Path "$root/$file")) {throw "Missing $file"}}
           $hashes=Get-ChildItem $root -File | Sort-Object Name | ForEach-Object {'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash,$_.Name}
           $hashes | Set-Content "$root/SHA256SUMS.txt" -Encoding ASCII
       - uses: actions/upload-artifact@v4

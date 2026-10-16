@@ -40,6 +40,10 @@ class TestSession:
           CREATE TABLE IF NOT EXISTS contacts (
             fingerprint TEXT PRIMARY KEY, source TEXT NOT NULL, state TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS holds (reason TEXT PRIMARY KEY);
+          CREATE TABLE IF NOT EXISTS control_actions (
+            id TEXT PRIMARY KEY,
+            state TEXT NOT NULL CHECK(state IN ('reserved','succeeded','refused','unknown')));
+          CREATE TABLE IF NOT EXISTS control_config (key TEXT PRIMARY KEY,value TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS city_focus_actions (
             id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
             point_index INTEGER NOT NULL CHECK(point_index BETWEEN 0 AND 2),
@@ -61,6 +65,9 @@ class TestSession:
                 pending += self.db.execute("SELECT run_id FROM city_focus_actions WHERE state='reserved'").fetchall()
                 for row in pending:
                     self._hold(row['run_id'])
+                if self.db.execute("SELECT 1 FROM control_actions WHERE state='reserved'").fetchone():
+                    self.db.execute("INSERT OR IGNORE INTO holds VALUES ('unknown_device_action')")
+                    self.db.execute("UPDATE runs SET state='stopped' WHERE state='active'")
         except BaseException:
             self.db.close()
             raise

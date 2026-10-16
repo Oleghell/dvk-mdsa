@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.dvk.keyboard.v1" android:versionCode="1" android:versionName="1.0">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="32" />
+ <uses-permission android:name="com.dvk.keyboard.CONTROL" />
+ <permission android:name="com.dvk.keyboard.CONTROL" android:protectionLevel="signature" />
+ <application android:label="MuMu supervised keyboard" android:allowBackup="false">
+  <service android:name="com.dvk.keyboard.BridgeIme" android:label="MuMu supervised keyboard" android:permission="android.permission.BIND_INPUT_METHOD" android:exported="true">
+   <intent-filter><action android:name="android.view.InputMethod" /></intent-filter>
+   <meta-data android:name="android.view.im" android:resource="@xml/method" />
+  </service>
+  <receiver android:name="com.dvk.keyboard.ImeCommandReceiver" android:permission="com.dvk.keyboard.CONTROL" android:exported="true" />
+ </application>
+</manifest>

@@ -68,7 +68,7 @@ class NavigationTests(unittest.TestCase):
         args[-1]='other/package'
         with self.assertRaises(BridgeError): self.r._run(args)
     def test_no_typing_or_send_loop_tool(self):
-        self.assertEqual({t['name'] for t in TOOLS},{'mumu_status','mumu_read_screen','mumu_inspect_layout','mumu_navigate','mumu_open_profile_chat','mumu_leave_profile','mumu_prepare_greeting','mumu_finish_greeting_input','mumu_begin_profile','mumu_check_new_chat','mumu_send_prepared_greeting','mumu_review_visit','mumu_return_to_grid','mumu_check_city_search','mumu_focus_city_search','mumu_inspect_city_input','mumu_input_city','mumu_autotest_city','mumu_autofocus_city'})
+        self.assertEqual({t['name'] for t in TOOLS},{'mumu_status','mumu_read_screen','mumu_inspect_layout','mumu_navigate','mumu_open_profile_chat','mumu_leave_profile','mumu_prepare_greeting','mumu_finish_greeting_input','mumu_begin_profile','mumu_check_new_chat','mumu_send_prepared_greeting','mumu_review_visit','mumu_return_to_grid','mumu_check_city_search','mumu_focus_city_search','mumu_inspect_city_input','mumu_input_city','mumu_autotest_city','mumu_autofocus_city','mumu_control_inspect','mumu_control_gesture','mumu_control_key','mumu_control_text'})
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):

@@ -29,6 +29,10 @@ public final class CityFixtureActivity extends Activity {
   if("city_switch_after_input".equals(scenario)){
    input.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int n){}public void afterTextChanged(android.text.Editable e){}public void onTextChanged(CharSequence s,int a,int b,int c){badAnchor=true;background.invalidate();}});
   }
+  // Synthetic observation only: count editor callbacks for per-letter IME tests.
+  final TextView changes=new TextView(this);changes.setText("changes=0");
+  FrameLayout.LayoutParams cp=new FrameLayout.LayoutParams(300,60);cp.topMargin=500;layout.addView(changes,cp);
+  input.addTextChangedListener(new android.text.TextWatcher(){private int count=0;public void beforeTextChanged(CharSequence s,int a,int c,int n){}public void afterTextChanged(android.text.Editable e){changes.setText("changes="+(++count));}public void onTextChanged(CharSequence s,int a,int b,int c){}});
   layout.setFocusableInTouchMode(true);setContentView(layout);
   if("city_unfocused".equals(scenario))layout.requestFocus();else input.requestFocus();
   ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(input.getWindowToken(),0);
