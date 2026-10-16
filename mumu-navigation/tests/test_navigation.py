@@ -50,7 +50,7 @@ class NavigationTests(unittest.TestCase):
             with self.assertRaises(BridgeError): self.r.navigate('tap',self.sha,100,200)
         self.assertFalse(self.r.action_uncertain);self.assertEqual(self.r.action_attempts,1)
     def test_budget_exhausted(self):
-        self.r.action_attempts=30
+        self.r.action_attempts=50
         with self.assertRaises(BridgeError): self.r.navigate('back',self.sha)
     def test_invalid_actions_and_coordinates(self):
         for action,x,y in [('send',1,100),('tap',1,47),('tap',900,100),('tap',1,1536),('tap',True,100),('back',1,0)]:
@@ -68,7 +68,7 @@ class NavigationTests(unittest.TestCase):
         args[-1]='other/package'
         with self.assertRaises(BridgeError): self.r._run(args)
     def test_no_typing_or_send_loop_tool(self):
-        self.assertEqual({t['name'] for t in TOOLS},{'mumu_status','mumu_read_screen','mumu_inspect_layout','mumu_navigate','mumu_open_profile_chat','mumu_leave_profile','mumu_prepare_greeting','mumu_finish_greeting_input'})
+        self.assertEqual({t['name'] for t in TOOLS},{'mumu_status','mumu_read_screen','mumu_inspect_layout','mumu_navigate','mumu_open_profile_chat','mumu_leave_profile','mumu_prepare_greeting','mumu_finish_greeting_input','mumu_begin_profile','mumu_check_new_chat','mumu_send_prepared_greeting','mumu_review_visit','mumu_return_to_grid'})
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):

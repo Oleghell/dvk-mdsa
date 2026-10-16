@@ -43,7 +43,7 @@ class CaretTests(unittest.TestCase):
     def test_no_arbitrary_greeting_in_finish(self):
         with self.assertRaises(BridgeError):self.r.finish_greeting_input(input_context_sha256(frame()),'anything')
     def test_shared_action_limit_applies(self):
-        self.r.action_attempts=30
+        self.r.action_attempts=50
         with self.assertRaises(BridgeError):self.r.finish_greeting_input(input_context_sha256(frame()),0)
 
 if __name__=='__main__':unittest.main()

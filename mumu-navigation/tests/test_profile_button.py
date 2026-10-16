@@ -48,7 +48,7 @@ class ProfileGuardTests(unittest.TestCase):
         with self.assertRaises(BridgeError):self.r.navigate('back','0'*64)
         with self.assertRaises(BridgeError):self.r.open_profile_chat(self.sha)
     def test_shared_budget(self):
-        self.r.action_attempts=30
+        self.r.action_attempts=50
         with self.assertRaises(BridgeError):self.r.open_profile_chat(self.sha)
     def test_android_refusal_consumes_budget_not_uncertainty(self):
         with patch.object(self.r,'screen',return_value=self.a),patch.object(self.r,'_instrument',return_value=('denied_context_or_layout','')):
