@@ -8,6 +8,7 @@ import hmac
 from io import BytesIO
 from PIL import Image
 from test_session import TestSession, SessionError
+from filter_state import online_filter_state, FILTER_BOX, FILTER_SHA
 from mumu_bridge import (BridgeError, GREETINGS, ACTION_LIMIT, content_pixel_sha256,
                          input_context_sha256, visual_header_fingerprint, profile_guard)
 
@@ -276,11 +277,13 @@ class SupervisedReader:
         if is_grid:
             self.online_confirmed = False
         elif action == 'tap' and y >= 1468:
-            if not matches(png, FILTER_ON_BOX, FILTER_ON_SHA):
-                raise BridgeError('Только онлайн не подтверждён как включённый. Галочку не нажимаю.')
+            if online_filter_state(png) != 'on':
+                raise BridgeError('Только онлайн: OFF или неопределённое состояние. Галочку не нажимаю.')
             confirming = True
         else:
             self.online_confirmed = False
+            if action == 'tap' and online_filter_state(png) != 'off':
+                raise BridgeError('Переключение разрешено только из подтверждённого OFF; ON не выключаю, неясное состояние не трогаю.')
         result = self._dispatch(self.inner.navigate, action, expected_content_sha256, x, y)
         if confirming:
             self.online_confirmed = True
@@ -289,11 +292,3 @@ class SupervisedReader:
     def leave_profile(self, expected_profile_sha256):
         raise BridgeError('Для учтённого возврата используйте mumu_return_to_grid после проверки результата/пропуска.')
 
-
-FILTER_BOX = (360,244,543,289)
-FILTER_SHA = '263efd838fe25309f9da855d3c23893e2edb303dfc5ac4322b8d9e2292f44b18'
-
-FILTER_ON_BOX = (756, 981, 858, 1044)
-# v1.4.1: exact static ON crop observed unchanged in two fresh live reads.
-# No tolerance, extra mask, fallback template or operator override.
-FILTER_ON_SHA = '8dec16142306664d48e8ff4e236d928db8328e20f67fa2b345a0167b660b6537'

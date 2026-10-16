@@ -18,8 +18,6 @@ build() {
 }
 build helper src/com/dvk/navigation/NavigationInstrumentation.java AndroidManifest.xml
 build fixture fixture/drug/vokrug/FixtureActivity.java fixture/AndroidManifest.xml
-python3 - <<'PY'
-import hashlib,json,pathlib
-p=pathlib.Path('out/helper.apk')
-pathlib.Path('out/helper-manifest.json').write_text(json.dumps({'helper_sha256':hashlib.sha256(p.read_bytes()).hexdigest()}))
-PY
+# Distribution uses one byte-identical signed release, not the ephemeral CI key.
+python3 pack-pinned-helper.py
+"$BT/apksigner" verify out/helper.apk

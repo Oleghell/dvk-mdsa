@@ -107,10 +107,13 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
           @{
-            bridge_version='1.4.1'
+            bridge_version='1.4.2'
             source_commit=$env:GITHUB_SHA
             source_ref=$env:GITHUB_REF
             helper_package='com.dvk.navigation.v132'
+            helper_sha256='700d240c6adbf08066f5de2314d447381b4303d6c76aef5bc0a06d722a2c8cd1'
+            helper_distribution='pinned-v132-byte-identical-source-and-dex-verified'
+            filter_recognition='fixed-anchors-thumb-geometry-colour-cores-on-off-unknown'
             mode='explicit-local-finite-supervised-test'
             real_drugvokrug_tested=$false
           } | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8

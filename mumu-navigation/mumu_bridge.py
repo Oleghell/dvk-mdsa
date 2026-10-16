@@ -13,11 +13,12 @@ import threading
 from greeting_budget import GreetingBudget, BudgetError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.4.1'
+VERSION = '1.4.2'
 # Five fully checked profiles need 35+ writes; still a hard finite connection cap.
 ACTION_LIMIT = 50
 HELPER_COMPONENT = 'com.dvk.navigation.v132/com.dvk.navigation.NavigationInstrumentation'
 CLOUDFLARED_SHA256 = '86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c'
+PINNED_HELPER_SHA256 = '700d240c6adbf08066f5de2314d447381b4303d6c76aef5bc0a06d722a2c8cd1'
 MAX_SCREEN = 8 * 1024 * 1024
 SERIAL = '127.0.0.1:5555'
 GREETINGS = ('Привет','Привет)','Привет))','Привет!','Привет 🙂','Привет 😊','Привет 👋','Привет! 🙂','Приветик)','Привет-привет)')
@@ -77,11 +78,24 @@ def input_context_sha256(png):
 class BridgeError(Exception):
     pass
 
+class HelperSignatureConflict(BridgeError):
+    pass
+
+def install_helper_with_local_consent(reader, base, confirm_replacement):
+    try:
+        reader.install_helper(base)
+    except HelperSignatureConflict:
+        if confirm_replacement() is not True:
+            raise BridgeError('Переустановка отменена. Ничего не удалено; доступ не открыт.')
+        reader._reinstall_helper_locally(base, confirmed=True)
+
+
 class AdbReader:
     def __init__(self, executable):
         self.greeting_budget = None
         self.helper_path = None
         self.helper_ready = False
+        self._local_helper_migration = False
         self.action_attempts = 0
         self.action_uncertain = False
         self.executable = Path(executable).resolve()
@@ -97,6 +111,7 @@ class AdbReader:
             ['-s', SERIAL, 'exec-out', 'screencap', '-p'],
         ]
         install = self.helper_path is not None and args == ['-s', SERIAL, 'install', '-t', '-r', str(self.helper_path)]
+        migration = self._local_helper_migration and args == ['-s', SERIAL, 'uninstall', 'com.dvk.navigation.v132']
         prefix = ['-s', SERIAL, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'op']
         instrumentation = (self.helper_ready and len(args) == 20 and args[:9] == prefix
             and args[9] in ('inspect', 'tap', 'back', 'profile_chat', 'profile_back', 'greeting', 'finish_input') and args[10:12] == ['-e', 'expected_content_sha256']
@@ -107,18 +122,28 @@ class AdbReader:
                  or (args[9] in ('greeting','finish_input') and 0 <= int(args[15]) < 10 and args[18] == '0')
                  or (args[9] == 'profile_chat' and args[15] == '321' and args[18] == '1515')
                  or (args[9] in ('inspect', 'back', 'profile_back') and args[15] == args[18] == '0')))
-        if args not in allowed and not install and not instrumentation:
+        if args not in allowed and not install and not instrumentation and not migration:
             raise BridgeError('Команда не разрешена.')
         env = dict(os.environ)
         env['ADB_SERVER_SOCKET'] = 'tcp:localhost:5037'
         try:
             result = subprocess.run([str(self.executable), *args], stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20, env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, env=env,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         except (OSError, subprocess.TimeoutExpired):
             raise BridgeError('ADB недоступен или не ответил за 20 секунд.') from None
-        if result.returncode or len(result.stdout) > MAX_SCREEN:
-            raise BridgeError('Ошибка ADB или превышен размер ответа.')
+        if len(result.stdout) > MAX_SCREEN:
+            raise BridgeError('ADB вернул слишком большой ответ; действие не повторяйте.')
+        if result.returncode:
+            # Never display/log raw output: it can contain paths or private data.
+            error = result.stderr if isinstance(result.stderr, bytes) else b''
+            if install and b'INSTALL_FAILED_UPDATE_INCOMPATIBLE' in result.stdout + error:
+                raise HelperSignatureConflict('Конфликт подписи com.dvk.navigation.v132. Нужна отдельная локальная переустановка только помощника.')
+            stage = ('установка помощника' if install else 'удаление помощника' if migration
+                     else 'подключение MuMu' if args[:1] == ['connect']
+                     else 'проверка устройства' if args == ['-s', SERIAL, 'get-state']
+                     else 'вызов ADB')
+            raise BridgeError('Ошибка ADB на этапе «%s» (код %s). Автоматического повтора нет.' % (stage, result.returncode))
         return result.stdout
 
     def connect(self):
@@ -150,19 +175,38 @@ class AdbReader:
             raise BridgeError('ADB не вернул допустимый PNG.')
         return png
 
-    def install_helper(self, base):
+    def _verified_helper(self, base):
         try:
             helper = (Path(base) / 'helper.apk').resolve()
             manifest = json.loads((Path(base) / 'helper-manifest.json').read_text(encoding='utf-8'))
-            if not re.fullmatch(r'[0-9a-f]{64}', manifest['helper_sha256']) or hashlib.sha256(helper.read_bytes()).hexdigest() != manifest['helper_sha256']:
+            if manifest['helper_sha256'] != PINNED_HELPER_SHA256 or hashlib.sha256(helper.read_bytes()).hexdigest() != PINNED_HELPER_SHA256:
                 raise ValueError()
         except (OSError, ValueError, KeyError, TypeError):
             raise BridgeError('APK помощника отсутствует или проверка целостности не пройдена.') from None
+        return helper
+
+    def install_helper(self, base):
+        helper = self._verified_helper(base)
         self.helper_path = helper
         output = self._run(['-s', SERIAL, 'install', '-t', '-r', str(helper)])
         if b'Success' not in output:
             raise BridgeError('Помощник не установлен. Не удаляйте приложения автоматически; проверьте MuMu.')
         self.helper_ready = True
+
+    def _reinstall_helper_locally(self, base, confirmed=False):
+        # Not a remote tool. Invoked ONLY after a separate local GUI yes/no prompt.
+        if confirmed is not True:
+            raise BridgeError('Переустановка помощника не разрешена локально.')
+        helper = self._verified_helper(base)  # Validate BEFORE deleting anything.
+        self.helper_ready = False
+        self._local_helper_migration = True
+        try:
+            output = self._run(['-s', SERIAL, 'uninstall', 'com.dvk.navigation.v132'])
+        finally:
+            self._local_helper_migration = False
+        if output.strip() != b'Success':
+            raise BridgeError('Удаление только помощника не подтверждено. Остановлено без повтора.')
+        self.install_helper(helper.parent)
 
     def _instrument(self, action, expected='0'*64, x=0, y=0):
         if not self.helper_ready:
@@ -610,7 +654,26 @@ def main():
                 reader.connect()
                 if cancelled.is_set(): return
                 base = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
-                reader.install_helper(base)
+                def confirm_replacement():
+                    answered = threading.Event()
+                    answer = {'yes': False}
+                    def ask():
+                        try:
+                            if not cancelled.is_set():
+                                answer['yes'] = messagebox.askyesno('Разовая замена помощника',
+                                    'Android отклонил обновление: подпись старого помощника отличается.\n\n'
+                                    'Разрешить удалить ТОЛЬКО com.dvk.navigation.v132 и установить проверенный APK из этого пакета? '
+                                    'ДругВокруг, переписка и журналы Windows не удаляются. Удаляются лишь данные самого помощника.\n\n'
+                                    'Новый пакет использует постоянный APK, поэтому bridge-only обновления больше не меняют подпись. '
+                                    'Если откажетесь, ничего не удалится и доступ не откроется.')
+                        finally:
+                            answered.set()
+                    post(ask)
+                    while not answered.wait(0.1):
+                        if cancelled.is_set(): return False
+                    return answer['yes'] and not cancelled.is_set()
+                install_helper_with_local_consent(reader.inner, base, confirm_replacement)
+                if cancelled.is_set(): return
                 cf = base / 'cloudflared.exe'
                 if not cf.is_file() or hashlib.sha256(cf.read_bytes()).hexdigest() != CLOUDFLARED_SHA256:
                     raise BridgeError('cloudflared.exe отсутствует или контрольная сумма не совпала. Нужен исходный пакет.')
