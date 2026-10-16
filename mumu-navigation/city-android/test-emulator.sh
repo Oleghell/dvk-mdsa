@@ -20,22 +20,29 @@ expect "$(call city_input "$HASH" 0 0)" city_input_native_verified
 HASH=$(inspect_hash)
 expect "$(call city_input "$HASH" 1 0)" denied_field
 expect "$(call city_input "$HASH" 1 1)" city_input_native_verified
+# An initially stale reported rectangle must be refreshed, not accepted/tolerated.
+start_case city_settling_bounds
+HASH=$(inspect_hash)
+expect "$(call city_input "$HASH" 2 0)" city_input_native_verified
 for scenario in city_unfocused city_nonempty; do
  start_case "$scenario"; HASH=$(inspect_hash); expect "$(call city_input "$HASH" 0 0)" denied_field
 done
 snapshot_hash(){
  adb exec-out screencap -p | python3 -c 'from PIL import Image; import sys,hashlib; im=Image.open(sys.stdin.buffer).convert("RGB"); assert im.size==(900,1600); im.paste((0,0,0),(118,196,786,276)); print(hashlib.sha256(im.crop((0,48,900,1600)).tobytes()).hexdigest())'
 }
-for scenario in city_badbounds city_duplicate city_password city_badanchor; do
+for scenario in city_badbounds city_reported_badbounds city_duplicate city_password city_badanchor; do
  start_case "$scenario"; expect "$(call inspect_city "$ZERO" 0 0)" denied_context_or_layout
  case "$scenario" in
-  city_badbounds) REASON=editor_bounds;;
+  city_badbounds|city_reported_badbounds) REASON=editor_bounds;;
   city_duplicate|city_password) REASON=editor_invalid;;
   city_badanchor) REASON=title_anchor;;
  esac
  DIAG=$(call inspect_city "$ZERO" 0 0)
  expect "$DIAG" denied_context_or_layout
  grep -q "city_diagnostic_code=$REASON" <<<"$DIAG" || { echo 'Missing fixed diagnostic code' >&2; exit 1; }
+ if [ "$scenario" = city_reported_badbounds ]; then
+  grep -q 'actual_editor_bounds=118,197,786,277' <<<"$DIAG" || { echo 'Missing safe rectangle diagnostic' >&2; exit 1; }
+ fi
  HASH=$(snapshot_hash); expect "$(call city_input "$HASH" 0 0)" denied_context_or_layout
 done
 start_case city_empty

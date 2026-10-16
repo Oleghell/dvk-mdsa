@@ -17,21 +17,35 @@ import org.json.JSONObject;
  */
 public final class CityInstrumentation extends Instrumentation {
  private String op,expected; private int index,previousEncoded;
+ private String phase="startup";
  private static final class GuardFailure extends Exception {
-  final String code; GuardFailure(String code){this.code=code;}
+  final String code; final Rect actual;
+  GuardFailure(String code){this(code,null);}
+  GuardFailure(String code,Rect actual){this.code=code;this.actual=actual==null?null:new Rect(actual);}
  }
  private static String reason(Exception e){return e instanceof GuardFailure?((GuardFailure)e).code:"internal_error";}
- private void denied(String status,String code){Bundle out=new Bundle();out.putString("navigation_status",status);out.putString("city_diagnostic_code",code);finish(0,out);}
+ private void denied(String status,String code){denied(status,code,null);}
+ private void denied(String status,String code,Rect actual){
+  Bundle out=new Bundle();out.putString("navigation_status",status);out.putString("city_diagnostic_code",code);
+  out.putString("city_diagnostic_phase",phase);
+  if(actual!=null)out.putString("actual_editor_bounds",actual.left+","+actual.top+","+actual.right+","+actual.bottom);
+  finish(0,out);
+ }
+ private void deniedFailure(String status,Exception e){denied(status,reason(e),e instanceof GuardFailure?((GuardFailure)e).actual:null);}
  private static void awaitAccessibility(final UiAutomation a) throws Exception{
+  final Exception[] last=new Exception[1];
   int state=CityPolicy.awaitRoot(new CityPolicy.RootProbe(){
    public int state(){
-    AccessibilityNodeInfo n=a.getRootInActiveWindow();
-    if(n==null)return 0;
-    return n.getPackageName()!=null && "drug.vokrug".contentEquals(n.getPackageName())?1:-1;
+    try{field(a);return 1;}
+    catch(Exception e){
+     last[0]=e;String code=reason(e);
+     // Startup reads ONLY; never repeat guards or actions after dispatch.
+     return "root_not_ready".equals(code) || "node_not_ready".equals(code) || "editor_bounds".equals(code)?0:-1;
+    }
    }
    public void pause(){SystemClock.sleep(50);}
   });
-  if(state!=1)throw new GuardFailure(state==0?"root_not_ready":"wrong_package");
+  if(state!=1){if(last[0]!=null)throw last[0];throw new GuardFailure("root_not_ready");}
  }
  @Override public void onCreate(Bundle args){
   super.onCreate(args);
@@ -48,6 +62,8 @@ public final class CityInstrumentation extends Instrumentation {
   AccessibilityNodeInfo n=a.getRootInActiveWindow();
   if(n==null)throw new GuardFailure("root_not_ready");
   if(n.getPackageName()==null || !"drug.vokrug".contentEquals(n.getPackageName()))throw new GuardFailure("wrong_package");
+  if(!n.refresh())throw new GuardFailure("node_not_ready");
+  if(n.getPackageName()==null || !"drug.vokrug".contentEquals(n.getPackageName()))throw new GuardFailure("wrong_package");
   return n;
  }
  private static AccessibilityNodeInfo field(UiAutomation a) throws Exception{
@@ -55,6 +71,7 @@ public final class CityInstrumentation extends Instrumentation {
   AccessibilityNodeInfo edit=null;int count=0;
   for(int i=0;i<nodes.size();i++){
    AccessibilityNodeInfo n=nodes.get(i);
+   if((n.isEditable() || "android.widget.EditText".contentEquals(n.getClassName())) && !n.refresh())throw new GuardFailure("node_not_ready");
    if(n.isVisibleToUser() && n.isEditable()){edit=n;count++;}
    for(int j=0;j<n.getChildCount();j++){
     if(nodes.size()>=1000)throw new GuardFailure("tree_truncated");
@@ -65,7 +82,7 @@ public final class CityInstrumentation extends Instrumentation {
     || edit.getPackageName()==null || !"drug.vokrug".contentEquals(edit.getPackageName())
     || !"android.widget.EditText".contentEquals(edit.getClassName()))throw new GuardFailure("editor_invalid");
   Rect r=new Rect();edit.getBoundsInScreen(r);
-  if(!r.equals(new Rect(118,196,786,276)))throw new GuardFailure("editor_bounds");
+  if(!r.equals(new Rect(118,196,786,276)))throw new GuardFailure("editor_bounds",r);
   return edit;
  }
  private static String text(AccessibilityNodeInfo edit){
@@ -106,9 +123,9 @@ public final class CityInstrumentation extends Instrumentation {
   Bitmap b=screen(a);try{return context(b);}finally{b.recycle();}
  }
  private void inspect(UiAutomation a) throws Exception{
-  AccessibilityNodeInfo edit=field(a);String query=text(edit);boolean focused=edit.isFocused();
+  phase="inspect_before";AccessibilityNodeInfo edit=field(a);String query=text(edit);boolean focused=edit.isFocused();
   Bitmap b=screen(a);String hash;try{hash=context(b);}finally{b.recycle();}
-  edit=field(a);
+  phase="inspect_confirm";edit=field(a);
   if(!query.equals(text(edit)) || focused!=edit.isFocused() || !hash.equals(checkedContext(a))){denied("denied_screen_changed","context_changed");return;}
   if(query.length()>128)throw new GuardFailure("query_length");
   JSONObject report=new JSONObject();report.put("catalog",CityPolicy.CATALOG);
@@ -120,12 +137,12 @@ public final class CityInstrumentation extends Instrumentation {
  }
  private void input(UiAutomation a){boolean attempted=false;
   try{
-   int previous=previousEncoded-1;
+   phase="input_before";int previous=previousEncoded-1;
    if(!expected.equals(checkedContext(a))){done("denied_screen_changed");return;}
    AccessibilityNodeInfo edit=field(a);
    if(!edit.isFocused() || !CityPolicy.matchesPrevious(text(edit),previous)){done("denied_field");return;}
    if(!expected.equals(checkedContext(a))){done("denied_screen_changed");return;}
-   edit=field(a);
+   phase="input_confirm";edit=field(a);
    if(!edit.isFocused() || !CityPolicy.matchesPrevious(text(edit),previous)){done("denied_field");return;}
    Bundle value=new Bundle();value.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,CityPolicy.city(index));
    attempted=true;
@@ -133,9 +150,9 @@ public final class CityInstrumentation extends Instrumentation {
    SystemClock.sleep(250);
    // Search rows may legitimately change. Verify only the city window/editor
    // and exact native text; never claim that results or filters are verified.
-   Bitmap b=screen(a);b.recycle();edit=field(a);
+   phase="input_after";Bitmap b=screen(a);b.recycle();edit=field(a);
    done(edit.isFocused() && CityPolicy.city(index).equals(text(edit))?"city_input_native_verified":"indeterminate_after_attempt");
-  }catch(Exception e){denied(attempted?"indeterminate_after_attempt":"denied_context_or_layout",reason(e));}
+  }catch(Exception e){deniedFailure(attempted?"indeterminate_after_attempt":"denied_context_or_layout",e);}
  }
  @Override public void onStart(){
   try{
@@ -144,6 +161,6 @@ public final class CityInstrumentation extends Instrumentation {
    if("inspect_city".equals(op)){inspect(a);return;}
    if("city_input".equals(op)){input(a);return;}
    done("denied_operation");
-  }catch(Exception e){denied("denied_context_or_layout",reason(e));}
+  }catch(Exception e){deniedFailure("denied_context_or_layout",e);}
  }
 }

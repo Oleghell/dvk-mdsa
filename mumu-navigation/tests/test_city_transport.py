@@ -50,6 +50,16 @@ class CityTransportTests(unittest.TestCase):
             with self.assertRaises(BridgeError) as err:self.transport().inspect()
             self.assertIn('not_reported',str(err.exception));self.assertNotIn('private',str(err.exception));self.assertNotIn('PRIVATE',str(err.exception))
         self.assertEqual(self.r.action_attempts,0)
+    def test_rectangle_and_phase_diagnostics_are_bounded_and_readonly(self):
+        self.r._run=lambda args:b'INSTRUMENTATION_RESULT: navigation_status=denied_context_or_layout\nINSTRUMENTATION_RESULT: city_diagnostic_code=editor_bounds\nINSTRUMENTATION_RESULT: city_diagnostic_phase=inspect_confirm\nINSTRUMENTATION_RESULT: actual_editor_bounds=118,197,786,277\n'
+        with self.assertRaisesRegex(BridgeError,r'phase=inspect_confirm; actual_bounds=\[118, 197, 786, 277\]'):
+            self.transport().inspect()
+        self.assertEqual(self.r.action_attempts,0)
+    def test_unsafe_or_duplicate_rectangle_metadata_is_not_returned(self):
+        for value in ('99999,0,0,0','118,196,private,276','118,196,786,276\nINSTRUMENTATION_RESULT: actual_editor_bounds=0,0,0,0'):
+            self.r._run=lambda args:('INSTRUMENTATION_RESULT: navigation_status=denied_context_or_layout\nINSTRUMENTATION_RESULT: city_diagnostic_code=editor_bounds\nINSTRUMENTATION_RESULT: city_diagnostic_phase=private_info\nINSTRUMENTATION_RESULT: actual_editor_bounds='+value+'\n').encode()
+            with self.assertRaises(BridgeError) as err:self.transport().inspect()
+            self.assertNotIn('actual_bounds=',str(err.exception));self.assertNotIn('private',str(err.exception))
     def test_refused_inspection_does_not_dispatch_or_consume_an_action(self):
         self.r._run=lambda args:b'INSTRUMENTATION_RESULT: navigation_status=denied_screen_changed\nINSTRUMENTATION_RESULT: city_diagnostic_code=context_changed\n'
         with self.assertRaisesRegex(BridgeError,'context_changed'):
@@ -89,6 +99,15 @@ class CityTransportTests(unittest.TestCase):
     def test_native_preinput_refusal_known_no_retry_in_transport(self):
         self.state='denied_field'
         with self.assertRaises(BridgeError):self.transport().input(self.sha,0,-1)
+        self.assertEqual(len(self.events),1);self.assertFalse(self.r.action_uncertain)
+    def test_preinput_native_bounds_diagnostic_preserves_known_refusal(self):
+        def run(args):
+            if args[9]=='inspect_city':return self.fake_adb(args)
+            self.events.append(args)
+            return b'INSTRUMENTATION_RESULT: navigation_status=denied_context_or_layout\nINSTRUMENTATION_RESULT: city_diagnostic_code=editor_bounds\nINSTRUMENTATION_RESULT: city_diagnostic_phase=input_before\nINSTRUMENTATION_RESULT: actual_editor_bounds=0,0,0,0\n'
+        self.r._run=run
+        with self.assertRaisesRegex(BridgeError,r'phase=input_before; actual_bounds=\[0, 0, 0, 0\]'):
+            self.transport().input(self.sha,0,-1)
         self.assertEqual(len(self.events),1);self.assertFalse(self.r.action_uncertain)
     def test_unknown_native_status_or_timeout_blocks_further_actions(self):
         for state in ('indeterminate_after_attempt','timeout','unexpected_status'):

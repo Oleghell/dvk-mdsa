@@ -12,7 +12,15 @@ public final class CityFixtureActivity extends Activity {
   getWindow().setFlags(1024,1024);getWindow().getDecorView().setSystemUiVisibility(4096|1024|512|256|4|2);
   getWindow().setSoftInputMode(3|48);
   final FrameLayout layout=new FrameLayout(this);final android.view.View background=new Background();layout.addView(background,new FrameLayout.LayoutParams(-1,-1));
-  EditText input=new EditText(this);input.setSingleLine(true);input.setPadding(0,0,0,0);input.setHint("Поиск");
+  EditText input=new EditText(this){
+   private int reports=0;
+   @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info){
+    super.onInitializeAccessibilityNodeInfo(info);
+    if("city_settling_bounds".equals(scenario) && reports++<6 || "city_reported_badbounds".equals(scenario)){
+     info.setBoundsInScreen(new android.graphics.Rect(118,197,786,277));
+    }
+   }
+  };input.setSingleLine(true);input.setPadding(0,0,0,0);input.setHint("Поиск");
   if("city_old".equals(scenario))input.setText("Нальчик");
   if("city_nonempty".equals(scenario))input.setText("KEEP_EXISTING");
   if("city_password".equals(scenario))input.setInputType(129);

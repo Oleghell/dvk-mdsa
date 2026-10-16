@@ -14,7 +14,7 @@ from greeting_budget import GreetingBudget, BudgetError
 from limited_scenario import DEFAULT_NEW_PROFILE_LIMIT
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.4.4-city-preview.2'
+VERSION = '1.4.4-city-preview.3'
 # Five fully checked profiles need 35+ writes; still a hard finite connection cap.
 ACTION_LIMIT = 50
 HELPER_COMPONENT = 'com.dvk.navigation.v132/com.dvk.navigation.NavigationInstrumentation'

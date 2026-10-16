@@ -63,14 +63,21 @@ class CityTransport:
         return states[0],output
     @staticmethod
     def _inspection_error(state, output):
-        states={'denied_arguments','denied_context_or_layout','denied_operation','denied_screen_changed'}
-        reasons={'root_not_ready','wrong_package','tree_truncated','editor_invalid','editor_bounds',
+        states={'denied_field','denied_arguments','denied_context_or_layout','denied_operation','denied_screen_changed'}
+        reasons={'node_not_ready','root_not_ready','wrong_package','tree_truncated','editor_invalid','editor_bounds',
                  'screenshot_unavailable','screen_size','title_anchor','search_anchor','query_length',
                  'context_changed','internal_error'}
         code=re.findall(r'^INSTRUMENTATION_RESULT: city_diagnostic_code=([a-z_]+)\s*$',output,re.M)
         safe_state=state if state in states else 'invalid_inspection_response'
         safe_reason=code[0] if len(code)==1 and code[0] in reasons else 'not_reported'
-        return BridgeError('Проверка города отказала до ввода: '+safe_state+' / '+safe_reason+'. Автоповтора ввода нет.')
+        phases={'startup','inspect_before','inspect_confirm','input_before','input_confirm','input_after'}
+        phase=re.findall(r'^INSTRUMENTATION_RESULT: city_diagnostic_phase=([a-z_]+)\s*$',output,re.M)
+        details='; phase='+phase[0] if len(phase)==1 and phase[0] in phases else ''
+        bounds=re.findall(r'^INSTRUMENTATION_RESULT: actual_editor_bounds=(-?[0-9]{1,5},-?[0-9]{1,5},-?[0-9]{1,5},-?[0-9]{1,5})\s*$',output,re.M)
+        if safe_reason=='editor_bounds' and len(bounds)==1:
+            values=[int(v) for v in bounds[0].split(',')]
+            if all(-10000<=v<=10000 for v in values):details+='; actual_bounds='+str(values)
+        return BridgeError('Проверка города отказала до ввода: '+safe_state+' / '+safe_reason+details+'. Автоповтора ввода нет.')
     def inspect(self):
         state,output=self._instrument('inspect_city')
         if state!='city_inspection_ok':raise self._inspection_error(state,output)
@@ -106,10 +113,10 @@ class CityTransport:
     def input(self,expected,index,previous):
         self.preflight(expected,index,previous)
         self.reader.action_attempts+=1;self.reader.action_uncertain=True
-        state,_=self._instrument('city_input',expected,index,previous+1)
+        state,output=self._instrument('city_input',expected,index,previous+1)
         if state in ('denied_screen_changed','denied_field','denied_context_or_layout','denied_arguments','denied_operation'):
             self.reader.action_uncertain=False
-            raise BridgeError('Android отказал до ввода города: '+state)
+            raise self._inspection_error(state,output)
         if state!='city_input_native_verified':
             raise BridgeError('Исход ввода города неизвестен; повтор запрещён.')
         self.reader.action_uncertain=False
