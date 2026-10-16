@@ -18,6 +18,22 @@ def gesture(**kw):return {'action_id':ID,'expected_content_sha256':SHA,'action':
 def text(**kw):return {'action_id':ID,'expected_field_context_sha256':SHA,'bounds':[118,196,786,276],'expected_text':'','mode':'type','text':'Нальчик 🙂','delay_ms':343,**kw}
 def native_args(r):return ['-s',SERIAL,'shell','am','instrument','-w','-r','-e','request_b64',base64.b64encode(json.dumps(r).encode()).decode(),COMPONENT]
 
+class ControlDiagnosticTests(unittest.TestCase):
+    def test_diagnostic_only_fixed_safe_enums(self):
+        from universal_control import safe_diagnostic
+        report='INSTRUMENTATION_RESULT: control_diagnostic_code=root_not_ready\nINSTRUMENTATION_RESULT: control_diagnostic_phase=startup_root\n'
+        self.assertEqual(safe_diagnostic(report),' [code=root_not_ready, phase=startup_root]')
+        self.assertEqual(safe_diagnostic('INSTRUMENTATION_RESULT: control_diagnostic_code=private_user_text\n'),'')
+        self.assertEqual(safe_diagnostic(report+'INSTRUMENTATION_RESULT: control_diagnostic_code=wrong_package\n'),' [phase=startup_root]')
+    def test_inspection_refusal_reports_fixed_reason_without_raw_output(self):
+        from types import SimpleNamespace
+        report=b'INSTRUMENTATION_RESULT: control_status=denied_context\nINSTRUMENTATION_RESULT: control_diagnostic_code=screen_dimensions\nINSTRUMENTATION_RESULT: control_diagnostic_phase=inspect_screen\nPRIVATE_APP_TEXT\n'
+        reader=SimpleNamespace(control_enabled=True,_foreground=lambda:None,_run=lambda args:report)
+        with self.assertRaises(BridgeError) as caught:UniversalControl(reader,None).inspect()
+        message=str(caught.exception)
+        self.assertIn('code=screen_dimensions',message);self.assertIn('phase=inspect_screen',message)
+        self.assertNotIn('PRIVATE_APP_TEXT',message)
+
 class ControlProtocolTests(unittest.TestCase):
     def test_four_tools_no_shell_scripts_or_remote_optin(self):
         self.assertEqual({t['name'] for t in TOOLS},{'mumu_control_inspect','mumu_control_gesture','mumu_control_key','mumu_control_text'})

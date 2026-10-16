@@ -56,7 +56,7 @@ public class PolicyTest {static void ck(boolean v){if(!v)throw new AssertionErro
         self.assertIn('CONTROL_VERIFY_ONLY=1',workflow)
         self.assertIn('python3 mumu-navigation/control-android/test-emulator.py',workflow)
         for name in PACKAGES:self.assertGreaterEqual(workflow.count(name),3)
-        self.assertIn("bridge_version='1.5.0-control-preview.1'",workflow)
+        self.assertIn("bridge_version='1.5.0-control-preview.2'",workflow)
     def test_native_runner_refuses_user_device_and_restores_ime(self):
         source=(ROOT/'test-emulator.py').read_text()
         self.assertIn("os.environ.get('GITHUB_ACTIONS')!='true'",source)
@@ -68,5 +68,44 @@ public class PolicyTest {static void ck(boolean v){if(!v)throw new AssertionErro
         self.assertIn("footer=tk.Frame(root);footer.pack(side='bottom'",source)
         self.assertIn('buttons = footer',source)
         self.assertIn("text='Остановить доступ', command=stop",source)
+
+    def test_startup_wait_is_readonly_once_and_does_not_relax_package_checks(self):
+        source=(ROOT/'src/com/dvk/control/ControlInstrumentation.java').read_text()
+        self.assertEqual(source.count('awaitAccessibility();'),1)
+        self.assertIn('"root_not_ready".equals(code) || "node_not_ready".equals(code)?0:-1',source)
+        root=source[source.index(' private AccessibilityNodeInfo root()'):source.index(' private AccessibilityNodeInfo field()')]
+        self.assertEqual(root.count('"drug.vokrug".contentEquals'),2)
+        self.assertNotIn('SystemClock.sleep',root)
+        self.assertLess(source.index('awaitAccessibility();'),source.index('phase="ime_input"'))
+        self.assertIn('control_diagnostic_code',source);self.assertNotIn('e.getMessage()',source)
+    def test_java_startup_wait_transient_permanent_and_deadline(self):
+        if not shutil.which('javac') or not shutil.which('java'):self.skipTest('JDK needed')
+        runner_source="""import com.dvk.control.ControlPolicy;
+public class WaitTest {
+ static void ck(boolean value){if(!value)throw new AssertionError();}
+ static class Probe implements ControlPolicy.RootProbe {
+  int calls=0,pauses=0,zeros,result;Probe(int zeros,int result){this.zeros=zeros;this.result=result;}
+  public int state(){calls++;return calls<=zeros?0:result;}public void pause(){pauses++;}
+ }
+ public static void main(String[] args){
+  Probe transientRoot=new Probe(3,1);ck(ControlPolicy.awaitRoot(transientRoot)==1);ck(transientRoot.calls==4);ck(transientRoot.pauses==3);
+  Probe wrongPackage=new Probe(0,-1);ck(ControlPolicy.awaitRoot(wrongPackage)==-1);ck(wrongPackage.calls==1);ck(wrongPackage.pauses==0);
+  Probe absent=new Probe(99,1);ck(ControlPolicy.awaitRoot(absent)==0);ck(absent.calls==40);ck(absent.pauses==39);
+  Probe ready=new Probe(0,1);ck(ControlPolicy.awaitRoot(ready)==1);ck(ready.calls==1);ck(ready.pauses==0);
+  System.out.println("CONTROL_STARTUP_POLICY_PASS");
+ }}"""
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp);runner=p/'WaitTest.java';runner.write_text(runner_source)
+            c=subprocess.run(['javac','-encoding','UTF-8','-d',str(p),str(ROOT/'src/com/dvk/control/ControlPolicy.java'),str(runner)],capture_output=True,text=True)
+            self.assertEqual(c.returncode,0,c.stderr)
+            r=subprocess.run(['java','-cp',str(p),'WaitTest'],capture_output=True,text=True)
+            self.assertEqual(r.returncode,0,r.stderr);self.assertIn('CONTROL_STARTUP_POLICY_PASS',r.stdout)
+    def test_ci_failure_artifact_is_synthetic_only(self):
+        source=(ROOT/'test-emulator.py').read_text()
+        self.assertLess(source.index("os.environ.get('GITHUB_ACTIONS')!='true'"),source.index('diagnostics=Path'))
+        self.assertIn('control-last.json',source)
+        workflow=(ROOT.parents[1]/'.github/workflows/mumu-navigation.yml').read_text()
+        self.assertIn('name: synthetic-control-diagnostics',workflow)
+        self.assertIn('if: ${{ failure() }}',workflow)
 
 if __name__=='__main__':unittest.main()

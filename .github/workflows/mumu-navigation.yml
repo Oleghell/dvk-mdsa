@@ -71,6 +71,14 @@ jobs:
             bash mumu-navigation/android/test-emulator.sh
             bash mumu-navigation/city-android/test-emulator.sh
             python3 mumu-navigation/control-android/test-emulator.py
+      - name: Preserve synthetic Android failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-control-diagnostics
+          path: mumu-navigation/control-android/out/ci-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: navigation-helper-runtime
@@ -134,7 +142,7 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
           @{
-            bridge_version='1.5.0-control-preview.1'
+            bridge_version='1.5.0-control-preview.2'
             universal_control='explicit-local-opt-in-app-scoped-gestures-keys-unicode-ime'
             control_package='com.dvk.control.v1'
             keyboard_package='com.dvk.keyboard.v1'

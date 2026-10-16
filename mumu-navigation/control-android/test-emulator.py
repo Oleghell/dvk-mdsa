@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
 import time
@@ -16,15 +17,20 @@ def main():
     if len(serials)!=1:raise SystemExit('Exactly one synthetic emulator required')
     prefix=['adb','-s',serials[0]]
     def adb(*args):return subprocess.check_output(prefix+list(args),text=True,timeout=100)
+    last={}
     def call(payload):
         raw=base64.b64encode(json.dumps(payload,separators=(',',':'),ensure_ascii=True).encode()).decode()
         output=adb('shell','am','instrument','-w','-r','-e','request_b64',raw,COMPONENT)
         statuses=re.findall(r'^INSTRUMENTATION_RESULT: control_status=([a-z_]+)\s*$',output,re.M)
-        assert len(statuses)==1,output
+        last.clear();last['operation']=payload.get('op');last['statuses']=statuses
+        for label in ('code','phase'):
+            values=re.findall(r'^INSTRUMENTATION_RESULT: control_diagnostic_'+label+r'=([a-z_]+)\s*$',output,re.M)
+            if len(values)==1:last[label]=values[0]
+        assert len(statuses)==1,last
         report=re.findall(r'^INSTRUMENTATION_RESULT: report_b64=([A-Za-z0-9+/=]+)\s*$',output,re.M)
         return statuses[0],json.loads(base64.b64decode(report[0])) if report else None
     def inspect():
-        status,data=call({'op':'inspect'});assert status=='inspection_ok',status
+        status,data=call({'op':'inspect'});assert status=='inspection_ok',dict(last)
         return data
     def expect(payload,wanted):
         status,data=call(payload);assert status==wanted,(status,wanted)
@@ -75,6 +81,9 @@ def main():
         perform_gesture(op='hold',duration_ms=300)
         perform_gesture(op='swipe',x=450,y=1100,x2=450,y2=1000,duration_ms=150)
         perform_gesture(op='key',x=0,y=0,keycode=4)
+        # A real foreign window must still be rejected, never accepted after waiting.
+        adb('shell','input','keyevent','3');time.sleep(1)
+        expect({'op':'inspect'},'denied_context');assert last.get('code')=='wrong_package',dict(last)
         start('city_password');assert not inspect()['focused']
         # Wrong IME is a known refusal, not a silently successful insertion.
         adb('shell','ime','set',previous)
@@ -82,6 +91,19 @@ def main():
         d=inspect();expect(text(d,'type','Нальчик'),'denied_ime')
         assert inspect()['text']==''
         print('UNIVERSAL_CONTROL_NATIVE_FIXTURE_PASS')
+    except BaseException:
+        # Disposable synthetic emulator only; never collect a user's MuMu data.
+        diagnostics=Path(__file__).resolve().parent/'out'/'ci-diagnostics'
+        diagnostics.mkdir(parents=True,exist_ok=True)
+        (diagnostics/'control-last.json').write_text(json.dumps(last,indent=2)+'\n')
+        for name,args,binary in (
+            ('screen.png',['exec-out','screencap','-p'],True),
+            ('window.txt',['shell','dumpsys','window'],False)):
+            try:
+                result=subprocess.run(prefix+args,capture_output=True,timeout=15)
+                (diagnostics/name).write_bytes(result.stdout)
+            except Exception:pass
+        raise
     finally:
         if previous and previous!='null':adb('shell','ime','set',previous)
 

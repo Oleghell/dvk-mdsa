@@ -8,6 +8,15 @@ import re
 from control_protocol import *
 from mumu_bridge import BridgeError, SERIAL, content_pixel_sha256
 
+DIAGNOSTIC_CODES={'root_not_ready','node_not_ready','wrong_package','screenshot_unavailable','screen_dimensions','internal_error'}
+DIAGNOSTIC_PHASES={'startup','startup_root','arguments','inspect_screen','inspect_field','validate_field','ime_input','gesture_guard','gesture_inject'}
+def safe_diagnostic(output):
+    pieces=[]
+    for key,allowed in (('code',DIAGNOSTIC_CODES),('phase',DIAGNOSTIC_PHASES)):
+        values=re.findall(r'^INSTRUMENTATION_RESULT: control_diagnostic_'+key+r'=([a-z_]+)\s*$',output,re.M)
+        if len(values)==1 and values[0] in allowed:pieces.append(key+'='+values[0])
+    return (' ['+', '.join(pieces)+']') if pieces else ''
+
 class UniversalControl:
     def __init__(self,reader,ledger):self.reader=reader;self.ledger=ledger
     def ready(self):
@@ -26,6 +35,7 @@ class UniversalControl:
     def inspect(self):
         if not getattr(self.reader,'control_enabled',False):raise BridgeError('Расширенный режим не включён локально.')
         state,out=self.instrument({'op':'inspect'})
+        if state!='inspection_ok':raise BridgeError('Android inspection refused: '+state+safe_diagnostic(out))
         data=re.findall(r'^INSTRUMENTATION_RESULT: report_b64=([A-Za-z0-9+/=]+)\s*$',out,re.M)
         try:
             if state!='inspection_ok' or len(data)!=1:raise ValueError()
@@ -52,10 +62,10 @@ class UniversalControl:
             self.ledger.db.execute('INSERT INTO control_actions VALUES (?,?)',(args['action_id'],'reserved'))
         self.reader.action_uncertain=True
         try:
-            state,_=self.instrument(request)
+            state,out=self.instrument(request)
             if state in ('denied_arguments','denied_field','denied_screen_changed','denied_context','denied_ime'):
                 self.finish(args['action_id'],'refused');self.reader.action_uncertain=False
-                raise BridgeError('Android refused before action: '+state)
+                raise BridgeError('Android refused before action: '+state+safe_diagnostic(out))
             if state!=('text_verified' if name=='mumu_control_text' else 'input_injected'):raise BridgeError('Unknown control outcome; no retry')
         except BaseException:
             if self.reader.action_uncertain:self.finish(args['action_id'],'unknown')
