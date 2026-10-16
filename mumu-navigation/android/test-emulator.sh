@@ -6,7 +6,7 @@ python3 -m venv out/pixel-venv
 python -m pip -q install Pillow==12.3.0
 adb install -t -r out/helper.apk
 adb install -r out/fixture.apk
-component=com.dvk.navigation.v120/com.dvk.navigation.NavigationInstrumentation
+component=com.dvk.navigation.v121/com.dvk.navigation.NavigationInstrumentation
 adb shell am start -W -n drug.vokrug/drug.vokrug.FixtureActivity
 sleep 2
 content_hash() {
@@ -51,3 +51,42 @@ adb shell am start -W -a android.settings.SETTINGS >/dev/null
 sleep 1
 result=$(run_helper back "$(content_hash)" 0 0);echo "$result";grep -q navigation_status=denied_context_or_layout <<< "$result"
 echo 'ANDROID_NAVIGATION_TESTS_PASSED: pixel hash equality; real injected tap and Back; stale screen/wrong app/invalid coordinates refused; fixture draft unchanged; fixture sent=0. NOT a real DrugVokrug test.'
+
+# Fixed profile-cloud action: an animated gift must not block it or be tapped.
+profile_start() {
+ adb shell am force-stop drug.vokrug
+ adb shell am start -W -n drug.vokrug/drug.vokrug.FixtureActivity --es scenario "$1" >/dev/null
+ sleep 2
+}
+profile_hash() {
+ adb exec-out screencap -p > out/profile.png
+ PYTHONPATH=.. python - <<'PYCODE'
+from pathlib import Path
+from mumu_bridge import profile_guard
+r=profile_guard(Path('out/profile.png').read_bytes());assert r['button_matches'],r
+print(r['profile_sha256'])
+PYCODE
+}
+profile_start profile_a
+reference=$(profile_hash)
+full_reference=$(content_hash)
+profile_start profile_b
+second=$(profile_hash)
+test "$reference" = "$second"
+result=$(run_helper tap "$full_reference" 321 1515);echo "$result";grep -q navigation_status=denied_screen_changed <<< "$result"
+result=$(run_helper profile_chat "$reference" 800 950);echo "$result";grep -q navigation_status=denied_coordinates <<< "$result"
+profile_start profile_other
+result=$(run_helper profile_chat "$reference" 321 1515);echo "$result";grep -q navigation_status=denied_screen_changed <<< "$result"
+profile_start profile_bad_button
+result=$(run_helper profile_chat "$reference" 321 1515);echo "$result";grep -q navigation_status=denied_context_or_layout <<< "$result"
+profile_start profile_animated
+result=$(run_helper profile_chat "$reference" 321 1515);echo "$result";grep -q navigation_status=input_injected <<< "$result"
+adb shell uiautomator dump /data/local/tmp/profile-fixture.xml >/dev/null
+adb pull /data/local/tmp/profile-fixture.xml out/profile-check.xml >/dev/null
+python - <<'PYCODE'
+import xml.etree.ElementTree as E
+r=E.parse('out/profile-check.xml')
+assert any(n.get('content-desc')=='chat=1 gifts=0' for n in r.iter('node'))
+PYCODE
+result=$(run_helper profile_back "$(profile_hash)" 0 0);echo "$result";grep -q navigation_status=input_injected <<< "$result"
+echo 'ANDROID_PROFILE_CLOUD_TESTS_PASSED: Python/Android masked hashes equal; animated gift ignored only for fixed lower cloud action; other identity/button changes refused; exact lower cloud tapped once; gift taps zero. SYNTHETIC FIXTURE ONLY.'

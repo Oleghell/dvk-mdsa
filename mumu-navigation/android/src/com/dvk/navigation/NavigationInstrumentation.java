@@ -20,15 +20,16 @@ import org.json.JSONObject;
  * A tap CAN activate a button. Caller must inspect the fresh image before use.
  */
 public final class NavigationInstrumentation extends Instrumentation {
+ private static final String BUTTON_SHA="644fbcf917c627fe7bcd897098ef4efab9fcf4e38b0e67d6ef625914d235e54a";
  private String op,expected; private int x,y; private String stage="initialization";
  @Override public void onCreate(Bundle args){
   super.onCreate(args);
   op=args==null?"":args.getString("op","");
   expected=args==null?"":args.getString("expected_content_sha256","");
   try{x=Integer.parseInt(args.getString("x","0"));y=Integer.parseInt(args.getString("y","0"));}catch(Exception e){done("denied_arguments");return;}
-  if(!"inspect".equals(op) && !"tap".equals(op) && !"back".equals(op)){done("denied_operation");return;}
+  if(!"inspect".equals(op) && !"tap".equals(op) && !"back".equals(op) && !"profile_chat".equals(op) && !"profile_back".equals(op)){done("denied_operation");return;}
   if(!"inspect".equals(op) && !expected.matches("[0-9a-f]{64}")){done("denied_arguments");return;}
-  if(("tap".equals(op) && (x<0 || x>=900 || y<48 || y>=1536)) || (!"tap".equals(op) && (x!=0 || y!=0))){done("denied_coordinates");return;}
+  if(("tap".equals(op) && (x<0 || x>=900 || y<48 || y>=1536)) || ("profile_chat".equals(op) && (x!=321 || y!=1515)) || (("inspect".equals(op) || "back".equals(op) || "profile_back".equals(op)) && (x!=0 || y!=0))){done("denied_coordinates");return;}
   start();
  }
  private void done(String status){Bundle b=new Bundle();b.putString("navigation_status",status);finish(0,b);}
@@ -38,13 +39,24 @@ public final class NavigationInstrumentation extends Instrumentation {
   if(n==null || n.getPackageName()==null || !"drug.vokrug".contentEquals(n.getPackageName()))throw new Exception();
   return n;
  }
- private static String hash(UiAutomation a) throws Exception {
+ private static String hash(UiAutomation a) throws Exception {return hash(a,false);}
+ private static String digest(byte[] data) throws Exception {
+  StringBuilder s=new StringBuilder();for(byte v:MessageDigest.getInstance("SHA-256").digest(data))s.append(String.format(java.util.Locale.ROOT,"%02x",v&255));return s.toString();
+ }
+ private static String hash(UiAutomation a,boolean profile) throws Exception {
   Bitmap b=a.takeScreenshot();if(b==null)throw new Exception();
   try{
    if(b.getWidth()!=900 || b.getHeight()!=1600)throw new Exception();
+   if(profile){
+    int[] button=new int[96*96];b.getPixels(button,0,96,274,1468,96,96);byte[] data=new byte[button.length*3];int index=0;
+    for(int c:button){data[index++]=(byte)(c>>>16);data[index++]=(byte)(c>>>8);data[index++]=(byte)c;}
+    if(!BUTTON_SHA.equals(digest(data)))throw new Exception("button mismatch");
+   }
    int[] colors=new int[900*1552];b.getPixels(colors,0,900,0,48,900,1552);
    byte[] rgb=new byte[colors.length*3];int k=0;
-   for(int c:colors){rgb[k++]=(byte)(c>>>16);rgb[k++]=(byte)(c>>>8);rgb[k++]=(byte)c;}
+   for(int i=0;i<colors.length;i++){int c=colors[i];int px=i%900,py=i/900+48;
+    if(profile && px>=720 && px<900 && py>=810 && py<1032)c=0;
+    rgb[k++]=(byte)(c>>>16);rgb[k++]=(byte)(c>>>8);rgb[k++]=(byte)c;}
    byte[] digest=MessageDigest.getInstance("SHA-256").digest(rgb);StringBuilder s=new StringBuilder();
    for(byte v:digest)s.append(String.format(java.util.Locale.ROOT,"%02x",v&255));return s.toString();
   }finally{b.recycle();}
@@ -73,10 +85,10 @@ public final class NavigationInstrumentation extends Instrumentation {
    UiAutomation a=getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);stage="foreground_root";root(a);
    if("inspect".equals(op)){stage="inspect_layout";inspect(a);return;}
    stage="screen_guard";
-   if(!expected.equals(hash(a))){done("denied_screen_changed");return;}
-   root(a);if(!expected.equals(hash(a))){done("denied_screen_changed");return;}
+   if(!expected.equals(hash(a,"profile_chat".equals(op) || "profile_back".equals(op)))){done("denied_screen_changed");return;}
+   root(a);if(!expected.equals(hash(a,"profile_chat".equals(op) || "profile_back".equals(op)))){done("denied_screen_changed");return;}
    stage="input_event";attempted=true;boolean first,second;
-   if("tap".equals(op)){
+   if("tap".equals(op) || "profile_chat".equals(op)){
     long now=SystemClock.uptimeMillis();MotionEvent down=MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,x,y,0);down.setSource(InputDevice.SOURCE_TOUCHSCREEN);
     MotionEvent up=MotionEvent.obtain(now,now+60,MotionEvent.ACTION_UP,x,y,0);up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
     try{first=a.injectInputEvent(down,true);second=a.injectInputEvent(up,true);}finally{down.recycle();up.recycle();}
