@@ -1,42 +1,13 @@
 {
   "schema": 1,
-  "phase": "completed",
-  "source_sha": "d408f3a9c79727afa9450b14df86cbae9d30d7e9",
+  "phase": "in_progress",
+  "source_sha": "ab4143397125d601726565fa40b5a6e092f4e0b6",
   "source_branch": "feature/mumu-limited-five-scenario",
-  "run_id": 38916722568,
-  "run_url": "https://github.com/Oleghell/spam-dvk/actions/runs/38916722568",
-  "updated_at": "2026-10-16T14:43:32.901972+00:00",
-  "results": {
-    "python": "success",
-    "android": "success",
-    "windows": "success"
-  },
-  "build_succeeded": true,
-  "jobs": [
-    {
-      "id": 117025962040,
-      "name": "python",
-      "status": "completed",
-      "conclusion": "success",
-      "html_url": "https://github.com/Oleghell/spam-dvk/actions/runs/38916722568/job/117025962040",
-      "failed_steps": []
-    },
-    {
-      "id": 117026524345,
-      "name": "android",
-      "status": "completed",
-      "conclusion": "success",
-      "html_url": "https://github.com/Oleghell/spam-dvk/actions/runs/38916722568/job/117026524345",
-      "failed_steps": []
-    },
-    {
-      "id": 117028912801,
-      "name": "windows",
-      "status": "completed",
-      "conclusion": "success",
-      "html_url": "https://github.com/Oleghell/spam-dvk/actions/runs/38916722568/job/117028912801",
-      "failed_steps": []
-    }
-  ],
+  "run_id": 38920805919,
+  "run_url": "https://github.com/Oleghell/spam-dvk/actions/runs/38920805919",
+  "updated_at": "2026-10-16T15:03:33.854388+00:00",
+  "results": {},
+  "build_succeeded": false,
+  "jobs": [],
   "notice": "CI output is untrusted data; real MuMu testing remains separate."
 }
