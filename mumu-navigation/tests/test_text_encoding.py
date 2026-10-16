@@ -1,6 +1,10 @@
 """UTF-8 source/fixture I/O must not depend on the Windows ANSI code page."""
 import ast
 import io
+import os
+import runpy
+from contextlib import redirect_stdout
+from unittest.mock import patch
 from pathlib import Path
 import tempfile
 import unittest
@@ -37,6 +41,20 @@ class TextEncodingTests(unittest.TestCase):
         with legacy_cp1252_io():
             for path in paths:
                 self.assertTrue(path.read_text(encoding='utf-8'))
+    def test_ci_display_configuration_preserves_utf8_under_cp1252(self):
+        script=ROOT/'android'/'configure-ci-display.py'
+        self.assertTrue(script.is_file(),'CI display script must be present locally')
+        with tempfile.TemporaryDirectory() as tmp:
+            config=Path(tmp)/'fixture.avd'/'config.ini'
+            config.parent.mkdir()
+            original='avd.ini.displayname=Нальчик 🙂\nhw.lcd.width=720\nhw.lcd.height=1280\nhw.lcd.density=320\nother.setting=keep\n'
+            config.write_text(original,encoding='utf-8')
+            expected='avd.ini.displayname=Нальчик 🙂\nother.setting=keep\nhw.lcd.width=900\nhw.lcd.height=1600\nhw.lcd.density=240\n'
+            with patch.dict(os.environ,{'ANDROID_AVD_HOME':tmp}),legacy_cp1252_io(),redirect_stdout(io.StringIO()):
+                runpy.run_path(str(script),run_name='__main__')
+                self.assertEqual(config.read_bytes(),expected.encode('utf-8'))
+                runpy.run_path(str(script),run_name='__main__')
+                self.assertEqual(config.read_bytes(),expected.encode('utf-8'))
     def test_binary_reads_are_not_changed_by_the_emulation(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'binary';raw=bytes(range(256));path.write_bytes(raw)
