@@ -9,7 +9,7 @@ identity, not independent provenance or authorship certification.
 The helper instruments its own `com.dvk.navigation.v132` package, not the fixture
 package. Its signing key need not match the synthetic fixture's ephemeral key.
 `build.sh` still compiles the native source; packaging verifies its DEX equals
-the pinned release DEX, source and manifest SHA256 values are pinned too.
+the pinned release DEX, source and manifest SHA256 values are pinned too (LF/CRLF is normalized; code changes are not).
 The exact packaged APK is installed and exercised by Android CI before upload.
 Any mismatch blocks the build; changing native code requires a deliberate
 new helper release and migration plan. Do not replace constants to skip review.

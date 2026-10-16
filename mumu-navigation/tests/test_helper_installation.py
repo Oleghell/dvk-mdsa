@@ -117,6 +117,10 @@ class PinnedHelperTests(unittest.TestCase):
     def test_repeat_packaging_is_byte_identical(self):
         first=PIN.validated_apk(self.root);second=PIN.validated_apk(self.root)
         self.assertEqual(first,second);self.assertEqual(hashlib.sha256(first).hexdigest(),PINNED_HELPER_SHA256)
+    def test_windows_crlf_checkout_preserves_canonical_source_checksums(self):
+        for name in PIN.SOURCE_SHA256:
+            p=self.root/name;p.write_bytes(p.read_bytes().replace(b'\r\n',b'\n').replace(b'\n',b'\r\n'))
+        self.assertEqual(hashlib.sha256(PIN.validated_apk(self.root)).hexdigest(),PINNED_HELPER_SHA256)
     def test_source_change_fails_closed(self):
         for name in PIN.SOURCE_SHA256:
             p=self.root/name;old=p.read_bytes();p.write_bytes(old+b'\n')

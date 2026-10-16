@@ -23,7 +23,9 @@ SOURCE_SHA256 = {
 def validated_apk(root, compiled_dex=None):
     root = Path(root)
     for relative, expected in SOURCE_SHA256.items():
-        if hashlib.sha256((root/relative).read_bytes()).hexdigest() != expected:
+        # Git for Windows may check out CRLF; only newline encoding is normalized.
+        source = (root/relative).read_bytes().replace(b'\r\n', b'\n')
+        if hashlib.sha256(source).hexdigest() != expected:
             raise ValueError('Native sources changed. Publish/review a new pinned helper; do not silently reuse this APK.')
     raw = base64.b64decode(''.join((root/'pinned/helper-v132.apk.base64').read_text().split()), validate=True)
     if hashlib.sha256(raw).hexdigest() != APK_SHA256:
