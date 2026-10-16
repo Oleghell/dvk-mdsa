@@ -6,7 +6,7 @@ python3 -m venv out/pixel-venv
 python -m pip -q install Pillow==12.3.0
 adb install -t -r out/helper.apk
 adb install -r out/fixture.apk
-component=com.dvk.navigation.v121/com.dvk.navigation.NavigationInstrumentation
+component=com.dvk.navigation.v130/com.dvk.navigation.NavigationInstrumentation
 adb shell am start -W -n drug.vokrug/drug.vokrug.FixtureActivity
 sleep 2
 content_hash() {
@@ -90,3 +90,43 @@ assert any(n.get('content-desc')=='chat=1 gifts=0' for n in r.iter('node'))
 PYCODE
 result=$(run_helper profile_back "$(profile_hash)" 0 0);echo "$result";grep -q navigation_status=input_injected <<< "$result"
 echo 'ANDROID_PROFILE_CLOUD_TESTS_PASSED: Python/Android masked hashes equal; animated gift ignored only for fixed lower cloud action; other identity/button changes refused; exact lower cloud tapped once; gift taps zero. SYNTHETIC FIXTURE ONLY.'
+
+# Approved greeting text: native readback only, never press SEND or Enter.
+check_greeting_field() {
+ adb shell uiautomator dump /data/local/tmp/greeting-fixture.xml >/dev/null
+ adb pull /data/local/tmp/greeting-fixture.xml out/greeting-check.xml >/dev/null
+ PYTHONPATH=.. python - "$1" <<'PYCODE'
+import sys,xml.etree.ElementTree as E
+from mumu_bridge import GREETINGS
+r=E.parse('out/greeting-check.xml');fields=[n for n in r.iter('node') if n.get('class')=='android.widget.EditText']
+assert len(fields)==1
+expected=GREETINGS[int(sys.argv[1])] if sys.argv[1].isdigit() else sys.argv[1]
+assert fields[0].get('text')==expected,fields[0].get('text')
+assert fields[0].get('bounds')=='[152,1488][748,1544]',fields[0].get('bounds')
+assert any(n.get('text')=='sent=0' for n in r.iter('node'))
+PYCODE
+}
+for variant in {0..9}; do
+ profile_start greeting_empty
+ result=$(run_helper greeting "$(content_hash)" "$variant" 0);echo "$result";grep -q navigation_status=greeting_draft_verified <<< "$result"
+ check_greeting_field "$variant"
+done
+profile_start greeting_nonempty
+result=$(run_helper greeting "$(content_hash)" 0 0);echo "$result";grep -q navigation_status=denied_nonempty_draft <<< "$result"
+check_greeting_field KEEP_EXISTING
+profile_start greeting_empty
+result=$(run_helper greeting "$(printf '0%.0s' {1..64})" 0 0);echo "$result";grep -q navigation_status=denied_screen_changed <<< "$result"
+for scenario in greeting_duplicate greeting_password;do
+ profile_start "$scenario"
+ result=$(run_helper greeting "$(content_hash)" 0 0);echo "$result";grep -q navigation_status=denied_field <<< "$result"
+done
+profile_start greeting_empty
+reference=$(content_hash)
+profile_start greeting_other
+result=$(run_helper greeting "$reference" 0 0);echo "$result";grep -q navigation_status=denied_screen_changed <<< "$result"
+profile_start greeting_switch_after_input
+result=$(run_helper greeting "$(content_hash)" 0 0);echo "$result";grep -q navigation_status=indeterminate_after_attempt <<< "$result"
+adb shell am start -W -a android.settings.SETTINGS >/dev/null
+sleep 1
+result=$(run_helper greeting "$reference" 0 0);echo "$result";grep -q navigation_status=denied_context_or_layout <<< "$result"
+echo 'ANDROID_GREETING_TESTS_PASSED: all ten exact Unicode native drafts; sent=0; nonempty preserved; stale screen/other recipient/password/multiple inputs/wrong app refused; post-input context switch indeterminate. This is NOT proof of Unity composition or real sending.'

@@ -16,10 +16,11 @@ import java.util.ArrayList;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Supervised navigation only: no text entry, editor actions or send loop.
+/** Supervised navigation and ten approved empty-field greetings. No editor actions or send loop.
  * A tap CAN activate a button. Caller must inspect the fresh image before use.
  */
 public final class NavigationInstrumentation extends Instrumentation {
+ private static final String[] GREETINGS={"Привет","Привет)","Привет))","Привет!","Привет 🙂","Привет 😊","Привет 👋","Привет! 🙂","Приветик)","Привет-привет)"};
  private static final String BUTTON_SHA="644fbcf917c627fe7bcd897098ef4efab9fcf4e38b0e67d6ef625914d235e54a";
  private String op,expected; private int x,y; private String stage="initialization";
  @Override public void onCreate(Bundle args){
@@ -27,9 +28,9 @@ public final class NavigationInstrumentation extends Instrumentation {
   op=args==null?"":args.getString("op","");
   expected=args==null?"":args.getString("expected_content_sha256","");
   try{x=Integer.parseInt(args.getString("x","0"));y=Integer.parseInt(args.getString("y","0"));}catch(Exception e){done("denied_arguments");return;}
-  if(!"inspect".equals(op) && !"tap".equals(op) && !"back".equals(op) && !"profile_chat".equals(op) && !"profile_back".equals(op)){done("denied_operation");return;}
+  if(!"inspect".equals(op) && !"tap".equals(op) && !"back".equals(op) && !"profile_chat".equals(op) && !"profile_back".equals(op) && !"greeting".equals(op)){done("denied_operation");return;}
   if(!"inspect".equals(op) && !expected.matches("[0-9a-f]{64}")){done("denied_arguments");return;}
-  if(("tap".equals(op) && (x<0 || x>=900 || y<48 || y>=1536)) || ("profile_chat".equals(op) && (x!=321 || y!=1515)) || (("inspect".equals(op) || "back".equals(op) || "profile_back".equals(op)) && (x!=0 || y!=0))){done("denied_coordinates");return;}
+  if(("greeting".equals(op) && (x<0 || x>=10 || y!=0)) || ("tap".equals(op) && (x<0 || x>=900 || y<48 || y>=1536)) || ("profile_chat".equals(op) && (x!=321 || y!=1515)) || (("inspect".equals(op) || "back".equals(op) || "profile_back".equals(op)) && (x!=0 || y!=0))){done("denied_coordinates");return;}
   start();
  }
  private void done(String status){Bundle b=new Bundle();b.putString("navigation_status",status);finish(0,b);}
@@ -80,10 +81,49 @@ public final class NavigationInstrumentation extends Instrumentation {
   report.put("semantic_identity_verified",false);
   Bundle b=new Bundle();b.putString("navigation_status","inspection_ok");b.putString("layout_b64",Base64.encodeToString(report.toString().getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP));finish(0,b);
  }
+
+ private static AccessibilityNodeInfo emptyField(UiAutomation a,boolean requireEmpty) throws Exception {
+  ArrayList<AccessibilityNodeInfo> list=new ArrayList<>();list.add(root(a));AccessibilityNodeInfo edit=null;int count=0;
+  for(int i=0;i<list.size();i++){
+   if(list.size()>1000)throw new Exception("too many nodes");AccessibilityNodeInfo n=list.get(i);
+   if(n.isVisibleToUser() && n.isEditable()){edit=n;count++;}
+   for(int j=0;j<n.getChildCount();j++){AccessibilityNodeInfo c=n.getChild(j);if(c!=null)list.add(c);}
+  }
+  if(count!=1 || edit==null || !edit.isEnabled() || edit.isPassword() || edit.getPackageName()==null || !"drug.vokrug".contentEquals(edit.getPackageName()))throw new Exception("field");
+  Rect bounds=new Rect();edit.getBoundsInScreen(bounds);
+  if(!bounds.equals(new Rect(152,1488,748,1544)))throw new Exception("unsupported field bounds");
+  if(requireEmpty && !edit.isShowingHintText() && edit.getText()!=null && edit.getText().length()!=0)return null;
+  return edit;
+ }
+ private static String conversationHash(UiAutomation a) throws Exception {
+  Bitmap b=a.takeScreenshot();if(b==null)throw new Exception();
+  try{
+   if(b.getWidth()!=900 || b.getHeight()!=1600)throw new Exception();
+   int[] colors=new int[900*1412];b.getPixels(colors,0,900,0,48,900,1412);byte[] rgb=new byte[colors.length*3];int k=0;
+   for(int c:colors){rgb[k++]=(byte)(c>>>16);rgb[k++]=(byte)(c>>>8);rgb[k++]=(byte)c;}
+   return digest(rgb);
+  }finally{b.recycle();}
+ }
+ private void greeting(UiAutomation a){boolean attempted=false;
+  try{
+   if(!expected.equals(hash(a))){done("denied_screen_changed");return;}
+   AccessibilityNodeInfo edit=emptyField(a,true);if(edit==null){done("denied_nonempty_draft");return;}
+   String context=conversationHash(a);
+   if(!expected.equals(hash(a))){done("denied_screen_changed");return;}
+   edit=emptyField(a,true);if(edit==null){done("denied_nonempty_draft");return;}
+   Bundle value=new Bundle();value.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,GREETINGS[x]);
+   attempted=true;
+   if(!edit.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,value)){done("indeterminate_after_attempt");return;}
+   SystemClock.sleep(250);edit=emptyField(a,false);
+   if(context.equals(conversationHash(a)) && edit.getText()!=null && GREETINGS[x].contentEquals(edit.getText()))done("greeting_draft_verified");
+   else done("indeterminate_after_attempt");
+  }catch(Exception e){done(attempted?"indeterminate_after_attempt":"denied_field");}
+ }
  @Override public void onStart(){boolean attempted=false;
   try{
    UiAutomation a=getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);stage="foreground_root";root(a);
    if("inspect".equals(op)){stage="inspect_layout";inspect(a);return;}
+   if("greeting".equals(op)){greeting(a);return;}
    stage="screen_guard";
    if(!expected.equals(hash(a,"profile_chat".equals(op) || "profile_back".equals(op)))){done("denied_screen_changed");return;}
    root(a);if(!expected.equals(hash(a,"profile_chat".equals(op) || "profile_back".equals(op)))){done("denied_screen_changed");return;}

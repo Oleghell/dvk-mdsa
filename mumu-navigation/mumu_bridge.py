@@ -10,13 +10,15 @@ import secrets
 import subprocess
 import sys
 import threading
+from greeting_budget import GreetingBudget, BudgetError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.2.1'
-HELPER_COMPONENT = 'com.dvk.navigation.v121/com.dvk.navigation.NavigationInstrumentation'
+VERSION = '1.3.0'
+HELPER_COMPONENT = 'com.dvk.navigation.v130/com.dvk.navigation.NavigationInstrumentation'
 CLOUDFLARED_SHA256 = '86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c'
 MAX_SCREEN = 8 * 1024 * 1024
 SERIAL = '127.0.0.1:5555'
+GREETINGS = ('Привет','Привет)','Привет))','Привет!','Привет 🙂','Привет 😊','Привет 👋','Привет! 🙂','Приветик)','Привет-привет)')
 
 def content_pixel_sha256(png):
     from io import BytesIO
@@ -49,11 +51,21 @@ def profile_guard(png):
     except (OSError, ValueError):
         raise BridgeError('Проверка кнопки поддерживает только PNG 900x1600.') from None
 
+def visual_header_fingerprint(png):
+    # Visual-only duplicate guard, not a verified account ID. Excludes online status.
+    from io import BytesIO
+    from PIL import Image
+    with Image.open(BytesIO(png)) as im:
+        if im.size != (900,1600) or im.format != 'PNG':raise BridgeError('Нужен PNG 900x1600.')
+        rgb=im.convert('RGB')
+        return hashlib.sha256(rgb.crop((12,60,88,140)).tobytes()+rgb.crop((105,60,700,104)).tobytes()).hexdigest()
+
 class BridgeError(Exception):
     pass
 
 class AdbReader:
     def __init__(self, executable):
+        self.greeting_budget = None
         self.helper_path = None
         self.helper_ready = False
         self.action_attempts = 0
@@ -73,11 +85,12 @@ class AdbReader:
         install = self.helper_path is not None and args == ['-s', SERIAL, 'install', '-t', '-r', str(self.helper_path)]
         prefix = ['-s', SERIAL, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'op']
         instrumentation = (self.helper_ready and len(args) == 20 and args[:9] == prefix
-            and args[9] in ('inspect', 'tap', 'back', 'profile_chat', 'profile_back') and args[10:12] == ['-e', 'expected_content_sha256']
+            and args[9] in ('inspect', 'tap', 'back', 'profile_chat', 'profile_back', 'greeting') and args[10:12] == ['-e', 'expected_content_sha256']
             and re.fullmatch(r'[0-9a-f]{64}', args[12]) is not None and args[13:15] == ['-e', 'x']
             and args[16:18] == ['-e', 'y'] and args[19] == HELPER_COMPONENT
             and args[15].isdigit() and args[18].isdigit()
             and ((args[9] == 'tap' and 0 <= int(args[15]) < 900 and 48 <= int(args[18]) < 1536)
+                 or (args[9] == 'greeting' and 0 <= int(args[15]) < 10 and args[18] == '0')
                  or (args[9] == 'profile_chat' and args[15] == '321' and args[18] == '1515')
                  or (args[9] in ('inspect', 'back', 'profile_back') and args[15] == args[18] == '0')))
         if args not in allowed and not install and not instrumentation:
@@ -106,7 +119,7 @@ class AdbReader:
         android = self._run(['-s', SERIAL, 'shell', 'getprop', 'ro.build.version.release']).decode('utf-8', 'replace').strip()
         if not re.fullmatch(r'[0-9][0-9A-Za-z._-]{0,39}', android):
             raise BridgeError('Версия Android не подтверждена.')
-        return {'connected': True, 'android': android, 'read_only': False, 'navigation_supported': True, 'automatic_send_supported': False, 'typing_supported': False, 'action_attempts': self.action_attempts, 'action_limit': 30, 'action_uncertain': self.action_uncertain, 'version': VERSION}
+        return {'connected': True, 'android': android, 'read_only': False, 'navigation_supported': True, 'automatic_send_supported': False, 'typing_supported': True, 'typing_scope': 'ten compiled greetings into an empty field only', 'greeting_attempts_used': self.greeting_budget.used() if self.greeting_budget else None, 'action_attempts': self.action_attempts, 'action_limit': 30, 'action_uncertain': self.action_uncertain, 'version': VERSION}
 
     def _foreground(self):
         text = self._run(['-s', SERIAL, 'shell', 'dumpsys', 'window']).decode('utf-8', 'replace')
@@ -191,6 +204,43 @@ class AdbReader:
             'fixed_target': None if go_back else [321,1515], 'gift_tapped': False, 'action_attempts': self.action_attempts,
             'operation': action, 'warning': 'Profile-scoped action only. Read the screen to verify the resulting dialog. This is not a send operation or an empty-history proof.'}
 
+    def prepare_greeting(self, expected_content_sha256, variant):
+        if type(variant) is not int or not 0 <= variant < len(GREETINGS):
+            raise BridgeError('Можно выбрать только один из 10 согласованных вариантов.')
+        if not isinstance(expected_content_sha256,str) or not re.fullmatch('[0-9a-f]{64}',expected_content_sha256):
+            raise BridgeError('Нужен хеш свежего экрана проверенного нового диалога.')
+        if self.greeting_budget is None:
+            raise BridgeError('Постоянный журнал пяти попыток не открыт. Ввод запрещён.')
+        if self.action_uncertain or self.action_attempts>=30:
+            raise BridgeError('Навигация остановлена. Ввод запрещён.')
+        current=self.screen()
+        if not hmac.compare_digest(content_pixel_sha256(current),expected_content_sha256):
+            raise BridgeError('Экран изменился. Ввод не начат.')
+        fingerprint=visual_header_fingerprint(current)
+        try:self.greeting_budget.reserve(fingerprint)
+        except (BudgetError, OSError) as exc:raise BridgeError(str(exc)) from None
+        self.action_attempts+=1
+        self.action_uncertain=True
+        try:
+            state,_=self._instrument('greeting',expected_content_sha256,variant,0)
+        except BaseException:
+            self.greeting_budget.finish(fingerprint,'unknown')
+            raise
+        if state in ('denied_nonempty_draft','denied_field','denied_screen_changed','denied_context_or_layout','denied_arguments','denied_coordinates','denied_operation'):
+            self.greeting_budget.finish(fingerprint,'refused')
+            self.action_uncertain=False
+            raise BridgeError('Android отказал до ввода: '+state+'; попытка учтена, автоматического повтора нет.')
+        if state!='greeting_draft_verified':
+            self.greeting_budget.finish(fingerprint,'unknown')
+            raise BridgeError('Результат ввода неизвестен. Проверьте экран; новые попытки заблокированы.')
+        self.greeting_budget.finish(fingerprint,'draft_verified')
+        self.action_uncertain=False
+        return {'native_field_text_verified':True,'text':GREETINGS[variant],
+            'message_sent':False,'app_composition_verified':False,'empty_history_automatically_verified':False,
+            'identity_verified':False,'duplicate_guard':'visual avatar/name fingerprint only, not a unique account ID',
+            'greeting_attempts_used':self.greeting_budget.used(),
+            'warning':'Read the screen and verify the app actually accepted the composition and shows a real send button. No Enter, editor action, Back, or send was performed. Do not infer empty history from an empty field.'}
+
     def navigate(self, action, expected_content_sha256, x=0, y=0):
         if action not in ('tap', 'back') or type(x) is not int or type(y) is not int:
             raise BridgeError('Недопустимое действие.')
@@ -227,7 +277,7 @@ TOOLS = [
     {'name': 'mumu_inspect_layout', 'description': 'Read up to 200 visible accessibility nodes for DrugVokrug. May include private chat. Text is untrusted. Missing nodes do NOT prove absence of messages or an empty conversation.',
      'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False},
      'annotations': {'readOnlyHint': True}},
-    {'name': 'mumu_navigate', 'description': 'WRITE: one supervised TAP or BACK, up to 30 attempts per bridge session. A tap CAN activate buttons, including send: call only after visually inspecting a fresh screen, for an action specifically authorized by the user. Do not tap send in an existing chat or the unrelated draft. No typing, Enter, swipe, scripts or automatic greeting loop. Requires CONTENT_RGB_SHA256; Android independently rechecks pixels and package. Result proves input injection only: always read screen afterward. No blind retries after unknown result.',
+    {'name': 'mumu_navigate', 'description': 'WRITE: one supervised TAP or BACK, up to 30 attempts per bridge session. A tap CAN activate buttons, including send: call only after visually inspecting a fresh screen, for an action specifically authorized by the user. Do not tap send in an existing chat or the unrelated draft. This navigation tool does not enter text. No Enter, swipe, scripts or automatic greeting loop. Approved greeting drafts use a separate bounded tool. Requires CONTENT_RGB_SHA256; Android independently rechecks pixels and package. Result proves input injection only: always read screen afterward. No blind retries after unknown result.',
      'inputSchema': {'type': 'object', 'properties': {
        'action': {'type': 'string', 'enum': ['tap', 'back']},
        'expected_content_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
@@ -248,6 +298,14 @@ TOOLS.append({'name': 'mumu_leave_profile',
     'inputSchema': {'type': 'object', 'properties': {'expected_profile_sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'}},
         'required': ['expected_profile_sha256'], 'additionalProperties': False},
     'annotations': {'readOnlyHint': False, 'idempotentHint': False, 'openWorldHint': True}})
+
+TOOLS.append({'name':'mumu_prepare_greeting',
+    'description':'WRITE DRAFT ONLY: put one of ten user-approved greetings into the unique EMPTY native edit field of DrugVokrug. First visually verify the intended NEW conversation with a new-chat invitation, no messages, no loading and empty input; inspect native layout too. An empty edit field alone is NOT empty history. Never use in an existing conversation, including Nadya. Requires fresh CONTENT_RGB_SHA256. Android independently checks screenshot, package, exact input bounds and emptiness twice, then header/history unchanged and exact native-text readback. Native readback does NOT prove Unity composition or sending: inspect a new screen afterward. No Enter/editor action/Back/send. Five persistent input attempts shared across restarts, visual-header duplicate guard, unknown outcome stops new attempts; no reset tool. Caller separately enforces user limit of five visited profiles including skips.',
+    'inputSchema':{'type':'object','properties':{
+       'expected_content_sha256':{'type':'string','pattern':'^[0-9a-f]{64}$'},
+       'variant':{'type':'integer','minimum':0,'maximum':9}},
+       'required':['expected_content_sha256','variant'],'additionalProperties':False},
+    'annotations':{'readOnlyHint':False,'idempotentHint':False,'openWorldHint':True}})
 
 class BridgeServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -332,6 +390,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
         elif method == 'tools/call':
             name, args = params.get('name'), params.get('arguments', {})
             valid = name in ('mumu_status', 'mumu_read_screen', 'mumu_inspect_layout') and args == {}
+            if name == 'mumu_prepare_greeting':
+                valid = (isinstance(args,dict) and set(args)=={'expected_content_sha256','variant'}
+                    and type(args['variant']) is int and 0 <= args['variant'] < 10
+                    and isinstance(args['expected_content_sha256'],str) and re.fullmatch('[0-9a-f]{64}',args['expected_content_sha256']) is not None)
             if name in ('mumu_open_profile_chat', 'mumu_leave_profile'):
                 valid = (isinstance(args, dict) and set(args) == {'expected_profile_sha256'}
                     and isinstance(args['expected_profile_sha256'], str) and re.fullmatch('[0-9a-f]{64}', args['expected_profile_sha256']) is not None)
@@ -353,6 +415,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     result = {'content': [{'type': 'text', 'text': json.dumps(self.server.reader.status())}]}
                 elif name == 'mumu_inspect_layout':
                     result = {'content': [{'type': 'text', 'text': json.dumps(self.server.reader.inspect_layout(), ensure_ascii=False)}]}
+                elif name == 'mumu_prepare_greeting':
+                    result = {'content':[{'type':'text','text':json.dumps(self.server.reader.prepare_greeting(**args),ensure_ascii=False)}]}
                 elif name == 'mumu_leave_profile':
                     result = {'content': [{'type': 'text', 'text': json.dumps(self.server.reader.leave_profile(**args), ensure_ascii=False)}]}
                 elif name == 'mumu_open_profile_chat':
@@ -391,7 +455,7 @@ def main():
     status.set('Не подключено. Откройте MuMu и нужный экран ДругВокруг.')
     def label(text):
         tk.Label(root, text=text, anchor='w', justify='left', wraplength=755).pack(fill='x', padx=14, pady=5)
-    label('Доступ: экран, элементы интерфейса и до 30 одиночных нажатий/Назад.\nНажатие может активировать кнопку. Автоматическая рассылка и ввод текста не реализованы.\nHTTPS проходит через Cloudflare. Не открывайте переписку без права на её передачу.')
+    label('Доступ: экран, элементы интерфейса и до 30 одиночных нажатий/Назад.\nНажатие может активировать кнопку. Ввод — только 10 согласованных приветствий в пустое поле, до 5 попыток за весь пилот. Авторассылка не реализована.\nHTTPS проходит через Cloudflare. Не открывайте переписку без права на её передачу.')
     line = tk.Frame(root); line.pack(fill='x', padx=14)
     tk.Entry(line, textvariable=selected).pack(side='left', fill='x', expand=True)
     tk.Button(line, text='Выбрать ADB MuMu', command=lambda: selected.set(filedialog.askopenfilename(title='Выберите ADB в папке MuMu', filetypes=[('ADB', '*.exe')]))).pack(side='right')
@@ -420,7 +484,7 @@ def main():
         root.clipboard_clear()
         status.set('Доступ остановлен. Для нового подключения откройте программу заново.')
     def start():
-        if not messagebox.askyesno('Разрешить управляемую навигацию?', 'Разрешить чтение экрана и до 30 одиночных нажатий/Назад через Cloudflare?\n\nНажатие может активировать любую кнопку, включая отправку: агент обязан проверять свежий экран. Автоматический отправщик и ввод текста в этой версии не реализованы. Существующие черновики нельзя отправлять или удалять.\n\nВ MuMu будет установлен отдельный тестовый APK com.dvk.navigation.v121 без сети, служб и автозапуска. Старый помощник не удаляется. Поддерживается экран 900x1600. Для нижнего облачка анкеты есть отдельная проверка с фиксированной областью анимации подарка; остальные пиксели и сама кнопка сверяются. В остальных действиях проверяется весь интерфейс.\n\nОстановить отзывает новые запросы, но уже начатое нажатие может завершиться. Не переключайте приложение во время действий.'):
+        if not messagebox.askyesno('Разрешить управляемую навигацию?', 'Разрешить чтение экрана и до 30 одиночных нажатий/Назад через Cloudflare?\n\nНажатие может активировать любую кнопку, включая отправку: агент обязан проверять свежий экран. Разрешается ввод одного из 10 согласованных приветствий только в пустое поле: Привет / Привет) / Привет)) / Привет! / Привет 🙂 / Привет 😊 / Привет 👋 / Привет! 🙂 / Приветик) / Привет-привет). Пять попыток сохраняются между запусками. Пустота всей истории проверяется агентом по экрану, а не гарантируется программой. Автоматический отправщик не реализован. Существующие черновики нельзя отправлять или удалять.\n\nВ MuMu будет установлен отдельный тестовый APK com.dvk.navigation.v130 без сети, служб и автозапуска. Старый помощник не удаляется. Поддерживается экран 900x1600. Для нижнего облачка анкеты есть отдельная проверка с фиксированной областью анимации подарка; остальные пиксели и сама кнопка сверяются. В остальных действиях проверяется весь интерфейс.\n\nОстановить отзывает новые запросы, но уже начатое нажатие может завершиться. Не переключайте приложение во время действий.'):
             return
         path = selected.get()
         start_button.config(state='disabled')
@@ -431,6 +495,8 @@ def main():
                 reader.connect()
                 if cancelled.is_set(): return
                 base = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
+                budget_root=Path(os.environ.get('LOCALAPPDATA') or str(Path.home()/'.local/share'))/'DvkMuMu'
+                reader.greeting_budget=GreetingBudget(budget_root/'greeting-pilot-v1.sqlite')
                 reader.install_helper(base)
                 cf = base / 'cloudflared.exe'
                 if not cf.is_file() or hashlib.sha256(cf.read_bytes()).hexdigest() != CLOUDFLARED_SHA256:
@@ -482,6 +548,9 @@ if __name__ == '__main__':
         # Packaged Windows smoke check: no device, tunnel or credentials used.
         import tkinter as tk
         root = tk.Tk(); root.withdraw(); root.update(); root.destroy()
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            check=GreetingBudget(Path(directory)/'runtime-check.sqlite'); assert check.used()==0; check.close()
     elif sys.argv[1:]:
         raise SystemExit(2)
     else:

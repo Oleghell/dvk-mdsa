@@ -5,6 +5,9 @@ import android.widget.*;
 public class FixtureActivity extends Activity {
  @Override public void onCreate(Bundle b){
   super.onCreate(b);
+  if(getIntent().getStringExtra("scenario")!=null && getIntent().getStringExtra("scenario").startsWith("greeting")){
+   greetingFixture();return;
+  }
   if(getIntent().getStringExtra("scenario")!=null && getIntent().getStringExtra("scenario").startsWith("profile")){
    getWindow().setFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
    getWindow().getDecorView().setSystemUiVisibility(4096|1024|512|256|4|2);
@@ -50,5 +53,26 @@ public class FixtureActivity extends Activity {
     setContentDescription("chat="+clicks+" gifts="+gifts);invalidate();
    }return true;
   }
+ }
+
+ private void greetingFixture(){
+  getWindow().setFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
+  getWindow().getDecorView().setSystemUiVisibility(4096|1024|512|256|4|2);
+  getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN|android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+  android.widget.FrameLayout layout=new android.widget.FrameLayout(this);
+  final TextView history=new TextView(this);history.setText("greeting_other".equals(getIntent().getStringExtra("scenario"))?"OTHER SYNTHETIC RECIPIENT":"NEW SYNTHETIC CHAT, NO NETWORK");
+  android.widget.FrameLayout.LayoutParams h=new android.widget.FrameLayout.LayoutParams(880,800);h.leftMargin=10;h.topMargin=100;layout.addView(history,h);
+  final TextView sent=new TextView(this);sent.setText("sent=0");android.widget.FrameLayout.LayoutParams sp=new android.widget.FrameLayout.LayoutParams(200,50);sp.topMargin=1000;layout.addView(sent,sp);
+  final EditText input=new EditText(this);input.setSingleLine(true);input.setPadding(0,0,0,0);input.setHint("Message");
+  if("greeting_nonempty".equals(getIntent().getStringExtra("scenario")))input.setText("KEEP_EXISTING");
+  if("greeting_password".equals(getIntent().getStringExtra("scenario")))input.setInputType(129);
+  android.widget.FrameLayout.LayoutParams ip=new android.widget.FrameLayout.LayoutParams(596,56);ip.leftMargin=152;ip.topMargin=1488;layout.addView(input,ip);
+  if("greeting_duplicate".equals(getIntent().getStringExtra("scenario"))){EditText second=new EditText(this);android.widget.FrameLayout.LayoutParams p=new android.widget.FrameLayout.LayoutParams(200,60);p.topMargin=1200;layout.addView(second,p);}
+  if("greeting_switch_after_input".equals(getIntent().getStringExtra("scenario"))){
+   input.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int b,int c){history.setText("CHANGED RECIPIENT");}public void afterTextChanged(android.text.Editable e){}});
+  }
+  Button send=new Button(this);send.setText("SEND");android.widget.FrameLayout.LayoutParams bp=new android.widget.FrameLayout.LayoutParams(120,80);bp.leftMargin=770;bp.topMargin=1480;
+  send.setOnClickListener(new android.view.View.OnClickListener(){public void onClick(android.view.View v){sent.setText("sent=1");}});layout.addView(send,bp);
+  layout.setFocusableInTouchMode(true);layout.requestFocus();setContentView(layout);
  }
 }
