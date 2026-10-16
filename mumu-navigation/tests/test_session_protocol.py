@@ -7,6 +7,8 @@ from mumu_bridge import BridgeServer, TOOLS
 class SessionProtocolTests(unittest.TestCase):
     def setUp(self):
         class Reader:
+            def check_city_search(self,**kw):return {'called':'check_city_search'}
+            def focus_city_search(self,**kw):return {'called':'focus_city_search'}
             def begin_profile(self,**kw):return {'called':'begin_profile',**kw}
             def check_new_chat(self,**kw):return {'called':'check_new_chat'}
             def send_prepared(self,**kw):return {'called':'send_prepared'}
@@ -21,7 +23,7 @@ class SessionProtocolTests(unittest.TestCase):
         req=Request(f'http://127.0.0.1:{self.server.server_port}/mcp',data,headers={'Content-Type':'application/json','Authorization':'Bearer test-only-key'})
         with urlopen(req) as response:return json.load(response)
     def test_new_scoped_tools_route_correctly(self):
-        for name in ('mumu_begin_profile','mumu_check_new_chat','mumu_send_prepared_greeting','mumu_review_visit','mumu_return_to_grid'):
+        for name in ('mumu_begin_profile','mumu_check_new_chat','mumu_send_prepared_greeting','mumu_review_visit','mumu_return_to_grid','mumu_check_city_search','mumu_focus_city_search'):
             with self.subTest(name=name):
                 args={'expected_content_sha256':'a'*64}
                 if name=='mumu_begin_profile':args.update(x=100,y=200)
@@ -31,6 +33,14 @@ class SessionProtocolTests(unittest.TestCase):
     def test_extra_fields_and_invalid_hashes_refused(self):
         for args in ({'expected_content_sha256':'a'*64,'reset':True},{'expected_content_sha256':'wrong'},{}):
             self.assertEqual(self.request('mumu_send_prepared_greeting',args)['error']['code'],-32602)
+    def test_city_tools_reject_arbitrary_text_coordinates_and_extra_args(self):
+        for name in ('mumu_check_city_search','mumu_focus_city_search'):
+            for extra in ({'text':'Нальчик'},{'x':400,'y':236},{'reset':True}):
+                args={'expected_content_sha256':'a'*64,**extra}
+                self.assertEqual(self.request(name,args)['error']['code'],-32602)
+            for args in ({},{'expected_content_sha256':'bad'}):
+                self.assertEqual(self.request(name,args)['error']['code'],-32602)
+
     def test_profile_boolean_coordinate_refused(self):
         self.assertEqual(self.request('mumu_begin_profile',{'expected_content_sha256':'a'*64,'x':True,'y':200})['error']['code'],-32602)
     def test_invalid_review_outcome_refused(self):

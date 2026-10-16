@@ -394,6 +394,10 @@ def session_tool(name, description, properties, required):
 
 _HASH = {'type':'string','pattern':'^[0-9a-f]{64}$'}
 TOOLS.extend([
+    session_tool('mumu_check_city_search', 'READ ONLY: verify the fixed 900x1600 city-picker title/magnifier and unique native search EditText using fresh full screenshot and matching complete Android tree. Returns query/focus only; Unity result rows are NOT available. No city selection, typing, confirmation or counter changes. A verified field does not prove search results or applied location.',
+        {'expected_content_sha256':_HASH},['expected_content_sha256']),
+    session_tool('mumu_focus_city_search', 'WRITE FOCUS ONLY: one fixed tap inside the verified native city search field (400,236), only between visits in a locally started finite test. Does NOT type, select a result, press geolocation, close or confirm filters. Already-focused is a no-op. Full screen rechecked by Android; read screen/tree afterward. Shared action cap/uncertainty stop, no run reset.',
+        {'expected_content_sha256':_HASH},['expected_content_sha256']),
     session_tool('mumu_begin_profile', 'WRITE: count ONE visited profile durably BEFORE tapping a visible grid tile. Only an explicitly locally started finite test (1..5 profiles). Requires full fresh screenshot and selected search-tab anchor. Tiles only, no scrolling. After action read screen. Includes skipped profiles; no new visit until return is observed. No automatic loop.',
         {'expected_content_sha256':_HASH,'x':{'type':'integer','minimum':0,'maximum':899},'y':{'type':'integer','minimum':72,'maximum':1267}},['expected_content_sha256','x','y']),
     session_tool('mumu_check_new_chat', 'Read fixed new-chat invitation, empty native input, fresh screen and visual duplicate history for the active visit. Agent MUST inspect full image for loaded history and matching intended recipient; a visual hash is NOT a stable account ID. No text input. Existing messages/drafts/unknown layout must be skipped. A matched static invitation is not proof of complete remote history.',
@@ -512,7 +516,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     and type(args['x']) is int and type(args['y']) is int
                     and ((args['action'] == 'tap' and 0 <= args['x'] < 900 and 48 <= args['y'] < 1536)
                          or (args['action'] == 'back' and args['x'] == args['y'] == 0)))
-            if name in ('mumu_begin_profile','mumu_check_new_chat','mumu_send_prepared_greeting','mumu_review_visit','mumu_return_to_grid'):
+            if name in ('mumu_begin_profile','mumu_check_new_chat','mumu_send_prepared_greeting','mumu_review_visit','mumu_return_to_grid','mumu_check_city_search','mumu_focus_city_search'):
                 keys = {'expected_content_sha256'}
                 if name == 'mumu_begin_profile': keys |= {'x','y'}
                 if name == 'mumu_review_visit': keys.add('outcome')
@@ -531,8 +535,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             try:
                 if params['name'] == 'mumu_status':
                     result = {'content': [{'type': 'text', 'text': json.dumps(self.server.reader.status())}]}
-                elif name in ('mumu_begin_profile','mumu_check_new_chat','mumu_send_prepared_greeting','mumu_review_visit','mumu_return_to_grid'):
-                    methods = {'mumu_begin_profile':'begin_profile','mumu_check_new_chat':'check_new_chat',
+                elif name in ('mumu_begin_profile','mumu_check_new_chat','mumu_send_prepared_greeting','mumu_review_visit','mumu_return_to_grid','mumu_check_city_search','mumu_focus_city_search'):
+                    methods = {'mumu_check_city_search':'check_city_search','mumu_focus_city_search':'focus_city_search','mumu_begin_profile':'begin_profile','mumu_check_new_chat':'check_new_chat',
                         'mumu_send_prepared_greeting':'send_prepared','mumu_review_visit':'review_visit','mumu_return_to_grid':'return_to_grid'}
                     result = {'content':[{'type':'text','text':json.dumps(getattr(self.server.reader,methods[name])(**args),ensure_ascii=False)}]}
                 elif name == 'mumu_inspect_layout':

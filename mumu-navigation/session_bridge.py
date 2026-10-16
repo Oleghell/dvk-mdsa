@@ -9,6 +9,7 @@ from io import BytesIO
 from PIL import Image
 from test_session import TestSession, SessionError
 from filter_state import online_filter_state, FILTER_BOX, FILTER_SHA
+from city_field import check_city_field, CITY_FOCUS_POINT
 from mumu_bridge import (BridgeError, GREETINGS, ACTION_LIMIT, content_pixel_sha256,
                          input_context_sha256, visual_header_fingerprint, profile_guard)
 
@@ -82,6 +83,32 @@ class SupervisedReader:
         if not hmac.compare_digest(content_pixel_sha256(png), expected):
             raise BridgeError('Экран изменился. Сначала прочитайте новый снимок.')
         return png
+
+    def check_city_search(self, expected_content_sha256):
+        """Read-only diagnostic. Does not infer row labels or change run state."""
+        png = self._fresh(expected_content_sha256)
+        layout = self.inspect_layout()
+        result = check_city_field(png, layout, expected_content_sha256)
+        # Bind observation to the still-current full frame, not just two crops.
+        self._fresh(expected_content_sha256)
+        return result
+
+    @_convert_error
+    def focus_city_search(self, expected_content_sha256):
+        """One fixed focus tap; never city text, row selection, close or apply."""
+        self._run_ready()
+        visit = self.ledger.current()
+        if visit is not None and visit['state'] not in ('returned_sent','returned_skipped'):
+            raise BridgeError('Во время незавершённой анкеты поиск города недоступен.')
+        result = self.check_city_search(expected_content_sha256)
+        if not result['city_picker_verified']:
+            raise BridgeError('Окно поиска города и нативное поле не подтверждены. Нажатия не было.')
+        self.online_confirmed = False
+        if result['focused']:
+            return {'input_injected':False,'already_focused':True,'text_entered':False,
+                    'city_selected':False}
+        result = self._dispatch(self.inner.navigate, 'tap', expected_content_sha256, *CITY_FOCUS_POINT)
+        return dict(result, text_entered=False, city_selected=False)
 
     def _run_ready(self):
         self.ledger._no_hold()
