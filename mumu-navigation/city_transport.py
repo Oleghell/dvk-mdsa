@@ -61,8 +61,19 @@ class CityTransport:
         states=re.findall(r'^INSTRUMENTATION_RESULT: navigation_status=([a-z_]+)\s*$',output,re.M)
         if len(states)!=1:raise BridgeError('Исход Android-команды города неизвестен; повтор запрещён.')
         return states[0],output
+    @staticmethod
+    def _inspection_error(state, output):
+        states={'denied_arguments','denied_context_or_layout','denied_operation','denied_screen_changed'}
+        reasons={'root_not_ready','wrong_package','tree_truncated','editor_invalid','editor_bounds',
+                 'screenshot_unavailable','screen_size','title_anchor','search_anchor','query_length',
+                 'context_changed','internal_error'}
+        code=re.findall(r'^INSTRUMENTATION_RESULT: city_diagnostic_code=([a-z_]+)\s*$',output,re.M)
+        safe_state=state if state in states else 'invalid_inspection_response'
+        safe_reason=code[0] if len(code)==1 and code[0] in reasons else 'not_reported'
+        return BridgeError('Проверка города отказала до ввода: '+safe_state+' / '+safe_reason+'. Автоповтора ввода нет.')
     def inspect(self):
         state,output=self._instrument('inspect_city')
+        if state!='city_inspection_ok':raise self._inspection_error(state,output)
         data=re.findall(r'^INSTRUMENTATION_RESULT: layout_b64=([A-Za-z0-9+/=]+)\s*$',output,re.M)
         try:
             if state!='city_inspection_ok' or len(data)!=1:raise ValueError()
@@ -75,7 +86,7 @@ class CityTransport:
                 or not re.fullmatch('[0-9a-f]{64}',d['city_context_sha256'])
                 or any(d.get(k) is not False for k in ('result_rows_available','city_selected','filters_applied'))):raise ValueError()
         except (ValueError,TypeError,UnicodeError,KeyError):
-            raise BridgeError('Окно/ответ помощника города не подтверждены; ввода не было.') from None
+            raise BridgeError('Некорректный ответ проверки города: invalid_inspection_response. Ввода не было.') from None
         return dict(d,catalog_cities=list(CITIES))
     def preflight(self,expected,index,previous):
         if (type(index) is not int or not 0<=index<30 or type(previous) is not int

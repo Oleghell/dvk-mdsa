@@ -28,6 +28,14 @@ snapshot_hash(){
 }
 for scenario in city_badbounds city_duplicate city_password city_badanchor; do
  start_case "$scenario"; expect "$(call inspect_city "$ZERO" 0 0)" denied_context_or_layout
+ case "$scenario" in
+  city_badbounds) REASON=editor_bounds;;
+  city_duplicate|city_password) REASON=editor_invalid;;
+  city_badanchor) REASON=title_anchor;;
+ esac
+ DIAG=$(call inspect_city "$ZERO" 0 0)
+ expect "$DIAG" denied_context_or_layout
+ grep -q "city_diagnostic_code=$REASON" <<<"$DIAG" || { echo 'Missing fixed diagnostic code' >&2; exit 1; }
  HASH=$(snapshot_hash); expect "$(call city_input "$HASH" 0 0)" denied_context_or_layout
 done
 start_case city_empty

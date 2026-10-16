@@ -140,7 +140,7 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
           @{
-            bridge_version='1.4.4-city-preview.1'
+            bridge_version='1.4.4-city-preview.2'
             city_helper_package='com.dvk.city.v1'
             city_mode='catalog-query-only-no-result-selection-no-filter-application'
             release_stage='development-preview'

@@ -2,7 +2,7 @@
 CITY_COMPONENT = 'com.dvk.city.v1/com.dvk.city.CityInstrumentation'
 CITY_PACKAGE = 'com.dvk.city.v1'
 CITY_CATALOG = 'city-v1'
-CITY_APK_SHA256 = 'e4f7dea879616e492d7b3e65893fa64c18e1fe20b27a4d6d19e6888212caf3f0'
+CITY_APK_SHA256 = '7edd4e8694e64478b471edec3b5d1d86d451ec0d1a3f727d5afc58776f9bd7a4'
 CITY_CERT_SHA256 = 'f20780ca10b1d85a02e36f181918e83a530fe691b0b242b32d1ffa0028e3aea5'
-CITY_DEX_SHA256 = '7fd3c72fcf90c36bfadece8d582e2fe500e6f6d239f4c7650ceefc54625c5712'
-CITY_SOURCE_HASHES = {'AndroidManifest.xml': 'e5f27b8fc5401205f5d9669aa7bef07c54f811b0e74bdc3b80bc25b4d525f5e1', 'src/com/dvk/city/CityInstrumentation.java': 'e985d95fef8ba1143f3c612f93bf66aedea166c17cf15912d92dcba1d3dcb036', 'src/com/dvk/city/CityPolicy.java': '30d944cb91be5d7ad5168736b5088d5718d1db03c7c363cb07dbe88b1e9efda1'}
+CITY_DEX_SHA256 = '4f84fd2a4ca9397a2246c1e474d901d0743e4789497fffb3558bc447e88d5ca4'
+CITY_SOURCE_HASHES = {'AndroidManifest.xml': '96b84c22cc2916fd39d0dcc0f1a6a5a9ade16f82334fdac5f3bf4e437ebe151a', 'src/com/dvk/city/CityInstrumentation.java': '82e604fa990b580d7b745141395451fa583ac935f6a86855a05840197bf57ac0', 'src/com/dvk/city/CityPolicy.java': '60243cb79862ebe8c3771a05cc7f1db5fe3ad7faef7dcb0292f8734618de43a8'}

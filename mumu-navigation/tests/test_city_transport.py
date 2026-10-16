@@ -39,6 +39,22 @@ class CityTransportTests(unittest.TestCase):
     def test_inspection_readonly(self):
         d=self.transport().inspect();self.assertTrue(d['focused']);self.assertEqual(self.events,[])
         self.assertEqual(self.r.action_attempts,0)
+    def test_fixed_native_diagnostic_is_visible_without_raw_output(self):
+        self.r._run=lambda args:b'INSTRUMENTATION_RESULT: navigation_status=denied_context_or_layout\nINSTRUMENTATION_RESULT: city_diagnostic_code=root_not_ready\n'
+        with self.assertRaisesRegex(BridgeError,'denied_context_or_layout / root_not_ready'):
+            self.transport().inspect()
+        self.assertEqual(self.r.action_attempts,0);self.assertEqual(self.events,[])
+    def test_unknown_or_duplicate_native_diagnostic_never_leaks_text(self):
+        for code in ('private_query','root_not_ready\nINSTRUMENTATION_RESULT: city_diagnostic_code=wrong_package'):
+            self.r._run=lambda args:('INSTRUMENTATION_RESULT: navigation_status=denied_context_or_layout\nINSTRUMENTATION_RESULT: city_diagnostic_code='+code+'\nPRIVATE SCREEN TEXT').encode()
+            with self.assertRaises(BridgeError) as err:self.transport().inspect()
+            self.assertIn('not_reported',str(err.exception));self.assertNotIn('private',str(err.exception));self.assertNotIn('PRIVATE',str(err.exception))
+        self.assertEqual(self.r.action_attempts,0)
+    def test_refused_inspection_does_not_dispatch_or_consume_an_action(self):
+        self.r._run=lambda args:b'INSTRUMENTATION_RESULT: navigation_status=denied_screen_changed\nINSTRUMENTATION_RESULT: city_diagnostic_code=context_changed\n'
+        with self.assertRaisesRegex(BridgeError,'context_changed'):
+            self.transport().input(self.sha,0,-1)
+        self.assertEqual(self.r.action_attempts,0);self.assertFalse(self.r.action_uncertain)
     def test_exact_catalog_input_one_action_no_selection(self):
         d=self.transport().input(self.sha,0,-1)
         self.assertEqual(self.query,CITIES[0]);self.assertEqual(len(self.events),1)

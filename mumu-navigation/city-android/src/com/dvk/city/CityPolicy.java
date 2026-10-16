@@ -2,6 +2,16 @@ package com.dvk.city;
 /** Catalog version city-v1. Index meanings never change in-place. */
 public final class CityPolicy {
  private CityPolicy() {}
+ // Read-only startup readiness ONLY. Never replays an input or retries guards.
+ public interface RootProbe { int state(); void pause(); }
+ public static int awaitRoot(RootProbe probe){
+  for(int i=0;i<24;i++){
+   int state=probe.state();
+   if(state!=0)return state;
+   if(i<23)probe.pause();
+  }
+  return 0;
+ }
  private static final String[] CITIES = {"Нальчик","Таганрог","Нижнекамск","Благовещенск","Комсомольск-на-Амуре","Петрозаводск","Сыктывкар","Королёв","Братск","Шахты","Люберцы","Дзержинск","Ангарск","Старый Оскол","Орск","Псков","Бийск","Энгельс","Южно-Сахалинск","Прокопьевск","Балаково","Армавир","Северодвинск","Абакан","Петропавловск-Камчатский","Норильск","Рыбинск","Сызрань","Новочеркасск","Каменск-Уральский"};
  public static final String CATALOG = "city-v1";
  public static int size(){return CITIES.length;}

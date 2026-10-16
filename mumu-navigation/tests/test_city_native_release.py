@@ -95,8 +95,18 @@ class CityNativeReleaseTests(unittest.TestCase):
         runner='''package com.dvk.city;
 public final class PolicyTest {
  static void check(boolean b){if(!b)throw new AssertionError();}
+ static final class Probe implements CityPolicy.RootProbe {
+  int calls=0,pauses=0,readyAt,result;
+  Probe(int readyAt,int result){this.readyAt=readyAt;this.result=result;}
+  public int state(){calls++;return calls>=readyAt?result:0;}
+  public void pause(){pauses++;}
+ }
  public static void main(String[] args){
  String[] names={NAMES};String sha=new String(new char[64]).replace('\\0','a');
+ Probe cold=new Probe(3,1);check(CityPolicy.awaitRoot(cold)==1 && cold.calls==3 && cold.pauses==2);
+ Probe never=new Probe(99,1);check(CityPolicy.awaitRoot(never)==0 && never.calls==24 && never.pauses==23);
+ Probe wrong=new Probe(1,-1);check(CityPolicy.awaitRoot(wrong)==-1 && wrong.calls==1 && wrong.pauses==0);
+ Probe last=new Probe(24,1);check(CityPolicy.awaitRoot(last)==1 && last.pauses==23);
  check(CityPolicy.size()==30);
  for(int i=0;i<30;i++){
  check(CityPolicy.city(i).equals(names[i]));check(CityPolicy.matchesPrevious(names[i],i));

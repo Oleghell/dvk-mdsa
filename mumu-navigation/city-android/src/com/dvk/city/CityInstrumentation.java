@@ -17,6 +17,22 @@ import org.json.JSONObject;
  */
 public final class CityInstrumentation extends Instrumentation {
  private String op,expected; private int index,previousEncoded;
+ private static final class GuardFailure extends Exception {
+  final String code; GuardFailure(String code){this.code=code;}
+ }
+ private static String reason(Exception e){return e instanceof GuardFailure?((GuardFailure)e).code:"internal_error";}
+ private void denied(String status,String code){Bundle out=new Bundle();out.putString("navigation_status",status);out.putString("city_diagnostic_code",code);finish(0,out);}
+ private static void awaitAccessibility(final UiAutomation a) throws Exception{
+  int state=CityPolicy.awaitRoot(new CityPolicy.RootProbe(){
+   public int state(){
+    AccessibilityNodeInfo n=a.getRootInActiveWindow();
+    if(n==null)return 0;
+    return n.getPackageName()!=null && "drug.vokrug".contentEquals(n.getPackageName())?1:-1;
+   }
+   public void pause(){SystemClock.sleep(50);}
+  });
+  if(state!=1)throw new GuardFailure(state==0?"root_not_ready":"wrong_package");
+ }
  @Override public void onCreate(Bundle args){
   super.onCreate(args);
   try{
@@ -30,7 +46,8 @@ public final class CityInstrumentation extends Instrumentation {
  private void done(String status){Bundle out=new Bundle();out.putString("navigation_status",status);finish(0,out);}
  private static AccessibilityNodeInfo root(UiAutomation a) throws Exception{
   AccessibilityNodeInfo n=a.getRootInActiveWindow();
-  if(n==null || n.getPackageName()==null || !"drug.vokrug".contentEquals(n.getPackageName()))throw new Exception("package");
+  if(n==null)throw new GuardFailure("root_not_ready");
+  if(n.getPackageName()==null || !"drug.vokrug".contentEquals(n.getPackageName()))throw new GuardFailure("wrong_package");
   return n;
  }
  private static AccessibilityNodeInfo field(UiAutomation a) throws Exception{
@@ -40,15 +57,15 @@ public final class CityInstrumentation extends Instrumentation {
    AccessibilityNodeInfo n=nodes.get(i);
    if(n.isVisibleToUser() && n.isEditable()){edit=n;count++;}
    for(int j=0;j<n.getChildCount();j++){
-    if(nodes.size()>=1000)throw new Exception("truncated");
+    if(nodes.size()>=1000)throw new GuardFailure("tree_truncated");
     AccessibilityNodeInfo child=n.getChild(j);if(child!=null)nodes.add(child);
    }
   }
   if(count!=1 || edit==null || !edit.isEnabled() || edit.isPassword()
     || edit.getPackageName()==null || !"drug.vokrug".contentEquals(edit.getPackageName())
-    || !"android.widget.EditText".contentEquals(edit.getClassName()))throw new Exception("editor");
+    || !"android.widget.EditText".contentEquals(edit.getClassName()))throw new GuardFailure("editor_invalid");
   Rect r=new Rect();edit.getBoundsInScreen(r);
-  if(!r.equals(new Rect(118,196,786,276)))throw new Exception("bounds");
+  if(!r.equals(new Rect(118,196,786,276)))throw new GuardFailure("editor_bounds");
   return edit;
  }
  private static String text(AccessibilityNodeInfo edit){
@@ -66,11 +83,11 @@ public final class CityInstrumentation extends Instrumentation {
   return digest(rgb);
  }
  private static Bitmap screen(UiAutomation a) throws Exception{
-  root(a);Bitmap b=a.takeScreenshot();if(b==null)throw new Exception("screenshot");
+  root(a);Bitmap b=a.takeScreenshot();if(b==null)throw new GuardFailure("screenshot_unavailable");
   try{
-   if(b.getWidth()!=900 || b.getHeight()!=1600)throw new Exception("size");
-  if(!"50331b5d952f8fe1023158c36ad14853544677498c9dba2c3ec79c6f748b8633".equals(cropDigest(b,330,116,574,162)))throw new Exception("city anchor");
-  if(!"0f46440361d98a420a6263bcbe0c0a42d5e6be8a1b10f9e5b448164b4eb0ee8e".equals(cropDigest(b,60,216,100,258)))throw new Exception("city anchor");
+   if(b.getWidth()!=900 || b.getHeight()!=1600)throw new GuardFailure("screen_size");
+  if(!"50331b5d952f8fe1023158c36ad14853544677498c9dba2c3ec79c6f748b8633".equals(cropDigest(b,330,116,574,162)))throw new GuardFailure("title_anchor");
+  if(!"0f46440361d98a420a6263bcbe0c0a42d5e6be8a1b10f9e5b448164b4eb0ee8e".equals(cropDigest(b,60,216,100,258)))throw new GuardFailure("search_anchor");
    return b;
   }catch(Exception e){b.recycle();throw e;}
  }
@@ -92,8 +109,8 @@ public final class CityInstrumentation extends Instrumentation {
   AccessibilityNodeInfo edit=field(a);String query=text(edit);boolean focused=edit.isFocused();
   Bitmap b=screen(a);String hash;try{hash=context(b);}finally{b.recycle();}
   edit=field(a);
-  if(!query.equals(text(edit)) || focused!=edit.isFocused() || !hash.equals(checkedContext(a))){done("denied_screen_changed");return;}
-  if(query.length()>128)throw new Exception("text length");
+  if(!query.equals(text(edit)) || focused!=edit.isFocused() || !hash.equals(checkedContext(a))){denied("denied_screen_changed","context_changed");return;}
+  if(query.length()>128)throw new GuardFailure("query_length");
   JSONObject report=new JSONObject();report.put("catalog",CityPolicy.CATALOG);
   report.put("query",query);report.put("focused",focused);report.put("city_context_sha256",hash);
   report.put("bounds",new org.json.JSONArray(new int[]{118,196,786,276}));
@@ -118,14 +135,15 @@ public final class CityInstrumentation extends Instrumentation {
    // and exact native text; never claim that results or filters are verified.
    Bitmap b=screen(a);b.recycle();edit=field(a);
    done(edit.isFocused() && CityPolicy.city(index).equals(text(edit))?"city_input_native_verified":"indeterminate_after_attempt");
-  }catch(Exception e){done(attempted?"indeterminate_after_attempt":"denied_context_or_layout");}
+  }catch(Exception e){denied(attempted?"indeterminate_after_attempt":"denied_context_or_layout",reason(e));}
  }
  @Override public void onStart(){
   try{
    UiAutomation a=getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
+   awaitAccessibility(a);
    if("inspect_city".equals(op)){inspect(a);return;}
    if("city_input".equals(op)){input(a);return;}
    done("denied_operation");
-  }catch(Exception e){done("denied_context_or_layout");}
+  }catch(Exception e){denied("denied_context_or_layout",reason(e));}
  }
 }
