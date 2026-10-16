@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 from greeting_budget import GreetingBudget, BudgetError
+from limited_scenario import DEFAULT_NEW_PROFILE_LIMIT
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 VERSION = '1.4.3'
@@ -609,7 +610,7 @@ def main():
                 refresh_session(); messagebox.showinfo('Тот же тест','Тест уже активен. Продолжайте его; счётчик не сбрасывается.'); return
             if info['manual_review_required']:
                 raise BridgeError('Есть неизвестный исход. Новый тест запрещён; сохраните журнал для разбора.')
-            target=simpledialog.askinteger('Ограниченный тест','Сколько НОВЫХ анкет посетить: от 1 до 5?\nДля продолжения нашего прохода после одной отправки выберите 4.\nПропуски тоже считаются. Автозапуска нет.',minvalue=1,maxvalue=5,parent=root)
+            target=simpledialog.askinteger('Ограниченный тест','Сколько НОВЫХ анкет посетить: от 1 до 5?\nДля нового согласованного прохода по умолчанию — 5.\nПропуски тоже считаются; после лимита — остановка.\nПрежний активный тест нужно продолжить без сброса.',initialvalue=DEFAULT_NEW_PROFILE_LIMIT,minvalue=1,maxvalue=5,parent=root)
             if target is None: return
             if not messagebox.askyesno('Начать тест?', 'Разрешить агенту до %d посещённых анкет и не более одной попытки отправки согласованного приветствия в каждом новом пустом чате?\nСтарые сообщения/черновики пропускаются. После лимита — остановка. Автоматического фонового цикла нет.' % target): return
             # Same device lock as every MCP mutation: no concurrent local reset.
