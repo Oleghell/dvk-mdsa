@@ -7,6 +7,8 @@ from mumu_bridge import BridgeServer, TOOLS
 class SessionProtocolTests(unittest.TestCase):
     def setUp(self):
         class Reader:
+            def autotest_city(self):return {'called':'autotest_city'}
+            def autofocus_city(self,**kw):return {'called':'autofocus_city',**kw}
             def inspect_city_input(self):return {'called':'inspect_city_input'}
             def input_city(self,**kw):return {'called':'input_city',**kw}
             def check_city_search(self,**kw):return {'called':'check_city_search'}
@@ -51,6 +53,19 @@ class SessionProtocolTests(unittest.TestCase):
                 self.assertEqual(self.request(name,args)['error']['code'],-32602)
             for args in ({},{'expected_content_sha256':'bad'}):
                 self.assertEqual(self.request(name,args)['error']['code'],-32602)
+
+    def test_autotest_tools_strict_routing_and_annotations(self):
+        self.assertNotIn('isError',self.request('mumu_autotest_city',{})['result'])
+        args={'expected_city_context_sha256':'a'*64}
+        self.assertNotIn('isError',self.request('mumu_autofocus_city',args)['result'])
+        for extra in ({'text':'hello'},{'x':400,'y':236},{'script':'pass'},{'maxtries':99},{'reset':True}):
+            self.assertEqual(self.request('mumu_autotest_city',extra)['error']['code'],-32602)
+            self.assertEqual(self.request('mumu_autofocus_city',{**args,**extra})['error']['code'],-32602)
+        for bad in ({},{'expected_city_context_sha256':'bad'},{'expected_city_context_sha256':True}):
+            self.assertEqual(self.request('mumu_autofocus_city',bad)['error']['code'],-32602)
+        tools={t['name']:t for t in TOOLS}
+        self.assertTrue(tools['mumu_autotest_city']['annotations']['readOnlyHint'])
+        self.assertFalse(tools['mumu_autofocus_city']['annotations']['readOnlyHint'])
 
     def test_profile_boolean_coordinate_refused(self):
         self.assertEqual(self.request('mumu_begin_profile',{'expected_content_sha256':'a'*64,'x':True,'y':200})['error']['code'],-32602)

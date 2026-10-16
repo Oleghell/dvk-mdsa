@@ -13,6 +13,12 @@ from limited_scenario import CITIES
 from mumu_bridge import BridgeError, SERIAL, ACTION_LIMIT
 
 
+class CityInspectionError(BridgeError):
+    def __init__(self,message,details):
+        super().__init__(message)
+        self.details=details
+
+
 def city_args_allowed(args, ready):
     prefix=['-s',SERIAL,'shell','am','instrument','-w','-r','-e','op']
     if not (ready is True and isinstance(args,list) and len(args)==20 and args[:9]==prefix
@@ -72,12 +78,15 @@ class CityTransport:
         safe_reason=code[0] if len(code)==1 and code[0] in reasons else 'not_reported'
         phases={'startup','inspect_before','inspect_confirm','input_before','input_confirm','input_after'}
         phase=re.findall(r'^INSTRUMENTATION_RESULT: city_diagnostic_phase=([a-z_]+)\s*$',output,re.M)
+        diagnostic={'state':safe_state,'code':safe_reason}
         details='; phase='+phase[0] if len(phase)==1 and phase[0] in phases else ''
+        if details:diagnostic['phase']=phase[0]
         bounds=re.findall(r'^INSTRUMENTATION_RESULT: actual_editor_bounds=(-?[0-9]{1,5},-?[0-9]{1,5},-?[0-9]{1,5},-?[0-9]{1,5})\s*$',output,re.M)
         if safe_reason=='editor_bounds' and len(bounds)==1:
             values=[int(v) for v in bounds[0].split(',')]
-            if all(-10000<=v<=10000 for v in values):details+='; actual_bounds='+str(values)
-        return BridgeError('Проверка города отказала до ввода: '+safe_state+' / '+safe_reason+details+'. Автоповтора ввода нет.')
+            if all(-10000<=v<=10000 for v in values):
+                details+='; actual_bounds='+str(values);diagnostic['actual_bounds']=values
+        return CityInspectionError('Проверка города отказала до ввода: '+safe_state+' / '+safe_reason+details+'. Автоповтора ввода нет.',diagnostic)
     def inspect(self):
         state,output=self._instrument('inspect_city')
         if state!='city_inspection_ok':raise self._inspection_error(state,output)

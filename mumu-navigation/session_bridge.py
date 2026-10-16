@@ -107,8 +107,25 @@ class SupervisedReader:
         if result['focused']:
             return {'input_injected':False,'already_focused':True,'text_entered':False,
                     'city_selected':False}
-        result = self._dispatch(self.inner.navigate, 'tap', expected_content_sha256, *CITY_FOCUS_POINT)
+        action=self.ledger.reserve_city_focus(0)
+        try:
+            result = self._dispatch(self.inner.navigate, 'tap', expected_content_sha256, *CITY_FOCUS_POINT)
+        except BaseException:
+            self.ledger.finish_city_focus(action,'unknown' if self.inner.action_uncertain else 'refused')
+            raise
+        self.ledger.finish_city_focus(action,'injected')
         return dict(result, text_entered=False, city_selected=False)
+
+    def autotest_city(self):
+        from city_autotest import run_city_diagnostics, save_diagnostic_report
+        report=run_city_diagnostics(self.inner)
+        report['report_saved']=save_diagnostic_report(report)
+        return report
+
+    @_convert_error
+    def autofocus_city(self,expected_city_context_sha256):
+        from city_autotest import autofocus_city
+        return autofocus_city(self.inner,self.ledger,expected_city_context_sha256,self._run_ready,self._dispatch)
 
     def inspect_city_input(self):
         from city_transport import CityTransport

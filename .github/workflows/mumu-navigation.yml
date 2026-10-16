@@ -2,24 +2,11 @@ name: Build MuMu supervised navigation bridge
 "on":
   push:
     branches: [feature/mumu-local, feature/mumu-five-profile-test, feature/mumu-limited-five-scenario]
-    paths: ['mumu-navigation/**', '.github/workflows/mumu-navigation.yml', '.github/scripts/publish_mumu_ci.py']
+    paths: ['mumu-navigation/**', '.github/workflows/mumu-navigation.yml']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  report_started:
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Publish non-triggering build-start report
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/publish_mumu_ci.py started
   python:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -140,7 +127,7 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
           @{
-            bridge_version='1.4.4-city-preview.3'
+            bridge_version='1.4.4-city-preview.4'
             city_helper_package='com.dvk.city.v1'
             city_mode='catalog-query-only-no-result-selection-no-filter-application'
             release_stage='development-preview'
@@ -163,20 +150,23 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  report_finished:
+  report_results:
     if: ${{ always() }}
-    needs: [python, android, windows, report_started]
+    needs: [python, android, windows]
     runs-on: ubuntu-latest
-    timeout-minutes: 4
-    permissions:
-      contents: write
-      actions: read
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Publish bounded build result and masked failure diagnostics
+      - name: Create result artifact without repository writes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MUMU_NEEDS: ${{ toJSON(needs) }}
-        run: python3 .github/scripts/publish_mumu_ci.py finished
+        run: |
+          python3 - <<'PYRESULT'
+          import json, os
+          from pathlib import Path
+          Path('ci-result.json').write_text(json.dumps({'source_sha':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'jobs':json.loads(os.environ['MUMU_NEEDS'])},indent=2)+'\n',encoding='utf-8')
+          PYRESULT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mumu-ci-result
+          path: ci-result.json
+          retention-days: 14

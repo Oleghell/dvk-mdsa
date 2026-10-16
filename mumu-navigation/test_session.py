@@ -40,6 +40,11 @@ class TestSession:
           CREATE TABLE IF NOT EXISTS contacts (
             fingerprint TEXT PRIMARY KEY, source TEXT NOT NULL, state TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS holds (reason TEXT PRIMARY KEY);
+          CREATE TABLE IF NOT EXISTS city_focus_actions (
+            id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
+            point_index INTEGER NOT NULL CHECK(point_index BETWEEN 0 AND 2),
+            state TEXT NOT NULL CHECK(state IN ('reserved','injected','focused','no_focus','refused','unknown')),
+            UNIQUE(run_id,point_index));
           CREATE TABLE IF NOT EXISTS city_actions (
             id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
             city_index INTEGER NOT NULL CHECK(city_index BETWEEN 0 AND 29),
@@ -53,6 +58,7 @@ class TestSession:
             with self.transaction():
                 pending = self.db.execute("SELECT run_id FROM visits WHERE state IN ('input_reserved','finish_reserved','send_reserved','awaiting_send_review')").fetchall()
                 pending += self.db.execute("SELECT run_id FROM city_actions WHERE state='reserved'").fetchall()
+                pending += self.db.execute("SELECT run_id FROM city_focus_actions WHERE state='reserved'").fetchall()
                 for row in pending:
                     self._hold(row['run_id'])
         except BaseException:
@@ -248,6 +254,39 @@ class TestSession:
                        current_step=rows[-1]['state'] if rows else None)
         return out
 
+    def check_city_focus_ready(self):
+        self._no_hold();run=self._active();visit=self.current()
+        if visit is not None and visit['state'] not in TERMINAL_VISITS:
+            raise SessionError('City focus only between visits')
+        for table in ('city_actions','city_focus_actions'):
+            if self.db.execute("SELECT 1 FROM "+table+" WHERE run_id=? AND state='reserved'",(run['id'],)).fetchone():
+                raise SessionError('A city action is pending; no second dispatch')
+        return run
+
+    def city_focus_points_used(self):
+        run=self.check_city_focus_ready()
+        return [r[0] for r in self.db.execute('SELECT point_index FROM city_focus_actions WHERE run_id=?',(run['id'],))]
+
+    def reserve_city_focus(self,point_index):
+        if type(point_index) is not int or not 0<=point_index<3:raise SessionError('Only three compiled focus points')
+        with self.transaction():
+            run=self.check_city_focus_ready()
+            if self.db.execute("SELECT 1 FROM city_focus_actions WHERE run_id=? AND state='refused'",(run['id'],)).fetchone():
+                raise SessionError('A focus tap was refused; no fallback in this run')
+            if self.db.execute('SELECT 1 FROM city_focus_actions WHERE run_id=? AND point_index=?',(run['id'],point_index)).fetchone():
+                raise SessionError('Focus point already attempted; no repeat')
+            action=uuid.uuid4().hex
+            self.db.execute('INSERT INTO city_focus_actions VALUES (?,?,?,?)',(action,run['id'],point_index,'reserved'))
+            return action
+
+    def finish_city_focus(self,action,outcome):
+        if outcome not in ('injected','focused','no_focus','refused','unknown'):raise SessionError('Invalid focus outcome')
+        with self.transaction():
+            row=self.db.execute("SELECT * FROM city_focus_actions WHERE id=? AND state='reserved'",(action,)).fetchone()
+            if row is None:raise SessionError('No pending focus action; no replay')
+            self.db.execute('UPDATE city_focus_actions SET state=? WHERE id=?',(outcome,action))
+            if outcome=='unknown':self._hold(row['run_id'])
+
     def reserve_city_input(self, city_index, previous_index):
         if (type(city_index) is not int or not 0 <= city_index < 30
                 or type(previous_index) is not int or not -1 <= previous_index < 30
@@ -259,6 +298,8 @@ class TestSession:
                 raise SessionError('City input only between visits')
             if self.db.execute("SELECT 1 FROM city_actions WHERE run_id=? AND state='reserved'",(run['id'],)).fetchone():
                 raise SessionError('A city input is pending; no second dispatch')
+            if self.db.execute("SELECT 1 FROM city_focus_actions WHERE run_id=? AND state='reserved'",(run['id'],)).fetchone():
+                raise SessionError('A focus action is pending; no city input')
             n=self.db.execute('SELECT COUNT(*) FROM city_actions WHERE run_id=?',(run['id'],)).fetchone()[0]
             if n>=5:raise SessionError('Five city input attempts already used; do not reset')
             if self.db.execute('SELECT 1 FROM city_actions WHERE run_id=? AND city_index=?',(run['id'],city_index)).fetchone():
