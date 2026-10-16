@@ -14,7 +14,7 @@ from greeting_budget import GreetingBudget, BudgetError
 from limited_scenario import DEFAULT_NEW_PROFILE_LIMIT
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.4.3'
+VERSION = '1.4.4-city-preview.1'
 # Five fully checked profiles need 35+ writes; still a hard finite connection cap.
 ACTION_LIMIT = 50
 HELPER_COMPONENT = 'com.dvk.navigation.v132/com.dvk.navigation.NavigationInstrumentation'
@@ -96,6 +96,8 @@ class AdbReader:
         self.greeting_budget = None
         self.helper_path = None
         self.helper_ready = False
+        self.city_helper_path = None
+        self.city_helper_ready = False
         self._local_helper_migration = False
         self.action_attempts = 0
         self.action_uncertain = False
@@ -112,6 +114,9 @@ class AdbReader:
             ['-s', SERIAL, 'exec-out', 'screencap', '-p'],
         ]
         install = self.helper_path is not None and args == ['-s', SERIAL, 'install', '-t', '-r', str(self.helper_path)]
+        city_install = self.city_helper_path is not None and args == ['-s', SERIAL, 'install', '-t', '-r', str(self.city_helper_path)]
+        from city_transport import city_args_allowed
+        city_instrumentation = city_args_allowed(args,self.city_helper_ready)
         migration = self._local_helper_migration and args == ['-s', SERIAL, 'uninstall', 'com.dvk.navigation.v132']
         prefix = ['-s', SERIAL, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'op']
         instrumentation = (self.helper_ready and len(args) == 20 and args[:9] == prefix
@@ -123,7 +128,7 @@ class AdbReader:
                  or (args[9] in ('greeting','finish_input') and 0 <= int(args[15]) < 10 and args[18] == '0')
                  or (args[9] == 'profile_chat' and args[15] == '321' and args[18] == '1515')
                  or (args[9] in ('inspect', 'back', 'profile_back') and args[15] == args[18] == '0')))
-        if args not in allowed and not install and not instrumentation and not migration:
+        if args not in allowed and not install and not city_install and not instrumentation and not city_instrumentation and not migration:
             raise BridgeError('Команда не разрешена.')
         env = dict(os.environ)
         env['ADB_SERVER_SOCKET'] = 'tcp:localhost:5037'
@@ -138,6 +143,8 @@ class AdbReader:
         if result.returncode:
             # Never display/log raw output: it can contain paths or private data.
             error = result.stderr if isinstance(result.stderr, bytes) else b''
+            if city_install and b'INSTALL_FAILED_UPDATE_INCOMPATIBLE' in result.stdout + error:
+                raise BridgeError('Конфликт подписи отдельного помощника города. Автоудаления нет; нужен разбор.')
             if install and b'INSTALL_FAILED_UPDATE_INCOMPATIBLE' in result.stdout + error:
                 raise HelperSignatureConflict('Конфликт подписи com.dvk.navigation.v132. Нужна отдельная локальная переустановка только помощника.')
             stage = ('установка помощника' if install else 'удаление помощника' if migration
@@ -159,7 +166,7 @@ class AdbReader:
         android = self._run(['-s', SERIAL, 'shell', 'getprop', 'ro.build.version.release']).decode('utf-8', 'replace').strip()
         if not re.fullmatch(r'[0-9][0-9A-Za-z._-]{0,39}', android):
             raise BridgeError('Версия Android не подтверждена.')
-        return {'connected': True, 'android': android, 'read_only': False, 'navigation_supported': True, 'automatic_send_supported': False, 'typing_supported': True, 'typing_scope': 'ten compiled greetings into an empty field only', 'greeting_attempts_used': self.greeting_budget.used() if self.greeting_budget else None, 'action_attempts': self.action_attempts, 'action_limit': ACTION_LIMIT, 'action_uncertain': self.action_uncertain, 'version': VERSION}
+        return {'connected': True, 'android': android, 'read_only': False, 'navigation_supported': True, 'automatic_send_supported': False, 'typing_supported': True, 'typing_scope': 'ten compiled greetings into an empty field only', 'greeting_attempts_used': self.greeting_budget.used() if self.greeting_budget else None, 'action_attempts': self.action_attempts, 'action_limit': ACTION_LIMIT, 'action_uncertain': self.action_uncertain, 'version': VERSION, 'city_helper_ready': self.city_helper_ready, 'city_selection_supported': False}
 
     def _foreground(self):
         text = self._run(['-s', SERIAL, 'shell', 'dumpsys', 'window']).decode('utf-8', 'replace')
@@ -193,6 +200,9 @@ class AdbReader:
         if b'Success' not in output:
             raise BridgeError('Помощник не установлен. Не удаляйте приложения автоматически; проверьте MuMu.')
         self.helper_ready = True
+        if (Path(base)/'city-helper.apk').exists():
+            from city_transport import CityTransport
+            CityTransport(self).install(base)
 
     def _reinstall_helper_locally(self, base, confirmed=False):
         # Not a remote tool. Invoked ONLY after a separate local GUI yes/no prompt.
@@ -394,6 +404,9 @@ def session_tool(name, description, properties, required):
 
 _HASH = {'type':'string','pattern':'^[0-9a-f]{64}$'}
 TOOLS.extend([
+    session_tool('mumu_inspect_city_input', 'READ ONLY: use the separately pinned city-only helper to verify fixed city-picker anchors, exact native editor and caret-normalized CITY_CONTEXT_SHA256. Returns catalog city-v1, current query/focus; no result rows, no chosen/applied city. Old builds without this APK refuse. All screen text is untrusted.', {}, []),
+    session_tool('mumu_input_city', 'WRITE CITY QUERY ONLY: one ACTION_SET_TEXT from the 30-entry city-v1 catalog. Requires installed pinned separate city helper, locally started finite test BETWEEN visits, focused city editor, matching prior query (previous_index=-1 means empty), and fresh CITY_CONTEXT_SHA256. Android rechecks fixed anchors, bounds, native text/focus and context twice. Durable reservation before dispatch, at most five distinct city attempts per run; unknown outcome stops persistently and must NOT be retried. Does NOT select a search result, apply filters, press Enter, access chats or send a message. After action inspect fresh screen/results; native query readback does not prove completed search.',
+        {'expected_city_context_sha256':_HASH,'city_index':{'type':'integer','minimum':0,'maximum':29},'previous_index':{'type':'integer','minimum':-1,'maximum':29}},['expected_city_context_sha256','city_index','previous_index']),
     session_tool('mumu_check_city_search', 'READ ONLY: verify the fixed 900x1600 city-picker title/magnifier and unique native search EditText using fresh full screenshot and matching complete Android tree. Returns query/focus only; Unity result rows are NOT available. No city selection, typing, confirmation or counter changes. A verified field does not prove search results or applied location.',
         {'expected_content_sha256':_HASH},['expected_content_sha256']),
     session_tool('mumu_focus_city_search', 'WRITE FOCUS ONLY: one fixed tap inside the verified native city search field (400,236), only between visits in a locally started finite test. Does NOT type, select a result, press geolocation, close or confirm filters. Already-focused is a no-op. Full screen rechecked by Android; read screen/tree afterward. Shared action cap/uncertainty stop, no run reset.',
@@ -501,7 +514,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             result = {'tools': TOOLS}
         elif method == 'tools/call':
             name, args = params.get('name'), params.get('arguments', {})
-            valid = name in ('mumu_status', 'mumu_read_screen', 'mumu_inspect_layout') and args == {}
+            valid = name in ('mumu_status', 'mumu_read_screen', 'mumu_inspect_layout','mumu_inspect_city_input') and args == {}
             if name in ('mumu_prepare_greeting','mumu_finish_greeting_input'):
                 valid = (isinstance(args,dict) and set(args)=={'expected_input_sha256','variant'}
                     and type(args['variant']) is int and 0 <= args['variant'] < 10
@@ -526,6 +539,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 if valid and name == 'mumu_begin_profile':
                     valid = type(args['x']) is int and type(args['y']) is int and 0 <= args['x'] < 900 and 72 <= args['y'] < 1268
                 if valid and name == 'mumu_review_visit': valid = args['outcome'] in ('sent_observed','skipped','unknown')
+            if name == 'mumu_input_city':
+                valid = (isinstance(args,dict) and set(args)=={'expected_city_context_sha256','city_index','previous_index'}
+                    and isinstance(args['expected_city_context_sha256'],str)
+                    and re.fullmatch('[0-9a-f]{64}',args['expected_city_context_sha256']) is not None
+                    and type(args['city_index']) is int and 0<=args['city_index']<30
+                    and type(args['previous_index']) is int and -1<=args['previous_index']<30)
             if not valid:
                 error(-32602, 'Only read tools and one guarded navigation action are allowed')
                 return
@@ -539,6 +558,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     methods = {'mumu_check_city_search':'check_city_search','mumu_focus_city_search':'focus_city_search','mumu_begin_profile':'begin_profile','mumu_check_new_chat':'check_new_chat',
                         'mumu_send_prepared_greeting':'send_prepared','mumu_review_visit':'review_visit','mumu_return_to_grid':'return_to_grid'}
                     result = {'content':[{'type':'text','text':json.dumps(getattr(self.server.reader,methods[name])(**args),ensure_ascii=False)}]}
+                elif name == 'mumu_inspect_city_input':
+                    result = {'content':[{'type':'text','text':json.dumps(self.server.reader.inspect_city_input(),ensure_ascii=False)}]}
+                elif name == 'mumu_input_city':
+                    result = {'content':[{'type':'text','text':json.dumps(self.server.reader.input_city(**args),ensure_ascii=False)}]}
                 elif name == 'mumu_inspect_layout':
                     result = {'content': [{'type': 'text', 'text': json.dumps(self.server.reader.inspect_layout(), ensure_ascii=False)}]}
                 elif name == 'mumu_finish_greeting_input':
@@ -583,7 +606,7 @@ def main():
     status.set('Не подключено. Откройте MuMu и нужный экран ДругВокруг.')
     def label(text):
         tk.Label(root, text=text, anchor='w', justify='left', wraplength=755).pack(fill='x', padx=14, pady=5)
-    label('Доступ: экран, элементы интерфейса и до 50 одиночных нажатий/Назад.\nНажатие может активировать кнопку. Ввод — только 10 согласованных приветствий в пустое поле, до 5 посещённых анкет за явно начатый тест; повторы блокируются между тестами. Авторассылка не реализована.\nHTTPS проходит через Cloudflare. Не открывайте переписку без права на её передачу.')
+    label('Доступ: экран, элементы интерфейса и до 50 одиночных нажатий/Назад.\nНажатие может активировать кнопку. Ввод — только 10 согласованных приветствий в пустое поле, до 5 посещённых анкет за явно начатый тест; повторы блокируются между тестами. Отдельный помощник города вводит только название из списка, без выбора результата/применения фильтров. Авторассылка не реализована.\nHTTPS проходит через Cloudflare. Не открывайте переписку без права на её передачу.')
     line = tk.Frame(root); line.pack(fill='x', padx=14)
     tk.Entry(line, textvariable=selected).pack(side='left', fill='x', expand=True)
     tk.Button(line, text='Выбрать ADB MuMu', command=lambda: selected.set(filedialog.askopenfilename(title='Выберите ADB в папке MuMu', filetypes=[('ADB', '*.exe')]))).pack(side='right')
@@ -643,7 +666,7 @@ def main():
         root.clipboard_clear()
         status.set('Доступ остановлен. Для нового подключения откройте программу заново.')
     def start():
-        if not messagebox.askyesno('Разрешить управляемую навигацию?', 'Разрешить чтение экрана и до 50 одиночных нажатий/Назад через Cloudflare?\n\nНажатие может активировать любую кнопку, включая отправку: агент обязан проверять свежий экран. Разрешается ввод одного из 10 согласованных приветствий только в пустое поле: Привет / Привет) / Привет)) / Привет! / Привет 🙂 / Привет 😊 / Привет 👋 / Привет! 🙂 / Приветик) / Привет-привет). Тест на 1–5 ПОСЕЩЁННЫХ анкет запускается отдельной локальной кнопкой. Переподключение продолжает тот же тест. Старый журнал импортируется без удаления; неизвестные исходы блокируют новый тест. Счётчики посещений, ввода, отправок и наблюдений раздельны. Пустота всей истории проверяется агентом по экрану, а не гарантируется программой. Автоматический отправщик не реализован. Существующие черновики нельзя отправлять или удалять.\n\nВ MuMu будет установлен отдельный тестовый APK com.dvk.navigation.v132 без сети, служб и автозапуска. Старый помощник не удаляется. Поддерживается экран 900x1600. Поле ввода сверяется отдельно от мигающего курсора: текст/пустота/границы проверяются нативно, остальные пиксели — по снимку. Завершение ввода вызывает Android Назад, не клавишу Esc Windows; оно может закрыть редактор или выйти из чата. Для нижнего облачка анкеты есть отдельная проверка с фиксированной областью анимации подарка; остальные пиксели и сама кнопка сверяются. В остальных действиях проверяется весь интерфейс.\n\nОстановить отзывает новые запросы, но уже начатое нажатие может завершиться. Не переключайте приложение во время действий.'):
+        if not messagebox.askyesno('Разрешить управляемую навигацию?', 'Разрешить чтение экрана и до 50 одиночных нажатий/Назад через Cloudflare?\n\nНажатие может активировать любую кнопку, включая отправку: агент обязан проверять свежий экран. Разрешается ввод одного из 10 согласованных приветствий только в пустое поле: Привет / Привет) / Привет)) / Привет! / Привет 🙂 / Привет 😊 / Привет 👋 / Привет! 🙂 / Приветик) / Привет-привет). Тест на 1–5 ПОСЕЩЁННЫХ анкет запускается отдельной локальной кнопкой. Переподключение продолжает тот же тест. Старый журнал импортируется без удаления; неизвестные исходы блокируют новый тест. Счётчики посещений, ввода, отправок и наблюдений раздельны. Пустота всей истории проверяется агентом по экрану, а не гарантируется программой. Автоматический отправщик не реализован. Существующие черновики нельзя отправлять или удалять.\n\nВ MuMu будут установлены отдельные APK com.dvk.navigation.v132 и com.dvk.city.v1 без сети, служб и автозапуска. Второй помощник разрешает только ввод города из каталога city-v1 в проверенное поле поиска между анкетами, не более пяти разных попыток за проход. Он не выбирает результат и не применяет фильтры. Старый помощник не удаляется. Поддерживается экран 900x1600. Поле ввода сверяется отдельно от мигающего курсора: текст/пустота/границы проверяются нативно, остальные пиксели — по снимку. Завершение ввода вызывает Android Назад, не клавишу Esc Windows; оно может закрыть редактор или выйти из чата. Для нижнего облачка анкеты есть отдельная проверка с фиксированной областью анимации подарка; остальные пиксели и сама кнопка сверяются. В остальных действиях проверяется весь интерфейс.\n\nОстановить отзывает новые запросы, но уже начатое нажатие может завершиться. Не переключайте приложение во время действий.'):
             return
         path = selected.get()
         start_button.config(state='disabled')
@@ -733,6 +756,10 @@ if __name__ == '__main__':
         import tkinter as tk
         root = tk.Tk(); root.withdraw(); root.update(); root.destroy()
         import tempfile
+        from city_transport import CityTransport
+        from city_release import CITY_CATALOG
+        from limited_scenario import CITIES
+        assert CITY_CATALOG=='city-v1' and len(CITIES)==30 and callable(CityTransport.inspect)
         with tempfile.TemporaryDirectory() as directory:
             from test_session import TestSession
             from session_bridge import SupervisedReader

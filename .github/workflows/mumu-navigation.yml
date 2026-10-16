@@ -1,7 +1,7 @@
 name: Build MuMu supervised navigation bridge
 "on":
   push:
-    branches: [feature/mumu-local, feature/mumu-five-profile-test]
+    branches: [feature/mumu-local, feature/mumu-five-profile-test, feature/mumu-limited-five-scenario]
     paths: ['mumu-navigation/**', '.github/workflows/mumu-navigation.yml']
   workflow_dispatch:
 permissions:
@@ -42,6 +42,13 @@ jobs:
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
           bash mumu-navigation/android/build.sh
+          export ANDROID_JAR="$ANDROID_HOME/platforms/android-35/android.jar"
+          export ANDROID_BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          CITY_VERIFY_ONLY=1 bash mumu-navigation/city-android/build.sh
+          python3 mumu-navigation/city-android/pack-city-helper.py
+          "$ANDROID_BUILD_TOOLS/apksigner" verify --verbose mumu-navigation/city-android/out/city-helper.apk
+          FIXTURE_KEYSTORE="$PWD/mumu-navigation/android/out/test-signing.jks" bash mumu-navigation/city-android/build-fixture.sh
+          python3 -m pip install Pillow==12.3.0
       - name: Enable emulator KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -56,13 +63,17 @@ jobs:
           disable-animations: true
           pre-emulator-launch-script: python3 mumu-navigation/android/configure-ci-display.py
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash mumu-navigation/android/test-emulator.sh
+          script: |
+            bash mumu-navigation/android/test-emulator.sh
+            bash mumu-navigation/city-android/test-emulator.sh
       - uses: actions/upload-artifact@v4
         with:
           name: navigation-helper-runtime
           path: |
             mumu-navigation/android/out/helper.apk
             mumu-navigation/android/out/helper-manifest.json
+            mumu-navigation/city-android/out/city-helper.apk
+            mumu-navigation/city-android/out/city-helper-manifest.json
           if-no-files-found: error
           retention-days: 14
   windows:
@@ -87,7 +98,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: navigation-helper-runtime
-          path: out/MuMu-navigation-windows-x64/
+          path: out/helper-artifact/
+      - name: Stage both pinned helpers
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force out/MuMu-navigation-windows-x64 | Out-Null
+          foreach ($name in @('helper.apk','helper-manifest.json','city-helper.apk','city-helper-manifest.json')) {
+            $files=@(Get-ChildItem out/helper-artifact -Recurse -File -Filter $name)
+            if ($files.Count -ne 1) {throw "Missing or ambiguous helper $name"}
+            Copy-Item $files[0].FullName "out/MuMu-navigation-windows-x64/$name"
+          }
       - name: Build Windows GUI and verify startup
         shell: powershell
         run: |
@@ -107,7 +127,10 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
           @{
-            bridge_version='1.4.3'
+            bridge_version='1.4.4-city-preview.1'
+            city_helper_package='com.dvk.city.v1'
+            city_mode='catalog-query-only-no-result-selection-no-filter-application'
+            release_stage='development-preview'
             source_commit=$env:GITHUB_SHA
             source_ref=$env:GITHUB_REF
             helper_package='com.dvk.navigation.v132'
@@ -117,7 +140,7 @@ jobs:
             mode='explicit-local-finite-supervised-test'
             real_drugvokrug_tested=$false
           } | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
-          foreach ($file in @('helper.apk','helper-manifest.json','MuMu-navigation.exe','cloudflared.exe')) {if (-not(Test-Path "$root/$file")) {throw "Missing $file"}}
+          foreach ($file in @('helper.apk','helper-manifest.json','city-helper.apk','city-helper-manifest.json','MuMu-navigation.exe','cloudflared.exe')) {if (-not(Test-Path "$root/$file")) {throw "Missing $file"}}
           $hashes=Get-ChildItem $root -File | Sort-Object Name | ForEach-Object {'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash,$_.Name}
           $hashes | Set-Content "$root/SHA256SUMS.txt" -Encoding ASCII
       - uses: actions/upload-artifact@v4

@@ -110,6 +110,29 @@ class SupervisedReader:
         result = self._dispatch(self.inner.navigate, 'tap', expected_content_sha256, *CITY_FOCUS_POINT)
         return dict(result, text_entered=False, city_selected=False)
 
+    def inspect_city_input(self):
+        from city_transport import CityTransport
+        return CityTransport(self.inner).inspect()
+
+    @_convert_error
+    def input_city(self, expected_city_context_sha256, city_index, previous_index):
+        from city_transport import CityTransport
+        self._run_ready()
+        visit = self.ledger.current()
+        if visit is not None and visit['state'] not in ('returned_sent','returned_skipped'):
+            raise BridgeError('Ввод города разрешён только между анкетами.')
+        transport=CityTransport(self.inner)
+        transport.preflight(expected_city_context_sha256,city_index,previous_index)
+        action=self.ledger.reserve_city_input(city_index,previous_index)
+        self.online_confirmed=False
+        try:
+            result=transport.input(expected_city_context_sha256,city_index,previous_index)
+        except BaseException:
+            self.ledger.finish_city_input(action,'unknown' if self.inner.action_uncertain else 'refused')
+            raise
+        self.ledger.finish_city_input(action,'verified')
+        return dict(result,test_session=self.ledger.status(),city_attempt_recorded=True)
+
     def _run_ready(self):
         self.ledger._no_hold()
         self.ledger._active()

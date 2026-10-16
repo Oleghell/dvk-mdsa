@@ -7,6 +7,8 @@ from mumu_bridge import BridgeServer, TOOLS
 class SessionProtocolTests(unittest.TestCase):
     def setUp(self):
         class Reader:
+            def inspect_city_input(self):return {'called':'inspect_city_input'}
+            def input_city(self,**kw):return {'called':'input_city',**kw}
             def check_city_search(self,**kw):return {'called':'check_city_search'}
             def focus_city_search(self,**kw):return {'called':'focus_city_search'}
             def begin_profile(self,**kw):return {'called':'begin_profile',**kw}
@@ -33,6 +35,15 @@ class SessionProtocolTests(unittest.TestCase):
     def test_extra_fields_and_invalid_hashes_refused(self):
         for args in ({'expected_content_sha256':'a'*64,'reset':True},{'expected_content_sha256':'wrong'},{}):
             self.assertEqual(self.request('mumu_send_prepared_greeting',args)['error']['code'],-32602)
+    def test_native_city_tools_route_only_strict_catalog_indices(self):
+        self.assertNotIn('isError',self.request('mumu_inspect_city_input',{})['result'])
+        args={'expected_city_context_sha256':'a'*64,'city_index':0,'previous_index':-1}
+        self.assertNotIn('isError',self.request('mumu_input_city',args)['result'])
+        for extra in ({'text':'Нальчик'},{'city_index':True},{'city_index':30},{'previous_index':False},
+                      {'previous_index':-2},{'expected_city_context_sha256':'wrong'}):
+            self.assertEqual(self.request('mumu_input_city',{**args,**extra})['error']['code'],-32602)
+        self.assertEqual(self.request('mumu_inspect_city_input',{'city_index':0})['error']['code'],-32602)
+
     def test_city_tools_reject_arbitrary_text_coordinates_and_extra_args(self):
         for name in ('mumu_check_city_search','mumu_focus_city_search'):
             for extra in ({'text':'Нальчик'},{'x':400,'y':236},{'reset':True}):

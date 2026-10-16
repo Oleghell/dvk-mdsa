@@ -40,12 +40,19 @@ class TestSession:
           CREATE TABLE IF NOT EXISTS contacts (
             fingerprint TEXT PRIMARY KEY, source TEXT NOT NULL, state TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS holds (reason TEXT PRIMARY KEY);
+          CREATE TABLE IF NOT EXISTS city_actions (
+            id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
+            city_index INTEGER NOT NULL CHECK(city_index BETWEEN 0 AND 29),
+            previous_index INTEGER NOT NULL CHECK(previous_index BETWEEN -1 AND 29),
+            state TEXT NOT NULL CHECK(state IN ('reserved','verified','refused','unknown')),
+            UNIQUE(run_id,city_index));
         ''')
         try:
             if legacy_path is not None and Path(legacy_path).exists():
                 self._import_legacy(Path(legacy_path))
             with self.transaction():
                 pending = self.db.execute("SELECT run_id FROM visits WHERE state IN ('input_reserved','finish_reserved','send_reserved','awaiting_send_review')").fetchall()
+                pending += self.db.execute("SELECT run_id FROM city_actions WHERE state='reserved'").fetchall()
                 for row in pending:
                     self._hold(row['run_id'])
         except BaseException:
@@ -240,6 +247,33 @@ class TestSession:
                        skipped=sum(r['state']=='returned_skipped' for r in rows),
                        current_step=rows[-1]['state'] if rows else None)
         return out
+
+    def reserve_city_input(self, city_index, previous_index):
+        if (type(city_index) is not int or not 0 <= city_index < 30
+                or type(previous_index) is not int or not -1 <= previous_index < 30
+                or city_index == previous_index):
+            raise SessionError('Invalid city-v1 catalog indices')
+        with self.transaction():
+            self._no_hold();run=self._active();visit=self.current()
+            if visit is not None and visit['state'] not in TERMINAL_VISITS:
+                raise SessionError('City input only between visits')
+            if self.db.execute("SELECT 1 FROM city_actions WHERE run_id=? AND state='reserved'",(run['id'],)).fetchone():
+                raise SessionError('A city input is pending; no second dispatch')
+            n=self.db.execute('SELECT COUNT(*) FROM city_actions WHERE run_id=?',(run['id'],)).fetchone()[0]
+            if n>=5:raise SessionError('Five city input attempts already used; do not reset')
+            if self.db.execute('SELECT 1 FROM city_actions WHERE run_id=? AND city_index=?',(run['id'],city_index)).fetchone():
+                raise SessionError('This city already attempted in this run; no retry')
+            action=uuid.uuid4().hex
+            self.db.execute('INSERT INTO city_actions VALUES (?,?,?,?,?)',(action,run['id'],city_index,previous_index,'reserved'))
+            return action
+
+    def finish_city_input(self, action, outcome):
+        if outcome not in ('verified','refused','unknown'):raise SessionError('Invalid city outcome')
+        with self.transaction():
+            row=self.db.execute("SELECT * FROM city_actions WHERE id=? AND state='reserved'",(action,)).fetchone()
+            if row is None:raise SessionError('No pending city input; do not replay')
+            self.db.execute('UPDATE city_actions SET state=? WHERE id=?',(outcome,action))
+            if outcome=='unknown':self._hold(row['run_id'])
 
     def used(self):
         return self.status()['input_attempts']

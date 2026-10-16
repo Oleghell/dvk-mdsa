@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.dvk.city.v1" android:versionCode="1" android:versionName="1.0.0">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="32" />
+ <application android:label="DVK city search only" android:testOnly="true" android:allowBackup="false" />
+ <instrumentation android:name="com.dvk.city.CityInstrumentation" android:targetPackage="com.dvk.city.v1" android:label="City search field only; no messages or result selection" />
+</manifest>
