@@ -113,6 +113,11 @@ jobs:
           $env:PYTHONPATH='mumu-navigation'
           python mumu-navigation/run_encoding_autotests.py
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+      - name: Test actual GUI startup and single consent without a device
+        shell: powershell
+        run: |
+          python mumu-navigation/run_gui_autotests.py
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
       - name: Preserve Windows encoding regression results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -153,7 +158,7 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
           @{
-            bridge_version='1.5.0-control-preview.2'
+            bridge_version='1.5.0-control-preview.3'
             universal_control='explicit-local-opt-in-app-scoped-gestures-keys-unicode-ime'
             control_package='com.dvk.control.v1'
             keyboard_package='com.dvk.keyboard.v1'

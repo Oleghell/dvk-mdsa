@@ -14,7 +14,7 @@ from greeting_budget import GreetingBudget, BudgetError
 from limited_scenario import DEFAULT_NEW_PROFILE_LIMIT
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.5.0-control-preview.2'
+VERSION = '1.5.0-control-preview.3'
 # Five fully checked profiles need 35+ writes; still a hard finite connection cap.
 ACTION_LIMIT = 50
 HELPER_COMPONENT = 'com.dvk.navigation.v132/com.dvk.navigation.NavigationInstrumentation'
@@ -218,7 +218,7 @@ class AdbReader:
             CityTransport(self).install(base)
 
     def _reinstall_helper_locally(self, base, confirmed=False):
-        # Not a remote tool. Invoked ONLY after a separate local GUI yes/no prompt.
+        # Not a remote tool. Requires explicit local consent to this helper-only replacement.
         if confirmed is not True:
             raise BridgeError('Переустановка помощника не разрешена локально.')
         helper = self._verified_helper(base)  # Validate BEFORE deleting anything.
@@ -630,12 +630,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.reply(200, {'jsonrpc': '2.0', 'id': ident, 'result': result})
 
 
-def main():
+def main(*,smoke_test=False):
     import tkinter as tk
     from tkinter import filedialog, messagebox
     root = tk.Tk()
     root.title('MuMu — управляемая навигация v' + VERSION)
-    root.geometry('840x870')
+    width=min(800,max(320,root.winfo_screenwidth()-80))
+    height=min(640,max(300,root.winfo_screenheight()-100))
+    root.geometry(f'{width}x{height}+20+20')
+    mainbar=tk.Frame(root);mainbar.pack(side='top',fill='x',padx=14,pady=10)
     # Keep Stop visible even when the expanded consent text exceeds the window.
     footer=tk.Frame(root);footer.pack(side='bottom',fill='x',pady=5)
     viewport=tk.Frame(root);viewport.pack(fill='both',expand=True)
@@ -652,8 +655,12 @@ def main():
     status.set('Не подключено. Откройте MuMu и нужный экран ДругВокруг.')
     def label(text):
         tk.Label(body, text=text, anchor='w', justify='left', wraplength=755).pack(fill='x', padx=14, pady=5)
-    label('Базовый режим: экран, элементы интерфейса и до 50 одиночных нажатий/Назад.\nНажатие может активировать кнопку. Ввод — только 10 согласованных приветствий в пустое поле, до 5 посещённых анкет за явно начатый тест; повторы блокируются между тестами. Отдельный помощник города вводит только название из списка, без выбора результата/применения фильтров. Автотест читает поле; отдельный автофокус пробует до трёх фиксированных точек внутри проверенного поля, только при подтверждённой потере фокуса. Универсальный режим включается отдельной локальной кнопкой: произвольные нажатия в приложении и Unicode-клавиатура. Авторассылка не реализована.\nHTTPS проходит через Cloudflare. Не открывайте переписку без права на её передачу.')
-    line = tk.Frame(body); line.pack(fill='x', padx=14)
+    label('Откройте ДругВокруг в MuMu и нажмите «Включить MuMu». Подключение и клавиатура включатся вместе. Сообщения автоматически не отправляются.')
+    advanced=tk.Frame(body)
+    def toggle_advanced():
+        if advanced.winfo_manager():advanced.pack_forget()
+        else:advanced.pack(fill='x',pady=5)
+    line = tk.Frame(advanced); line.pack(fill='x', padx=14)
     tk.Entry(line, textvariable=selected).pack(side='left', fill='x', expand=True)
     tk.Button(line, text='Выбрать ADB MuMu', command=lambda: selected.set(filedialog.askopenfilename(title='Выберите ADB в папке MuMu', filetypes=[('ADB', '*.exe')]))).pack(side='right')
     label('Адрес подключения (можно передать в чат):')
@@ -665,10 +672,11 @@ def main():
             root.clipboard_clear(); root.clipboard_append(token.get())
             root.after(60000, lambda: root.clipboard_clear() if not ui['closed'] else None)
     tk.Button(body, text='Скопировать ключ (буфер очистится через 60 секунд)', command=copy_key).pack(pady=5)
-    label('В Notion: авторизация Bearer; значение — ключ. Для произвольного заголовка: Authorization = Bearer <ключ>.\nАдрес временный и изменится при новом запуске. Ключ тоже новый. Не устанавливается автозапуск; файлы чатов не сохраняются.')
+    label('Ключ вводится в защищённое поле подключения Notion: Bearer. Не отправляйте его в чат. Адрес и ключ меняются при запуске.')
     tk.Label(body, textvariable=status, wraplength=755, justify='left').pack(fill='x', padx=14, pady=8)
-    session_status = tk.StringVar(value='Тест не начат. Подключитесь, затем нажмите локальную кнопку теста.')
-    tk.Label(body,textvariable=session_status,wraplength=780,justify='left',fg='#087f8c').pack(fill='x',padx=14,pady=8)
+    tk.Button(body,text='Дополнительно: ADB и ограниченный тест',command=toggle_advanced).pack(pady=5)
+    session_status = tk.StringVar(value='Тест анкет не запущен. Включение моста само сообщения не отправляет.')
+    tk.Label(advanced,textvariable=session_status,wraplength=780,justify='left',fg='#087f8c').pack(fill='x',padx=14,pady=8)
     def refresh_session():
         if ui['ledger']:
             info = ui['ledger'].status()
@@ -697,7 +705,7 @@ def main():
             refresh_session()
         except Exception as exc:
             messagebox.showerror('Тест не начат', str(exc))
-    tk.Button(body,text='Начать ограниченный тест (1–5 анкет)',command=start_test).pack(pady=5)
+    tk.Button(advanced,text='Начать ограниченный тест (1–5 анкет)',command=start_test).pack(pady=5)
     def city_diagnostics():
         server=ui['server'];reader=ui['reader']
         if not server or not reader:
@@ -715,42 +723,7 @@ def main():
                 if not cancelled.is_set():post(lambda:status.set('Автотест не завершён. Действия не выполнялись.'))
             finally:server.device_lock.release()
         threading.Thread(target=diagnostic_work,daemon=True).start()
-    tk.Button(body,text='Автотест поля города (только чтение)',command=city_diagnostics).pack(pady=5)
-    def enable_control():
-        server=ui['server'];facade=ui['reader']
-        if not server or not facade:
-            messagebox.showinfo('Расширенный режим','Сначала подключите MuMu.');return
-        if not messagebox.askyesno('Универсальное управление MuMu',
-            'Разрешить произвольные нажатия, свайпы, удержания, Android-клавиши и Unicode-ввод через отдельную клавиатуру? Нажатие/Enter МОЖЕТ ОТПРАВИТЬ сообщение или активировать платную кнопку. Каждое действие согласуется с агентом отдельно. Автоматического цикла нет.\n\nБудут установлены два новых проверенных APK без сети. В MuMu временно будет выбрана клавиатура MuMu supervised keyboard. Прежний метод ввода сохраняется для восстановления кнопкой Остановить. После аварийного завершения его можно вернуть в Android → Язык и ввод. Старые приложения и журналы не удаляются. Не используйте режим для обхода лимита анкет и не вводите пароли.'):
-            return
-        if not server.device_lock.acquire(blocking=False):
-            messagebox.showinfo('Подождите','Устройство занято запросом.');return
-        def work_control():
-            try:
-                from universal_control import enable_locally
-                base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).parent
-                enable_locally(facade.inner,facade.ledger,base)
-                if cancelled.is_set():
-                    from universal_control import stop_locally
-                    stop_locally(facade.inner,facade.ledger);return
-                post(lambda:status.set('Универсальный режим включён. Любое действие — только после проверки свежего экрана и согласования.'))
-            except Exception:
-                post(lambda:status.set('Расширенный режим не включён. Автоудалений/повторов нет; проверьте APK и настройки клавиатуры MuMu.'))
-            finally:server.device_lock.release()
-        threading.Thread(target=work_control,daemon=True).start()
-    tk.Button(body,text='Включить универсальное управление MuMu',command=enable_control).pack(pady=5)
-    def restore_keyboard():
-        server=ui['server'];facade=ui['reader']
-        if not server or not facade:return
-        if not server.device_lock.acquire(blocking=False):
-            messagebox.showinfo('Подождите','Дождитесь завершения действия.');return
-        try:
-            from universal_control import restore_keyboard_locally
-            restore_keyboard_locally(facade.inner,facade.ledger)
-            status.set('Прежняя клавиатура восстановлена. Универсальные нажатия остаются доступны.')
-        except Exception:messagebox.showerror('Клавиатура','Верните клавиатуру через настройки Android → Язык и ввод.')
-        finally:server.device_lock.release()
-    tk.Button(body,text='Вернуть обычную клавиатуру (оставить нажатия)',command=restore_keyboard).pack(pady=3)
+    tk.Button(advanced,text='Автотест поля города (только чтение)',command=city_diagnostics).pack(pady=5)
     def post(fn):
         if not ui['closed']:
             root.after(0, fn)
@@ -769,11 +742,18 @@ def main():
         root.clipboard_clear()
         status.set('Доступ остановлен. Для нового подключения откройте программу заново.')
     def start():
-        if not messagebox.askyesno('Разрешить управляемую навигацию?', 'Разрешить чтение экрана и до 50 одиночных нажатий/Назад через Cloudflare?\n\nНажатие может активировать любую кнопку, включая отправку: агент обязан проверять свежий экран. Разрешается ввод одного из 10 согласованных приветствий только в пустое поле: Привет / Привет) / Привет)) / Привет! / Привет 🙂 / Привет 😊 / Привет 👋 / Привет! 🙂 / Приветик) / Привет-привет). Тест на 1–5 ПОСЕЩЁННЫХ анкет запускается отдельной локальной кнопкой. Переподключение продолжает тот же тест. Старый журнал импортируется без удаления; неизвестные исходы блокируют новый тест. Счётчики посещений, ввода, отправок и наблюдений раздельны. Пустота всей истории проверяется агентом по экрану, а не гарантируется программой. Автоматический отправщик не реализован. Существующие черновики нельзя отправлять или удалять.\n\nВ MuMu будут установлены отдельные APK com.dvk.navigation.v132 и com.dvk.city.v1 без сети, служб и автозапуска. Второй помощник разрешает только ввод города из каталога city-v1 в проверенное поле поиска между анкетами, не более пяти разных попыток за проход. Он не выбирает результат и не применяет фильтры. Автотест поля ничего не нажимает и не вводит; отдельный автофокус может попробовать до трёх фиксированных внутренних точек, только после подтверждённого отсутствия фокуса. Неизвестный результат блокирует повторы. Старый помощник не удаляется. Поддерживается экран 900x1600. Поле ввода сверяется отдельно от мигающего курсора: текст/пустота/границы проверяются нативно, остальные пиксели — по снимку. Завершение ввода вызывает Android Назад, не клавишу Esc Windows; оно может закрыть редактор или выйти из чата. Для нижнего облачка анкеты есть отдельная проверка с фиксированной областью анимации подарка; остальные пиксели и сама кнопка сверяются. В остальных действиях проверяется весь интерфейс.\n\nОстановить отзывает новые запросы, но уже начатое нажатие может завершиться. Не переключайте приложение во время действий.'):
-            return
-        path = selected.get()
+        if cancelled.is_set():
+            messagebox.showinfo('Доступ остановлен','Для нового подключения откройте программу заново.');return
+        from bridge_startup import confirm_startup,discover_adb
+        base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).parent
+        path=selected.get().strip() or discover_adb(base)
+        if not path:
+            path=filedialog.askopenfilename(title='ADB не найден автоматически — выберите adb.exe в папке MuMu',filetypes=[('ADB','*.exe')])
+            if not path:return
+        selected.set(path)
+        if not confirm_startup(root):return
         start_button.config(state='disabled')
-        status.set('Проверяю локальный ADB и создаю временное HTTPS-подключение…')
+        status.set('Запускаю подключение и управление. Подождите…')
         def work():
             try:
                 from test_session import TestSession
@@ -783,32 +763,12 @@ def main():
                 ui['ledger']=ledger
                 reader = SupervisedReader(AdbReader(path),ledger)
                 ui['reader']=reader
-                reader.connect()
-                if cancelled.is_set(): return
-                base = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
-                def confirm_replacement():
-                    answered = threading.Event()
-                    answer = {'yes': False}
-                    def ask():
-                        try:
-                            if not cancelled.is_set():
-                                answer['yes'] = messagebox.askyesno('Разовая замена помощника',
-                                    'Android отклонил обновление: подпись старого помощника отличается.\n\n'
-                                    'Разрешить удалить ТОЛЬКО com.dvk.navigation.v132 и установить проверенный APK из этого пакета? '
-                                    'ДругВокруг, переписка и журналы Windows не удаляются. Удаляются лишь данные самого помощника.\n\n'
-                                    'Новый пакет использует постоянный APK, поэтому bridge-only обновления больше не меняют подпись. '
-                                    'Если откажетесь, ничего не удалится и доступ не откроется.')
-                        finally:
-                            answered.set()
-                    post(ask)
-                    while not answered.wait(0.1):
-                        if cancelled.is_set(): return False
-                    return answer['yes'] and not cancelled.is_set()
-                install_helper_with_local_consent(reader.inner, base, confirm_replacement)
-                if cancelled.is_set(): return
+                from bridge_startup import prepare_device
                 cf = base / 'cloudflared.exe'
                 if not cf.is_file() or hashlib.sha256(cf.read_bytes()).hexdigest() != CLOUDFLARED_SHA256:
-                    raise BridgeError('cloudflared.exe отсутствует или контрольная сумма не совпала. Нужен исходный пакет.')
+                    raise BridgeError('cloudflared.exe отсутствует или повреждён. Распакуйте весь Windows-пакет рядом с EXE.')
+                prepare_device(reader,base,cancelled,lambda text:post(lambda t=text:status.set(t)),consent=True)
+                if cancelled.is_set():return
                 key = secrets.token_urlsafe(32)
                 server = BridgeServer(reader, key, lambda: post(lambda: (status.set('Подключение активно: запрос выполнен. Проверяйте результат нажатий.'),refresh_session())))
                 ui['server'] = server
@@ -834,7 +794,7 @@ def main():
                         connected.set()
                         public = found.group(0)
                         server.public_url = public
-                        post(lambda u=public, k=key: (url.set(u + '/mcp'), token.set(k), status.set('Готово. Подключите этот адрес в Notion. Ключ — только в защищённое поле.')) if not cancelled.is_set() else None)
+                        post(lambda u=public, k=key: (url.set(u + '/mcp'), token.set(k), status.set('Готово: MuMu подключён, управление и ввод по буквам включены. Передайте адрес агенту; ключ — только в защищённое поле.')) if not cancelled.is_set() else None)
                 if not cancelled.is_set():
                     post(lambda: (stop(), status.set('Туннель завершён. Доступ закрыт; перезапустите программу.')))
             except Exception as exc:
@@ -845,19 +805,28 @@ def main():
                     ui['server'].token = ''
         threading.Thread(target=work, daemon=True).start()
     buttons = footer
-    start_button = tk.Button(buttons, text='Разрешить подключение', command=start); start_button.pack(side='left', padx=8)
+    start_button = tk.Button(mainbar, text='Включить MuMu', command=start,font=('Arial',14,'bold'),pady=10); start_button.pack(fill='x')
     tk.Button(buttons, text='Остановить доступ', command=stop).pack(side='left', padx=8)
     def close():
         stop(); ui['closed'] = True; root.destroy()
     root.protocol('WM_DELETE_WINDOW', close)
+    if smoke_test:
+        root.update_idletasks();root.update()
+        assert start_button.winfo_ismapped() and footer.winfo_ismapped()
+        assert not advanced.winfo_ismapped()
+        for widget in (start_button,footer):
+            assert widget.winfo_rooty()>=root.winfo_rooty()
+            assert widget.winfo_rooty()+widget.winfo_height()<=root.winfo_rooty()+root.winfo_height()
+        root.destroy();return
     root.mainloop()
 
 if __name__ == '__main__':
     sys.modules.setdefault('mumu_bridge',sys.modules[__name__])
     if sys.argv[1:] == ['--self-check']:
         # Packaged Windows smoke check: no device, tunnel or credentials used.
-        import tkinter as tk
-        root = tk.Tk(); root.withdraw(); root.update(); root.destroy()
+        main(smoke_test=True)
+        from bridge_startup import discover_adb,prepare_device
+        assert callable(discover_adb) and callable(prepare_device)
         import tempfile
         from city_transport import CityTransport
         from city_release import CITY_CATALOG
