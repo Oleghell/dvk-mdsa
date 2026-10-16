@@ -52,9 +52,17 @@ class TextEncodingTests(unittest.TestCase):
             expected='avd.ini.displayname=Нальчик 🙂\nother.setting=keep\nhw.lcd.width=900\nhw.lcd.height=1600\nhw.lcd.density=240\n'
             with patch.dict(os.environ,{'ANDROID_AVD_HOME':tmp}),legacy_cp1252_io(),redirect_stdout(io.StringIO()):
                 runpy.run_path(str(script),run_name='__main__')
-                self.assertEqual(config.read_bytes(),expected.encode('utf-8'))
+                self.assertEqual(config.read_text(encoding='utf-8'),expected)
                 runpy.run_path(str(script),run_name='__main__')
-                self.assertEqual(config.read_bytes(),expected.encode('utf-8'))
+                self.assertEqual(config.read_text(encoding='utf-8'),expected)
+    def test_windows_newline_simulation_writes_crlf_and_reads_normalized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'windows.txt'
+            sample='Нальчик 🙂\nsecond line\n'
+            with legacy_cp1252_io(windows_newlines=True):
+                path.write_text(sample,encoding='utf-8')
+                self.assertEqual(path.read_bytes(),sample.replace('\n','\r\n').encode('utf-8'))
+                self.assertEqual(path.read_text(encoding='utf-8'),sample)
     def test_binary_reads_are_not_changed_by_the_emulation(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'binary';raw=bytes(range(256));path.write_bytes(raw)
