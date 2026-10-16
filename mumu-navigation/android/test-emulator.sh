@@ -6,7 +6,7 @@ python3 -m venv out/pixel-venv
 python -m pip -q install Pillow==12.3.0
 adb install -t -r out/helper.apk
 adb install -r out/fixture.apk
-component=com.dvk.navigation.v131/com.dvk.navigation.NavigationInstrumentation
+component=com.dvk.navigation.v132/com.dvk.navigation.NavigationInstrumentation
 adb shell am start -W -n drug.vokrug/drug.vokrug.FixtureActivity
 sleep 2
 content_hash() {
@@ -89,6 +89,10 @@ r=E.parse('out/profile-check.xml')
 assert any(n.get('content-desc')=='chat=1 gifts=0' for n in r.iter('node'))
 PYCODE
 result=$(run_helper profile_back "$(profile_hash)" 0 0);echo "$result";grep -q navigation_status=input_injected <<< "$result"
+profile_start profile_corner
+corner_reference=$(profile_hash)
+result=$(run_helper profile_chat "$reference" 321 1515);echo "$result";grep -q navigation_status=denied_screen_changed <<< "$result"
+result=$(run_helper profile_chat "$corner_reference" 321 1515);echo "$result";grep -q navigation_status=input_injected <<< "$result"
 echo 'ANDROID_PROFILE_CLOUD_TESTS_PASSED: Python/Android masked hashes equal; animated gift ignored only for fixed lower cloud action; other identity/button changes refused; exact lower cloud tapped once; gift taps zero. SYNTHETIC FIXTURE ONLY.'
 
 input_hash() {

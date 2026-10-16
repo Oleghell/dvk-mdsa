@@ -44,6 +44,7 @@ public class FixtureActivity extends Activity {
    if(clicks>0)c.drawText("CHAT OPENED",30,500,paint);
    paint.setColor(blue?android.graphics.Color.BLUE:android.graphics.Color.RED);c.drawRect(727,830,879,981,paint);
    c.drawBitmap(icon,274,1468,null);
+   if(getIntent().getStringExtra("scenario").equals("profile_corner")){paint.setColor(android.graphics.Color.MAGENTA);c.drawRect(274,1468,282,1476,paint);}
    if(getIntent().getStringExtra("scenario").equals("profile_bad_button")){paint.setColor(android.graphics.Color.WHITE);c.drawRect(300,1500,340,1530,paint);}
   }
   @Override public boolean onTouchEvent(android.view.MotionEvent e){

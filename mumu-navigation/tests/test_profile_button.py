@@ -62,6 +62,16 @@ class ProfileGuardTests(unittest.TestCase):
             result=self.r.leave_profile(self.sha)
         call.assert_called_once_with('profile_back',self.sha,0,0)
         self.assertIsNone(result['fixed_target'])
+    def test_background_around_circle_is_not_part_of_button_anchor(self):
+        im=Image.open(BytesIO(self.a)).convert('RGB')
+        im.putpixel((274,1468),(17,29,43))
+        out=BytesIO();im.save(out,format='PNG')
+        changed=out.getvalue()
+        self.assertTrue(profile_guard(changed)['button_matches'])
+        # Background is still part of the contextual guard: no broad new mask.
+        self.assertNotEqual(self.sha,profile_guard(changed)['profile_sha256'])
+    def test_inner_button_change_still_rejected(self):
+        self.assertFalse(profile_guard(image(bad_button=True))['button_matches'])
     def test_wrong_dimensions_refused(self):
         im=Image.new('RGB',(450,800));out=BytesIO();im.save(out,format='PNG')
         with self.assertRaises(BridgeError):profile_guard(out.getvalue())

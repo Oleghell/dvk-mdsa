@@ -21,7 +21,7 @@ import org.json.JSONObject;
  */
 public final class NavigationInstrumentation extends Instrumentation {
  private static final String[] GREETINGS={"Привет","Привет)","Привет))","Привет!","Привет 🙂","Привет 😊","Привет 👋","Привет! 🙂","Приветик)","Привет-привет)"};
- private static final String BUTTON_SHA="644fbcf917c627fe7bcd897098ef4efab9fcf4e38b0e67d6ef625914d235e54a";
+ private static final String BUTTON_SHA="87ce3d79d4bff8f6f05f3450f1a41ccbd29719d9eb893a376a1a529135cb410e";
  private String op,expected; private int x,y; private String stage="initialization";
  @Override public void onCreate(Bundle args){
   super.onCreate(args);
@@ -49,7 +49,7 @@ public final class NavigationInstrumentation extends Instrumentation {
   try{
    if(b.getWidth()!=900 || b.getHeight()!=1600)throw new Exception();
    if(profile){
-    int[] button=new int[96*96];b.getPixels(button,0,96,274,1468,96,96);byte[] data=new byte[button.length*3];int index=0;
+    int[] button=new int[64*64];b.getPixels(button,0,64,290,1484,64,64);byte[] data=new byte[button.length*3];int index=0;
     for(int c:button){data[index++]=(byte)(c>>>16);data[index++]=(byte)(c>>>8);data[index++]=(byte)c;}
     if(!BUTTON_SHA.equals(digest(data)))throw new Exception("button mismatch");
    }
