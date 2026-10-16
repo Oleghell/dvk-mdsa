@@ -2,11 +2,24 @@ name: Build MuMu supervised navigation bridge
 "on":
   push:
     branches: [feature/mumu-local, feature/mumu-five-profile-test, feature/mumu-limited-five-scenario]
-    paths: ['mumu-navigation/**', '.github/workflows/mumu-navigation.yml']
+    paths: ['mumu-navigation/**', '.github/workflows/mumu-navigation.yml', '.github/scripts/publish_mumu_ci.py']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  report_started:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Publish non-triggering build-start report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/publish_mumu_ci.py started
   python:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -149,3 +162,21 @@ jobs:
           path: out/MuMu-navigation-windows-x64/
           if-no-files-found: error
           retention-days: 14
+
+  report_finished:
+    if: ${{ always() }}
+    needs: [python, android, windows, report_started]
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Publish bounded build result and masked failure diagnostics
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MUMU_NEEDS: ${{ toJSON(needs) }}
+        run: python3 .github/scripts/publish_mumu_ci.py finished
