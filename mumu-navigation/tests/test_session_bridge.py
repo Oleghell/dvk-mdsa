@@ -196,6 +196,41 @@ class SessionBridgeTests(unittest.TestCase):
         im=Image.open(BytesIO(self.transport.frame));im.paste('white',(756,981,858,1044));b=BytesIO();im.save(b,format='PNG');self.transport.frame=b.getvalue()
         with self.assertRaises(BridgeError):self.r.navigate('tap',self.sha(),808,1515)
         self.assertFalse(self.r.online_confirmed)
+    def test_current_live_on_fixture_can_confirm_without_toggling(self):
+        from session_bridge import FILTER_ON_BOX, FILTER_ON_SHA
+        self.assertEqual(FILTER_ON_BOX,(756,981,858,1044))
+        self.assertEqual(FILTER_ON_SHA,'8dec16142306664d48e8ff4e236d928db8328e20f67fa2b345a0167b660b6537')
+        self.ledger.start(4)
+        self.authorize_online()
+        self.assertTrue(self.r.online_confirmed)
+        self.assertEqual(self.transport.events,[('tap',815,1514),('tap',808,1515)])
+        self.assertEqual(self.ledger.status()['visited'],0)
+        self.assertEqual(self.ledger.status()['send_attempts'],0)
+
+    def test_one_changed_switch_pixel_refuses_confirm_before_injection(self):
+        self.ledger.start(4)
+        self.r.navigate('tap',self.sha(),815,1514)
+        im=Image.open(BytesIO(self.transport.frame)).convert('RGB')
+        rgb=im.getpixel((800,1000));im.putpixel((800,1000),((rgb[0]+1)%256,rgb[1],rgb[2]))
+        b=BytesIO();im.save(b,format='PNG');self.transport.frame=b.getvalue()
+        before=list(self.transport.events)
+        with self.assertRaises(BridgeError):self.r.navigate('tap',self.sha(),808,1515)
+        self.assertEqual(self.transport.events,before)
+        self.assertFalse(self.r.online_confirmed)
+        self.assertEqual(self.ledger.status()['visited'],0)
+
+    def test_old_mismatched_on_crop_has_no_fallback(self):
+        self.ledger.start(4)
+        self.r.navigate('tap',self.sha(),815,1514)
+        item=FIXTURES['online_v140_rejected']
+        im=Image.open(BytesIO(self.transport.frame)).convert('RGB')
+        im.paste(Image.open(BytesIO(base64.b64decode(item['png']))),tuple(item['box'][:2]))
+        b=BytesIO();im.save(b,format='PNG');self.transport.frame=b.getvalue()
+        before=list(self.transport.events)
+        with self.assertRaises(BridgeError):self.r.navigate('tap',self.sha(),808,1515)
+        self.assertEqual(self.transport.events,before)
+        self.assertFalse(self.r.online_confirmed)
+
     def test_reopening_settings_invalidates_previous_filter_check(self):
         self.ledger.start(5);self.authorize_online();self.assertTrue(self.r.online_confirmed)
         self.r.navigate('tap',self.sha(),815,1514)

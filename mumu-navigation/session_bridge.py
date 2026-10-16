@@ -294,4 +294,6 @@ FILTER_BOX = (360,244,543,289)
 FILTER_SHA = '263efd838fe25309f9da855d3c23893e2edb303dfc5ac4322b8d9e2292f44b18'
 
 FILTER_ON_BOX = (756, 981, 858, 1044)
-FILTER_ON_SHA = 'f3bddf8b251375a403722b067b2dd00ab6de532212bbae90a8c1adccb0bf1d22'
+# v1.4.1: exact static ON crop observed unchanged in two fresh live reads.
+# No tolerance, extra mask, fallback template or operator override.
+FILTER_ON_SHA = '8dec16142306664d48e8ff4e236d928db8328e20f67fa2b345a0167b660b6537'
