@@ -1,5 +1,23 @@
 # MuMu — предварительная версия v1.5.0-control-preview.2
 
+## Исправление Windows-кодировки (без изменений Android APK)
+
+После успешного Android-прогона Windows-тесты обнаружили три
+`UnicodeDecodeError`: исходники с кириллицей читались как `cp1252`.
+Все `Path.read_text`/`write_text` проекта теперь явно указывают UTF-8.
+В Windows CI также включён UTF-8 для Python/вывода, но проверка не зависит
+только от этой настройки: полный набор запускается с принудительной
+эмуляцией старой кодировки текстовых файлов `cp1252`.
+
+```sh
+python mumu-navigation/run_encoding_autotests.py
+```
+
+Отчёт и журнал — локально в `out/encoding-autotests`; в Windows CI — артефакт
+`windows-encoding-autotests`, в том числе при ошибке. Это эмуляция кодировки
+Python, **не эмуляция Windows**: реальная упаковка EXE проверяется отдельно
+Windows-раннером CI. APK, подписи, журнал и права управления не менялись.
+
 ## Исправление первого Android inspect — preview.2
 
 В CI preview.1 первая инспекция вернула `denied_context` до нажатия.

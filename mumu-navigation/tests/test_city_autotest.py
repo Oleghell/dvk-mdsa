@@ -98,7 +98,7 @@ class AutoCityTests(unittest.TestCase):
             self.assertTrue(save_diagnostic_report(d))
             p=self.path/'DvkMuMu/diagnostics/city-last.json'
             self.assertNotIn('PRIVATE',p.read_text(encoding='utf-8'))
-            self.assertFalse(p.with_suffix('.tmp').exists());self.assertEqual(json.loads(p.read_text())['device_actions'],0)
+            self.assertFalse(p.with_suffix('.tmp').exists());self.assertEqual(json.loads(p.read_text(encoding='utf-8'))['device_actions'],0)
     def test_facade_diagnostic_saves_report_without_starting_test(self):
         with patch.dict(os.environ,{'LOCALAPPDATA':str(self.path)}):d=self.facade.autotest_city()
         self.assertTrue(d['report_saved']);self.assertEqual(self.db.status()['state'],'not_started')

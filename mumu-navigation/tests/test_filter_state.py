@@ -9,8 +9,8 @@ from PIL import Image, ImageDraw, ImageEnhance
 from filter_state import online_filter_state, classify_switch, SWITCH_BOX, LABEL_BOX, FILTER_BOX
 
 ROOT=Path(__file__).parent
-FIX=json.loads((ROOT/'session-ui-fixtures.json').read_text())
-CASES=json.loads((ROOT/'filter-control-cases.json').read_text())['cases']
+FIX=json.loads((ROOT/'session-ui-fixtures.json').read_text(encoding='utf-8'))
+CASES=json.loads((ROOT/'filter-control-cases.json').read_text(encoding='utf-8'))['cases']
 
 def decode(item):return Image.open(BytesIO(base64.b64decode(item['png']))).convert('RGB')
 def png(im):

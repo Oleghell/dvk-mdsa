@@ -9,7 +9,7 @@ from mumu_bridge import profile_guard, content_pixel_sha256, AdbReader, BridgeEr
 
 def image(gift='red', other=False, bad_button=False):
     im=Image.new('RGB',(900,1600),'white')
-    icon=Image.open(BytesIO(base64.b64decode((Path(__file__).resolve().parents[1]/'button-fixture-base64.txt').read_text()))).convert('RGB')
+    icon=Image.open(BytesIO(base64.b64decode((Path(__file__).resolve().parents[1]/'button-fixture-base64.txt').read_text(encoding='utf-8')))).convert('RGB')
     im.paste(icon,(274,1468));im.paste(gift,(727,830,879,981))
     if other: im.putpixel((30,1000),(0,0,0))
     if bad_button:im.putpixel((321,1515),(255,255,255))

@@ -10,7 +10,7 @@ from mumu_bridge import AdbReader, BridgeError, GREETINGS, content_pixel_sha256,
 from session_bridge import SupervisedReader, matches, GRID_BOX, GRID_SHA, EMPTY_BOX, EMPTY_SHA, SEND_BOX, SEND_SHA
 from test_session import TestSession, SessionError
 
-FIXTURES=json.loads((Path(__file__).parent/'session-ui-fixtures.json').read_text())
+FIXTURES=json.loads((Path(__file__).parent/'session-ui-fixtures.json').read_text(encoding='utf-8'))
 
 class SyntheticTransport:
     """Runs the REAL Python transport and session facade, but NO Android/ADB."""
@@ -27,7 +27,7 @@ class SyntheticTransport:
         # Synthetic recipient marker only. No real names, avatars or screenshots.
         draw.rectangle((120,70,150,100),fill=(self.person,0,0))
         if self.mode=='profile':
-            icon=Image.open(BytesIO(base64.b64decode((Path(__file__).resolve().parents[1]/'button-fixture-base64.txt').read_text()))).convert('RGB');im.paste(icon,(274,1468))
+            icon=Image.open(BytesIO(base64.b64decode((Path(__file__).resolve().parents[1]/'button-fixture-base64.txt').read_text(encoding='utf-8')))).convert('RGB');im.paste(icon,(274,1468))
         keys={'grid':['grid'],'chat':['empty'],'draft':['empty'],'finished':['empty','send'],'sent':[],'profile':[],'filter':['filter','online_label',self.switch_fixture]}[self.mode]
         for key in keys:
             item=FIXTURES[key];im.paste(Image.open(BytesIO(base64.b64decode(item['png']))),tuple(item['box'][:2]))

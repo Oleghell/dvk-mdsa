@@ -27,7 +27,7 @@ def validated_apk(root, compiled_dex=None):
         source = (root/relative).read_bytes().replace(b'\r\n', b'\n')
         if hashlib.sha256(source).hexdigest() != expected:
             raise ValueError('Native sources changed. Publish/review a new pinned helper; do not silently reuse this APK.')
-    raw = base64.b64decode(''.join((root/'pinned/helper-v132.apk.base64').read_text().split()), validate=True)
+    raw = base64.b64decode(''.join((root/'pinned/helper-v132.apk.base64').read_text(encoding='utf-8').split()), validate=True)
     if hashlib.sha256(raw).hexdigest() != APK_SHA256:
         raise ValueError('Pinned APK checksum mismatch')
     with zipfile.ZipFile(BytesIO(raw)) as z:
@@ -41,7 +41,7 @@ def validated_apk(root, compiled_dex=None):
 def package(root):
     root=Path(root); raw=validated_apk(root,root/'out/helper/dex/classes.dex')
     (root/'out/helper.apk').write_bytes(raw)
-    (root/'out/helper-manifest.json').write_text(json.dumps({'helper_sha256':APK_SHA256}))
+    (root/'out/helper-manifest.json').write_text(json.dumps({'helper_sha256':APK_SHA256}), encoding='utf-8')
 
 if __name__=='__main__':
     package(Path(__file__).resolve().parent)

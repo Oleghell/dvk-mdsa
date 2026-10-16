@@ -21,14 +21,14 @@ class HelperInstallTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         adb=self.root/'adb.exe';adb.touch();self.r=AdbReader(adb)
-        self.raw=base64.b64decode(''.join((ROOT/'android/pinned/helper-v132.apk.base64').read_text().split()))
+        self.raw=base64.b64decode(''.join((ROOT/'android/pinned/helper-v132.apk.base64').read_text(encoding='utf-8').split()))
         (self.root/'helper.apk').write_bytes(self.raw)
-        (self.root/'helper-manifest.json').write_text(json.dumps({'helper_sha256':PINNED_HELPER_SHA256}))
+        (self.root/'helper-manifest.json').write_text(json.dumps({'helper_sha256':PINNED_HELPER_SHA256}), encoding='utf-8')
     def tearDown(self):self.tmp.cleanup()
     def test_fixed_pinned_checksum_required_even_if_manifest_changed(self):
         bad=b'not approved'
         (self.root/'helper.apk').write_bytes(bad)
-        (self.root/'helper-manifest.json').write_text(json.dumps({'helper_sha256':hashlib.sha256(bad).hexdigest()}))
+        (self.root/'helper-manifest.json').write_text(json.dumps({'helper_sha256':hashlib.sha256(bad).hexdigest()}), encoding='utf-8')
         with patch.object(self.r,'_run') as run:
             with self.assertRaises(BridgeError):self.r.install_helper(self.root)
         run.assert_not_called()
@@ -130,7 +130,7 @@ class PinnedHelperTests(unittest.TestCase):
         (self.root/'AndroidManifest.xml').unlink()
         with self.assertRaises(FileNotFoundError):PIN.validated_apk(self.root)
     def test_corrupt_apk_fails(self):
-        (self.root/'pinned/helper-v132.apk.base64').write_text(base64.b64encode(b'corrupt').decode())
+        (self.root/'pinned/helper-v132.apk.base64').write_text(base64.b64encode(b'corrupt').decode(), encoding='utf-8')
         with self.assertRaises(ValueError):PIN.validated_apk(self.root)
     def test_rebuilt_dex_mismatch_blocks_distribution(self):
         p=self.root/'compiled.dex';p.write_bytes(b'different')
@@ -143,6 +143,6 @@ class PinnedHelperTests(unittest.TestCase):
         p=self.root/'out/helper/dex/classes.dex';p.parent.mkdir(parents=True);p.write_bytes(dex)
         PIN.package(self.root)
         self.assertEqual((self.root/'out/helper.apk').read_bytes(),raw)
-        self.assertEqual(json.loads((self.root/'out/helper-manifest.json').read_text())['helper_sha256'],PINNED_HELPER_SHA256)
+        self.assertEqual(json.loads((self.root/'out/helper-manifest.json').read_text(encoding='utf-8'))['helper_sha256'],PINNED_HELPER_SHA256)
 
 if __name__=='__main__':unittest.main()

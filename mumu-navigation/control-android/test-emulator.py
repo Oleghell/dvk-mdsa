@@ -95,7 +95,7 @@ def main():
         # Disposable synthetic emulator only; never collect a user's MuMu data.
         diagnostics=Path(__file__).resolve().parent/'out'/'ci-diagnostics'
         diagnostics.mkdir(parents=True,exist_ok=True)
-        (diagnostics/'control-last.json').write_text(json.dumps(last,indent=2)+'\n')
+        (diagnostics/'control-last.json').write_text(json.dumps(last,indent=2)+'\n', encoding='utf-8')
         for name,args,binary in (
             ('screen.png',['exec-out','screencap','-p'],True),
             ('window.txt',['shell','dumpsys','window'],False)):

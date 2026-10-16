@@ -13,7 +13,7 @@ def verified(root,check_compiled=True):
         if hashlib.sha256((root/rel).read_bytes().replace(b'\r\n',b'\n')).hexdigest()!=expected:raise ValueError('Control sources changed; review and repin deliberately')
     result={}
     for name,meta in manifest['packages'].items():
-        raw=base64.b64decode(''.join((root/'pinned'/(name+'.base64')).read_text().split()),validate=True)
+        raw=base64.b64decode(''.join((root/'pinned'/(name+'.base64')).read_text(encoding='utf-8').split()),validate=True)
         if hashlib.sha256(raw).hexdigest()!=meta['apk_sha256']:raise ValueError('Control APK mismatch')
         with zipfile.ZipFile(BytesIO(raw)) as z:
             if hashlib.sha256(z.read('classes.dex')).hexdigest()!=meta['dex_sha256']:raise ValueError('Control DEX mismatch')
