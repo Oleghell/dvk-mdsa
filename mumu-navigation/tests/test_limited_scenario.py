@@ -28,7 +28,7 @@ class LimitedScenarioTests(unittest.TestCase):
     def test_gui_defaults_new_run_to_five_without_changing_active_run(self):
         from pathlib import Path
         import ast
-        source=(Path(__file__).resolve().parents[1]/'mumu_bridge.py').read_text()
+        source=(Path(__file__).resolve().parents[1]/'mumu_bridge.py').read_text(encoding='utf-8')
         tree=ast.parse(source)
         start=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=='start_test')
         ask=next(n for n in ast.walk(start) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='askinteger')

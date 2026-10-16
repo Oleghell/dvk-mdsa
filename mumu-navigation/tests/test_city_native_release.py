@@ -22,7 +22,7 @@ ROOT=Path(__file__).resolve().parents[1]
 NATIVE=ROOT/'city-android'
 
 class CityNativeReleaseTests(unittest.TestCase):
-    def apk(self):return base64.b64decode(''.join((NATIVE/'pinned/city-helper.apk.base64').read_text().split()),validate=True)
+    def apk(self):return base64.b64decode(''.join((NATIVE/'pinned/city-helper.apk.base64').read_text(encoding='utf-8').split()),validate=True)
     def test_exact_apk_and_dex_pins(self):
         data=self.apk();self.assertEqual(hashlib.sha256(data).hexdigest(),CITY_APK_SHA256)
         with zipfile.ZipFile(BytesIO(data)) as z:
@@ -32,21 +32,41 @@ class CityNativeReleaseTests(unittest.TestCase):
         expected={'AndroidManifest.xml','src/com/dvk/city/CityPolicy.java','src/com/dvk/city/CityInstrumentation.java'}
         self.assertEqual(set(CITY_SOURCE_HASHES),expected)
         for path,sha in CITY_SOURCE_HASHES.items():self.assertEqual(hashlib.sha256((NATIVE/path).read_bytes()).hexdigest(),sha)
+    @unittest.skipUnless(shutil.which('git'),'Git required to verify Windows checkout rules')
+    def test_windows_autocrlf_preserves_approved_source_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout=Path(tmp)
+            shutil.copy(ROOT.parent/'.gitattributes',checkout/'.gitattributes')
+            for name in CITY_SOURCE_HASHES:
+                target=checkout/'mumu-navigation/city-android'/name
+                target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_bytes((NATIVE/name).read_bytes())
+            def git(*args):
+                subprocess.run(['git','-C',tmp,*args],check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+            git('init');git('config','core.autocrlf','true');git('config','core.safecrlf','false')
+            git('add','.')
+            for name in CITY_SOURCE_HASHES:
+                (checkout/'mumu-navigation/city-android'/name).unlink()
+            git('checkout-index','-a','-f')
+            for name,sha in CITY_SOURCE_HASHES.items():
+                data=(checkout/'mumu-navigation/city-android'/name).read_bytes()
+                self.assertNotIn(b'\r\n',data)
+                self.assertEqual(hashlib.sha256(data).hexdigest(),sha)
     def test_native_city_catalog_exactly_matches_python(self):
-        s=(NATIVE/'src/com/dvk/city/CityPolicy.java').read_text()
+        s=(NATIVE/'src/com/dvk/city/CityPolicy.java').read_text(encoding='utf-8')
         match=re.search(r'String\[\] CITIES = \{(.*?)\};',s,re.S)
         self.assertEqual(tuple(json.loads('['+match[1]+']')),CITIES)
     def test_native_has_no_network_chat_keyevent_or_tap_api(self):
-        s=(NATIVE/'src/com/dvk/city/CityInstrumentation.java').read_text()
+        s=(NATIVE/'src/com/dvk/city/CityInstrumentation.java').read_text(encoding='utf-8')
         for token in ('MotionEvent','KeyEvent','injectInputEvent','performGlobalAction','ACTION_IME_ENTER','ACTION_CLICK'):
             self.assertNotIn(token,s)
         self.assertEqual(s.count('edit.performAction('),1)
         self.assertIn('edit.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,value)',s)
-        manifest=(NATIVE/'AndroidManifest.xml').read_text()
+        manifest=(NATIVE/'AndroidManifest.xml').read_text(encoding='utf-8')
         self.assertNotIn('uses-permission',manifest);self.assertNotIn('<service',manifest)
         self.assertIn('com.dvk.city.v1',manifest);self.assertNotIn('com.dvk.navigation.v132',manifest)
     def test_builder_never_generates_new_release_key(self):
-        s=(NATIVE/'build.sh').read_text()
+        s=(NATIVE/'build.sh').read_text(encoding='utf-8')
         self.assertNotIn('keytool -genkeypair',s)
         self.assertIn('CITY_KEYSTORE',s);self.assertIn('CITY_CERT_SHA256',s);self.assertIn('CITY_VERIFY_ONLY',s)
     def stage(self,tmp):
@@ -92,7 +112,7 @@ public final class PolicyTest {
  }
 }'''.replace('NAMES',expected)
         with tempfile.TemporaryDirectory() as tmp:
-            p=Path(tmp);(p/'PolicyTest.java').write_text(runner)
+            p=Path(tmp);(p/'PolicyTest.java').write_text(runner, encoding='utf-8', newline='\n')
             cmd=['javac','-encoding','UTF-8','-d',tmp,str(NATIVE/'src/com/dvk/city/CityPolicy.java'),str(p/'PolicyTest.java')]
             result=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
             self.assertEqual(result.returncode,0,result.stderr.decode()[:500])

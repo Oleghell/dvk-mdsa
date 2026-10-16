@@ -13,7 +13,7 @@ from session_bridge import SupervisedReader
 from test_session import TestSession
 from test_session_bridge import SyntheticTransport
 
-FIXTURES=json.loads((Path(__file__).parent/'city-control-fixtures.json').read_text())
+FIXTURES=json.loads((Path(__file__).parent/'city-control-fixtures.json').read_text(encoding='utf-8'))
 
 def frame():
     im=Image.new('RGB',(900,1600),(24,28,33))

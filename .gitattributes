@@ -1,0 +1,4 @@
+# Approved source hashes are byte-exact on every checkout, including Windows.
+/mumu-navigation/city-android/AndroidManifest.xml text eol=lf
+/mumu-navigation/city-android/src/com/dvk/city/CityPolicy.java text eol=lf
+/mumu-navigation/city-android/src/com/dvk/city/CityInstrumentation.java text eol=lf
