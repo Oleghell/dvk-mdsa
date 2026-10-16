@@ -63,7 +63,7 @@ public class FixtureActivity extends Activity {
   final TextView history=new TextView(this);history.setText("greeting_other".equals(getIntent().getStringExtra("scenario"))?"OTHER SYNTHETIC RECIPIENT":"NEW SYNTHETIC CHAT, NO NETWORK");
   android.widget.FrameLayout.LayoutParams h=new android.widget.FrameLayout.LayoutParams(880,800);h.leftMargin=10;h.topMargin=100;layout.addView(history,h);
   final TextView sent=new TextView(this);sent.setText("sent=0");android.widget.FrameLayout.LayoutParams sp=new android.widget.FrameLayout.LayoutParams(200,50);sp.topMargin=1000;layout.addView(sent,sp);
-  final EditText input=new EditText(this);input.setSingleLine(true);input.setPadding(0,0,0,0);input.setHint("Message");
+  final EditText input="greeting_blink".equals(getIntent().getStringExtra("scenario"))?new BlinkEditText():new EditText(this);input.setSingleLine(true);input.setPadding(0,0,0,0);input.setHint("Message");
   if("greeting_nonempty".equals(getIntent().getStringExtra("scenario")))input.setText("KEEP_EXISTING");
   if("greeting_password".equals(getIntent().getStringExtra("scenario")))input.setInputType(129);
   android.widget.FrameLayout.LayoutParams ip=new android.widget.FrameLayout.LayoutParams(596,56);ip.leftMargin=152;ip.topMargin=1488;layout.addView(input,ip);
@@ -74,5 +74,12 @@ public class FixtureActivity extends Activity {
   Button send=new Button(this);send.setText("SEND");android.widget.FrameLayout.LayoutParams bp=new android.widget.FrameLayout.LayoutParams(120,80);bp.leftMargin=770;bp.topMargin=1480;
   send.setOnClickListener(new android.view.View.OnClickListener(){public void onClick(android.view.View v){sent.setText("sent=1");}});layout.addView(send,bp);
   layout.setFocusableInTouchMode(true);layout.requestFocus();setContentView(layout);
+ }
+
+ private final class BlinkEditText extends EditText {
+  private boolean blink=false;private final android.graphics.Paint caret=new android.graphics.Paint();
+  BlinkEditText(){super(FixtureActivity.this);caret.setColor(android.graphics.Color.BLACK);
+   postDelayed(new Runnable(){public void run(){blink=!blink;invalidate();postDelayed(this,150);}},150);}
+  @Override protected void onDraw(android.graphics.Canvas c){super.onDraw(c);if(blink)c.drawLine(8,9,8,getHeight()-9,caret);}
  }
 }

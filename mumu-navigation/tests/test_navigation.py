@@ -68,7 +68,7 @@ class NavigationTests(unittest.TestCase):
         args[-1]='other/package'
         with self.assertRaises(BridgeError): self.r._run(args)
     def test_no_typing_or_send_loop_tool(self):
-        self.assertEqual({t['name'] for t in TOOLS},{'mumu_status','mumu_read_screen','mumu_inspect_layout','mumu_navigate','mumu_open_profile_chat','mumu_leave_profile','mumu_prepare_greeting'})
+        self.assertEqual({t['name'] for t in TOOLS},{'mumu_status','mumu_read_screen','mumu_inspect_layout','mumu_navigate','mumu_open_profile_chat','mumu_leave_profile','mumu_prepare_greeting','mumu_finish_greeting_input'})
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):

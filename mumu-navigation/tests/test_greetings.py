@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from PIL import Image
-from mumu_bridge import AdbReader, BridgeError, content_pixel_sha256, visual_header_fingerprint, GREETINGS, SERIAL, HELPER_COMPONENT
+from mumu_bridge import AdbReader, BridgeError, content_pixel_sha256, input_context_sha256, visual_header_fingerprint, GREETINGS, SERIAL, HELPER_COMPONENT
 from greeting_budget import GreetingBudget, BudgetError
 
 def frame(color='white'):
@@ -14,7 +14,7 @@ class GreetingTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.path=Path(self.tmp.name);adb=self.path/'adb.exe';adb.touch()
         self.r=AdbReader(adb);self.r.helper_ready=True;self.r.greeting_budget=GreetingBudget(self.path/'budget.sqlite')
-        self.png=frame();self.sha=content_pixel_sha256(self.png)
+        self.png=frame();self.sha=input_context_sha256(self.png)
     def tearDown(self):self.r.greeting_budget.close();self.tmp.cleanup()
     def test_ten_fixed_variants(self): self.assertEqual(len(GREETINGS),10);self.assertEqual(len(set(GREETINGS)),10)
     def test_first_greeting_native_verified_never_claims_sent(self):

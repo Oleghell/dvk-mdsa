@@ -6,7 +6,7 @@ python3 -m venv out/pixel-venv
 python -m pip -q install Pillow==12.3.0
 adb install -t -r out/helper.apk
 adb install -r out/fixture.apk
-component=com.dvk.navigation.v130/com.dvk.navigation.NavigationInstrumentation
+component=com.dvk.navigation.v131/com.dvk.navigation.NavigationInstrumentation
 adb shell am start -W -n drug.vokrug/drug.vokrug.FixtureActivity
 sleep 2
 content_hash() {
@@ -91,6 +91,14 @@ PYCODE
 result=$(run_helper profile_back "$(profile_hash)" 0 0);echo "$result";grep -q navigation_status=input_injected <<< "$result"
 echo 'ANDROID_PROFILE_CLOUD_TESTS_PASSED: Python/Android masked hashes equal; animated gift ignored only for fixed lower cloud action; other identity/button changes refused; exact lower cloud tapped once; gift taps zero. SYNTHETIC FIXTURE ONLY.'
 
+input_hash() {
+ adb exec-out screencap -p > out/input.png
+ PYTHONPATH=.. python - <<'PYCODE'
+from pathlib import Path
+from mumu_bridge import input_context_sha256
+print(input_context_sha256(Path('out/input.png').read_bytes()))
+PYCODE
+}
 # Approved greeting text: native readback only, never press SEND or Enter.
 check_greeting_field() {
  adb shell uiautomator dump /data/local/tmp/greeting-fixture.xml >/dev/null
@@ -108,25 +116,34 @@ PYCODE
 }
 for variant in {0..9}; do
  profile_start greeting_empty
- result=$(run_helper greeting "$(content_hash)" "$variant" 0);echo "$result";grep -q navigation_status=greeting_draft_verified <<< "$result"
+ result=$(run_helper greeting "$(input_hash)" "$variant" 0);echo "$result";grep -q navigation_status=greeting_draft_verified <<< "$result"
  check_greeting_field "$variant"
 done
 profile_start greeting_nonempty
-result=$(run_helper greeting "$(content_hash)" 0 0);echo "$result";grep -q navigation_status=denied_nonempty_draft <<< "$result"
+result=$(run_helper greeting "$(input_hash)" 0 0);echo "$result";grep -q navigation_status=denied_nonempty_draft <<< "$result"
 check_greeting_field KEEP_EXISTING
 profile_start greeting_empty
 result=$(run_helper greeting "$(printf '0%.0s' {1..64})" 0 0);echo "$result";grep -q navigation_status=denied_screen_changed <<< "$result"
 for scenario in greeting_duplicate greeting_password;do
  profile_start "$scenario"
- result=$(run_helper greeting "$(content_hash)" 0 0);echo "$result";grep -q navigation_status=denied_field <<< "$result"
+ result=$(run_helper greeting "$(input_hash)" 0 0);echo "$result";grep -q navigation_status=denied_field <<< "$result"
 done
 profile_start greeting_empty
-reference=$(content_hash)
+reference=$(input_hash)
 profile_start greeting_other
 result=$(run_helper greeting "$reference" 0 0);echo "$result";grep -q navigation_status=denied_screen_changed <<< "$result"
 profile_start greeting_switch_after_input
-result=$(run_helper greeting "$(content_hash)" 0 0);echo "$result";grep -q navigation_status=indeterminate_after_attempt <<< "$result"
+result=$(run_helper greeting "$(input_hash)" 0 0);echo "$result";grep -q navigation_status=indeterminate_after_attempt <<< "$result"
 adb shell am start -W -a android.settings.SETTINGS >/dev/null
 sleep 1
 result=$(run_helper greeting "$reference" 0 0);echo "$result";grep -q navigation_status=denied_context_or_layout <<< "$result"
 echo 'ANDROID_GREETING_TESTS_PASSED: all ten exact Unicode native drafts; sent=0; nonempty preserved; stale screen/other recipient/password/multiple inputs/wrong app refused; post-input context switch indeterminate. This is NOT proof of Unity composition or real sending.'
+
+profile_start greeting_blink
+reference=$(input_hash)
+sleep 1
+result=$(run_helper greeting "$reference" 0 0);echo "$result";grep -q navigation_status=greeting_draft_verified <<< "$result"
+check_greeting_field 0
+result=$(run_helper finish_input "$(input_hash)" 1 0);echo "$result";grep -q navigation_status=denied_text <<< "$result"
+result=$(run_helper finish_input "$(input_hash)" 0 0);echo "$result";grep -q navigation_status=input_injected <<< "$result"
+echo 'ANDROID_CARET_TESTS_PASSED: animated caret ignored only inside independently verified native input; exact Unicode text preserved; mismatched greeting refused; Android Back accepted, not Windows Esc and not a send action. SYNTHETIC FIXTURE ONLY.'

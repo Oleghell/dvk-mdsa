@@ -28,9 +28,9 @@ public final class NavigationInstrumentation extends Instrumentation {
   op=args==null?"":args.getString("op","");
   expected=args==null?"":args.getString("expected_content_sha256","");
   try{x=Integer.parseInt(args.getString("x","0"));y=Integer.parseInt(args.getString("y","0"));}catch(Exception e){done("denied_arguments");return;}
-  if(!"inspect".equals(op) && !"tap".equals(op) && !"back".equals(op) && !"profile_chat".equals(op) && !"profile_back".equals(op) && !"greeting".equals(op)){done("denied_operation");return;}
+  if(!"inspect".equals(op) && !"tap".equals(op) && !"back".equals(op) && !"profile_chat".equals(op) && !"profile_back".equals(op) && !"greeting".equals(op) && !"finish_input".equals(op)){done("denied_operation");return;}
   if(!"inspect".equals(op) && !expected.matches("[0-9a-f]{64}")){done("denied_arguments");return;}
-  if(("greeting".equals(op) && (x<0 || x>=10 || y!=0)) || ("tap".equals(op) && (x<0 || x>=900 || y<48 || y>=1536)) || ("profile_chat".equals(op) && (x!=321 || y!=1515)) || (("inspect".equals(op) || "back".equals(op) || "profile_back".equals(op)) && (x!=0 || y!=0))){done("denied_coordinates");return;}
+  if((("greeting".equals(op) || "finish_input".equals(op)) && (x<0 || x>=10 || y!=0)) || ("tap".equals(op) && (x<0 || x>=900 || y<48 || y>=1536)) || ("profile_chat".equals(op) && (x!=321 || y!=1515)) || (("inspect".equals(op) || "back".equals(op) || "profile_back".equals(op)) && (x!=0 || y!=0))){done("denied_coordinates");return;}
   start();
  }
  private void done(String status){Bundle b=new Bundle();b.putString("navigation_status",status);finish(0,b);}
@@ -72,7 +72,7 @@ public final class NavigationInstrumentation extends Instrumentation {
     o.put("bounds",new JSONArray(new int[]{r.left,r.top,r.right,r.bottom}));o.put("class",label(n.getClassName()));
     o.put("resource_id",n.getViewIdResourceName());o.put("text",n.isPassword()?"":label(n.getText()));
     o.put("description",n.isPassword()?"":label(n.getContentDescription()));o.put("clickable",n.isClickable());
-    o.put("editable",n.isEditable());o.put("enabled",n.isEnabled());o.put("checked",n.isChecked());o.put("checkable",n.isCheckable());
+    o.put("editable",n.isEditable());o.put("focused",n.isFocused());o.put("enabled",n.isEnabled());o.put("checked",n.isChecked());o.put("checkable",n.isCheckable());
     out.put(o);if(out.length()>=200){truncated=true;break;}
    }
    for(int j=0;j<n.getChildCount();j++){if(pending.size()>=1000){truncated=true;break;}AccessibilityNodeInfo c=n.getChild(j);if(c!=null)pending.add(c);}
@@ -104,12 +104,36 @@ public final class NavigationInstrumentation extends Instrumentation {
    return digest(rgb);
   }finally{b.recycle();}
  }
+
+ private static String inputHash(UiAutomation a) throws Exception {
+  Bitmap b=a.takeScreenshot();if(b==null)throw new Exception();
+  try{
+   if(b.getWidth()!=900 || b.getHeight()!=1600)throw new Exception();
+   int[] colors=new int[900*1552];b.getPixels(colors,0,900,0,48,900,1552);byte[] rgb=new byte[colors.length*3];int k=0;
+   for(int i=0;i<colors.length;i++){int c=colors[i],px=i%900,py=i/900+48;
+    if(px>=152 && px<748 && py>=1488 && py<1544)c=0;
+    rgb[k++]=(byte)(c>>>16);rgb[k++]=(byte)(c>>>8);rgb[k++]=(byte)c;}
+   return digest(rgb);
+  }finally{b.recycle();}
+ }
+ private void finishInput(UiAutomation a){boolean attempted=false;
+  try{
+   if(!expected.equals(inputHash(a))){done("denied_screen_changed");return;}
+   AccessibilityNodeInfo edit=emptyField(a,false);
+   if(edit.getText()==null || !GREETINGS[x].contentEquals(edit.getText())){done("denied_text");return;}
+   if(!expected.equals(inputHash(a))){done("denied_screen_changed");return;}
+   edit=emptyField(a,false);
+   if(edit.getText()==null || !GREETINGS[x].contentEquals(edit.getText())){done("denied_text");return;}
+   attempted=true;
+   done(a.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)?"input_injected":"indeterminate_after_attempt");
+  }catch(Exception e){done(attempted?"indeterminate_after_attempt":"denied_field");}
+ }
  private void greeting(UiAutomation a){boolean attempted=false;
   try{
-   if(!expected.equals(hash(a))){done("denied_screen_changed");return;}
+   if(!expected.equals(inputHash(a))){done("denied_screen_changed");return;}
    AccessibilityNodeInfo edit=emptyField(a,true);if(edit==null){done("denied_nonempty_draft");return;}
    String context=conversationHash(a);
-   if(!expected.equals(hash(a))){done("denied_screen_changed");return;}
+   if(!expected.equals(inputHash(a))){done("denied_screen_changed");return;}
    edit=emptyField(a,true);if(edit==null){done("denied_nonempty_draft");return;}
    Bundle value=new Bundle();value.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,GREETINGS[x]);
    attempted=true;
@@ -124,6 +148,7 @@ public final class NavigationInstrumentation extends Instrumentation {
    UiAutomation a=getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);stage="foreground_root";root(a);
    if("inspect".equals(op)){stage="inspect_layout";inspect(a);return;}
    if("greeting".equals(op)){greeting(a);return;}
+   if("finish_input".equals(op)){finishInput(a);return;}
    stage="screen_guard";
    if(!expected.equals(hash(a,"profile_chat".equals(op) || "profile_back".equals(op)))){done("denied_screen_changed");return;}
    root(a);if(!expected.equals(hash(a,"profile_chat".equals(op) || "profile_back".equals(op)))){done("denied_screen_changed");return;}
