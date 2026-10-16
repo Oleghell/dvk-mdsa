@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "request_nonce": "inspect-38916722568-progress-1",
-  "query_run_id": 38917586679,
-  "run_id": 38916722568,
-  "run_url": "https://github.com/Oleghell/spam-dvk/actions/runs/38916722568",
-  "source_sha": "d408f3a9c79727afa9450b14df86cbae9d30d7e9",
+  "request_nonce": "inspect-38920805919-preview2-progress",
+  "query_run_id": 38921600898,
+  "run_id": 38920805919,
+  "run_url": "https://github.com/Oleghell/spam-dvk/actions/runs/38920805919",
+  "source_sha": "ab4143397125d601726565fa40b5a6e092f4e0b6",
   "status": "in_progress",
   "conclusion": null,
-  "checked_at": "2026-10-16T14:40:00.108Z",
+  "checked_at": "2026-10-16T15:09:25.489Z",
   "jobs": [
     {
       "name": "python",
@@ -90,8 +90,8 @@
     },
     {
       "name": "android",
-      "status": "completed",
-      "conclusion": "success",
+      "status": "in_progress",
+      "conclusion": null,
       "steps": [
         {
           "name": "Set up job",
@@ -125,83 +125,21 @@
         },
         {
           "name": "Verify injected navigation on synthetic fixture only",
-          "status": "completed",
-          "conclusion": "success"
-        },
-        {
-          "name": "Run actions/upload-artifact@v4",
-          "status": "completed",
-          "conclusion": "success"
-        },
-        {
-          "name": "Post Run actions/setup-python@v5",
-          "status": "completed",
-          "conclusion": "success"
-        },
-        {
-          "name": "Post Run actions/setup-java@v4",
-          "status": "completed",
-          "conclusion": "success"
-        },
-        {
-          "name": "Post Run actions/checkout@v4",
-          "status": "completed",
-          "conclusion": "success"
-        },
-        {
-          "name": "Complete job",
-          "status": "completed",
-          "conclusion": "success"
-        }
-      ]
-    },
-    {
-      "name": "windows",
-      "status": "in_progress",
-      "conclusion": null,
-      "steps": [
-        {
-          "name": "Set up job",
-          "status": "completed",
-          "conclusion": "success"
-        },
-        {
-          "name": "Run actions/checkout@v4",
           "status": "in_progress",
           "conclusion": null
         },
         {
-          "name": "Run actions/setup-python@v5",
-          "status": "pending",
-          "conclusion": null
-        },
-        {
-          "name": "Test guards and authenticated protocol",
-          "status": "pending",
-          "conclusion": null
-        },
-        {
-          "name": "Run actions/download-artifact@v4",
-          "status": "pending",
-          "conclusion": null
-        },
-        {
-          "name": "Stage both pinned helpers",
-          "status": "pending",
-          "conclusion": null
-        },
-        {
-          "name": "Build Windows GUI and verify startup",
-          "status": "pending",
-          "conclusion": null
-        },
-        {
-          "name": "Include pinned tunnel and verify package",
-          "status": "pending",
-          "conclusion": null
-        },
-        {
           "name": "Run actions/upload-artifact@v4",
+          "status": "pending",
+          "conclusion": null
+        },
+        {
+          "name": "Post Run actions/setup-python@v5",
+          "status": "pending",
+          "conclusion": null
+        },
+        {
+          "name": "Post Run actions/setup-java@v4",
           "status": "pending",
           "conclusion": null
         },
@@ -213,13 +151,6 @@
       ]
     }
   ],
-  "artifacts": [
-    {
-      "id": 12053770586,
-      "name": "navigation-helper-runtime",
-      "size_in_bytes": 21846,
-      "expired": false
-    }
-  ],
+  "artifacts": [],
   "notice": "Metadata only. No user PAT, credentials, raw logs, or artifact contents are copied."
 }
