@@ -85,6 +85,18 @@ def main():
         adb('shell','input','keyevent','3');time.sleep(1)
         expect({'op':'inspect'},'denied_context');assert last.get('code')=='wrong_package',dict(last)
         start('city_password');assert not inspect()['focused']
+        # Regression: a visible IME banner used to move real chat editors.
+        # This fixture uses adjustResize and a bottom-anchored native editor.
+        start('city_resize')
+        before=inspect();assert before['text']==''
+        l,t,r,b=before['bounds']
+        perform_gesture(x=(l+r)//2,y=(t+b)//2);time.sleep(1)
+        d=inspect();assert d['focused'] and d['bounds']==before['bounds'],(before['bounds'],d['bounds'])
+        ime_dump=adb('shell','dumpsys','activity','service',IME)
+        assert re.search(r'\bmInputViewShown=false\b',ime_dump),'Headless IME must not display an input view'
+        expect(text(d,'type','Привет 🙂'),'text_verified')
+        assert inspect()['text']=='Привет 🙂'
+        print('HEADLESS_IME_ADJUST_RESIZE_PASS')
         # Wrong IME is a known refusal, not a silently successful insertion.
         adb('shell','ime','set',previous)
         start('city_empty');perform_gesture();time.sleep(1)

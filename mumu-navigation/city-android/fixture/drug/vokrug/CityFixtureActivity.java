@@ -11,6 +11,11 @@ public final class CityFixtureActivity extends Activity {
   if(scenario==null)scenario="city_empty";
   getWindow().setFlags(1024,1024);getWindow().getDecorView().setSystemUiVisibility(4096|1024|512|256|4|2);
   getWindow().setSoftInputMode(3|48);
+  if("city_resize".equals(scenario)){
+   // Reproduce a normal adjustResize chat, not the legacy adjustNothing screen.
+   getWindow().clearFlags(1024);getWindow().getDecorView().setSystemUiVisibility(0);
+   getWindow().setSoftInputMode(3|16);
+  }
   final FrameLayout layout=new FrameLayout(this);final android.view.View background=new Background();layout.addView(background,new FrameLayout.LayoutParams(-1,-1));
   EditText input=new EditText(this){
    private int reports=0;
@@ -28,7 +33,9 @@ public final class CityFixtureActivity extends Activity {
   if("city_old".equals(scenario))input.setText("Нальчик");
   if("city_nonempty".equals(scenario))input.setText("KEEP_EXISTING");
   if("city_password".equals(scenario))input.setInputType(129);
-  FrameLayout.LayoutParams ip=new FrameLayout.LayoutParams(668,80);ip.leftMargin=118;ip.topMargin="city_badbounds".equals(scenario)?197:196;layout.addView(input,ip);
+  FrameLayout.LayoutParams ip=new FrameLayout.LayoutParams(668,80);ip.leftMargin=118;ip.topMargin="city_badbounds".equals(scenario)?197:196;if("city_resize".equals(scenario)){
+   ip.topMargin=0;ip.gravity=android.view.Gravity.BOTTOM;ip.bottomMargin=20;
+  }layout.addView(input,ip);
   if("city_duplicate".equals(scenario)){EditText second=new EditText(this);FrameLayout.LayoutParams sp=new FrameLayout.LayoutParams(300,80);sp.topMargin=600;layout.addView(second,sp);}
   if("city_switch_after_input".equals(scenario)){
    input.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int n){}public void afterTextChanged(android.text.Editable e){}public void onTextChanged(CharSequence s,int a,int b,int c){badAnchor=true;background.invalidate();}});

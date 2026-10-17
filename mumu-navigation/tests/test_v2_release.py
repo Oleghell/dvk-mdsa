@@ -8,7 +8,7 @@ V2=ROOT/'control-android-v2'
 
 class V2ReleaseTests(unittest.TestCase):
     def test_signed_release_and_protocol_are_v2(self):
-        self.assertEqual(VERSION,'1.6.0')
+        self.assertEqual(VERSION,'1.6.1')
         self.assertEqual(COMPONENT,'com.dvk.control.v2/com.dvk.control.ControlInstrumentation')
         self.assertEqual(IME,'com.dvk.keyboard.v2/com.dvk.keyboard.BridgeIme')
         payload=base64.b64encode(b'{"op":"inspect"}').decode()
@@ -49,6 +49,20 @@ class V2ReleaseTests(unittest.TestCase):
         self.assertIn('android:versionCode="100"',source)
         self.assertNotIn('uninstall',source)
         self.assertNotIn('install -d',source)
+    def test_keyboard_is_headless_and_updateable_in_place(self):
+        source=(V2/'keyboard/com/dvk/keyboard/BridgeIme.java').read_text(encoding='utf-8')
+        self.assertIn('onEvaluateInputViewShown(){return false;}',source)
+        self.assertIn('onEvaluateFullscreenMode(){return false;}',source)
+        self.assertIn('onCreateInputView(){return null;}',source)
+        self.assertNotIn('new TextView',source)
+        manifest=(V2/'KeyboardManifest.xml').read_text(encoding='utf-8')
+        self.assertIn('android:versionCode="2"',manifest)
+        runner=(V2/'test-emulator.py').read_text(encoding='utf-8')
+        self.assertIn("start('city_resize')",runner)
+        self.assertIn("d['bounds']==before['bounds']",runner)
+        self.assertIn('HEADLESS_IME_ADJUST_RESIZE_PASS',runner)
+        self.assertIn('mInputViewShown=false',runner)
+
     def test_legacy_pins_are_unchanged(self):
         meta=json.loads((ROOT/'control-android/pinned/release.json').read_text(encoding='utf-8'))
         self.assertEqual(meta['packages']['control-helper.apk']['apk_sha256'],'44824855e0da2746165ccebd9a704878dbd45513e0a0afb13b29087b8b895883')

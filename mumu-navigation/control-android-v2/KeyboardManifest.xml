@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.dvk.keyboard.v2" android:versionCode="1" android:versionName="1.0">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.dvk.keyboard.v2" android:versionCode="2" android:versionName="1.1">
  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="32" />
  <uses-permission android:name="com.dvk.keyboard.v2.CONTROL" />
  <permission android:name="com.dvk.keyboard.v2.CONTROL" android:protectionLevel="signature" />
