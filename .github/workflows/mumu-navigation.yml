@@ -1,7 +1,7 @@
 name: Build MuMu supervised navigation bridge
 "on":
   push:
-    branches: [feature/mumu-local, feature/mumu-five-profile-test, feature/mumu-limited-five-scenario]
+    branches: [feature/mumu-local, feature/mumu-five-profile-test, feature/mumu-limited-five-scenario, feature/android-ui-hierarchy]
     paths: ['mumu-navigation/**', '.github/workflows/mumu-navigation.yml']
   workflow_dispatch:
 permissions:
@@ -57,6 +57,10 @@ jobs:
           python3 mumu-navigation/control-android-v2/verify-signature.py
           FIXTURE_KEYSTORE="$PWD/mumu-navigation/android/out/test-signing.jks" bash mumu-navigation/control-android-v2/build-gesture-fixture.sh
           python3 -m pip install Pillow==12.3.0
+      - name: Install local OCR for synthetic hierarchy-fallback test
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-rus
       - name: Enable emulator KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -75,6 +79,7 @@ jobs:
             bash mumu-navigation/android/test-emulator.sh
             bash mumu-navigation/city-android/test-emulator.sh
             python3 mumu-navigation/control-android/test-emulator.py
+            python3 mumu-navigation/control-android-v2/test-hierarchy-emulator.py
             python3 mumu-navigation/control-android-v2/test-emulator.py
             python3 mumu-navigation/control-android-v2/test-guarded-emulator.py
       - name: Preserve synthetic Android failure diagnostics
@@ -215,10 +220,10 @@ jobs:
           if ((Get-FileHash "$root/cloudflared.exe" -Algorithm SHA256).Hash.ToLowerInvariant() -ne '86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c') {throw 'Cloudflare checksum mismatch'}
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
-          Copy-Item mumu-navigation/RELEASE-v1.6.2.md "$root/START-HERE.md"
-          Copy-Item mumu-navigation/RELEASE-v1.6.2.md "$root/RELEASE-v1.6.2.md"
+          Copy-Item mumu-navigation/RELEASE-v1.7.0-beta.1.md "$root/START-HERE.md"
+          Copy-Item mumu-navigation/RELEASE-v1.7.0-beta.1.md "$root/RELEASE-v1.7.0-beta.1.md"
           @{
-            bridge_version='1.6.2'
+            bridge_version='1.7.0-beta.1'
             universal_control='explicit-local-opt-in-app-scoped-gestures-keys-unicode-ime'
             cursor_stable_gestures='signed-v2-native-editor-guard'
             cursor_stable_runtime_included=$true
@@ -227,7 +232,10 @@ jobs:
             control_signer_sha256='61f3c60b2fa198834829406ebfaacb0ef1be28cab77ec3bd244db8ff6cd89fb7'
             city_helper_package='com.dvk.city.v1'
             city_mode='catalog-query-only-no-result-selection-no-filter-application'
-            release_stage='supervised-controls-release'
+            release_stage='hierarchy-first-experimental-prerelease'
+            hierarchy_first_runtime=$true
+            ui_fallback='on-demand-local-ocr-then-profile-vision'
+            legacy_workflow_preserved=$true
             source_commit=$env:GITHUB_SHA
             source_ref=$env:GITHUB_REF
             helper_package='com.dvk.navigation.v132'
@@ -248,7 +256,7 @@ jobs:
           retention-days: 14
 
   publish_release:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/mumu-limited-five-scenario' && startsWith(github.event.head_commit.message, 'Release MuMu 1.6.2') }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/android-ui-hierarchy' && startsWith(github.event.head_commit.message, 'Release MuMu 1.7.0-beta.1') }}
     needs: [python, android, candidate_android, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -267,7 +275,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 mumu-navigation/package-release.py release/MuMu-navigation-windows-x64
-          gh release create mumu-v1.6.2 release/MuMu-navigation-1.6.2-windows-x64.zip release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "MuMu 1.6.2 — supervised controls" --notes-file mumu-navigation/RELEASE-v1.6.2.md
+          gh release create mumu-v1.7.0-beta.1 release/MuMu-navigation-1.7.0-beta.1-windows-x64.zip release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "MuMu 1.7.0-beta.1 — hierarchy-first preview" --notes-file mumu-navigation/RELEASE-v1.7.0-beta.1.md
 
   report_results:
     if: ${{ always() }}

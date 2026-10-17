@@ -94,6 +94,9 @@ def args_allowed(args,ready):
             and isinstance(args[9],str) and len(args[9])<=24000 and re.fullmatch('[A-Za-z0-9+/=]+',args[9])):return False
     try:
         r=json.loads(base64.b64decode(args[9],validate=True).decode('utf-8'))
+        if isinstance(r,dict) and isinstance(r.get('op'),str) and r['op'].startswith('ui_'):
+            from ui_protocol import valid_native
+            return valid_native(r)
         if r=={'op':'inspect'}:return True
         if r=={'op':'find_profile_chat'}:return True
         if (isinstance(r,dict) and set(r)=={'op','expected_target_sha256'}

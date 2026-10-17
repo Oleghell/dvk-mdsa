@@ -97,6 +97,11 @@ public final class ControlInstrumentation extends Instrumentation {
  @Override public void onStart(){
   try{
    auto=getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);phase="startup_root";awaitAccessibility();phase="arguments";String op=request.getString("op");
+   if(op.startsWith("ui_")){
+    UiHierarchyBridge bridge=new UiHierarchyBridge(this,auto);
+    try{UiHierarchyBridge.Result result=bridge.run(request);done(result.state,result.data);return;}
+    finally{attempted=bridge.attempted;}
+   }
    // SEMANTIC_PROFILE_BEGIN: locate/revalidate inside Android, never host XY.
    if("find_profile_chat".equals(op) || "click_profile_chat".equals(op)){
     boolean click="click_profile_chat".equals(op);

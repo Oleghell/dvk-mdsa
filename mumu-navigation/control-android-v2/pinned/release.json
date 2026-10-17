@@ -1,9 +1,9 @@
 {
-  "version": "1.6.2",
+  "version": "1.7.0-beta.1",
   "packages": {
     "control-helper.apk": {
-      "apk_sha256": "f376a18ed6a3a29b0cce334380e61d7b27c1ed14aba22f33cc09f6931ca7fca0",
-      "dex_sha256": "70694f0691256f911bdb644648cf2ff615afc2e9eabf7cc28b3327a799cda471",
+      "apk_sha256": "f27f578dd701999d5fa10dd1cf36cc28a2a51d269f5343ab591f745ca35db1f8",
+      "dex_sha256": "d92016542d7538a1e8a227076dc97662641772087e2cd051c2efc13b5b0b31b3",
       "package": "com.dvk.control.v2"
     },
     "keyboard-helper.apk": {
@@ -13,15 +13,16 @@
     }
   },
   "sources": {
-    "AndroidManifest.xml": "ee5f95a9f661cc6cf80803928e4abedd7f8cf2285e321b3b1c8858239adf1b7c",
+    "AndroidManifest.xml": "2f63f7e573c68960aad7eb0d79019d9c64d5e9c77cc186928586e7d59dab8bc8",
     "KeyboardManifest.xml": "18e418391b1929f626e05f82badc721fbb71506f9becfb5cf525f1ddd82b0df5",
     "keyboard/com/dvk/keyboard/BridgeIme.java": "66cdb2ee1ce24159e89f8cb6661e075e2776a42e11aeee5bededcc02f3b29cfe",
     "keyboard/com/dvk/keyboard/ImeCommandReceiver.java": "76edbafe5ef95ca2f875ddd7a4d39d4b0dbf36c9e898e02780a73e91129b61d9",
     "res/xml/method.xml": "63a8fbf832bca89108f7cd2f2451d34179abde3773fb18fb58889cf881dde2a7",
-    "src/com/dvk/control/ControlInstrumentation.java": "d98f34884b3c2d263e0febb3566cf7605b6897252d80aaedcd0e62c3b66efff8",
+    "src/com/dvk/control/ControlInstrumentation.java": "a2d592d388b0af4ef3caa82a3a5a4c0668683f8b46aacb92498da011518bb138",
     "src/com/dvk/control/ControlPolicy.java": "e892f3644e607fb5fb31f3bcea9ace034bde9467258c0d2d92d44c6e464e2aca",
     "src/com/dvk/control/ProfileChatLocator.java": "583f27d37861097d03b41418a8a1866b7f1ee15b87be9800a32ddcfb0e63b89b",
-    "src/com/dvk/control/SemanticProfileTarget.java": "a6b794196252cef8bdefb964c4e5db9bbb8c7aa001a86a7552ca72ef85f9bdb9"
+    "src/com/dvk/control/SemanticProfileTarget.java": "a6b794196252cef8bdefb964c4e5db9bbb8c7aa001a86a7552ca72ef85f9bdb9",
+    "src/com/dvk/control/UiHierarchyBridge.java": "47cd23011bd47ba54b22c73ef4d52ab6654c3986a672f2c3ae7d3559215ec663"
   },
   "signer_sha256": "61f3c60b2fa198834829406ebfaacb0ef1be28cab77ec3bd244db8ff6cd89fb7"
 }
