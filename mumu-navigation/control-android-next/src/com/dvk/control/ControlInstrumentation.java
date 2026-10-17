@@ -120,7 +120,7 @@ public final class ControlInstrumentation extends Instrumentation {
     // focused editor rectangle is normalized; caller cannot mask arbitrary UI.
     for(int check=0;check<2;check++){
      Rect mask=gestureEditor(guard);
-     if(!expected.equals(hash(mask))){done("denied_screen_changed",null);return;}
+     if(!expected.equals(hash(mask))){JSONObject report=new JSONObject();report.put("guard_check",check);report.put("masked_context_match",false);done("denied_screen_changed",report);return;}
      gestureEditor(guard);
     }
    }else if(!expected.equals(hash(null)) || !expected.equals(hash(null))){done("denied_screen_changed",null);return;}

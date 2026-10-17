@@ -8,6 +8,30 @@ import subprocess
 import time
 
 
+
+def safe_native_diagnostic(output, operation, report=None):
+    """Only bounded machine codes; never echo arbitrary instrumentation output."""
+    statuses={'inspection_ok','input_injected','text_verified','denied_arguments',
+              'denied_field','denied_screen_changed','denied_context','denied_ime',
+              'indeterminate_after_attempt'}
+    codes={'root_not_ready','node_not_ready','wrong_package','screenshot_unavailable',
+           'screen_dimensions','internal_error','invalid_editor_guard','editor_changed'}
+    phases={'startup','startup_root','arguments','inspect_screen','inspect_field',
+            'validate_field','ime_input','gesture_guard','gesture_inject'}
+    result={'operation':operation if operation in {'inspect','tap','hold','swipe','key','type','clear'} else 'other'}
+    for key,allowed in (('status',statuses),('diagnostic_code',codes),('diagnostic_phase',phases)):
+        values=re.findall(r'^INSTRUMENTATION_RESULT: control_'+key+r'=([a-z_]+)\s*$',output,re.M)
+        if len(values)==1 and values[0] in allowed:result[key]=values[0]
+    if isinstance(report,dict):
+        if type(report.get('guard_check')) is int and report['guard_check'] in (0,1):result['guard_check']=report['guard_check']
+        if type(report.get('masked_context_match')) is bool:result['masked_context_match']=report['masked_context_match']
+    return result
+
+
+def failure_annotation(last):
+    # Everything passed to Actions annotations came through the fixed allowlist.
+    return '::error title=Candidate native action failed::'+json.dumps(last,ensure_ascii=True,sort_keys=True)
+
 def main():
     if os.environ.get('GITHUB_ACTIONS')!='true':raise SystemExit('Disposable CI only')
     devices=subprocess.check_output(['adb','devices'],text=True)
@@ -16,13 +40,16 @@ def main():
     prefix=['adb','-s',serials[0]]
     here=Path(__file__).resolve().parent
     def adb(*args):return subprocess.check_output(prefix+list(args),text=True,timeout=100)
+    last={}
     def call(payload):
         raw=base64.b64encode(json.dumps(payload,ensure_ascii=True,separators=(',',':')).encode()).decode()
         s=adb('shell','am','instrument','-w','-r','-e','request_b64',raw,'com.dvk.control.v1/com.dvk.control.ControlInstrumentation')
         status=re.findall(r'^INSTRUMENTATION_RESULT: control_status=([a-z_]+)\s*$',s,re.M)
-        assert len(status)==1,'Missing/duplicate native status'
         data=re.findall(r'^INSTRUMENTATION_RESULT: report_b64=([A-Za-z0-9+/=]+)\s*$',s,re.M)
-        return status[0],json.loads(base64.b64decode(data[0])) if len(data)==1 else None
+        report=json.loads(base64.b64decode(data[0])) if len(data)==1 else None
+        last.clear();last.update(safe_native_diagnostic(s,payload.get('op'),report))
+        assert len(status)==1,'Missing/duplicate native status'
+        return status[0],report
     def inspect():
         status,d=call({'op':'inspect'});assert status=='inspection_ok',status
         assert d.get('gesture_editor_guard_supported') is True
@@ -57,7 +84,8 @@ def main():
         assert call(bad)[0]=='denied_context'
         results['wrong_context_text_bounds_refused']=True
         # One request, one verified increment; no action retry of any kind.
-        fresh=inspect();assert call(payload(fresh))[0]=='input_injected'
+        fresh=inspect();tap_status,_=call(payload(fresh))
+        assert tap_status=='input_injected',json.dumps(last,sort_keys=True)
         adb('shell','uiautomator','dump','/sdcard/candidate-fixture.xml')
         tree=adb('shell','cat','/sdcard/candidate-fixture.xml');assert 'candidate_taps=1' in tree
         results['single_guarded_tap_observed']=True
@@ -68,6 +96,11 @@ def main():
         assert call({'op':'inspect'})[0]=='denied_context'
         results['foreign_package_refused']=True
         results['passed']=True
+    except BaseException:
+        results['passed']=False
+        results['native_last']=dict(last)
+        print(failure_annotation(last),flush=True)
+        raise
     finally:
         if previous and previous!='null':adb('shell','ime','set',previous)
         out=here/'out'/'candidate-result.json';out.parent.mkdir(parents=True,exist_ok=True)
