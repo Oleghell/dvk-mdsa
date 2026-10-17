@@ -24,6 +24,11 @@ class CandidateDiagnosticsTests(unittest.TestCase):
         last=module.safe_native_diagnostic('','tap',{'guard_check':1,'masked_context_match':False,'text':'PRIVATE'})
         self.assertEqual(last,{'operation':'tap','guard_check':1,'masked_context_match':False})
         self.assertEqual(module.safe_native_diagnostic('','tap',{'guard_check':True,'masked_context_match':'false'}),{'operation':'tap'})
+    def test_pixel_difference_diagnostics_are_numeric_and_bounded(self):
+        d={'diff_pixels':100,'diff_bounds':[40,500,700,580],'pixels':'PRIVATE'}
+        self.assertEqual(module.safe_native_diagnostic('','tap',d),{'operation':'tap','diff_pixels':100,'diff_bounds':[40,500,700,580]})
+        d={'diff_pixels':-1,'diff_bounds':[0,0,900,1600]}
+        self.assertEqual(module.safe_native_diagnostic('','tap',d),{'operation':'tap'})
     def test_actions_annotation_contains_actual_failure_status(self):
         last=module.safe_native_diagnostic('INSTRUMENTATION_RESULT: control_status=indeterminate_after_attempt\n','tap')
         a=module.failure_annotation(last)

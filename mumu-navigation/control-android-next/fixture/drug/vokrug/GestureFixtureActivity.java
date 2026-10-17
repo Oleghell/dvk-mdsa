@@ -17,6 +17,8 @@ public final class GestureFixtureActivity extends Activity {
   final FrameLayout layout=new FrameLayout(this);layout.setBackgroundColor(Color.rgb(24,28,33));
   final EditText input=new EditText(this);input.setSingleLine(true);input.setPadding(0,0,0,0);
   input.setText("Нижнекамск");input.setTextColor(Color.WHITE);input.setCursorVisible(true);
+  // A tap-only fixture does not need a keyboard window animating outside the editor.
+  input.setShowSoftInputOnFocus(false);
   FrameLayout.LayoutParams field=new FrameLayout.LayoutParams(668,80);field.leftMargin=118;field.topMargin=196;layout.addView(input,field);
   final TextView result=new TextView(this);result.setText("Нижнекамск · Республика Татарстан · Россия");result.setTextColor(Color.WHITE);
   FrameLayout.LayoutParams row=new FrameLayout.LayoutParams(820,100);row.leftMargin=40;row.topMargin=330;layout.addView(result,row);

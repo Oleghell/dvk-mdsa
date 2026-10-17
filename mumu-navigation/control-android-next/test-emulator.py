@@ -25,6 +25,9 @@ def safe_native_diagnostic(output, operation, report=None):
     if isinstance(report,dict):
         if type(report.get('guard_check')) is int and report['guard_check'] in (0,1):result['guard_check']=report['guard_check']
         if type(report.get('masked_context_match')) is bool:result['masked_context_match']=report['masked_context_match']
+        if type(report.get('diff_pixels')) is int and 0<=report['diff_pixels']<=900*1552:result['diff_pixels']=report['diff_pixels']
+        b=report.get('diff_bounds')
+        if isinstance(b,list) and len(b)==4 and all(type(v) is int for v in b) and 0<=b[0]<b[2]<=900 and 48<=b[1]<b[3]<=1600:result['diff_bounds']=b
     return result
 
 
@@ -57,13 +60,11 @@ def main():
     def payload(d):
         return dict(op='tap',expected_sha256=d['field_context_sha256'],x=320,y=380,x2=0,y2=0,duration_ms=0,keycode=0,
                     editor_guard={'bounds':d['bounds'],'expected_text':d['text']})
-    previous=adb('shell','settings','get','secure','default_input_method').strip()
     results={}
     try:
         for name in ('control','keyboard','fixture'):
             adb('install','-t','-r',str(here/'out'/f'{name}-synthetic.apk'))
-        ime='com.dvk.keyboard.v1/com.dvk.keyboard.BridgeIme'
-        adb('shell','ime','enable',ime);adb('shell','ime','set',ime)
+        # This tests taps, not typing: do not switch the OS keyboard.
         adb('shell','am','start','-W','-n','drug.vokrug/.GestureFixtureActivity');time.sleep(1)
         first=inspect();assert first['focused'] and first['bounds']==[118,196,786,276]
         assert first['text']=='Нижнекамск'
@@ -89,6 +90,13 @@ def main():
         adb('shell','uiautomator','dump','/sdcard/candidate-fixture.xml')
         tree=adb('shell','cat','/sdcard/candidate-fixture.xml');assert 'candidate_taps=1' in tree
         results['single_guarded_tap_observed']=True
+        # Distinct actions with a fresh observation each, NOT retries of a refusal.
+        for count in (2,3):
+            fresh=inspect();tap_status,_=call(payload(fresh))
+            assert tap_status=='input_injected',json.dumps(last,sort_keys=True)
+            adb('shell','uiautomator','dump','/sdcard/candidate-fixture.xml')
+            assert 'candidate_taps='+str(count) in adb('shell','cat','/sdcard/candidate-fixture.xml')
+        results['three_distinct_guarded_taps_observed']=True
         # The outside-editor counter changed; old context must not authorize tap 2.
         assert call(stale)[0]=='denied_screen_changed'
         results['outside_editor_change_refused']=True
@@ -102,7 +110,6 @@ def main():
         print(failure_annotation(last),flush=True)
         raise
     finally:
-        if previous and previous!='null':adb('shell','ime','set',previous)
         out=here/'out'/'candidate-result.json';out.parent.mkdir(parents=True,exist_ok=True)
         out.write_text(json.dumps(results,indent=2)+'\n',encoding='utf-8')
     print('CURSOR_STABLE_GESTURE_CANDIDATE_PASS')

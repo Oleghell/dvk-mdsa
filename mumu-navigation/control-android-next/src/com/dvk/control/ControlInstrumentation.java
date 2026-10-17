@@ -61,12 +61,26 @@ public final class ControlInstrumentation extends Instrumentation {
   return actual;
  }
  private String value(AccessibilityNodeInfo n){return n.isShowingHintText() || n.getText()==null?"":n.getText().toString();}
- private String hash(Rect mask) throws Exception{
+ private static final class ScreenSnapshot {
+  final int[] pixels;final String sha;
+  ScreenSnapshot(int[] pixels,String sha){this.pixels=pixels;this.sha=sha;}
+ }
+ private ScreenSnapshot snapshot(Rect mask) throws Exception{
   root();Bitmap b=auto.takeScreenshot();if(b==null)throw new GuardFailure("screenshot_unavailable");
   try{if(b.getWidth()!=900 || b.getHeight()!=1600)throw new GuardFailure("screen_dimensions");int[] px=new int[900*1552];b.getPixels(px,0,900,0,48,900,1552);byte[] rgb=new byte[px.length*3];int k=0;
-   for(int i=0;i<px.length;i++){int x=i%900,y=i/900+48,c=mask!=null && mask.contains(x,y)?0:px[i];rgb[k++]=(byte)(c>>>16);rgb[k++]=(byte)(c>>>8);rgb[k++]=(byte)c;}
-   StringBuilder out=new StringBuilder();for(byte v:MessageDigest.getInstance("SHA-256").digest(rgb))out.append(String.format(java.util.Locale.ROOT,"%02x",v&255));return out.toString();
+   for(int i=0;i<px.length;i++){int x=i%900,y=i/900+48,c=mask!=null && mask.contains(x,y)?0:px[i]&0xffffff;px[i]=c;rgb[k++]=(byte)(c>>>16);rgb[k++]=(byte)(c>>>8);rgb[k++]=(byte)c;}
+   StringBuilder out=new StringBuilder();for(byte v:MessageDigest.getInstance("SHA-256").digest(rgb))out.append(String.format(java.util.Locale.ROOT,"%02x",v&255));return new ScreenSnapshot(px,out.toString());
   }finally{b.recycle();}
+ }
+ private String hash(Rect mask) throws Exception{return snapshot(mask).sha;}
+ private JSONObject mismatchReport(int check,ScreenSnapshot previous,ScreenSnapshot current) throws Exception{
+  JSONObject report=new JSONObject();report.put("guard_check",check);report.put("masked_context_match",false);
+  // Only counts and bounds, NEVER pixel data or app text leave the helper.
+  if(previous!=null){int changed=0,left=900,top=1600,right=0,bottom=48;
+   for(int i=0;i<current.pixels.length;i++)if(previous.pixels[i]!=current.pixels[i]){int x=i%900,y=i/900+48;changed++;left=Math.min(left,x);top=Math.min(top,y);right=Math.max(right,x+1);bottom=Math.max(bottom,y+1);}
+   report.put("diff_pixels",changed);if(changed>0)report.put("diff_bounds",new JSONArray(new int[]{left,top,right,bottom}));
+  }
+  return report;
  }
  private void motion(int x,int y,int x2,int y2,int ms) throws Exception{
   long now=SystemClock.uptimeMillis();sendMotion(now,now,MotionEvent.ACTION_DOWN,x,y);
@@ -118,9 +132,12 @@ public final class ControlInstrumentation extends Instrumentation {
     JSONObject guard=request.getJSONObject("editor_guard");
     // Re-read exact native field before BOTH image checks. Only the native
     // focused editor rectangle is normalized; caller cannot mask arbitrary UI.
+    ScreenSnapshot previous=null;
     for(int check=0;check<2;check++){
      Rect mask=gestureEditor(guard);
-     if(!expected.equals(hash(mask))){JSONObject report=new JSONObject();report.put("guard_check",check);report.put("masked_context_match",false);done("denied_screen_changed",report);return;}
+     ScreenSnapshot current=snapshot(mask);
+     if(!expected.equals(current.sha)){done("denied_screen_changed",mismatchReport(check,previous,current));return;}
+     previous=current;
      gestureEditor(guard);
     }
    }else if(!expected.equals(hash(null)) || !expected.equals(hash(null))){done("denied_screen_changed",null);return;}

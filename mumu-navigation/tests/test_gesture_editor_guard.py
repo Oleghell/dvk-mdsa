@@ -83,7 +83,8 @@ class CandidateSourceTests(unittest.TestCase):
         p=Path(__file__).resolve().parents[1]/'control-android-next/src/com/dvk/control/ControlInstrumentation.java'
         s=p.read_text(encoding='utf-8')
         self.assertIn('Rect mask=gestureEditor(guard)',s)
-        self.assertIn('expected.equals(hash(mask))',s)
+        self.assertIn('expected.equals(current.sha)',s)
+        self.assertIn('ScreenSnapshot current=snapshot(mask)',s)
         self.assertIn('check<2',s)
         self.assertIn('actual.width()>800 || actual.height()>160',s)
         self.assertIn('!text.equals(value(n))',s)
