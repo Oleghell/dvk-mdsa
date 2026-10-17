@@ -61,7 +61,15 @@ class V2ReleaseTests(unittest.TestCase):
         self.assertIn("start('city_resize')",runner)
         self.assertIn("d['bounds']==before['bounds']",runner)
         self.assertIn('HEADLESS_IME_ADJUST_RESIZE_PASS',runner)
-        self.assertIn('mInputViewShown=false',runner)
+        self.assertIn('mIsInputViewShown=false',runner)
+
+    def test_headless_ime_diagnostic_uses_android_field_and_refuses_missing(self):
+        spec=importlib.util.spec_from_file_location('v2_native_test',V2/'test-emulator.py')
+        runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(runner)
+        self.assertTrue(runner.headless_ime_dump('  mIsInputViewShown=false mInputViewStarted=false'))
+        self.assertFalse(runner.headless_ime_dump('  mIsInputViewShown=true'))
+        self.assertFalse(runner.headless_ime_dump('mInputViewShown=false'))
+        self.assertFalse(runner.headless_ime_dump('No matching services'))
 
     def test_legacy_pins_are_unchanged(self):
         meta=json.loads((ROOT/'control-android/pinned/release.json').read_text(encoding='utf-8'))

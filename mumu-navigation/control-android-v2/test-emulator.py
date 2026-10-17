@@ -10,6 +10,10 @@ import time
 COMPONENT='com.dvk.control.v2/com.dvk.control.ControlInstrumentation'
 IME='com.dvk.keyboard.v2/com.dvk.keyboard.BridgeIme'
 
+def headless_ime_dump(value):
+    # Android InputMethodService.dump uses mIsInputViewShown (not mInputViewShown).
+    return bool(re.search(r'\bmIsInputViewShown=false\b',value))
+
 def main():
     if os.environ.get('GITHUB_ACTIONS')!='true':raise SystemExit('CI synthetic emulator only')
     devices=subprocess.check_output(['adb','devices'],text=True)
@@ -93,7 +97,7 @@ def main():
         perform_gesture(x=(l+r)//2,y=(t+b)//2);time.sleep(1)
         d=inspect();assert d['focused'] and d['bounds']==before['bounds'],(before['bounds'],d['bounds'])
         ime_dump=adb('shell','dumpsys','activity','service',IME)
-        assert re.search(r'\bmInputViewShown=false\b',ime_dump),'Headless IME must not display an input view'
+        assert headless_ime_dump(ime_dump),'Headless IME must not display an input view'
         expect(text(d,'type','Привет 🙂'),'text_verified')
         assert inspect()['text']=='Привет 🙂'
         print('HEADLESS_IME_ADJUST_RESIZE_PASS')
@@ -110,6 +114,7 @@ def main():
         (diagnostics/'control-last.json').write_text(json.dumps(last,indent=2)+'\n', encoding='utf-8')
         for name,args,binary in (
             ('screen.png',['exec-out','screencap','-p'],True),
+            ('ime.txt',['shell','dumpsys','activity','service',IME],False),
             ('window.txt',['shell','dumpsys','window'],False)):
             try:
                 result=subprocess.run(prefix+args,capture_output=True,timeout=15)
