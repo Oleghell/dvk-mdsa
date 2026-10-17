@@ -45,6 +45,13 @@ class CandidateCITests(unittest.TestCase):
         self.assertIn('candidate_taps=1',s)
         self.assertIn("results['outside_editor_change_refused']=True",s)
         self.assertIn("finally:",s)
+    def test_legacy_fixture_is_static_but_candidate_retains_animation(self):
+        legacy=(ROOT/'mumu-navigation/city-android/fixture/drug/vokrug/CityFixtureActivity.java').read_text(encoding='utf-8')
+        candidate=(NEXT/'fixture/drug/vokrug/GestureFixtureActivity.java').read_text(encoding='utf-8')
+        self.assertIn('input.setCursorVisible(false)',legacy)
+        self.assertIn('input.setCursorVisible(true)',candidate)
+        self.assertIn('cursor.postDelayed(this,80)',candidate)
+
     def test_windows_manifest_explicitly_says_fix_is_not_in_runtime_yet(self):
         s=(ROOT/'.github/workflows/mumu-navigation.yml').read_text(encoding='utf-8')
         self.assertIn('cursor_stable_runtime_included=$false',s)

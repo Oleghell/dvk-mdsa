@@ -21,6 +21,10 @@ public final class CityFixtureActivity extends Activity {
     }
    }
   };input.setSingleLine(true);input.setPadding(0,0,0,0);input.setHint("Поиск");
+  // Legacy helpers compare the entire screen exactly: keep THEIR synthetic
+  // fixture deterministic. Cursor stability is tested separately by the new
+  // GestureFixtureActivity with deliberate continuous in-editor animation.
+  input.setCursorVisible(false);
   if("city_old".equals(scenario))input.setText("Нальчик");
   if("city_nonempty".equals(scenario))input.setText("KEEP_EXISTING");
   if("city_password".equals(scenario))input.setInputType(129);
