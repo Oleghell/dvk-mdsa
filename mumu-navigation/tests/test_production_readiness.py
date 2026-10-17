@@ -1,13 +1,20 @@
+import os
 import subprocess
+import sys
 import unittest
-from unittest.mock import Mock
+from pathlib import Path
+from unittest.mock import Mock, patch
 
-from mumu-navigation.production_readiness import collect_diagnostics
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from production_readiness import collect_diagnostics
 
 
 class ProductionReadinessTests(unittest.TestCase):
     def test_missing_adb_is_not_ready(self):
-        report = collect_diagnostics(adb_path="", runner=Mock())
+        with patch.dict(os.environ, {"ADB_PATH": ""}, clear=False), patch(
+            "production_readiness.shutil.which", return_value=None
+        ):
+            report = collect_diagnostics(runner=Mock())
         self.assertFalse(report["ready"])
         self.assertEqual(report["checks"][0]["name"], "adb")
 
