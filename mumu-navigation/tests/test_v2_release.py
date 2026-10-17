@@ -8,7 +8,7 @@ V2=ROOT/'control-android-v2'
 
 class V2ReleaseTests(unittest.TestCase):
     def test_signed_release_and_protocol_are_v2(self):
-        self.assertEqual(VERSION,'1.6.1')
+        self.assertEqual(VERSION,'1.6.2')
         self.assertEqual(COMPONENT,'com.dvk.control.v2/com.dvk.control.ControlInstrumentation')
         self.assertEqual(IME,'com.dvk.keyboard.v2/com.dvk.keyboard.BridgeIme')
         payload=base64.b64encode(b'{"op":"inspect"}').decode()

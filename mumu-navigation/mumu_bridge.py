@@ -14,7 +14,7 @@ from greeting_budget import GreetingBudget, BudgetError
 from limited_scenario import DEFAULT_NEW_PROFILE_LIMIT
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.6.1'
+VERSION = '1.6.2'
 # Five fully checked profiles need 35+ writes; still a hard finite connection cap.
 ACTION_LIMIT = 50
 HELPER_COMPONENT = 'com.dvk.navigation.v132/com.dvk.navigation.NavigationInstrumentation'
@@ -452,6 +452,8 @@ for _tool in TOOLS:
 
 from control_protocol import TOOLS as CONTROL_TOOLS
 TOOLS.extend(CONTROL_TOOLS)
+from semantic_profile import TOOLS as SEMANTIC_TOOLS
+TOOLS.extend(SEMANTIC_TOOLS)
 
 class BridgeServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -570,6 +572,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     and re.fullmatch('[0-9a-f]{64}',args['expected_city_context_sha256']) is not None
                     and type(args['city_index']) is int and 0<=args['city_index']<30
                     and type(args['previous_index']) is int and -1<=args['previous_index']<30)
+            if name in ('mumu_find_profile_chat','mumu_click_profile_chat'):
+                from semantic_profile import valid_call as valid_semantic_call
+                valid=valid_semantic_call(name,args)
             if name.startswith('mumu_control_'):
                 from control_protocol import valid_call
                 valid=valid_call(name,args)
@@ -586,6 +591,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     methods = {'mumu_check_city_search':'check_city_search','mumu_focus_city_search':'focus_city_search','mumu_begin_profile':'begin_profile','mumu_check_new_chat':'check_new_chat',
                         'mumu_send_prepared_greeting':'send_prepared','mumu_review_visit':'review_visit','mumu_return_to_grid':'return_to_grid'}
                     result = {'content':[{'type':'text','text':json.dumps(getattr(self.server.reader,methods[name])(**args),ensure_ascii=False)}]}
+                elif name in ('mumu_find_profile_chat','mumu_click_profile_chat'):
+                    from semantic_profile import SemanticProfile
+                    semantic=SemanticProfile(self.server.reader)
+                    if name=='mumu_find_profile_chat':result=semantic.find()
+                    else:result={'content':[{'type':'text','text':json.dumps(semantic.click(args),ensure_ascii=False)}]}
                 elif name == 'mumu_control_inspect':
                     result={'content':[{'type':'text','text':json.dumps(self.server.reader.control_inspect(),ensure_ascii=False)}]}
                 elif name in ('mumu_control_gesture','mumu_control_key','mumu_control_text'):

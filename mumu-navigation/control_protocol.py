@@ -95,6 +95,9 @@ def args_allowed(args,ready):
     try:
         r=json.loads(base64.b64decode(args[9],validate=True).decode('utf-8'))
         if r=={'op':'inspect'}:return True
+        if r=={'op':'find_profile_chat'}:return True
+        if (isinstance(r,dict) and set(r)=={'op','expected_target_sha256'}
+                and r['op']=='click_profile_chat' and valid_hash(r['expected_target_sha256'])):return True
         # Only canonical payloads that can be created by the four scoped tools.
         if not isinstance(r,dict):return False
         ident='a'*32

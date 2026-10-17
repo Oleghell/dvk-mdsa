@@ -16,6 +16,18 @@ public final class CityFixtureActivity extends Activity {
    getWindow().clearFlags(1024);getWindow().getDecorView().setSystemUiVisibility(0);
    getWindow().setSoftInputMode(3|16);
   }
+  if(scenario.startsWith("profile_native")){
+   final FrameLayout panel=new FrameLayout(this);
+   panel.setBackgroundColor("profile_native_changed".equals(scenario)?0xff304050:0xff202830);
+   final Button chat=new Button(this);chat.setText("Открыть чат");chat.setContentDescription("Открыть чат");
+   FrameLayout.LayoutParams bp=new FrameLayout.LayoutParams(200,90);bp.gravity=android.view.Gravity.BOTTOM;bp.leftMargin=180;bp.bottomMargin=40;panel.addView(chat,bp);
+   chat.setOnClickListener(new android.view.View.OnClickListener(){public void onClick(android.view.View view){chat.setText("Чат открыт");chat.setContentDescription("Чат открыт");}});
+   if("profile_native_duplicate".equals(scenario)){
+    Button other=new Button(this);other.setText("Открыть чат");other.setContentDescription("Открыть чат");
+    FrameLayout.LayoutParams op=new FrameLayout.LayoutParams(200,90);op.gravity=android.view.Gravity.BOTTOM;op.leftMargin=500;op.bottomMargin=40;panel.addView(other,op);
+   }
+   setContentView(panel);return;
+  }
   final FrameLayout layout=new FrameLayout(this);final android.view.View background=new Background();layout.addView(background,new FrameLayout.LayoutParams(-1,-1));
   EditText input=new EditText(this){
    private int reports=0;

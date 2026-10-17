@@ -13,8 +13,9 @@ def prepare(destination):
     if destination==pinned or pinned in destination.parents or here==destination or here in destination.parents:
         raise ValueError('Candidate must not overwrite pinned/candidate sources')
     shutil.copytree(pinned,destination,ignore=shutil.ignore_patterns('out','__pycache__'))
-    relative=Path('src/com/dvk/control/ControlInstrumentation.java')
-    shutil.copyfile(here/relative,destination/relative)
+    for name in ('ControlInstrumentation.java','ProfileChatLocator.java','SemanticProfileTarget.java'):
+        relative=Path('src/com/dvk/control')/name
+        shutil.copyfile(here/relative,destination/relative)
     return destination
 
 

@@ -59,6 +59,23 @@ def main():
         for name in ('keyboard-helper.apk','control-helper.apk'):
             adb('install','-t','-r',os.path.join(os.path.dirname(__file__),'out',name))
         adb('shell','ime','enable',IME);adb('shell','ime','set',IME)
+        # Semantic native path requires no glyph screenshot or fixed host XY.
+        start('profile_native')
+        target=expect({'op':'find_profile_chat'},'inspection_ok')
+        assert target['method']=='accessibility_click' and target['identity_verified'] is False
+        expect({'op':'click_profile_chat','expected_target_sha256':'0'*64},'denied_screen_changed')
+        start('profile_native_changed')
+        expect({'op':'click_profile_chat','expected_target_sha256':target['context_sha256']},'denied_screen_changed')
+        target=expect({'op':'find_profile_chat'},'inspection_ok')
+        expect({'op':'click_profile_chat','expected_target_sha256':target['context_sha256']},'input_injected')
+        time.sleep(.3)
+        expect({'op':'find_profile_chat'},'denied_context')
+        adb('shell','uiautomator','dump','/sdcard/semantic-fixture.xml')
+        tree=adb('shell','cat','/sdcard/semantic-fixture.xml')
+        assert 'Чат открыт' in tree,'ACTION_CLICK did not change the synthetic button'
+        start('profile_native_duplicate')
+        expect({'op':'find_profile_chat'},'denied_context')
+        print('SEMANTIC_PROFILE_NATIVE_CLICK_PASS')
         start('city_empty')
         perform_gesture();time.sleep(1)
         d=inspect();assert d['focused'] and d['text']==''

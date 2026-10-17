@@ -215,10 +215,10 @@ jobs:
           if ((Get-FileHash "$root/cloudflared.exe" -Algorithm SHA256).Hash.ToLowerInvariant() -ne '86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c') {throw 'Cloudflare checksum mismatch'}
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
-          Copy-Item mumu-navigation/RELEASE-v1.6.1.md "$root/START-HERE.md"
-          Copy-Item mumu-navigation/RELEASE-v1.6.1.md "$root/RELEASE-v1.6.1.md"
+          Copy-Item mumu-navigation/RELEASE-v1.6.2.md "$root/START-HERE.md"
+          Copy-Item mumu-navigation/RELEASE-v1.6.2.md "$root/RELEASE-v1.6.2.md"
           @{
-            bridge_version='1.6.1'
+            bridge_version='1.6.2'
             universal_control='explicit-local-opt-in-app-scoped-gestures-keys-unicode-ime'
             cursor_stable_gestures='signed-v2-native-editor-guard'
             cursor_stable_runtime_included=$true
@@ -248,7 +248,7 @@ jobs:
           retention-days: 14
 
   publish_release:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/mumu-limited-five-scenario' && startsWith(github.event.head_commit.message, 'Release MuMu 1.6.1') }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/mumu-limited-five-scenario' && startsWith(github.event.head_commit.message, 'Release MuMu 1.6.2') }}
     needs: [python, android, candidate_android, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -267,7 +267,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 mumu-navigation/package-release.py release/MuMu-navigation-windows-x64
-          gh release create mumu-v1.6.1 release/MuMu-navigation-1.6.1-windows-x64.zip release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "MuMu 1.6.1 — supervised controls" --notes-file mumu-navigation/RELEASE-v1.6.1.md
+          gh release create mumu-v1.6.2 release/MuMu-navigation-1.6.2-windows-x64.zip release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "MuMu 1.6.2 — supervised controls" --notes-file mumu-navigation/RELEASE-v1.6.2.md
 
   report_results:
     if: ${{ always() }}

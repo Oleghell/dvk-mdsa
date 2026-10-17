@@ -1,9 +1,9 @@
 {
-  "version": "1.6.1",
+  "version": "1.6.2",
   "packages": {
     "control-helper.apk": {
-      "apk_sha256": "1eca8b2abbb8a9602e797d42550e5b017bb93f97694df7ee31c508c3da24b50b",
-      "dex_sha256": "c577f199f0c563815a4d1aef698c2e5e1afd3152fd5e5550fa11c5fbdaaaa5a7",
+      "apk_sha256": "f376a18ed6a3a29b0cce334380e61d7b27c1ed14aba22f33cc09f6931ca7fca0",
+      "dex_sha256": "70694f0691256f911bdb644648cf2ff615afc2e9eabf7cc28b3327a799cda471",
       "package": "com.dvk.control.v2"
     },
     "keyboard-helper.apk": {
@@ -13,13 +13,15 @@
     }
   },
   "sources": {
-    "AndroidManifest.xml": "999bb69c038475e9de5723a3e85ad5d62fbc3c8d6514c6891f73c25d1ee1595a",
+    "AndroidManifest.xml": "ee5f95a9f661cc6cf80803928e4abedd7f8cf2285e321b3b1c8858239adf1b7c",
     "KeyboardManifest.xml": "18e418391b1929f626e05f82badc721fbb71506f9becfb5cf525f1ddd82b0df5",
     "keyboard/com/dvk/keyboard/BridgeIme.java": "66cdb2ee1ce24159e89f8cb6661e075e2776a42e11aeee5bededcc02f3b29cfe",
     "keyboard/com/dvk/keyboard/ImeCommandReceiver.java": "76edbafe5ef95ca2f875ddd7a4d39d4b0dbf36c9e898e02780a73e91129b61d9",
     "res/xml/method.xml": "63a8fbf832bca89108f7cd2f2451d34179abde3773fb18fb58889cf881dde2a7",
-    "src/com/dvk/control/ControlInstrumentation.java": "3e51fa712ea4ac8f41d56783dcbeffa8d1596a0d3252160627bb6fa10622e6a5",
-    "src/com/dvk/control/ControlPolicy.java": "e892f3644e607fb5fb31f3bcea9ace034bde9467258c0d2d92d44c6e464e2aca"
+    "src/com/dvk/control/ControlInstrumentation.java": "d98f34884b3c2d263e0febb3566cf7605b6897252d80aaedcd0e62c3b66efff8",
+    "src/com/dvk/control/ControlPolicy.java": "e892f3644e607fb5fb31f3bcea9ace034bde9467258c0d2d92d44c6e464e2aca",
+    "src/com/dvk/control/ProfileChatLocator.java": "583f27d37861097d03b41418a8a1866b7f1ee15b87be9800a32ddcfb0e63b89b",
+    "src/com/dvk/control/SemanticProfileTarget.java": "a6b794196252cef8bdefb964c4e5db9bbb8c7aa001a86a7552ca72ef85f9bdb9"
   },
   "signer_sha256": "61f3c60b2fa198834829406ebfaacb0ef1be28cab77ec3bd244db8ff6cd89fb7"
 }

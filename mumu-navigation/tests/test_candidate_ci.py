@@ -36,6 +36,8 @@ class CandidateCITests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             dest=module.prepare(Path(tmp)/'new-candidate')
             self.assertEqual((dest/'src/com/dvk/control/ControlInstrumentation.java').read_bytes(),(NEXT/'src/com/dvk/control/ControlInstrumentation.java').read_bytes())
+            for name in ('ProfileChatLocator.java','SemanticProfileTarget.java'):
+                self.assertEqual((dest/'src/com/dvk/control'/name).read_bytes(),(NEXT/'src/com/dvk/control'/name).read_bytes())
             with self.assertRaises(ValueError):module.prepare(dest)
         self.assertEqual(before,original.read_bytes())
     def test_native_test_is_emulator_only_and_has_no_action_retry_loop(self):

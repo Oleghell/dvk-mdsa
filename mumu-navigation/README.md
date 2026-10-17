@@ -1,14 +1,14 @@
-# MuMu 1.6.1 — релиз моста управления с подтверждением
+# MuMu 1.6.2 — релиз моста управления с подтверждением
 
 Подписанные компоненты v2 с новым постоянным ключом включены в Windows-пакет.
 Они устанавливаются рядом с v1; удалять ДругВокруг или переписки не нужно.
 Проверка активного поля поддерживает нажатия при мигающем курсоре.
 
-Быстрая установка и точные границы возможностей: [START HERE / релиз 1.6.1](RELEASE-v1.6.1.md).
+Быстрая установка и точные границы возможностей: [START HERE / релиз 1.6.2](RELEASE-v1.6.2.md).
 Это не автономный бот: авторассылки, автоответов и сбора контактов нет.
-Исторические разделы ниже описывают этапы разработки; актуальный состав — в заметках 1.6.1.
+Исторические разделы ниже описывают этапы разработки; актуальный состав — в заметках 1.6.2.
 
-## Запуск одной кнопкой — 1.6.1
+## Запуск одной кнопкой — 1.6.2
 
 1. Распакуйте **весь** Windows-пакет в одну папку и откройте ДругВокруг в MuMu.
 2. Запустите EXE и нажмите большую кнопку **«Включить MuMu»** сверху.
@@ -467,3 +467,7 @@ Android-стенд и Windows EXE должны отдельно пройти Git
 
 **v1.4.3 ещё не проверена на реальном MuMu. Готовность исходников не означает
 готовность или проверенность Windows-архива.**
+
+## Profile-chat target finder (1.6.2)
+
+Use `mumu_find_profile_chat` followed by `mumu_click_profile_chat` with its exact `context_sha256` and a fresh action ID. Android prefers a uniquely labelled native clickable control, then a recognized close/chat/gift panel. No host XY or caller mask is accepted. Only this target pair accepts variable portrait resolutions; legacy navigation/input remains fixed-layout. A successful input injection is not proof of a navigation transition. Read the resulting screen. Existing visit/budget/hold requirements remain in force.

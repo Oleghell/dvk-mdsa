@@ -97,6 +97,24 @@ public final class ControlInstrumentation extends Instrumentation {
  @Override public void onStart(){
   try{
    auto=getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);phase="startup_root";awaitAccessibility();phase="arguments";String op=request.getString("op");
+   // SEMANTIC_PROFILE_BEGIN: locate/revalidate inside Android, never host XY.
+   if("find_profile_chat".equals(op) || "click_profile_chat".equals(op)){
+    boolean click="click_profile_chat".equals(op);
+    if(request.length()!=(click?2:1)){done("denied_arguments",null);return;}
+    SemanticProfileTarget.Target target=SemanticProfileTarget.find(auto,root());
+    if(target==null){done("denied_context",null);return;}
+    if(!click){done("inspection_ok",target.report());return;}
+    String wanted=request.getString("expected_target_sha256");
+    if(!wanted.matches("[0-9a-f]{64}") || !wanted.equals(target.context)){done("denied_screen_changed",null);return;}
+    SemanticProfileTarget.Target current=SemanticProfileTarget.find(auto,root());
+    if(current==null || !wanted.equals(current.context) || !target.method.equals(current.method)){done("denied_screen_changed",null);return;}
+    root();if(!SemanticProfileTarget.nativeStillMatches(current)){done("denied_screen_changed",null);return;}
+    phase="gesture_inject";attempted=true;
+    if(current.node!=null){if(!current.node.performAction(AccessibilityNodeInfo.ACTION_CLICK))throw new Exception();}
+    else{int cx=(current.bounds.left+current.bounds.right)/2,cy=(current.bounds.top+current.bounds.bottom)/2;motion(cx,cy,cx,cy,0);}
+    done("input_injected",current.report());return;
+   }
+   // SEMANTIC_PROFILE_END
    if("inspect".equals(op)){
     phase="inspect_screen";JSONObject d=new JSONObject();d.put("content_sha256",hash(null));d.put("gesture_editor_guard_supported",true);
     phase="inspect_field";try{AccessibilityNodeInfo n=field();Rect r=new Rect();n.getBoundsInScreen(r);d.put("bounds",new JSONArray(new int[]{r.left,r.top,r.right,r.bottom}));d.put("text",value(n));d.put("field_context_sha256",hash(r));d.put("focused",true);}catch(Exception e){d.put("focused",false);}
