@@ -133,7 +133,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cursor-stable-candidate-result
-          path: mumu-navigation/control-android-next/out/candidate-result.json
+          path: |
+            mumu-navigation/control-android-next/out/candidate-result.json
+            mumu-navigation/control-android-next/out/synthetic-diagnostics/
           if-no-files-found: ignore
           retention-days: 7
 

@@ -17,7 +17,9 @@ class CandidateCITests(unittest.TestCase):
         self.assertIn('control-android-next/build-ci.sh',candidate)
         self.assertIn('control-android-next/test-emulator.py',candidate)
         self.assertIn('out/candidate-result.json',candidate)
-        self.assertNotIn('path: mumu-navigation/control-android-next/out/',candidate.replace('path: mumu-navigation/control-android-next/out/candidate-result.json',''))
+        self.assertIn('out/synthetic-diagnostics/',candidate)
+        self.assertNotIn('out/*.apk',candidate)
+        self.assertNotIn('out/*.jks',candidate)
     def test_candidate_build_is_ci_only_and_uses_external_staging_path(self):
         s=(NEXT/'build-ci.sh').read_text(encoding='utf-8')
         self.assertIn('[ "${GITHUB_ACTIONS:-}" = true ]',s)

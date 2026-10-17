@@ -60,20 +60,30 @@ def main():
     def payload(d):
         return dict(op='tap',expected_sha256=d['field_context_sha256'],x=320,y=380,x2=0,y2=0,duration_ms=0,keycode=0,
                     editor_guard={'bounds':d['bounds'],'expected_text':d['text']})
+    diagnostics=here/'out'/'synthetic-diagnostics'
+    def capture(name):
+        # Only the disposable synthetic emulator; never run against a real device.
+        diagnostics.mkdir(parents=True,exist_ok=True)
+        image=subprocess.check_output(prefix+['exec-out','screencap','-p'],timeout=15)
+        (diagnostics/(name+'.png')).write_bytes(image)
+        return image
     results={}
     try:
         for name in ('control','keyboard','fixture'):
             adb('install','-t','-r',str(here/'out'/f'{name}-synthetic.apk'))
         # This tests taps, not typing: do not switch the OS keyboard.
         adb('shell','am','start','-W','-n','drug.vokrug/.GestureFixtureActivity');time.sleep(1)
-        first=inspect();assert first['focused'] and first['bounds']==[118,196,786,276]
+        first=inspect();capture('first');assert first['focused'] and first['bounds']==[118,196,786,276]
         assert first['text']=='Нижнекамск'
         # The two source screenshots intentionally differ ONLY inside the editor.
         # A test loop waits for evidence of rendering, but NEVER retries an action.
         changed=False
         for _ in range(8):
             time.sleep(.09);other=inspect()
-            assert other['field_context_sha256']==first['field_context_sha256']
+            if other['field_context_sha256']!=first['field_context_sha256']:
+                capture('changed')
+                results['failure_stage']='animated_editor_outside_context_changed'
+                raise AssertionError('Synthetic pixels outside the native editor changed; see synthetic-diagnostics')
             if other['content_sha256']!=first['content_sha256']:changed=True;break
         assert changed,'Fixture must prove changing pixels inside the editor'
         results['animated_editor_observed']=True
@@ -105,6 +115,13 @@ def main():
         results['foreign_package_refused']=True
         results['passed']=True
     except BaseException:
+        try:
+            capture('failure')
+            (diagnostics/'window.txt').write_text(adb('shell','dumpsys','window'),encoding='utf-8')
+            adb('shell','uiautomator','dump','/sdcard/candidate-failure.xml')
+            (diagnostics/'hierarchy.xml').write_text(adb('shell','cat','/sdcard/candidate-failure.xml'),encoding='utf-8')
+        except Exception:
+            results['diagnostic_capture_failed']=True
         results['passed']=False
         results['native_last']=dict(last)
         print(failure_annotation(last),flush=True)
