@@ -1,3 +1,5 @@
+> **Новая ветка: MuMu 1.7.0-beta.2 — strict native.** Обычный GUI запрещает OCR/CV, скриншоты, координатные клики и старую отправку. Начните с [инструкции beta.2](RELEASE-v1.7.0-beta.2.md) и [исследования Unity/API](NATIVE_ONLY_RESEARCH.md). Полный доступ к скрытым Unity-кнопкам не заявлен. Старые разделы ниже описывают исторические режимы и не включают их в beta.2.
+
 > **Experimental hierarchy-first branch, 1.7.0-beta.1.** Start with `mumu_ui_inspect` / `mumu_ui_find` / `mumu_ui_action`. Native UI actions do not capture screenshots. OCR is opt-in/on-demand and requires local Tesseract rus+eng. The legacy full sending workflow is preserved, NOT universally migrated or certified for all layouts. See `RELEASE-v1.7.0-beta.1.md` and `UI_HIERARCHY_MIGRATION.md` for launch, changed files and exact limitations.
 
 # MuMu 1.6.2 — релиз моста управления с подтверждением

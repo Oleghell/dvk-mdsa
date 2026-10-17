@@ -24,6 +24,8 @@ public final class HierarchyFixtureActivity extends Activity {
   CheckBox online=new CheckBox(this);online.setText("Только онлайн");root.addView(online);
   root.addView(result);
   EditText password=new EditText(this);password.setId(android.R.id.text2);password.setInputType(129);password.setText("SECRET_PASSWORD");password.setShowSoftInputOnFocus(false);password.setCursorVisible(false);root.addView(password,new LinearLayout.LayoutParams(-1,dp(40)));
+  TextView hidden=new TextView(this);hidden.setText("DIAGNOSTIC_NON_IMPORTANT");hidden.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);root.addView(hidden);
+  password.setContentDescription("SECRET_DESCRIPTION");
   setContentView(root);root.requestFocus();
  }
  private final class Visual extends View {

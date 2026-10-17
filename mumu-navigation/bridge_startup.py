@@ -5,15 +5,13 @@ import shutil
 from mumu_bridge import BridgeError, content_pixel_sha256, install_helper_with_local_consent
 
 STARTUP_CONSENT = (
-    'Включить MuMu и управление ДругВокруг (900×1600)?\n\n'
-    'Экран и проверяемый текст передаются агенту через Cloudflare с секретным ключом.\n\n'
-    'Разрешаются нажатия, свайпы, клавиши и ввод по буквам. Нажатие/Enter может '
-    'отправить сообщение или активировать платную кнопку. Авторассылки нет.\n\n'
-    'Установятся 4 проверенных APK без сети. При конфликте можно заменить ТОЛЬКО '
-    'com.dvk.navigation.v132; ДругВокруг и журналы не удаляются. Клавиатура временно сменится.\n\n'
-    'Лимиты сохраняются; тест анкет сам не стартует. Это не доступ ко всему ПК.\n\n'
-    '«Остановить доступ» вернёт клавиатуру и закроет новые команды; начатое действие '
-    'может завершиться. После аварии верните клавиатуру в настройках Android.'
+    'Включить строгий нативный доступ к ДругВокруг?\n\n'
+    'Текст и свойства доступных Android-элементов передаются агенту через Cloudflare с секретным ключом. '
+    'Скриншоты, OCR, CV и координатные клики запрещены.\n\n'
+    'Разрешаются только именованные нативные действия. Отправка сообщений и платные действия не предоставляются. '
+    'Установится один проверенный APK; ДругВокруг и журналы не удаляются. Клавиатура не меняется.\n\n'
+    'Лимиты сохраняются; тест сам не стартует. Это не доступ ко всему ПК. '
+    '«Остановить доступ» закроет новые команды; начатое действие может завершиться.'
 )
 
 
@@ -48,6 +46,15 @@ def prepare_device(facade,base,cancelled,progress,*,consent):
         if cancelled.is_set():raise BridgeError('Запуск отменён. Доступ закрыт.')
     try:
         check();progress('Подключаюсь к MuMu…');facade.connect()
+        if getattr(reader,'native_only',False) is True:
+            from universal_control import enable_native_locally
+            from ui_backend import NativeBackend
+            check();progress('Проверяю приложение без захвата экрана…');reader._foreground()
+            check();progress('Устанавливаю один нативный помощник; клавиатура не меняется…')
+            enable_native_locally(reader,facade.ledger,base)
+            check();progress('Проверяю Accessibility без изображений и действий…')
+            NativeBackend(reader,facade.ledger).diagnostics()
+            check();return
         check();progress('Проверяю ДругВокруг и экран 900×1600…')
         content_pixel_sha256(reader.screen())
         check();progress('Проверяю и устанавливаю помощники…')

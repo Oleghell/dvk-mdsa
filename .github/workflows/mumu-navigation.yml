@@ -57,10 +57,6 @@ jobs:
           python3 mumu-navigation/control-android-v2/verify-signature.py
           FIXTURE_KEYSTORE="$PWD/mumu-navigation/android/out/test-signing.jks" bash mumu-navigation/control-android-v2/build-gesture-fixture.sh
           python3 -m pip install Pillow==12.3.0
-      - name: Install local OCR for synthetic hierarchy-fallback test
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y tesseract-ocr tesseract-ocr-rus
       - name: Enable emulator KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -220,29 +216,31 @@ jobs:
           if ((Get-FileHash "$root/cloudflared.exe" -Algorithm SHA256).Hash.ToLowerInvariant() -ne '86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c') {throw 'Cloudflare checksum mismatch'}
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
-          Copy-Item mumu-navigation/RELEASE-v1.7.0-beta.1.md "$root/START-HERE.md"
-          Copy-Item mumu-navigation/RELEASE-v1.7.0-beta.1.md "$root/RELEASE-v1.7.0-beta.1.md"
+          Copy-Item mumu-navigation/NATIVE_ONLY_RESEARCH.md "$root/NATIVE_ONLY_RESEARCH.md"
+          Copy-Item mumu-navigation/RELEASE-v1.7.0-beta.2.md "$root/START-HERE.md"
+          Copy-Item mumu-navigation/RELEASE-v1.7.0-beta.2.md "$root/RELEASE-v1.7.0-beta.2.md"
           @{
-            bridge_version='1.7.0-beta.1'
-            universal_control='explicit-local-opt-in-app-scoped-gestures-keys-unicode-ime'
-            cursor_stable_gestures='signed-v2-native-editor-guard'
+            bridge_version='1.7.0-beta.2'
+            universal_control='disabled-strict-native-only'
+            cursor_stable_gestures='not-exposed'
             cursor_stable_runtime_included=$true
+            cursor_stable_tools_exposed=$false
             control_package='com.dvk.control.v2'
             keyboard_package='com.dvk.keyboard.v2'
             control_signer_sha256='61f3c60b2fa198834829406ebfaacb0ef1be28cab77ec3bd244db8ff6cd89fb7'
             city_helper_package='com.dvk.city.v1'
-            city_mode='catalog-query-only-no-result-selection-no-filter-application'
-            release_stage='hierarchy-first-experimental-prerelease'
+            city_mode='native-state-required-query-only'
+            release_stage='strict-native-diagnostics-experimental-prerelease'
             hierarchy_first_runtime=$true
-            ui_fallback='on-demand-local-ocr-then-profile-vision'
-            legacy_workflow_preserved=$true
+            ui_fallback='forbidden-ocr-cv-images-coordinate-tap'
+            legacy_source_retained_not_exposed=$true
             source_commit=$env:GITHUB_SHA
             source_ref=$env:GITHUB_REF
             helper_package='com.dvk.navigation.v132'
             helper_sha256='700d240c6adbf08066f5de2314d447381b4303d6c76aef5bc0a06d722a2c8cd1'
             helper_distribution='pinned-v132-byte-identical-source-and-dex-verified'
-            filter_recognition='fixed-anchors-thumb-geometry-colour-cores-on-off-unknown'
-            mode='explicit-local-finite-supervised-test'
+            filter_recognition='native-accessibility-properties-only'
+            mode='strict-native-explicit-local-finite-supervised-test'
             real_drugvokrug_tested=$false
           } | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
           foreach ($file in @('helper.apk','helper-manifest.json','city-helper.apk','city-helper-manifest.json','control-helper.apk','keyboard-helper.apk','MuMu-navigation.exe','cloudflared.exe')) {if (-not(Test-Path "$root/$file")) {throw "Missing $file"}}
@@ -256,7 +254,7 @@ jobs:
           retention-days: 14
 
   publish_release:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/android-ui-hierarchy' && startsWith(github.event.head_commit.message, 'Release MuMu 1.7.0-beta.1') }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/android-ui-hierarchy' && startsWith(github.event.head_commit.message, 'Release MuMu 1.7.0-beta.2') }}
     needs: [python, android, candidate_android, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -275,7 +273,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 mumu-navigation/package-release.py release/MuMu-navigation-windows-x64
-          gh release create mumu-v1.7.0-beta.1 release/MuMu-navigation-1.7.0-beta.1-windows-x64.zip release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "MuMu 1.7.0-beta.1 — hierarchy-first preview" --notes-file mumu-navigation/RELEASE-v1.7.0-beta.1.md
+          gh release create mumu-v1.7.0-beta.2 release/MuMu-navigation-1.7.0-beta.2-windows-x64.zip release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "MuMu 1.7.0-beta.2 — strict native preview" --notes-file mumu-navigation/RELEASE-v1.7.0-beta.2.md
 
   report_results:
     if: ${{ always() }}

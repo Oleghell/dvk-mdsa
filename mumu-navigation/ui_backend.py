@@ -22,7 +22,15 @@ class NativeBackend:
         status,out=self.control.instrument({'op':'ui_dump'})
         if status!='inspection_ok':raise UnsupportedUI('UI hierarchy unavailable or helper is outdated; no OCR/action attempted')
         return Tree.parse(self.report(out))
+    def diagnostics(self):
+        if not self.reader.control_enabled:raise UnsupportedUI('Enable signed controls locally first')
+        status,out=self.control.instrument({'op':'ui_diagnostics'})
+        if status!='inspection_ok':raise UnsupportedUI('Expanded native diagnostics unavailable; install beta.2 helper. No visual fallback attempted')
+        from ui_diagnostics import validate
+        return validate(self.report(out))
     def perform(self,element,operation,**args):
+        strict=getattr(self.reader,'native_only',False) is True
+        if strict and element.method!='hierarchy':raise UnsupportedUI('Strict native mode forbids OCR/CV elements')
         if element.method=='profile_cv':
             payload={'op':'click_profile_chat','expected_target_sha256':element.frame['context_sha256']}
         elif element.method=='ocr':
@@ -30,7 +38,7 @@ class NativeBackend:
             payload={'op':'ui_visual_click','expected_tree_sha256':element.context,'expected_frame_sha256':element.frame['sha256'],'bounds':element.node['bounds']}
         else:
             payload={'op':'ui_'+operation,'selector':element.query,'expected_tree_sha256':element.context}
-            if operation=='click':payload['allow_coordinate_fallback']=True
+            if operation=='click':payload['allow_coordinate_fallback']=not strict
             else:payload.update(text=args['text'],expected_text=args['expected_text'])
         state,out=self.control.instrument(payload)
         return state, self.report(out) if 'report_b64=' in out else {}

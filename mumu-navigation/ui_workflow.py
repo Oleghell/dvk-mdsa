@@ -7,7 +7,6 @@ import logging
 from ui_model import UIError,ElementNotFound,UnsupportedUI,detect_screen
 from ui_runtime import AndroidUI
 from ui_backend import NativeBackend,ProfileVisionFallback
-from ui_ocr import TesseractFallback
 from ui_protocol import valid_tool
 
 LOG=logging.getLogger('dvk.ui')
@@ -23,14 +22,20 @@ class UIWorkflow:
     def __init__(self,supervised):
         self.supervised=supervised;self.reader=supervised.inner;self.ledger=supervised.ledger
         self.backend=NativeBackend(self.reader,self.ledger)
-        self.ui=AndroidUI(self.backend,self._mutate,TesseractFallback(self.reader.screen),ProfileVisionFallback(self.backend))
+        self.native_only=getattr(self.reader,'native_only',False) is True
+        if self.native_only:
+            self.ui=AndroidUI(self.backend,self._mutate)
+        else:
+            from ui_ocr import TesseractFallback
+            self.ui=AndroidUI(self.backend,self._mutate,TesseractFallback(self.reader.screen),ProfileVisionFallback(self.backend))
         self.action=None;self.allow_fallback=False
     def inspect(self):
         tree,state=self.ui.inspect()
         return {'tree_sha256':tree.context,'width':tree.width,'height':tree.height,'rotation':tree.rotation,'density_dpi':tree.density_dpi,
-                'nodes':list(tree.nodes),'screen':state,'fallback_policy':'hierarchy -> optional local OCR -> target-specific CV',
-                'coordinate_api':False,'sending_scope':'legacy guarded finite workflow only'}
+                'nodes':list(tree.nodes),'screen':state,'fallback_policy':'native only; images/OCR/CV/coordinate tap forbidden' if self.native_only else 'hierarchy -> optional local OCR -> target-specific CV',
+                'coordinate_api':False,'sending_scope':'not exposed' if self.native_only else 'legacy guarded finite workflow only'}
     def find(self,query,timeout_ms=0,allow_fallback=False):
+        if self.native_only and allow_fallback:raise UnsupportedUI('Fallback prohibited in strict native mode')
         element=self.ui.find_element(**query,timeout=timeout_ms/1000,allow_fallback=allow_fallback)
         return {'selector':element.query,'node':element.node,'method':element.method,'tree_sha256':element.context,
                 'identity_verified':False,'action_performed':False}
@@ -67,6 +72,7 @@ class UIWorkflow:
         self.backend.control.finish(ident,'succeeded');self.reader.action_uncertain=False
         return dict(data,native_status=state,result_screen_verified=False,message_sent=False,test_session=self.ledger.status())
     def _mutate(self,element,operation,*,action_id,purpose,**args):
+        if self.native_only and element.method!='hierarchy':raise UnsupportedUI('Non-native element prohibited')
         if purpose!=self.action or self.action is None:raise UnsupportedUI('Named action authorization missing')
         if element.method=='profile_cv' and purpose!='open_chat':raise UnsupportedUI('Profile vision only authorizes open_chat')
         # There is no public arbitrary-selector mutation tool. Only the named
@@ -74,6 +80,7 @@ class UIWorkflow:
         return self._execute(action_id,lambda:self.backend.perform(element,operation,**args),expected='text_verified' if operation=='set_text' else 'input_injected')
     def action_call(self,args):
         if not valid_tool('mumu_ui_action',args):raise UIError('Invalid named UI action')
+        if self.native_only and args['allow_fallback']:raise UnsupportedUI('Fallback prohibited in strict native mode')
         self.supervised._run_ready();self.backend.control.ready()
         self.action=args['action'];ident=args['action_id'];self.allow_fallback=args['allow_fallback']
         action=self.action

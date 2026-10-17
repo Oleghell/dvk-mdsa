@@ -9,12 +9,14 @@ import re
 import secrets
 import subprocess
 import sys
+# Alias before dependent imports so exception classes have one identity.
+if __name__ == '__main__':sys.modules.setdefault('mumu_bridge',sys.modules[__name__])
 import threading
 from greeting_budget import GreetingBudget, BudgetError
 from limited_scenario import DEFAULT_NEW_PROFILE_LIMIT
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.7.0-beta.1'
+VERSION = '1.7.0-beta.2'
 # Five fully checked profiles need 35+ writes; still a hard finite connection cap.
 ACTION_LIMIT = 50
 HELPER_COMPONENT = 'com.dvk.navigation.v132/com.dvk.navigation.NavigationInstrumentation'
@@ -92,7 +94,8 @@ def install_helper_with_local_consent(reader, base, confirm_replacement):
 
 
 class AdbReader:
-    def __init__(self, executable):
+    def __init__(self, executable, *, native_only=False):
+        self.native_only = native_only
         self.greeting_budget = None
         self.helper_path = None
         self.helper_ready = False
@@ -110,6 +113,9 @@ class AdbReader:
             raise BridgeError('Выберите adb.exe или adb_server.exe из папки установленного MuMu.')
 
     def _run(self, args):
+        if self.native_only:
+            from native_policy import allowed_adb
+            if not allowed_adb(args,self):raise BridgeError('Strict native mode: image, legacy, IME and coordinate commands prohibited')
         allowed = [
             ['version'], ['connect', SERIAL],
             ['-s', SERIAL, 'get-state'],
@@ -179,7 +185,7 @@ class AdbReader:
         android = self._run(['-s', SERIAL, 'shell', 'getprop', 'ro.build.version.release']).decode('utf-8', 'replace').strip()
         if not re.fullmatch(r'[0-9][0-9A-Za-z._-]{0,39}', android):
             raise BridgeError('Версия Android не подтверждена.')
-        return {'connected': True, 'android': android, 'read_only': False, 'navigation_supported': True, 'automatic_send_supported': False, 'typing_supported': True, 'typing_scope': 'ten compiled greetings into an empty field only', 'greeting_attempts_used': self.greeting_budget.used() if self.greeting_budget else None, 'action_attempts': self.action_attempts, 'action_limit': ACTION_LIMIT, 'action_uncertain': self.action_uncertain, 'version': VERSION, 'city_helper_ready': self.city_helper_ready, 'city_selection_supported': False, 'universal_control_enabled':self.control_enabled, 'unicode_ime_supported':self.control_enabled}
+        return {'connected': True, 'android': android, 'read_only': False, 'navigation_supported': True, 'automatic_send_supported': False, 'typing_supported': True, 'typing_scope': 'native named city-field action only; no chat send' if self.native_only else 'ten compiled greetings into an empty field only', 'greeting_attempts_used': self.greeting_budget.used() if self.greeting_budget else None, 'action_attempts': self.action_attempts, 'action_limit': ACTION_LIMIT, 'action_uncertain': self.action_uncertain, 'version': VERSION, 'city_helper_ready': self.city_helper_ready, 'city_selection_supported': False, 'universal_control_enabled':self.control_enabled, 'unicode_ime_supported':self.control_enabled and not self.native_only, 'native_only':self.native_only, 'screen_capture_supported':not self.native_only, 'coordinate_tap_supported':not self.native_only}
 
     def _foreground(self):
         text = self._run(['-s', SERIAL, 'shell', 'dumpsys', 'window']).decode('utf-8', 'replace')
@@ -188,6 +194,7 @@ class AdbReader:
             raise BridgeError('Чтение остановлено: на переднем плане не подтверждён ДругВокруг. Откройте нужный экран.')
 
     def screen(self):
+        if self.native_only:raise BridgeError('Screen capture prohibited in strict native mode')
         self.status()
         self._foreground()
         png = self._run(['-s', SERIAL, 'exec-out', 'screencap', '-p'])
@@ -465,9 +472,14 @@ for _legacy_tool in TOOLS:
 class BridgeServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = False
-    def __init__(self, reader, token, on_access=lambda: None):
+    def __init__(self, reader, token, on_access=lambda: None, *, native_only=True):
         super().__init__(('127.0.0.1', 0), BridgeHandler)
         self.reader, self.token, self.on_access = reader, token, on_access
+        self.native_only=native_only
+        if native_only:
+            inner=getattr(reader,'inner',reader)
+            inner.native_only=True
+        self.tools=([t for t in TOOLS if t['name']=='mumu_status']+hierarchy_tools(True)) if native_only else TOOLS
         self.public_url = ''
         self.device_lock = threading.Lock()
 
@@ -541,9 +553,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
         elif method == 'ping':
             result = {}
         elif method == 'tools/list':
-            result = {'tools': TOOLS}
+            result = {'tools': self.server.tools}
         elif method == 'tools/call':
             name, args = params.get('name'), params.get('arguments', {})
+            if self.server.native_only and (name not in {t['name'] for t in self.server.tools} or (isinstance(args,dict) and args.get('allow_fallback',False) is not False)):
+                error(-32602,'Strict native mode: unsupported tool or fallback prohibited');return
             valid = name in ('mumu_status', 'mumu_read_screen', 'mumu_inspect_layout','mumu_inspect_city_input','mumu_autotest_city') and args == {}
             if name in ('mumu_prepare_greeting','mumu_finish_greeting_input'):
                 valid = (isinstance(args,dict) and set(args)=={'expected_input_sha256','variant'}
@@ -610,6 +624,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     from ui_workflow import UIWorkflow
                     ui=UIWorkflow(self.server.reader)
                     if name=='mumu_ui_inspect':data=ui.inspect()
+                    elif name=='mumu_ui_diagnostics':data=ui.backend.diagnostics()
                     elif name=='mumu_ui_find':data=ui.find(args['selector'],args['timeout_ms'],args['allow_fallback'])
                     else:data=ui.action_call(args)
                     result={'content':[{'type':'text','text':json.dumps(data,ensure_ascii=False)}]}
@@ -682,7 +697,7 @@ def main(*,smoke_test=False):
     status.set('Не подключено. Откройте MuMu и нужный экран ДругВокруг.')
     def label(text):
         tk.Label(body, text=text, anchor='w', justify='left', wraplength=755).pack(fill='x', padx=14, pady=5)
-    label('Откройте ДругВокруг в MuMu и нажмите «Включить MuMu». Подключение и клавиатура включатся вместе. Сообщения автоматически не отправляются.')
+    label('Откройте ДругВокруг в MuMu и нажмите «Включить MuMu». Будет включён только нативный доступ; клавиатура не меняется. Сообщения автоматически не отправляются.')
     advanced=tk.Frame(body)
     def toggle_advanced():
         if advanced.winfo_manager():advanced.pack_forget()
@@ -720,7 +735,7 @@ def main(*,smoke_test=False):
                 raise BridgeError('Есть неизвестный исход. Новый тест запрещён; сохраните журнал для разбора.')
             target=simpledialog.askinteger('Ограниченный тест','Сколько НОВЫХ анкет посетить: от 1 до 5?\nДля нового согласованного прохода по умолчанию — 5.\nПропуски тоже считаются; после лимита — остановка.\nПрежний активный тест нужно продолжить без сброса.',initialvalue=DEFAULT_NEW_PROFILE_LIMIT,minvalue=1,maxvalue=5,parent=root)
             if target is None: return
-            if not messagebox.askyesno('Начать тест?', 'Разрешить агенту до %d посещённых анкет и не более одной попытки отправки согласованного приветствия в каждом новом пустом чате?\nСтарые сообщения/черновики пропускаются. После лимита — остановка. Автоматического фонового цикла нет.' % target): return
+            if not messagebox.askyesno('Начать тест?', 'Разрешить агенту до %d посещённых анкет через доступные нативные элементы?\nОтправка сообщений, OCR и координатные клики не предоставляются. После лимита — остановка. Автоматического фонового цикла нет.' % target): return
             # Same device lock as every MCP mutation: no concurrent local reset.
             server=ui['server']
             if not server.device_lock.acquire(blocking=False):
@@ -739,18 +754,19 @@ def main(*,smoke_test=False):
             messagebox.showinfo('Автотест','Сначала подключите MuMu. Тест анкет начинать не нужно.');return
         if not server.device_lock.acquire(blocking=False):
             messagebox.showinfo('Автотест','Устройство занято запросом. Дождитесь завершения.');return
-        status.set('Автотест поля города: только чтение, без нажатий и ввода…')
+        status.set('Диагностика Accessibility: без изображений, нажатий и ввода…')
         def diagnostic_work():
             try:
-                report=reader.autotest_city()
-                ok=report['passed'];saved=report.get('report_saved',False)
+                from ui_workflow import UIWorkflow
+                report=UIWorkflow(reader).backend.diagnostics()
+                ok=report['complete'];saved=False
                 if not cancelled.is_set():
-                    post(lambda: status.set(('Автотест: 3 проверки прошли.' if ok else 'Автотест: есть отказ. Отчёт содержит этап и причину; действий не было.')+(' Отчёт: DvkMuMu/diagnostics/city-last.json в локальных данных Windows.' if saved else ' Отчёт на диск не сохранён.')))
+                    post(lambda: status.set(('Нативная диагностика завершена; доступность конкретных действий проверяет агент.' if ok else 'Автотест: есть отказ. Отчёт содержит этап и причину; действий не было.')+(' Отчёт: DvkMuMu/diagnostics/city-last.json в локальных данных Windows.' if saved else ' Отчёт на диск не сохранён.')))
             except Exception:
                 if not cancelled.is_set():post(lambda:status.set('Автотест не завершён. Действия не выполнялись.'))
             finally:server.device_lock.release()
         threading.Thread(target=diagnostic_work,daemon=True).start()
-    tk.Button(advanced,text='Автотест поля города (только чтение)',command=city_diagnostics).pack(pady=5)
+    tk.Button(advanced,text='Диагностика Accessibility (только чтение)',command=city_diagnostics).pack(pady=5)
     def post(fn):
         if not ui['closed']:
             root.after(0, fn)
@@ -790,7 +806,7 @@ def main(*,smoke_test=False):
                 from ui_logging import configure as configure_ui_log
                 configure_ui_log(budget_root)
                 ui['ledger']=ledger
-                reader = SupervisedReader(AdbReader(path),ledger)
+                reader = SupervisedReader(AdbReader(path,native_only=True),ledger)
                 ui['reader']=reader
                 from bridge_startup import prepare_device
                 cf = base / 'cloudflared.exe'
@@ -823,7 +839,7 @@ def main(*,smoke_test=False):
                         connected.set()
                         public = found.group(0)
                         server.public_url = public
-                        post(lambda u=public, k=key: (url.set(u + '/mcp'), token.set(k), status.set('Готово: UI hierarchy включена; OCR — только по запросу при отсутствии элемента. Передайте адрес агенту; ключ — только в защищённое поле.')) if not cancelled.is_set() else None)
+                        post(lambda u=public, k=key: (url.set(u + '/mcp'), token.set(k), status.set('Готово: строгий нативный режим. Скриншоты, OCR, CV и координатные клики запрещены. Передайте адрес агенту; ключ — только в защищённое поле.')) if not cancelled.is_set() else None)
                 if not cancelled.is_set():
                     post(lambda: (stop(), status.set('Туннель завершён. Доступ закрыт; перезапустите программу.')))
             except Exception as exc:

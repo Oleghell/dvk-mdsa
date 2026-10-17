@@ -90,6 +90,24 @@ class UniversalControl:
                 self.ledger.db.execute("UPDATE runs SET state='stopped' WHERE state='active'")
 
 
+def enable_native_locally(reader,ledger,base):
+    """Install ONE pinned native helper. Never switch keyboard or capture pixels."""
+    from control_release import PACKAGES
+    ledger._no_hold()
+    p=(Path(base)/'control-helper.apk').resolve()
+    try:
+        if hashlib.sha256(p.read_bytes()).hexdigest()!=PACKAGES[p.name]:raise ValueError()
+    except (OSError,ValueError):raise BridgeError('Pinned native APK missing or corrupt') from None
+    reader._local_control_setup=True
+    try:
+        reader.control_install_paths.add(str(p))
+        if b'Success' not in reader._run(['-s',SERIAL,'install','-t','-r',str(p)]):raise BridgeError('Native helper installation failed; no delete/retry')
+        reader.control_enabled=True
+    except BaseException:
+        reader.control_enabled=False;raise
+    finally:reader._local_control_setup=False
+
+
 def enable_locally(reader,ledger,base):
     """Local GUI only. Install two checksum-pinned packages and select this IME."""
     from control_release import PACKAGES
@@ -146,7 +164,9 @@ def restore_keyboard_locally(reader,ledger):
 
 def stop_locally(reader,ledger):
     """Local Stop only. Kill pending IME typing; restore only our captured IME."""
-    reader.control_enabled=False;reader._local_control_setup=True
+    reader.control_enabled=False
+    if getattr(reader,'native_only',False) is True:return
+    reader._local_control_setup=True
     try:
         reader._run(['-s',SERIAL,'shell','am','force-stop','com.dvk.keyboard.v2'])
         restore_keyboard_locally(reader,ledger)

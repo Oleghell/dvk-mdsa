@@ -56,7 +56,7 @@ public class PolicyTest {static void ck(boolean v){if(!v)throw new AssertionErro
         self.assertIn('CONTROL_VERIFY_ONLY=1',workflow)
         self.assertIn('python3 mumu-navigation/control-android/test-emulator.py',workflow)
         for name in PACKAGES:self.assertGreaterEqual(workflow.count(name),3)
-        self.assertIn("bridge_version='1.7.0-beta.1'",workflow)
+        self.assertIn("bridge_version='1.7.0-beta.2'",workflow)
     def test_native_runner_refuses_user_device_and_restores_ime(self):
         source=(ROOT/'test-emulator.py').read_text(encoding='utf-8')
         self.assertIn("os.environ.get('GITHUB_ACTIONS')!='true'",source)

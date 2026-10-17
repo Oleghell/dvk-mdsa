@@ -14,6 +14,8 @@ import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
+import java.util.List;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -39,7 +41,7 @@ public final class UiHierarchyBridge {
   int width,height,rotation,density;boolean truncated=false;String sha;
   JSONObject json()throws Exception{return new JSONObject().put("package",PKG).put("width",width).put("height",height).put("rotation",rotation).put("density_dpi",density).put("truncated",truncated).put("nodes",rows).put("tree_sha256",sha).put("identity_verified",false).put("empty_chat_verified",false).put("ui_hierarchy_supported",true);}
  }
- public UiHierarchyBridge(Instrumentation owner,UiAutomation auto){this.owner=owner;this.auto=auto;AccessibilityServiceInfo info=auto.getServiceInfo();if(info!=null){info.flags|=AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;auto.setServiceInfo(info);}}
+ public UiHierarchyBridge(Instrumentation owner,UiAutomation auto){this.owner=owner;this.auto=auto;AccessibilityServiceInfo info=auto.getServiceInfo();if(info!=null&&(info.flags&AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS)==0){info.flags|=AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;auto.setServiceInfo(info);}}
  private static String text(CharSequence c){return c==null?"":c.toString();}
  private static String value(AccessibilityNodeInfo n){return n.isShowingHintText()?"":text(n.getText());}
  private static String hex(byte[] bytes)throws Exception{StringBuilder out=new StringBuilder();for(byte b:bytes)out.append(String.format(java.util.Locale.ROOT,"%02x",b&255));return out.toString();}
@@ -90,6 +92,72 @@ public final class UiHierarchyBridge {
   }
   t.sha=hash(t.width+":"+t.height+":"+t.rotation+":"+t.density+":"+t.rows.toString());return t;
  }
+ /** Read-only expanded scan. Diagnostic rows NEVER authorize an action. */
+ private Result diagnostics()throws Exception{
+  AccessibilityServiceInfo info=auto.getServiceInfo();if(info==null)throw new Exception();
+  final int original=info.flags;
+  final int requested=AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS|AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS|AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+  boolean complete=true;int foreign=0,scanWindows=0,actionable=0,editors=0;boolean unity=false;
+  JSONArray windows=new JSONArray();JSONArray rows=new JSONArray();
+  try{
+   info.flags=original|requested;auto.setServiceInfo(info);
+   AccessibilityServiceInfo actual=auto.getServiceInfo();
+   int applied=actual==null?0:actual.flags;if((applied&requested)!=requested)complete=false;
+   AccessibilityNodeInfo active=auto.getRootInActiveWindow();
+   if(active==null||!active.refresh()||!PKG.equals(text(active.getPackageName())))throw new Exception();
+   List<AccessibilityWindowInfo> all=auto.getWindows();
+   ArrayList<AccessibilityNodeInfo> roots=new ArrayList<>();ArrayList<Integer> ids=new ArrayList<>();
+   roots.add(active);ids.add(active.getWindowId());
+   if(all==null||all.isEmpty())complete=false;
+   else{
+    if(all.size()>32)complete=false;
+    for(int i=0;i<Math.min(32,all.size());i++){
+     AccessibilityWindowInfo w=all.get(i);AccessibilityNodeInfo root=w.getRoot();
+     if(root==null){complete=false;continue;}
+     if(!PKG.equals(text(root.getPackageName()))){foreign++;continue;}
+     if(!ids.contains(w.getId())){ids.add(w.getId());roots.add(root);}
+    }
+   }
+   for(int w=0;w<roots.size();w++){
+    if(rows.length()>=2000){complete=false;break;}
+    int windowId=ids.get(w);scanWindows++;
+    windows.put(new JSONObject().put("window_id",windowId).put("package",PKG));
+    ArrayList<AccessibilityNodeInfo> pending=new ArrayList<>();ArrayList<Integer> parents=new ArrayList<>();ArrayList<Integer> depths=new ArrayList<>();
+    pending.add(roots.get(w));parents.add(-1);depths.add(0);
+    for(int i=0;i<pending.size();i++){
+     if(rows.length()>=2000){complete=false;break;}
+     AccessibilityNodeInfo n=pending.get(i);
+     if(!n.refresh()){complete=false;continue;}
+     if(!PKG.equals(text(n.getPackageName()))){complete=false;continue;}
+     boolean secret=n.isPassword(),click=(n.getActions()&AccessibilityNodeInfo.ACTION_CLICK)!=0,set=(n.getActions()&AccessibilityNodeInfo.ACTION_SET_TEXT)!=0;
+     String id=text(n.getViewIdResourceName());int index=rows.length();
+     boolean usable=!secret&&n.isEnabled()&&n.isVisibleToUser();
+     if(usable&&click)actionable++;if(usable&&n.isEditable()&&set)editors++;
+     if(id.endsWith(":id/unitySurfaceView"))unity=true;
+     rows.put(new JSONObject().put("index",index).put("parent",parents.get(i)).put("window_id",windowId).put("package",PKG)
+      .put("resource_id",id).put("class_name",text(n.getClassName())).put("text",secret?"":value(n)).put("description",secret?"":text(n.getContentDescription()))
+      .put("password",secret).put("visible",n.isVisibleToUser()).put("enabled",n.isEnabled()).put("editable",n.isEditable())
+      .put("action_click",click).put("action_set_text",set).put("child_count",n.getChildCount()));
+     if(depths.get(i)>=64){if(n.getChildCount()>0)complete=false;continue;}
+     for(int j=0;j<n.getChildCount();j++){
+      if(pending.size()+rows.length()>=4000){complete=false;break;}
+      AccessibilityNodeInfo child=n.getChild(j);if(child==null){complete=false;continue;}
+      pending.add(child);parents.add(index);depths.add(depths.get(i)+1);
+     }
+    }
+   }
+   return new Result("inspection_ok",new JSONObject().put("diagnostics_version",1).put("package",PKG).put("complete",complete)
+    .put("flags_requested",requested).put("flags_applied",applied).put("flags_original",original)
+    .put("flags_restored_after_scan",true).put("windows",windows).put("nodes",rows).put("window_count",scanWindows)
+    .put("foreign_windows_skipped",foreign).put("actionable_nodes",actionable).put("editable_nodes",editors).put("unity_surface",unity)
+    .put("blocker",!complete?"incomplete_scan":unity&&actionable==0&&editors==0?"unity_surface_without_exposed_controls":"not_determined")
+    .put("images_captured",0).put("actions_attempted",0).put("identity_verified",false).put("empty_chat_verified",false));
+  }finally{
+   AccessibilityServiceInfo restore=auto.getServiceInfo();if(restore==null)throw new Exception();
+   restore.flags=original;auto.setServiceInfo(restore);
+   AccessibilityServiceInfo verified=auto.getServiceInfo();if(verified==null||verified.flags!=original)throw new Exception();
+  }
+ }
  private boolean matches(Tree t,int index,JSONObject s,int depth)throws Exception{
   if(++matchCalls>100000)throw new Exception();if(depth>10)return false;JSONObject n=t.rows.getJSONObject(index);if(n.getBoolean("password"))return false;
   Iterator<String> it=s.keys();while(it.hasNext()){
@@ -130,6 +198,7 @@ public final class UiHierarchyBridge {
  }
  public Result run(JSONObject request)throws Exception{
   String op=request.getString("op");
+  if("ui_diagnostics".equals(op)){keys(request,"op");return diagnostics();}
   if("ui_dump".equals(op)){keys(request,"op");return new Result("inspection_ok",tree().json());}
   if("ui_visual_click".equals(op)){
    keys(request,"op","expected_tree_sha256","expected_frame_sha256","bounds");Tree t=tree();

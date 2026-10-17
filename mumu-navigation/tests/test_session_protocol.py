@@ -20,7 +20,7 @@ class SessionProtocolTests(unittest.TestCase):
             def send_prepared(self,**kw):return {'called':'send_prepared'}
             def review_visit(self,**kw):return {'called':'review_visit'}
             def return_to_grid(self,**kw):return {'called':'return_to_grid'}
-        self.server=BridgeServer(Reader(),'test-only-key')
+        self.server=BridgeServer(Reader(),'test-only-key',native_only=False)
         self.thread=threading.Thread(target=self.server.serve_forever);self.thread.start()
     def tearDown(self):
         self.server.shutdown();self.server.server_close();self.thread.join()

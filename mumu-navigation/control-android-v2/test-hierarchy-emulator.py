@@ -1,11 +1,10 @@
-"""Hierarchy/actions/OCR tests ONLY against disposable CI fixture, never MuMu."""
+"""Strict native hierarchy tests on disposable CI fixture. No images/OCR/tap."""
 import base64,json,os,re,subprocess,sys,time
 from pathlib import Path
 from types import SimpleNamespace
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from ui_backend import NativeBackend
 from ui_runtime import AndroidUI
-from ui_ocr import TesseractFallback
 from ui_model import AmbiguousElement,ElementNotFound
 from ui_protocol import valid_native
 
@@ -28,11 +27,12 @@ def main():
     def expect(req,status):
         actual,out=call(req);assert actual==status,(req['op'],actual,status)
         return NativeBackend.report(out) if 'report_b64=' in out else {}
-    backend=NativeBackend.__new__(NativeBackend);backend.reader=SimpleNamespace(control_enabled=True);backend.control=SimpleNamespace(instrument=call)
+    backend=NativeBackend.__new__(NativeBackend);backend.reader=SimpleNamespace(control_enabled=True,native_only=True);backend.control=SimpleNamespace(instrument=call)
     captures=[0]
-    def capture():captures[0]+=1;return adb('exec-out','screencap','-p')
+    def capture():
+        captures[0]+=1;raise AssertionError('Screen capture forbidden in strict tests')
     def mutate(e,op,**kw):return backend.perform(e,op,**kw)
-    ui=AndroidUI(backend,mutation=mutate,ocr=TesseractFallback(capture))
+    ui=AndroidUI(backend,mutation=mutate)
     def start(scenario='native'):
         adb('shell','am','force-stop','drug.vokrug')
         adb('shell','am','start','-W','-n','drug.vokrug/.HierarchyFixtureActivity','--es','scenario',scenario)
@@ -50,6 +50,14 @@ def main():
             assert any(n['password'] for n in t.nodes)
             assert all(not n['text'] for n in t.nodes if n['password'])
             assert 'SECRET_PASSWORD' not in json.dumps(list(t.nodes))
+            diagnostic=backend.diagnostics()
+            assert diagnostic['flags_applied']&82==82,diagnostic['flags_applied']
+            assert diagnostic['flags_restored_after_scan'] and diagnostic['window_count']>=1
+            assert diagnostic['actionable_nodes']>=2 and diagnostic['editable_nodes']>=1
+            assert 'SECRET_PASSWORD' not in json.dumps(diagnostic)
+            assert 'SECRET_DESCRIPTION' not in json.dumps(diagnostic)
+            assert any(n['text']=='DIAGNOSTIC_NON_IMPORTANT' for n in diagnostic['nodes'])
+            assert backend.snapshot().context==t.context,'Expanded flags must be restored'
             assert captures[0]==0,'Native path must not capture screenshots'
             labels=[n['text'] for n in t.nodes if n['resource_id'] in ('android:id/button1','android:id/button2')]
             assert labels==['Написать','Написать'],('Synthetic fixture labels',labels)
@@ -70,11 +78,12 @@ def main():
         try:ui.find_element(text='Написать')
         except ElementNotFound:pass
         else:raise AssertionError('Drawn label unexpectedly appeared in hierarchy')
-        e=ui.find_element(text='Написать',allow_fallback=True)
-        assert e.method=='ocr' and captures[0]==1,(e.method,captures[0])
-        state,_=e.click(action_id='d'*32,purpose='synthetic');assert state=='input_injected',state
-        ui.wait_for_element(description='visual-clicks=1',timeout=3)
-        print('HIERARCHY_MISS_LOCAL_OCR_VISUAL_BOUNDS_CLICK_PASS',flush=True)
+        e=ui.find_element(description='visual-clicks=0')
+        state,_=e.click(action_id='d'*32,purpose='synthetic')
+        assert state=='denied_unsupported',state
+        ui.find_element(description='visual-clicks=0')
+        assert captures[0]==0 and ui.ocr is None and ui.vision is None
+        print('STRICT_NATIVE_OPAQUE_VIEW_REFUSED_NO_IMAGES_NO_TAP_PASS',flush=True)
         adb('shell','settings','put','system','accelerometer_rotation','0')
         adb('shell','settings','put','system','user_rotation','1')
         start();t=backend.snapshot();assert t.rotation==1,t.rotation

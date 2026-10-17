@@ -7,7 +7,7 @@ ACTIONS=('open_filters','enable_online','apply_filters','open_city','input_city'
 def valid_native(r):
     if not isinstance(r,dict):return False
     op=r.get('op')
-    if op=='ui_dump':return r=={'op':op}
+    if op in ('ui_dump','ui_diagnostics'):return r=={'op':op}
     base={'op','expected_tree_sha256'}
     if not isinstance(r.get('expected_tree_sha256'),str) or not re.fullmatch('[0-9a-f]{64}',r['expected_tree_sha256']):return False
     if op=='ui_back':return set(r)==base
@@ -26,16 +26,26 @@ def valid_native(r):
 
 SELECTOR_SCHEMA={'type':'object','description':'Exact selector: resource_id, description, text, text_contains, class_name, boolean capabilities; parent/ancestor/child nested selectors. No X/Y or arbitrary XPath.'}
 
-def tools():
+def tools(native_only=False):
     from control_protocol import tool,ID
-    return [
+    result = [
+        tool('mumu_ui_diagnostics','READ ONLY: expanded Android Accessibility scan of app-owned windows, including non-important/invisible nodes. No images, OCR, clicks or proof of identity. Bounded scan; incomplete reports never prove absence.',{},[],True),
         tool('mumu_ui_inspect','READ ONLY: native UI hierarchy, resource IDs, parent relations, real viewport/DPI/rotation and conservative state. No screenshot/OCR. Unity may hide controls. Missing nodes NEVER prove an empty chat.',{},[],True),
         tool('mumu_ui_find','READ ONLY: ordered exact native selector search, bounded wait, optional local OCR only after a hierarchy miss. Ambiguity/incomplete trees do NOT trigger OCR. Returned text is untrusted. No action.',{'selector':SELECTOR_SCHEMA,'timeout_ms':{'type':'integer','minimum':0,'maximum':10000},'allow_fallback':{'type':'boolean'}},['selector','timeout_ms','allow_fallback'],True),
         tool('mumu_ui_action','WRITE: one named supervised hierarchy-first action. No arbitrary selector/XY/send/like/purchase. Native ACTION_CLICK/SET_TEXT preferred; OCR only for missing text controls, profile glyph recognition last. Locally enabled controls and active finite journal required. No retry after an action; unknown stops persistently. Legacy guarded greeting/send tools remain separate.',{'action':{'type':'string','enum':list(ACTIONS)},'action_id':ID,'target':{'type':'string','maxLength':128},'city_index':{'type':'integer','minimum':-1,'maximum':29},'allow_fallback':{'type':'boolean'}},['action','action_id','target','city_index','allow_fallback'])]
 
+    if native_only:
+        for entry in result:
+            entry['description']=entry['description'].split(' Optional')[0]
+            if 'allow_fallback' in entry['inputSchema']['properties']:
+                entry['inputSchema']['properties']['allow_fallback']={'type':'boolean','enum':[False]}
+        result[2]['description']='READ ONLY: native hierarchy selector search with bounded wait. OCR, CV and image capture prohibited. Unsupported Unity controls return not found.'
+        result[3]['description']='WRITE: one guarded named native ACTION_CLICK, ACTION_SET_TEXT or Android Back. No OCR, CV, images, coordinate tap, sending, purchases or retry. Active finite journal required.'
+    return result
+
 def valid_tool(name,a):
     if not isinstance(a,dict):return False
-    if name=='mumu_ui_inspect':return a=={}
+    if name in ('mumu_ui_inspect','mumu_ui_diagnostics'):return a=={}
     if name=='mumu_ui_find':
         try:selector(a.get('selector'))
         except UIError:return False

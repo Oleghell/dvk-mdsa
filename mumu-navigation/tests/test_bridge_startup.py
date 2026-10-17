@@ -90,7 +90,7 @@ class PrepareDeviceTests(unittest.TestCase):
         self.assertIn('настройки Android',str(caught.exception));self.assertNotIn('private',str(caught.exception))
     def test_consent_names_scope_and_narrow_replacement(self):
         self.assertLessEqual(len(startup.STARTUP_CONSENT),760)
-        for text in ('com.dvk.navigation.v132','Cloudflare','900×1600','платную','журналы','Остановить доступ'):
+        for text in ('Cloudflare','Скриншоты, OCR, CV','платные','журналы','Остановить доступ','Клавиатура не меняется'):
             self.assertIn(text,startup.STARTUP_CONSENT)
 
 
