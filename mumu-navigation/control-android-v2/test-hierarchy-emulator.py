@@ -51,6 +51,8 @@ def main():
             assert all(not n['text'] for n in t.nodes if n['password'])
             assert 'SECRET_PASSWORD' not in json.dumps(list(t.nodes))
             assert captures[0]==0,'Native path must not capture screenshots'
+            labels=[n['text'] for n in t.nodes if n['resource_id'] in ('android:id/button1','android:id/button2')]
+            assert labels==['Написать','Написать'],('Synthetic fixture labels',labels)
             try:ui.find_element(text='Написать')
             except AmbiguousElement:pass
             else:raise AssertionError('Duplicate native labels must not silently select first')

@@ -17,10 +17,10 @@ public final class HierarchyFixtureActivity extends Activity {
   TextView title=new TextView(this);title.setText("Поиск города");root.addView(title);
   final EditText edit=new EditText(this);edit.setId(android.R.id.edit);edit.setSingleLine(true);edit.setHint("Поиск");edit.setShowSoftInputOnFocus(false);edit.setCursorVisible(false);root.addView(edit,new LinearLayout.LayoutParams(-1,dp(48)));
   final TextView result=new TextView(this);result.setText("clicks=0");result.setContentDescription("Action result");
-  Button button=new Button(this);button.setId(android.R.id.button1);button.setText("Написать");button.setContentDescription("Открыть чат");
+  Button button=new Button(this);button.setId(android.R.id.button1);button.setAllCaps(false);button.setText("Написать");button.setContentDescription("Открыть чат");
   button.setOnClickListener(new View.OnClickListener(){int count=0;public void onClick(View view){result.setText("clicks="+(++count));}});
   root.addView(button,new LinearLayout.LayoutParams(-1,dp(48)));
-  Button duplicate=new Button(this);duplicate.setId(android.R.id.button2);duplicate.setText("Написать");duplicate.setContentDescription("Открыть чат");root.addView(duplicate,new LinearLayout.LayoutParams(-1,dp(48)));
+  Button duplicate=new Button(this);duplicate.setId(android.R.id.button2);duplicate.setAllCaps(false);duplicate.setText("Написать");duplicate.setContentDescription("Открыть чат");root.addView(duplicate,new LinearLayout.LayoutParams(-1,dp(48)));
   CheckBox online=new CheckBox(this);online.setText("Только онлайн");root.addView(online);
   root.addView(result);
   EditText password=new EditText(this);password.setId(android.R.id.text2);password.setInputType(129);password.setText("SECRET_PASSWORD");password.setShowSoftInputOnFocus(false);password.setCursorVisible(false);root.addView(password,new LinearLayout.LayoutParams(-1,dp(40)));
