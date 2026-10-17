@@ -7,7 +7,7 @@ ACTIONS=('open_filters','enable_online','apply_filters','open_city','input_city'
 def valid_native(r):
     if not isinstance(r,dict):return False
     op=r.get('op')
-    if op in ('ui_dump','ui_diagnostics'):return r=={'op':op}
+    if op in ('ui_dump','ui_diagnostics','ui_unity_diagnostics'):return r=={'op':op}
     base={'op','expected_tree_sha256'}
     if not isinstance(r.get('expected_tree_sha256'),str) or not re.fullmatch('[0-9a-f]{64}',r['expected_tree_sha256']):return False
     if op=='ui_back':return set(r)==base
@@ -41,11 +41,12 @@ def tools(native_only=False):
                 entry['inputSchema']['properties']['allow_fallback']={'type':'boolean','enum':[False]}
         result[2]['description']='READ ONLY: native hierarchy selector search with bounded wait. OCR, CV and image capture prohibited. Unsupported Unity controls return not found.'
         result[3]['description']='WRITE: one guarded named native ACTION_CLICK, ACTION_SET_TEXT or Android Back. No OCR, CV, images, coordinate tap, sending, purchases or retry. Active finite journal required.'
+    result.append(tool('mumu_ui_unity_diagnostics','READ ONLY: fixed drug.vokrug package version/debuggable, device ABIs, bounded installed base/split APK directory scan for Unity IL2CPP/Mono markers. No images/OCR, root, injected code, app changes or private data. Static indicators NEVER prove runtime object access.',{},[],True))
     return result
 
 def valid_tool(name,a):
     if not isinstance(a,dict):return False
-    if name in ('mumu_ui_inspect','mumu_ui_diagnostics'):return a=={}
+    if name in ('mumu_ui_inspect','mumu_ui_diagnostics','mumu_ui_unity_diagnostics'):return a=={}
     if name=='mumu_ui_find':
         try:selector(a.get('selector'))
         except UIError:return False

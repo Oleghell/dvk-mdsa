@@ -11,5 +11,5 @@ def allowed_adb(args,reader):
     if not args_allowed(args,reader.control_enabled):return False
     try:r=json.loads(base64.b64decode(args[9],validate=True))
     except (ValueError,TypeError,UnicodeError):return False
-    return (r['op'] in ('ui_dump','ui_diagnostics','ui_back','ui_set_text') or
+    return (r['op'] in ('ui_dump','ui_diagnostics','ui_unity_diagnostics','ui_back','ui_set_text') or
             r['op']=='ui_click' and r['allow_coordinate_fallback'] is False)

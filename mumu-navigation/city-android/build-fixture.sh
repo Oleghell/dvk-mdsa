@@ -8,7 +8,10 @@ javac -encoding UTF-8 -source 8 -target 8 -bootclasspath "$ANDROID_JAR" -d out/f
 "$ANDROID_BUILD_TOOLS/d8" --lib "$ANDROID_JAR" --min-api 26 --output out/fixture/dex out/fixture/classes/drug/vokrug/*.class
 python3 - <<'PY'
 import zipfile
-with zipfile.ZipFile('out/fixture/unsigned.apk','a') as z:z.write('out/fixture/dex/classes.dex','classes.dex')
+with zipfile.ZipFile('out/fixture/unsigned.apk','a') as z:
+ z.write('out/fixture/dex/classes.dex','classes.dex')
+ # Metadata-shaped marker ONLY; this fixture is native Android, not an IL2CPP runtime.
+ z.writestr('assets/bin/Data/Managed/Metadata/global-metadata.dat',b'SYNTHETIC_MARKER_NOT_REAL_METADATA')
 PY
 "$ANDROID_BUILD_TOOLS/zipalign" -f 4 out/fixture/unsigned.apk out/fixture/aligned.apk
 "$ANDROID_BUILD_TOOLS/apksigner" sign --ks "$FIXTURE_KEYSTORE" --ks-key-alias fixture --ks-pass pass:android --out out/city-fixture.apk out/fixture/aligned.apk

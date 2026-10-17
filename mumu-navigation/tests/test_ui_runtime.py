@@ -147,7 +147,7 @@ class ModernProtocolTests(unittest.TestCase):
         a=dict(action='open_chat',action_id='b'*32,target='',city_index=-1,allow_fallback=True)
         self.assertTrue(valid_tool('mumu_ui_action',a))
         for action in ('send','purchase','tap','restart','like'):self.assertFalse(valid_tool('mumu_ui_action',dict(a,action=action)))
-        self.assertEqual(len(tools()),4)
+        self.assertEqual(len(tools()),5)
     def test_native_transport_respects_local_optin(self):
         from control_protocol import args_allowed,COMPONENT,SERIAL
         req={'op':'ui_dump'};payload=base64.b64encode(json.dumps(req).encode()).decode()

@@ -16,7 +16,7 @@ from greeting_budget import GreetingBudget, BudgetError
 from limited_scenario import DEFAULT_NEW_PROFILE_LIMIT
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.7.0-beta.2'
+VERSION = '1.7.0-beta.3'
 # Five fully checked profiles need 35+ writes; still a hard finite connection cap.
 ACTION_LIMIT = 50
 HELPER_COMPONENT = 'com.dvk.navigation.v132/com.dvk.navigation.NavigationInstrumentation'
@@ -625,6 +625,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     ui=UIWorkflow(self.server.reader)
                     if name=='mumu_ui_inspect':data=ui.inspect()
                     elif name=='mumu_ui_diagnostics':data=ui.backend.diagnostics()
+                    elif name=='mumu_ui_unity_diagnostics':data=ui.backend.unity_diagnostics()
                     elif name=='mumu_ui_find':data=ui.find(args['selector'],args['timeout_ms'],args['allow_fallback'])
                     else:data=ui.action_call(args)
                     result={'content':[{'type':'text','text':json.dumps(data,ensure_ascii=False)}]}

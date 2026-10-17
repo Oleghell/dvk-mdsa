@@ -8,6 +8,7 @@ STARTUP_CONSENT = (
     'Включить строгий нативный доступ к ДругВокруг?\n\n'
     'Текст и свойства доступных Android-элементов передаются агенту через Cloudflare с секретным ключом. '
     'Скриншоты, OCR, CV и координатные клики запрещены.\n\n'
+    'Проверятся версия приложения и признаки Unity в установленных APK/splits, без извлечения APK. '
     'Разрешаются только именованные нативные действия. Отправка сообщений и платные действия не предоставляются. '
     'Установится один проверенный APK; ДругВокруг и журналы не удаляются. Клавиатура не меняется.\n\n'
     'Лимиты сохраняются; тест сам не стартует. Это не доступ ко всему ПК. '
@@ -52,8 +53,8 @@ def prepare_device(facade,base,cancelled,progress,*,consent):
             check();progress('Проверяю приложение без захвата экрана…');reader._foreground()
             check();progress('Устанавливаю один нативный помощник; клавиатура не меняется…')
             enable_native_locally(reader,facade.ledger,base)
-            check();progress('Проверяю Accessibility без изображений и действий…')
-            NativeBackend(reader,facade.ledger).diagnostics()
+            check();progress('Проверяю установленную сборку Unity без изображений и переписки…')
+            NativeBackend(reader,facade.ledger).unity_diagnostics()
             check();return
         check();progress('Проверяю ДругВокруг и экран 900×1600…')
         content_pixel_sha256(reader.screen())

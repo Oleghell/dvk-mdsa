@@ -217,10 +217,10 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
           Copy-Item mumu-navigation/NATIVE_ONLY_RESEARCH.md "$root/NATIVE_ONLY_RESEARCH.md"
-          Copy-Item mumu-navigation/RELEASE-v1.7.0-beta.2.md "$root/START-HERE.md"
-          Copy-Item mumu-navigation/RELEASE-v1.7.0-beta.2.md "$root/RELEASE-v1.7.0-beta.2.md"
+          Copy-Item mumu-navigation/RELEASE-v1.7.0-beta.3.md "$root/START-HERE.md"
+          Copy-Item mumu-navigation/RELEASE-v1.7.0-beta.3.md "$root/RELEASE-v1.7.0-beta.3.md"
           @{
-            bridge_version='1.7.0-beta.2'
+            bridge_version='1.7.0-beta.3'
             universal_control='disabled-strict-native-only'
             cursor_stable_gestures='not-exposed'
             cursor_stable_runtime_included=$true
@@ -230,8 +230,10 @@ jobs:
             control_signer_sha256='61f3c60b2fa198834829406ebfaacb0ef1be28cab77ec3bd244db8ff6cd89fb7'
             city_helper_package='com.dvk.city.v1'
             city_mode='native-state-required-query-only'
-            release_stage='strict-native-diagnostics-experimental-prerelease'
+            release_stage='strict-native-unity-package-diagnostics-prerelease'
             hierarchy_first_runtime=$true
+            unity_package_diagnostics=$true
+            unity_runtime_objects_access='not-tested'
             ui_fallback='forbidden-ocr-cv-images-coordinate-tap'
             legacy_source_retained_not_exposed=$true
             source_commit=$env:GITHUB_SHA
@@ -254,7 +256,7 @@ jobs:
           retention-days: 14
 
   publish_release:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/android-ui-hierarchy' && startsWith(github.event.head_commit.message, 'Release MuMu 1.7.0-beta.2') }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/android-ui-hierarchy' && startsWith(github.event.head_commit.message, 'Release MuMu 1.7.0-beta.3') }}
     needs: [python, android, candidate_android, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -273,7 +275,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 mumu-navigation/package-release.py release/MuMu-navigation-windows-x64
-          gh release create mumu-v1.7.0-beta.2 release/MuMu-navigation-1.7.0-beta.2-windows-x64.zip release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "MuMu 1.7.0-beta.2 — strict native preview" --notes-file mumu-navigation/RELEASE-v1.7.0-beta.2.md
+          gh release create mumu-v1.7.0-beta.3 release/MuMu-navigation-1.7.0-beta.3-windows-x64.zip release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "MuMu 1.7.0-beta.3 — strict native preview" --notes-file mumu-navigation/RELEASE-v1.7.0-beta.3.md
 
   report_results:
     if: ${{ always() }}

@@ -198,6 +198,7 @@ public final class UiHierarchyBridge {
  }
  public Result run(JSONObject request)throws Exception{
   String op=request.getString("op");
+  if("ui_unity_diagnostics".equals(op)){keys(request,"op");AccessibilityNodeInfo root=auto.getRootInActiveWindow();if(root==null||!root.refresh()||!PKG.equals(text(root.getPackageName())))throw new Exception();JSONObject report=UnityDiagnostics.inspect(owner.getContext());root=auto.getRootInActiveWindow();if(root==null||!root.refresh()||!PKG.equals(text(root.getPackageName())))throw new Exception();return new Result("inspection_ok",report);}
   if("ui_diagnostics".equals(op)){keys(request,"op");return diagnostics();}
   if("ui_dump".equals(op)){keys(request,"op");return new Result("inspection_ok",tree().json());}
   if("ui_visual_click".equals(op)){

@@ -58,6 +58,15 @@ def main():
             assert 'SECRET_DESCRIPTION' not in json.dumps(diagnostic)
             assert any(n['text']=='DIAGNOSTIC_NON_IMPORTANT' for n in diagnostic['nodes'])
             assert backend.snapshot().context==t.context,'Expanded flags must be restored'
+            package=backend.unity_diagnostics()
+            assert package['complete'] and package['package']=='drug.vokrug'
+            assert package['version_code']=='1' and package['debuggable'] is False
+            assert package['backend_indication']=='il2cpp_metadata_only',package['backend_indication']
+            assert package['observed_engine_library_abis']==[]
+            assert package['runtime_objects_access']=='not_tested' and package['sdk_integration_status']=='not_assessed'
+            assert package['images_captured']==0 and package['actions_attempted']==0
+            assert not package['root_attempted'] and not package['apk_modified'] and not package['private_data_read']
+            assert backend.snapshot().context==t.context,'Package scan must not alter UI'
             assert captures[0]==0,'Native path must not capture screenshots'
             labels=[n['text'] for n in t.nodes if n['resource_id'] in ('android:id/button1','android:id/button2')]
             assert labels==['Написать','Написать'],('Synthetic fixture labels',labels)
@@ -73,6 +82,7 @@ def main():
             ui.wait_for_element(resource_id='android:id/edit',text='Нальчик 🙂',timeout=3)
             t=backend.snapshot()
             expect({'op':'ui_set_text','selector':{'resource_id':'android:id/text2'},'expected_tree_sha256':t.context,'expected_text':'','text':'never'},'denied_not_found')
+            print('UNITY_STATIC_PACKAGE_SCAN_NO_IMAGES_NO_ROOT_PASS',flush=True)
             print('HIERARCHY_SIZE_DPI_NATIVE_CLICK_SETTEXT_PASS',w,h,dpi,flush=True)
         start('visual')
         try:ui.find_element(text='Написать')

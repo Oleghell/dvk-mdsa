@@ -28,6 +28,12 @@ class NativeBackend:
         if status!='inspection_ok':raise UnsupportedUI('Expanded native diagnostics unavailable; install beta.2 helper. No visual fallback attempted')
         from ui_diagnostics import validate
         return validate(self.report(out))
+    def unity_diagnostics(self):
+        if not self.reader.control_enabled:raise UnsupportedUI('Enable signed controls locally first')
+        status,out=self.control.instrument({'op':'ui_unity_diagnostics'})
+        if status!='inspection_ok':raise UnsupportedUI('Unity package diagnostics unavailable; install beta.3 helper. No root or visual fallback attempted')
+        from unity_diagnostics import validate
+        return validate(self.report(out))
     def perform(self,element,operation,**args):
         strict=getattr(self.reader,'native_only',False) is True
         if strict and element.method!='hierarchy':raise UnsupportedUI('Strict native mode forbids OCR/CV elements')

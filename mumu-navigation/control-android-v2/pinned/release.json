@@ -1,9 +1,9 @@
 {
-  "version": "1.7.0-beta.2",
+  "version": "1.7.0-beta.3",
   "packages": {
     "control-helper.apk": {
-      "apk_sha256": "3e5bab6ea4adea18aa10cfe5a3268c12ff76f2c77352a0f675cc430c8660d18f",
-      "dex_sha256": "47013effde0df3430a8619fe06ef91400810a30598456d1c53f371b53b5374b9",
+      "apk_sha256": "cd479721ad64919ad40a2ed1bfdb240b86edf995a79cc6391e9e92638b92a8ae",
+      "dex_sha256": "dca333c0a9ff9b0d92cd3779e90da21a4bfd44c257119a171f9c25b2f163e4f0",
       "package": "com.dvk.control.v2"
     },
     "keyboard-helper.apk": {
@@ -13,7 +13,7 @@
     }
   },
   "sources": {
-    "AndroidManifest.xml": "c0a35d935952bf177c2a64cbce399c9061cfc71c2ae21df2f73de8d635485cad",
+    "AndroidManifest.xml": "71de56f1b481c5089f6e97f52595cbc4656811398fddd2d86a2aa52f73b6c19f",
     "KeyboardManifest.xml": "18e418391b1929f626e05f82badc721fbb71506f9becfb5cf525f1ddd82b0df5",
     "keyboard/com/dvk/keyboard/BridgeIme.java": "66cdb2ee1ce24159e89f8cb6661e075e2776a42e11aeee5bededcc02f3b29cfe",
     "keyboard/com/dvk/keyboard/ImeCommandReceiver.java": "76edbafe5ef95ca2f875ddd7a4d39d4b0dbf36c9e898e02780a73e91129b61d9",
@@ -22,7 +22,9 @@
     "src/com/dvk/control/ControlPolicy.java": "e892f3644e607fb5fb31f3bcea9ace034bde9467258c0d2d92d44c6e464e2aca",
     "src/com/dvk/control/ProfileChatLocator.java": "583f27d37861097d03b41418a8a1866b7f1ee15b87be9800a32ddcfb0e63b89b",
     "src/com/dvk/control/SemanticProfileTarget.java": "a6b794196252cef8bdefb964c4e5db9bbb8c7aa001a86a7552ca72ef85f9bdb9",
-    "src/com/dvk/control/UiHierarchyBridge.java": "576dd7ccffa6ac0bdf183098be239dea5e97a9891ed39044253f7394bef355d1"
+    "src/com/dvk/control/UiHierarchyBridge.java": "b58ab273077d957cf484e93b9a50dcc4ceb4f12b51e369bdae2663a04f9e96ac",
+    "src/com/dvk/control/UnityArchiveScan.java": "aac39b4c0115fba7196cf373f790870c7ccc8c72e41680dcc9cf4124202b5d21",
+    "src/com/dvk/control/UnityDiagnostics.java": "305d03a8cf7796ec3fe4d76531145aabe8dba9160293729e69c0995487bca83e"
   },
   "signer_sha256": "61f3c60b2fa198834829406ebfaacb0ef1be28cab77ec3bd244db8ff6cd89fb7"
 }

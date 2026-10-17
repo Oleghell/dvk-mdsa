@@ -79,9 +79,12 @@ class SupervisedReader:
         return self.inner.inspect_layout()
     def status(self):
         out = self.inner.status()
-        out.update(test_session=self.ledger.status(),
+        session=dict(self.ledger.status())
+        strict=getattr(self.inner,'native_only',False) is True
+        if strict:session['identity_guard']='not verified in native mode; historical journal retained'
+        out.update(test_session=session,
                    automatic_send_supported=False,
-                   sending_scope='one guarded send per visited profile, followed by explicit visual review')
+                   sending_scope='not exposed in strict native mode' if strict else 'one guarded send per visited profile, followed by explicit visual review')
         return out
 
     def _fresh(self, expected):
@@ -156,7 +159,7 @@ class SupervisedReader:
             self.ledger.finish_city_input(action,'unknown' if self.inner.action_uncertain else 'refused')
             raise
         self.ledger.finish_city_input(action,'verified')
-        return dict(result,test_session=self.ledger.status(),city_attempt_recorded=True)
+        return dict(result,test_session=dict(self.ledger.status()),city_attempt_recorded=True)
 
     def _run_ready(self):
         self.ledger._no_hold()
@@ -191,7 +194,7 @@ class SupervisedReader:
             if not self.inner.action_uncertain:
                 self.ledger.skip()
             raise
-        return dict(result, test_session=self.ledger.status(), visit_counted_before_tap=True)
+        return dict(result, test_session=dict(self.ledger.status()), visit_counted_before_tap=True)
 
     @_convert_error
     def open_profile_chat(self, expected_profile_sha256):
@@ -298,7 +301,7 @@ class SupervisedReader:
         self.ledger.send_injected()
         return dict(result, message_sent_verified=False,
                     next_step='Read screen. Observe an outgoing bubble with the exact greeting for this recipient, then review_visit(sent_observed). No repeat send.',
-                    test_session=self.ledger.status())
+                    test_session=dict(self.ledger.status()))
 
     @_convert_error
     def review_visit(self, expected_content_sha256, outcome):

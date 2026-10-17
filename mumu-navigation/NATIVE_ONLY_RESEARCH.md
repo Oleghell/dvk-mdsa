@@ -49,3 +49,9 @@ Frida документирует root либо альтернативное вн
 
 - https://frida.re/docs/android/
 - https://github.com/vfsfitvnm/frida-il2cpp-bridge
+
+## Следующий реализованный этап — beta.3
+
+`mumu_ui_unity_diagnostics {}` проверяет PackageManager и ZIP-каталоги установленных APK/splits. Пути и содержимое APK наружу не передаются; маркеры не выполняются. Нет root, внедрения SDK, чтения переписки или скриншотов. Статические признаки IL2CPP/Mono отделены от доказательства runtime-доступа. Подробнее: RELEASE-v1.7.0-beta.3.md. На пользовательском MuMu требуется запуск новой версии и новый адрес подключения.
+
+Источник Android API: https://developer.android.com/reference/android/content/pm/ApplicationInfo

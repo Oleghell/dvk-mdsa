@@ -104,7 +104,7 @@ class StrictStartupTests(unittest.TestCase):
         from universal_control import stop_locally
         reader=SimpleNamespace(native_only=True,control_enabled=True,_foreground=Mock(),screen=Mock(side_effect=AssertionError('pixels')),_run=Mock(side_effect=AssertionError('extra command')))
         facade=SimpleNamespace(inner=reader,ledger=Mock(),connect=Mock())
-        with patch('universal_control.enable_native_locally') as enable,patch('ui_backend.NativeBackend.diagnostics',return_value=diagnostic()) as diag,patch('universal_control.enable_locally') as legacy,patch('bridge_startup.install_helper_with_local_consent') as install:
+        with patch('universal_control.enable_native_locally') as enable,patch('ui_backend.NativeBackend.unity_diagnostics',return_value={}) as diag,patch('universal_control.enable_locally') as legacy,patch('bridge_startup.install_helper_with_local_consent') as install:
             prepare_device(facade,Path('.'),threading.Event(),Mock(),consent=True)
             enable.assert_called_once();diag.assert_called_once();legacy.assert_not_called();install.assert_not_called()
             reader.screen.assert_not_called();reader._run.assert_not_called();facade.ledger.start.assert_not_called()
@@ -118,7 +118,7 @@ class StrictProtocolTests(unittest.TestCase):
             req=Request(f'http://127.0.0.1:{server.server_port}/mcp',json.dumps(dict(jsonrpc='2.0',id=1,method=method,params=params)).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer test-secret'})
             with urlopen(req) as f:return json.load(f)
         try:
-            tools=rpc('tools/list',{})['result']['tools'];self.assertEqual({t['name'] for t in tools},{'mumu_status','mumu_ui_inspect','mumu_ui_diagnostics','mumu_ui_find','mumu_ui_action'})
+            tools=rpc('tools/list',{})['result']['tools'];self.assertEqual({t['name'] for t in tools},{'mumu_status','mumu_ui_inspect','mumu_ui_diagnostics','mumu_ui_find','mumu_ui_action','mumu_ui_unity_diagnostics'})
             for name,args in [('mumu_read_screen',{}),('mumu_control_inspect',{}),('mumu_find_profile_chat',{}),('mumu_ui_find',dict(selector={'text':'Написать'},timeout_ms=0,allow_fallback=True))]:self.assertIn('error',rpc('tools/call',dict(name=name,arguments=args)))
             reader.screen.assert_not_called();reader.status.assert_not_called()
             for t in tools:
