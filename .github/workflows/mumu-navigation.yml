@@ -52,6 +52,10 @@ jobs:
           "$ANDROID_BUILD_TOOLS/apksigner" verify --verbose mumu-navigation/control-android/out/control-helper.apk
           "$ANDROID_BUILD_TOOLS/apksigner" verify --verbose mumu-navigation/control-android/out/keyboard-helper.apk
           FIXTURE_KEYSTORE="$PWD/mumu-navigation/android/out/test-signing.jks" bash mumu-navigation/city-android/build-fixture.sh
+          bash mumu-navigation/control-android-v2/build.sh
+          python3 mumu-navigation/control-android-v2/pack-control.py
+          python3 mumu-navigation/control-android-v2/verify-signature.py
+          FIXTURE_KEYSTORE="$PWD/mumu-navigation/android/out/test-signing.jks" bash mumu-navigation/control-android-v2/build-gesture-fixture.sh
           python3 -m pip install Pillow==12.3.0
       - name: Enable emulator KVM
         run: |
@@ -71,12 +75,18 @@ jobs:
             bash mumu-navigation/android/test-emulator.sh
             bash mumu-navigation/city-android/test-emulator.sh
             python3 mumu-navigation/control-android/test-emulator.py
+            python3 mumu-navigation/control-android-v2/test-emulator.py
+            python3 mumu-navigation/control-android-v2/test-guarded-emulator.py
       - name: Preserve synthetic Android failure diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: synthetic-control-diagnostics
-          path: mumu-navigation/control-android/out/ci-diagnostics/
+          path: |
+            mumu-navigation/control-android/out/ci-diagnostics/
+            mumu-navigation/control-android-v2/out/ci-diagnostics/
+            mumu-navigation/control-android-v2/out/synthetic-diagnostics/
+            mumu-navigation/control-android-v2/out/guarded-release-result.json
           if-no-files-found: ignore
           retention-days: 7
       - uses: actions/upload-artifact@v4
@@ -87,8 +97,8 @@ jobs:
             mumu-navigation/android/out/helper-manifest.json
             mumu-navigation/city-android/out/city-helper.apk
             mumu-navigation/city-android/out/city-helper-manifest.json
-            mumu-navigation/control-android/out/control-helper.apk
-            mumu-navigation/control-android/out/keyboard-helper.apk
+            mumu-navigation/control-android-v2/out/control-helper.apk
+            mumu-navigation/control-android-v2/out/keyboard-helper.apk
           if-no-files-found: error
           retention-days: 14
   candidate_android:
@@ -205,16 +215,19 @@ jobs:
           if ((Get-FileHash "$root/cloudflared.exe" -Algorithm SHA256).Hash.ToLowerInvariant() -ne '86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c') {throw 'Cloudflare checksum mismatch'}
           Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/cloudflare/cloudflared/2026.10.0/LICENSE' -OutFile "$root/CLOUDFLARED-LICENSE.txt"
           Copy-Item mumu-navigation/README.md "$root/README.md"
+          Copy-Item mumu-navigation/RELEASE-v1.6.0.md "$root/START-HERE.md"
+          Copy-Item mumu-navigation/RELEASE-v1.6.0.md "$root/RELEASE-v1.6.0.md"
           @{
-            bridge_version='1.5.0-control-preview.3'
+            bridge_version='1.6.0'
             universal_control='explicit-local-opt-in-app-scoped-gestures-keys-unicode-ime'
-            cursor_stable_gestures='source-candidate-only-requires-new-trusted-signed-APK'
-            cursor_stable_runtime_included=$false
-            control_package='com.dvk.control.v1'
-            keyboard_package='com.dvk.keyboard.v1'
+            cursor_stable_gestures='signed-v2-native-editor-guard'
+            cursor_stable_runtime_included=$true
+            control_package='com.dvk.control.v2'
+            keyboard_package='com.dvk.keyboard.v2'
+            control_signer_sha256='61f3c60b2fa198834829406ebfaacb0ef1be28cab77ec3bd244db8ff6cd89fb7'
             city_helper_package='com.dvk.city.v1'
             city_mode='catalog-query-only-no-result-selection-no-filter-application'
-            release_stage='development-preview'
+            release_stage='supervised-controls-release'
             source_commit=$env:GITHUB_SHA
             source_ref=$env:GITHUB_REF
             helper_package='com.dvk.navigation.v132'
@@ -233,6 +246,28 @@ jobs:
           path: out/MuMu-navigation-windows-x64/
           if-no-files-found: error
           retention-days: 14
+
+  publish_release:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feature/mumu-limited-five-scenario' && startsWith(github.event.head_commit.message, 'Release MuMu 1.6.0') }}
+    needs: [python, android, candidate_android, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: MuMu-navigation-windows-x64
+          path: release/MuMu-navigation-windows-x64/
+      - name: Package verified build and publish requested release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 mumu-navigation/package-release.py release/MuMu-navigation-windows-x64
+          gh release create mumu-v1.6.0 release/MuMu-navigation-1.6.0-windows-x64.zip release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "MuMu 1.6.0 — supervised controls" --notes-file mumu-navigation/RELEASE-v1.6.0.md
 
   report_results:
     if: ${{ always() }}

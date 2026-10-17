@@ -55,9 +55,9 @@ class CandidateCITests(unittest.TestCase):
         self.assertIn('cursor.postDelayed(this,80)',candidate)
         self.assertIn('input.setShowSoftInputOnFocus(false)',candidate)
 
-    def test_windows_manifest_explicitly_says_fix_is_not_in_runtime_yet(self):
+    def test_windows_manifest_includes_signed_v2_fix(self):
         s=(ROOT/'.github/workflows/mumu-navigation.yml').read_text(encoding='utf-8')
-        self.assertIn('cursor_stable_runtime_included=$false',s)
+        self.assertIn('cursor_stable_runtime_included=$true',s)
         manifest=(NEXT/'fixture/AndroidManifest.xml').read_text(encoding='utf-8')
         self.assertNotIn('android.permission.INTERNET',manifest)
         self.assertIn('android:hardwareAccelerated="false"',manifest)

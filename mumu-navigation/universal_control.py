@@ -148,6 +148,6 @@ def stop_locally(reader,ledger):
     """Local Stop only. Kill pending IME typing; restore only our captured IME."""
     reader.control_enabled=False;reader._local_control_setup=True
     try:
-        reader._run(['-s',SERIAL,'shell','am','force-stop','com.dvk.keyboard.v1'])
+        reader._run(['-s',SERIAL,'shell','am','force-stop','com.dvk.keyboard.v2'])
         restore_keyboard_locally(reader,ledger)
     finally:reader._local_control_setup=False

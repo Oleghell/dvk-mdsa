@@ -16,3 +16,11 @@ out/
 dist/
 build/
 *.spec
+
+# Private signing credentials never belong in source or public artifacts.
+*.jks
+*.keystore
+*.p12
+*.pfx
+*storepass*
+*PRIVATE-signing*

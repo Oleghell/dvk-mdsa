@@ -9,7 +9,10 @@ class NoReportCommitsTests(unittest.TestCase):
         text=(ROOT/'.github/workflows/mumu-navigation.yml').read_text(encoding='utf-8')
         self.assertIn('contents: read',text)
         self.assertIn('name: mumu-ci-result',text)
-        for forbidden in ('contents: write','publish_mumu_ci.py','git push','git commit',
+        readonly=text[:text.index('  publish_release:')]+text[text.index('  report_results:'):]
+        self.assertNotIn('contents: write',readonly)
+        self.assertEqual(text.count('contents: write'),1)
+        for forbidden in ('publish_mumu_ci.py','git push','git commit',
                           '/git/commits','report_started:','report_finished:'):
             self.assertNotIn(forbidden,text)
     def test_status_workflow_manual_and_readonly(self):

@@ -14,7 +14,7 @@ from greeting_budget import GreetingBudget, BudgetError
 from limited_scenario import DEFAULT_NEW_PROFILE_LIMIT
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.5.0-control-preview.3'
+VERSION = '1.6.0'
 # Five fully checked profiles need 35+ writes; still a hard finite connection cap.
 ACTION_LIMIT = 50
 HELPER_COMPONENT = 'com.dvk.navigation.v132/com.dvk.navigation.NavigationInstrumentation'
@@ -128,7 +128,7 @@ class AdbReader:
             args in (['-s',SERIAL,'shell','settings','get','secure','default_input_method'],
                      ['-s',SERIAL,'shell','ime','enable',IME],
                      ['-s',SERIAL,'shell','ime','set',IME],
-                     ['-s',SERIAL,'shell','am','force-stop','com.dvk.keyboard.v1']) or
+                     ['-s',SERIAL,'shell','am','force-stop','com.dvk.keyboard.v2']) or
             self.previous_ime is not None and args==['-s',SERIAL,'shell','ime','set',self.previous_ime])
         migration = self._local_helper_migration and args == ['-s', SERIAL, 'uninstall', 'com.dvk.navigation.v132']
         prefix = ['-s', SERIAL, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'op']

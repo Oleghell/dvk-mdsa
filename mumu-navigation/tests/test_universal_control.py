@@ -157,7 +157,7 @@ class ControlLocalSetupTests(unittest.TestCase):
         calls=[]
         def fake(a):calls.append(a);return b'new.keyboard/.Ime'
         with patch.object(self.reader,'_run',side_effect=fake):stop_locally(self.reader,self.ledger)
-        self.assertEqual(calls[0],['-s',SERIAL,'shell','am','force-stop','com.dvk.keyboard.v1'])
+        self.assertEqual(calls[0],['-s',SERIAL,'shell','am','force-stop','com.dvk.keyboard.v2'])
         self.assertFalse(any('set' in c for c in calls));self.assertFalse(self.reader.control_enabled)
     def test_stop_restores_only_saved_previous_keyboard_if_ours_still_selected(self):
         self.ledger.db.execute("INSERT INTO control_config VALUES ('previous_ime','old.keyboard/.Ime')")

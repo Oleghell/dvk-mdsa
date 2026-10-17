@@ -7,8 +7,8 @@ from pathlib import Path
 import re
 SERIAL='127.0.0.1:5555'
 
-COMPONENT='com.dvk.control.v1/com.dvk.control.ControlInstrumentation'
-IME='com.dvk.keyboard.v1/com.dvk.keyboard.BridgeIme'
+COMPONENT='com.dvk.control.v2/com.dvk.control.ControlInstrumentation'
+IME='com.dvk.keyboard.v2/com.dvk.keyboard.BridgeIme'
 KEYS={'BACK':4,'ENTER':66,'DELETE':67,'TAB':61,'UP':19,'DOWN':20,'LEFT':21,'RIGHT':22,'CENTER':23,'FORWARD_DELETE':112,'MOVE_HOME':122,'MOVE_END':123}
 HASH={'type':'string','pattern':'^[0-9a-f]{64}$'}
 ID={'type':'string','pattern':'^[0-9a-f]{32}$'}
@@ -37,7 +37,7 @@ TOOLS=[
  tool('mumu_control_key','WRITE: ONE Android key, including ENTER which MAY SEND. User must authorize that exact key/action. Requires locally enabled universal mode, fresh screen and new action_id. No shell, Home, app switch, key sequence or retry. Read screen afterward.',{'action_id':ID,'expected_content_sha256':HASH,'key':{'type':'string','enum':list(KEYS)}},['action_id','expected_content_sha256','key']),
  tool('mumu_control_text','WRITE: clear exactly the inspected focused field OR type up to 128 Unicode characters individually through a dedicated IME, with readback after each. Type requires empty field; clearing existing text requires explicit user authorization. No paste/ACTION_SET_TEXT, newline, Enter or implicit send. Requires native bounds/context/text from control_inspect and new action_id. Do not use in passwords, old unrelated drafts or to evade finite limits. Partial/unknown effects persistently stop; never retry automatically.',{'action_id':ID,'expected_field_context_sha256':HASH,'bounds':{'type':'array','items':NUM,'minItems':4,'maxItems':4},'expected_text':{'type':'string','maxLength':4096},'mode':{'type':'string','enum':['clear','type']},'text':{'type':'string','maxLength':128},'delay_ms':{'type':'integer','minimum':20,'maximum':500}},['action_id','expected_field_context_sha256','bounds','expected_text','mode','text','delay_ms'])]
 
-# Optional cursor-stable mode: only supported by the separately built candidate
+# Optional cursor-stable mode: only supported by the signed v2 release
 # native helper. The existing four tools and default exact-screen path remain.
 TOOLS[1]['inputSchema']['properties']['editor_guard']=EDITOR_GUARD
 TOOLS[1]['description'] += (' Optional editor_guard requires a fresh control_inspect '

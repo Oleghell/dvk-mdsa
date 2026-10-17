@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from control_release import PACKAGES
 
-ROOT=Path(__file__).resolve().parents[1]/'control-android'
+ROOT=Path(__file__).resolve().parents[1]/'control-android-v2'
 spec=importlib.util.spec_from_file_location('control_pack',ROOT/'pack-control.py');pin=importlib.util.module_from_spec(spec);spec.loader.exec_module(pin)
 
 class ControlReleaseTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class ControlReleaseTests(unittest.TestCase):
     def test_new_packages_have_no_network_permission_and_signature_protected_receiver(self):
         a=(ROOT/'AndroidManifest.xml').read_text(encoding='utf-8');b=(ROOT/'KeyboardManifest.xml').read_text(encoding='utf-8')
         self.assertNotIn('android.permission.INTERNET',a+b);self.assertIn('android:protectionLevel="signature"',b)
-        self.assertIn('android:permission="com.dvk.keyboard.CONTROL"',b);self.assertIn('android.permission.BIND_INPUT_METHOD',b)
+        self.assertIn('android:permission="com.dvk.keyboard.v2.CONTROL"',b);self.assertIn('android.permission.BIND_INPUT_METHOD',b)
     def test_native_uses_committext_not_accessibility_settext(self):
         source=(ROOT/'keyboard/com/dvk/keyboard/ImeCommandReceiver.java').read_text(encoding='utf-8')
         self.assertIn('c.commitText(letter,1)',source);self.assertNotIn('ACTION_SET_TEXT',source)
@@ -52,11 +52,11 @@ public class PolicyTest {static void ck(boolean v){if(!v)throw new AssertionErro
     def test_ci_builds_tests_and_stages_both_new_packages_without_write_permission(self):
         root=ROOT.parents[1]
         workflow=(root/'.github/workflows/mumu-navigation.yml').read_text(encoding='utf-8')
-        self.assertIn('contents: read',workflow);self.assertNotIn('contents: write',workflow)
+        self.assertIn('contents: read',workflow);self.assertEqual(workflow.count('contents: write'),1)
         self.assertIn('CONTROL_VERIFY_ONLY=1',workflow)
         self.assertIn('python3 mumu-navigation/control-android/test-emulator.py',workflow)
         for name in PACKAGES:self.assertGreaterEqual(workflow.count(name),3)
-        self.assertIn("bridge_version='1.5.0-control-preview.3'",workflow)
+        self.assertIn("bridge_version='1.6.0'",workflow)
     def test_native_runner_refuses_user_device_and_restores_ime(self):
         source=(ROOT/'test-emulator.py').read_text(encoding='utf-8')
         self.assertIn("os.environ.get('GITHUB_ACTIONS')!='true'",source)

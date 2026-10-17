@@ -1,0 +1,25 @@
+{
+  "version": "1.6.0",
+  "packages": {
+    "control-helper.apk": {
+      "apk_sha256": "1eca8b2abbb8a9602e797d42550e5b017bb93f97694df7ee31c508c3da24b50b",
+      "dex_sha256": "c577f199f0c563815a4d1aef698c2e5e1afd3152fd5e5550fa11c5fbdaaaa5a7",
+      "package": "com.dvk.control.v2"
+    },
+    "keyboard-helper.apk": {
+      "apk_sha256": "0f063489bebf204a940a1dde14b7a63581acd191bb9af3b758fda13851d6f54b",
+      "dex_sha256": "1f2f4dc10d5255d142c8140419823a168c5b4e3c96e902f6f6f13d57ac08d7d9",
+      "package": "com.dvk.keyboard.v2"
+    }
+  },
+  "sources": {
+    "AndroidManifest.xml": "999bb69c038475e9de5723a3e85ad5d62fbc3c8d6514c6891f73c25d1ee1595a",
+    "KeyboardManifest.xml": "e60a209719da109a814be05e5249aa326162aa7616969ab56c0e98fad340a87e",
+    "keyboard/com/dvk/keyboard/BridgeIme.java": "b50800923be460bce3f2991f14ba2c4a16dc25ab0a65d0be438a350e2e0cb812",
+    "keyboard/com/dvk/keyboard/ImeCommandReceiver.java": "76edbafe5ef95ca2f875ddd7a4d39d4b0dbf36c9e898e02780a73e91129b61d9",
+    "res/xml/method.xml": "63a8fbf832bca89108f7cd2f2451d34179abde3773fb18fb58889cf881dde2a7",
+    "src/com/dvk/control/ControlInstrumentation.java": "3e51fa712ea4ac8f41d56783dcbeffa8d1596a0d3252160627bb6fa10622e6a5",
+    "src/com/dvk/control/ControlPolicy.java": "e892f3644e607fb5fb31f3bcea9ace034bde9467258c0d2d92d44c6e464e2aca"
+  },
+  "signer_sha256": "61f3c60b2fa198834829406ebfaacb0ef1be28cab77ec3bd244db8ff6cd89fb7"
+}
