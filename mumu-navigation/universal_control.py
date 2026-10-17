@@ -8,7 +8,7 @@ import re
 from control_protocol import *
 from mumu_bridge import BridgeError, SERIAL, content_pixel_sha256
 
-DIAGNOSTIC_CODES={'root_not_ready','node_not_ready','wrong_package','screenshot_unavailable','screen_dimensions','internal_error'}
+DIAGNOSTIC_CODES={'root_not_ready','node_not_ready','wrong_package','screenshot_unavailable','screen_dimensions','internal_error','invalid_editor_guard','editor_changed'}
 DIAGNOSTIC_PHASES={'startup','startup_root','arguments','inspect_screen','inspect_field','validate_field','ime_input','gesture_guard','gesture_inject'}
 def safe_diagnostic(output):
     pieces=[]
@@ -41,6 +41,7 @@ class UniversalControl:
             if state!='inspection_ok' or len(data)!=1:raise ValueError()
             d=json.loads(base64.b64decode(data[0],validate=True).decode())
             if not isinstance(d,dict) or type(d.get('focused')) is not bool or not valid_hash(d.get('content_sha256')):raise ValueError()
+            if 'gesture_editor_guard_supported' in d and type(d['gesture_editor_guard_supported']) is not bool:raise ValueError()
             if d['focused']:
                 a={'action_id':'a'*32,'expected_field_context_sha256':d.get('field_context_sha256'),'bounds':d.get('bounds'),'expected_text':d.get('text'),'mode':'clear','text':'','delay_ms':343}
                 if not valid_call('mumu_control_text',a):raise ValueError()
@@ -52,6 +53,14 @@ class UniversalControl:
             d=self.inspect()
             if not d.get('focused') or d['bounds']!=args['bounds'] or d['text']!=args['expected_text'] or d['field_context_sha256']!=args['expected_field_context_sha256']:
                 raise BridgeError('Поле изменилось. Действие не начато.')
+        elif name=='mumu_control_gesture' and 'editor_guard' in args:
+            d=self.inspect();guard=args['editor_guard']
+            if d.get('gesture_editor_guard_supported') is not True:
+                raise BridgeError('Нужна новая подписанная сборка Android-помощника; нажатие не начато.')
+            if (not d.get('focused') or d['bounds']!=guard['bounds']
+                    or d['text']!=guard['expected_text']
+                    or not hmac.compare_digest(d['field_context_sha256'],args['expected_content_sha256'])):
+                raise BridgeError('Поле или контекст изменились. Действие не начато.')
         elif not hmac.compare_digest(content_pixel_sha256(self.reader.screen()),args['expected_content_sha256']):
             raise BridgeError('Экран изменился. Действие не начато.')
         # Immutable per-action receipt; no text/screenshots/coordinates stored.

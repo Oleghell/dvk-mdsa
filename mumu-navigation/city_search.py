@@ -2,7 +2,8 @@
 
 A future UI adapter must bind all labels to one fresh, fully inspected visible
 result set. These decisions alone do not authorize a physical action. Unknown,
-loading, clipped labels and duplicate exact matches never select a row.
+loading and clipped labels never authorize a tap. The legacy region matcher
+rejects duplicates; the explicit first-result policy follows the user's order.
 """
 from dataclasses import dataclass
 import unicodedata
@@ -77,3 +78,32 @@ def resolve_city(city, region, rows, *, query, results_ready, labels_complete):
     if not matches:
         return CityDecision(None, 'no_exact_match')
     return CityDecision(matches[0], 'unique_exact_match')
+
+
+def resolve_first_city_result(city, rows, *, query, results_ready):
+    """User policy: select the first visible result directly below the query.
+
+    Rows must be provided in actual top-to-bottom display order, without sorting
+    or filtering away earlier results. Duplicate labels do not change index 0.
+    This is an ordering preference, NOT proof of a unique geographical identity.
+    An adapter must separately verify current screen, result readiness and bounds.
+    """
+    if results_ready is not True:
+        return CityDecision(None, 'results_not_ready_or_incomplete')
+    if not _complete(city) or not _complete(query):
+        return CityDecision(None, 'missing_or_clipped_target')
+    requested = _label(city)
+    if requested not in {_label(c) for c in CITIES}:
+        return CityDecision(None, 'city_not_allowlisted')
+    if _label(query) != requested:
+        return CityDecision(None, 'query_mismatch')
+    if not isinstance(rows, (tuple, list)) or len(rows) > 200:
+        return CityDecision(None, 'unsupported_rows')
+    if not rows:
+        return CityDecision(None, 'no_results')
+    first = rows[0]
+    if not isinstance(first, CityRow):
+        return CityDecision(None, 'unsupported_rows')
+    if first.labels_complete is not True or not _complete(first.name) or not _complete(first.subtitle):
+        return CityDecision(None, 'clipped_or_missing_first_row')
+    return CityDecision(0, 'first_visible_result_user_policy')
