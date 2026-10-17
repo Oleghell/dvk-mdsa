@@ -57,6 +57,16 @@ def main():
         status,d=call({'op':'inspect'});assert status=='inspection_ok',status
         assert d.get('gesture_editor_guard_supported') is True
         return d
+    def settled_inspect():
+        # Observe rendering only; never re-send an input action after refusal.
+        previous=inspect()
+        for _ in range(8):
+            time.sleep(.15)
+            current=inspect()
+            keys=('focused','bounds','text','field_context_sha256')
+            if all(current.get(k)==previous.get(k) for k in keys):return current
+            previous=current
+        raise AssertionError('Synthetic outside-editor rendering did not settle')
     def payload(d):
         return dict(op='tap',expected_sha256=d['field_context_sha256'],x=320,y=380,x2=0,y2=0,duration_ms=0,keycode=0,
                     editor_guard={'bounds':d['bounds'],'expected_text':d['text']})
@@ -73,7 +83,7 @@ def main():
             adb('install','-t','-r',str(here/'out'/f'{name}-synthetic.apk'))
         # This tests taps, not typing: do not switch the OS keyboard.
         adb('shell','am','start','-W','-n','drug.vokrug/.GestureFixtureActivity');time.sleep(1)
-        first=inspect();capture('first');assert first['focused'] and first['bounds']==[118,196,786,276]
+        first=settled_inspect();capture('first');assert first['focused'] and first['bounds']==[118,196,786,276]
         assert first['text']=='Нижнекамск'
         # The two source screenshots intentionally differ ONLY inside the editor.
         # A test loop waits for evidence of rendering, but NEVER retries an action.
@@ -87,22 +97,22 @@ def main():
             if other['content_sha256']!=first['content_sha256']:changed=True;break
         assert changed,'Fixture must prove changing pixels inside the editor'
         results['animated_editor_observed']=True
-        stale=payload(inspect());bad=dict(stale);bad['expected_sha256']='0'*64
+        stale=payload(settled_inspect());bad=dict(stale);bad['expected_sha256']='0'*64
         assert call(bad)[0]=='denied_screen_changed'
-        bad=payload(inspect());bad['editor_guard']['expected_text']='stale text'
+        bad=payload(settled_inspect());bad['editor_guard']['expected_text']='stale text'
         assert call(bad)[0]=='denied_context'
-        bad=payload(inspect());bad['editor_guard']['bounds']=[118,197,786,277]
+        bad=payload(settled_inspect());bad['editor_guard']['bounds']=[118,197,786,277]
         assert call(bad)[0]=='denied_context'
         results['wrong_context_text_bounds_refused']=True
         # One request, one verified increment; no action retry of any kind.
-        fresh=inspect();tap_status,_=call(payload(fresh))
+        fresh=settled_inspect();tap_status,_=call(payload(fresh))
         assert tap_status=='input_injected',json.dumps(last,sort_keys=True)
         adb('shell','uiautomator','dump','/sdcard/candidate-fixture.xml')
         tree=adb('shell','cat','/sdcard/candidate-fixture.xml');assert 'candidate_taps=1' in tree
         results['single_guarded_tap_observed']=True
         # Distinct actions with a fresh observation each, NOT retries of a refusal.
         for count in (2,3):
-            fresh=inspect();tap_status,_=call(payload(fresh))
+            fresh=settled_inspect();tap_status,_=call(payload(fresh))
             assert tap_status=='input_injected',json.dumps(last,sort_keys=True)
             adb('shell','uiautomator','dump','/sdcard/candidate-fixture.xml')
             assert 'candidate_taps='+str(count) in adb('shell','cat','/sdcard/candidate-fixture.xml')

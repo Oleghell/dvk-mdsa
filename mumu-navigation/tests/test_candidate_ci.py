@@ -42,7 +42,7 @@ class CandidateCITests(unittest.TestCase):
         s=(NEXT/'test-emulator.py').read_text(encoding='utf-8')
         self.assertIn("os.environ.get('GITHUB_ACTIONS')!='true'",s)
         self.assertIn('emulator-',s);self.assertNotIn('127.0.0.1:5555',s)
-        self.assertIn("fresh=inspect();tap_status,_=call(payload(fresh))",s)
+        self.assertIn("fresh=settled_inspect();tap_status,_=call(payload(fresh))",s)
         self.assertIn("assert tap_status=='input_injected'",s)
         self.assertIn('candidate_taps=1',s)
         self.assertIn("results['outside_editor_change_refused']=True",s)
@@ -60,5 +60,6 @@ class CandidateCITests(unittest.TestCase):
         self.assertIn('cursor_stable_runtime_included=$false',s)
         manifest=(NEXT/'fixture/AndroidManifest.xml').read_text(encoding='utf-8')
         self.assertNotIn('android.permission.INTERNET',manifest)
+        self.assertIn('android:hardwareAccelerated="false"',manifest)
 
 if __name__=='__main__':unittest.main()

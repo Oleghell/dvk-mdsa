@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="drug.vokrug">
  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="32" />
- <application android:label="Synthetic gesture fixture" android:allowBackup="false">
+ <application android:label="Synthetic gesture fixture" android:allowBackup="false" android:hardwareAccelerated="false">
   <activity android:name=".GestureFixtureActivity" android:exported="true" android:theme="@android:style/Theme.Material.NoActionBar" />
  </application>
 </manifest>
