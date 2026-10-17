@@ -6,7 +6,13 @@ cd "$(dirname "$0")"
 mkdir -p out/gesture/classes out/gesture/dex
 fixture=../control-android-next/fixture
 javac -encoding UTF-8 -source 8 -target 8 -bootclasspath "$ANDROID_JAR" -d out/gesture/classes "$fixture/drug/vokrug/GestureFixtureActivity.java"
-"$ANDROID_BUILD_TOOLS/aapt2" link -I "$ANDROID_JAR" --manifest "$fixture/AndroidManifest.xml" --min-sdk-version 26 --target-sdk-version 32 -o out/gesture/unsigned.apk
+# Higher fixture version replaces only the earlier synthetic drug.vokrug test APK.
+python3 - <<'PYMANIFEST'
+from pathlib import Path
+source=Path('../control-android-next/fixture/AndroidManifest.xml').read_text(encoding='utf-8')
+Path('out/gesture/AndroidManifest.xml').write_text(source.replace('package="drug.vokrug"','package="drug.vokrug" android:versionCode="100" android:versionName="synthetic-guard-ci"'),encoding='utf-8')
+PYMANIFEST
+"$ANDROID_BUILD_TOOLS/aapt2" link -I "$ANDROID_JAR" --manifest out/gesture/AndroidManifest.xml --min-sdk-version 26 --target-sdk-version 32 -o out/gesture/unsigned.apk
 "$ANDROID_BUILD_TOOLS/d8" --lib "$ANDROID_JAR" --min-api 26 --output out/gesture/dex out/gesture/classes/drug/vokrug/*.class
 python3 - <<'PYZIP'
 import zipfile

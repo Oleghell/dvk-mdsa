@@ -44,6 +44,11 @@ class V2ReleaseTests(unittest.TestCase):
         self.assertIn('startsWith(github.event.head_commit.message',publish)
         self.assertIn('contents: write',publish)
         self.assertNotIn('mumu-v2-release.p12',workflow)
+    def test_synthetic_fixture_update_is_not_a_version_downgrade(self):
+        source=(V2/'build-gesture-fixture.sh').read_text(encoding='utf-8')
+        self.assertIn('android:versionCode="100"',source)
+        self.assertNotIn('uninstall',source)
+        self.assertNotIn('install -d',source)
     def test_legacy_pins_are_unchanged(self):
         meta=json.loads((ROOT/'control-android/pinned/release.json').read_text(encoding='utf-8'))
         self.assertEqual(meta['packages']['control-helper.apk']['apk_sha256'],'44824855e0da2746165ccebd9a704878dbd45513e0a0afb13b29087b8b895883')
