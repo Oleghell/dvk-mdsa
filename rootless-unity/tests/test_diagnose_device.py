@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from test_native_metadata import ready_metadata
 spec=importlib.util.spec_from_file_location('diagnose_core',Path(__file__).resolve().parents[1]/'diagnose_device.py')
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
@@ -45,7 +46,7 @@ class FakeFrida:
     def attach(self,target):self.attached_to=target;return self
     def create_script(self,source,name):
         self.script_source=source
-        self.exports_sync=SimpleNamespace(runtime=lambda:runtime(),modules=self.get_modules,evidence=evidence)
+        self.exports_sync=SimpleNamespace(runtime=lambda:runtime(),modules=self.get_modules,evidence=evidence,native=ready_metadata)
         return self
     def get_modules(self):
         if self.phase_error=='rpc':raise type('RPCException',(Exception,),{})('PRIVATE TOKEN')
@@ -60,14 +61,16 @@ class Inspect(unittest.TestCase):
         f=FakeFrida(name='private dynamic process name')
         r=m.inspect_gadget(37149,'a'*64,lambda:False,frida_api=f)
         self.assertEqual(f.attached_to,123456789)
-        self.assertEqual(r['stage'],'modules-ready');self.assertTrue(r['rpc_runtime_ok'])
+        self.assertEqual(r['stage'],'metadata-ready');self.assertTrue(r['rpc_runtime_ok'])
+        self.assertEqual(r['discovery_stage'],'modules-ready');self.assertTrue(r['rpc_native_ok'])
         self.assertEqual(r['process_name_kind'],'other-name-not-recorded')
         text=json.dumps(r)
         self.assertNotIn('123456789',text);self.assertNotIn('private dynamic',text)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
     def test_partial_module_result_not_hidden_as_timeout(self):
         r=m.inspect_gadget(37149,'a'*64,lambda:False,frida_api=FakeFrida(ready=False))
-        self.assertEqual(r['stage'],'engine-not-confirmed')
+        self.assertEqual(r['stage'],'metadata-ready')
+        self.assertEqual(r['discovery_stage'],'engine-not-confirmed')
         self.assertTrue(r['connected'] and r['attached'] and r['rpc_modules_ok'])
         self.assertEqual(r['modules']['engine_name_matches'],0)
     def test_rpc_error_keeps_stage_not_sensitive_exception(self):
@@ -95,8 +98,20 @@ class Inspect(unittest.TestCase):
             with self.assertRaises(m.TestError):m.validate_runtime(bad)
         for bad in ({**modules(),'paths':['private']},{**modules(),'module_count':-1},{**modules(),'module_count':True}):
             with self.assertRaises(m.TestError):m.validate_modules(bad)
+    def test_non_arm_runtime_does_not_call_native(self):
+        with patch.object(m,'validate_runtime',return_value={'frida_version':'17.24.1','arch':'x64','platform':'linux'}):
+            with patch(__name__+'.ready_metadata',side_effect=AssertionError('must not call')):
+                r=m.inspect_gadget(37149,'a'*64,lambda:False,frida_api=FakeFrida())
+        self.assertEqual(r['stage'],'modules-ready');self.assertFalse(r['rpc_native_ok'])
+    def test_native_failure_is_not_retried(self):
+        with patch(__name__+'.ready_metadata',side_effect=RuntimeError('PRIVATE POINTER')) as native:
+            r=m.inspect_gadget(37149,'a'*64,lambda:False,frida_api=FakeFrida())
+        self.assertEqual(native.call_count,1)
+        self.assertEqual(r['stage'],'native-metadata-rpc')
+        self.assertTrue(r['rpc_evidence_ok']);self.assertFalse(r['rpc_native_ok'])
+        self.assertNotIn('PRIVATE',json.dumps(r))
     def test_fixed_script_metadata_only(self):
-        for text in ('NativeFunction','Interceptor','Java.perform','Memory.read','InputField','setText','onClick'):
+        for text in ('il2cpp_runtime_invoke','il2cpp_runtime_class_init','Interceptor','Java.perform','setText','set_text','sendMessage'):
             self.assertNotIn(text,m.SCRIPT)
 
 
@@ -134,7 +149,7 @@ class Report(unittest.TestCase):
             text=path.read_text(encoding='utf-8')
             for secret in ('a'*64,'123456789','PRIVATE ID','0.0.0.0:*'):self.assertNotIn(secret,text)
             self.assertTrue(result['guest_port_27042_listening'])
-            self.assertEqual(path.name,'rootless-diagnostics-0.1.2.json')
+            self.assertEqual(path.name,'rootless-diagnostics-0.1.3.json')
 
 
 if __name__=='__main__':unittest.main()
