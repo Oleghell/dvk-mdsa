@@ -22,7 +22,8 @@ function probeUIKitRoot() {
   observer_installed:false,observed_callback:false,main_thread_confirmed:false,
   runtime_available:false,window_available:false,object_classes_validated:false,
   hooks_detached:false,cleanup_failed:false,metadata_thread_attached:false,
-  metadata_thread_detached:false,observed_calls:0,managed_calls:0,
+  metadata_thread_detached:false,runtime_handle_acquired:false,window_handle_acquired:false,
+  runtime_handle_released:false,window_handle_released:false,observed_calls:0,managed_calls:0,
   watched_sources:{'uikit-component-update':false,'uikit-runtime-update':false,'unity-execute-tasks':false},
   frame_source:'not-observed'};
  if(Process.pointerSize!==8){r.stage='unsupported-pointer-size';return Promise.resolve(r);}
@@ -42,7 +43,7 @@ function probeUIKitRoot() {
    invoke:bind('runtime_invoke','pointer',['pointer','pointer','pointer','pointer']),
    unbox:bind('object_unbox','pointer',['pointer']),objectClass:bind('object_get_class','pointer',['pointer']),
    assignable:bind('class_is_assignable_from','bool',['pointer','pointer']),
-   pin:bind('gchandle_new','uint32',['pointer','bool']),unpin:bind('gchandle_free','void',['uint32'])};
+   keep:bind('gchandle_new','pointer',['pointer','bool']),release:bind('gchandle_free','void',['pointer'])};
   r.step='metadata';const domain=f.domain();if(domain.isNull()){r.stage='metadata-not-ready';return Promise.resolve(r);}
   if(f.current().isNull()) {
    thread=f.attach(domain);if(thread.isNull()){r.stage='metadata-not-ready';return Promise.resolve(r);}
@@ -115,7 +116,7 @@ function probeUIKitRoot() {
     onLeave(_retval){
      if(!active||!this.uiFrame)return;
      active=false;r.observed_callback=true;r.frame_source=this.uiSource;r.step='observe-frame';
-     let runtimeHandle=0,windowHandle=0,stage='native-call-failed';
+     let runtimeHandle=ptr(0),windowHandle=ptr(0),stage='native-call-failed';
      try {
       if(!this.uiException.isNull()&&!this.uiException.readPointer().isNull())throw 'original-frame-exception';
       // No attach here: observation must already be on an IL2CPP-owned thread.
@@ -127,16 +128,16 @@ function probeUIKitRoot() {
       if(yes!==1)throw 'off-main-thread';r.main_thread_confirmed=true;
       r.step='runtime-get';const runtime=invoke(setup.instance,ptr(0));r.runtime_available=!runtime.isNull();
       if(runtime.isNull())throw 'runtime-not-ready';
-      runtimeHandle=f.pin(runtime,0);if(runtimeHandle===0)throw 'native-call-failed';
+      runtimeHandle=f.keep(runtime,0);r.runtime_handle_acquired=!runtimeHandle.isNull();if(runtimeHandle.isNull())throw 'native-call-failed';
       if(!f.assignable(setup.runtime,f.objectClass(runtime)))throw 'object-class-mismatch';
       r.step='window-get';const window=invoke(setup.root,runtime);r.window_available=!window.isNull();
       if(window.isNull())throw 'window-not-ready';
-      windowHandle=f.pin(window,0);if(windowHandle===0)throw 'native-call-failed';
+      windowHandle=f.keep(window,0);r.window_handle_acquired=!windowHandle.isNull();if(windowHandle.isNull())throw 'native-call-failed';
       if(!f.assignable(setup.window,f.objectClass(window)))throw 'object-class-mismatch';
       r.object_classes_validated=true;stage='root-ready';
      } catch(e) {stage=(typeof e==='string'&&__STAGES__.includes(e))?e:'native-call-failed';}
      finally {
-      for(const h of [windowHandle,runtimeHandle])if(h!==0){try{f.unpin(h);}catch(_){r.cleanup_failed=true;}}
+      for(const [label,h] of [['window',windowHandle],['runtime',runtimeHandle]])if(!h.isNull()){try{f.release(h);r[label+'_handle_released']=true;}catch(_){r.cleanup_failed=true;}}
      }
      finish(stage);
     }
@@ -152,7 +153,8 @@ function probeUIKitRoot() {
 def validate(value):
     flags=['api_available','metadata_ready','observer_installed','observed_callback','main_thread_confirmed',
            'runtime_available','window_available','object_classes_validated','hooks_detached','cleanup_failed',
-           'metadata_thread_attached','metadata_thread_detached']
+           'metadata_thread_attached','metadata_thread_detached','runtime_handle_acquired','window_handle_acquired',
+           'runtime_handle_released','window_handle_released']
     fields=set(flags)|{'stage','step','observed_calls','managed_calls','watched_sources','frame_source'}
     if not isinstance(value,dict) or set(value)!=fields:raise ValueError('Unexpected root probe fields')
     if value['stage'] not in STAGES or value['step'] not in STEPS:raise ValueError('Unexpected root probe stage')
@@ -163,9 +165,13 @@ def validate(value):
     if not isinstance(sources,dict) or set(sources)!=set(SOURCES) or any(type(v) is not bool for v in sources.values()):raise ValueError('Invalid watched source map')
     if value['frame_source'] not in SOURCES+['not-observed']:raise ValueError('Invalid frame source')
     if value['managed_calls'] and not value['observed_callback']:raise ValueError('UI calls without frame observation')
+    for resource in ('runtime','window'):
+        if value[resource+'_handle_released'] and not value[resource+'_handle_acquired']:
+            raise ValueError('Release without acquired handle')
     if value['stage']=='root-ready':
         needed=['api_available','metadata_ready','observer_installed','observed_callback','main_thread_confirmed',
-                'runtime_available','window_available','object_classes_validated','hooks_detached']
+                'runtime_available','window_available','object_classes_validated','hooks_detached',
+                'runtime_handle_acquired','window_handle_acquired','runtime_handle_released','window_handle_released']
         if not all(value[k] for k in needed) or value['cleanup_failed'] or value['managed_calls']!=3 or value['frame_source']=='not-observed':raise ValueError('Inconsistent root probe success')
         if value['metadata_thread_attached'] and not value['metadata_thread_detached']:raise ValueError('Unfinished metadata thread cleanup')
     return value

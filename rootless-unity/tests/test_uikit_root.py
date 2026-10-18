@@ -18,7 +18,8 @@ def ready_root():
         'observer_installed':True,'observed_callback':True,'main_thread_confirmed':True,
         'runtime_available':True,'window_available':True,'object_classes_validated':True,
         'hooks_detached':True,'cleanup_failed':False,'metadata_thread_attached':True,
-        'metadata_thread_detached':True,'observed_calls':1,'managed_calls':3,
+        'metadata_thread_detached':True,'runtime_handle_acquired':True,'window_handle_acquired':True,
+        'runtime_handle_released':True,'window_handle_released':True,'observed_calls':1,'managed_calls':3,
         'watched_sources':dict.fromkeys(p.SOURCES,True),'frame_source':'uikit-component-update'}
 
 
@@ -44,7 +45,7 @@ class RootSchema(unittest.TestCase):
         v=ready_root();v['text']='private'
         with self.assertRaises(ValueError):p.validate(v)
     def test_success_requires_observation_mainthread_and_cleanup(self):
-        for key in ('observed_callback','main_thread_confirmed','runtime_available','window_available','hooks_detached','metadata_thread_detached'):
+        for key in ('observed_callback','main_thread_confirmed','runtime_available','window_available','hooks_detached','metadata_thread_detached','runtime_handle_released','window_handle_released'):
             v=ready_root();v[key]=False
             with self.assertRaises(ValueError):p.validate(v)
     def test_counts_bounded_and_not_booleans(self):
@@ -61,6 +62,14 @@ class RootSchema(unittest.TestCase):
         self.assertIn('setTimeout',p.FUNCTION)
         self.assertIn('8000',p.FUNCTION)
         self.assertIn('10000',p.FUNCTION)
+    def test_handles_are_opaque_pointers_not_uint32(self):
+        self.assertIn("keep:bind('gchandle_new','pointer',['pointer','bool'])",p.FUNCTION)
+        self.assertIn("release:bind('gchandle_free','void',['pointer'])",p.FUNCTION)
+        self.assertNotIn("gchandle_new','uint32'",p.FUNCTION)
+        self.assertNotIn("gchandle_free','void',['uint32']",p.FUNCTION)
+    def test_release_without_acquisition_rejected(self):
+        v=ready_root();v['runtime_handle_acquired']=False
+        with self.assertRaises(ValueError):p.validate(v)
     def test_only_three_fixed_managed_getters(self):
         for name in ('set_Text','get_Text','OnDidClicked','get_Subviews','sendMessage'):
             self.assertNotIn(name,p.FUNCTION)
@@ -102,7 +111,7 @@ class Integration(unittest.TestCase):
             old=folder.parent/'rootless-diagnostics-0.1.3.json';old.write_text('keep')
             with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                 result,path=d.diagnose(Adb(),folder,inspector=lambda *a:{'stage':'root-ready'},uikit_root_probe=True)
-            self.assertEqual(old.read_text(),'keep');self.assertEqual(path.name,'rootless-diagnostics-0.1.4.json')
+            self.assertEqual(old.read_text(),'keep');self.assertEqual(path.name,'rootless-diagnostics-0.1.5.json')
             self.assertEqual(result['unity_object_access'],'root-presence-confirmed')
             self.assertFalse(result['ui_actions_performed']);self.assertFalse(result['ui_text_read'])
 

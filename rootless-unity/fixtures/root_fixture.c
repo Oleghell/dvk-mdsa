@@ -30,9 +30,13 @@ static Method methods[]={
 static Image images[]={{"Core.dll"},{"UIKit.Unity.dll"},{"UnityEngine.CoreModule.dll"}};
 static Image *image_array[]={&images[0],&images[1],&images[2]};
 static Object runtime={&classes[0],0},window={&classes[1],0},fixture_boxed_bool={NULL,0};
-static int domain,thread,exception,mode,attached,managed_calls,off_thread_calls,live_handles;
-API void fixture_init(int m) { mode=m;main_id=TID();attached=1;managed_calls=off_thread_calls=live_handles=0;if(m==6)methods[0].type=&tclass;if(m==8)runtime.klass=&classes[1]; }
+typedef struct Handle {Object *target;int live;} Handle;
+static Handle handles[2];
+static int domain,thread,exception,mode,attached,managed_calls,off_thread_calls,live_handles,bad_frees;
+API void fixture_init(int m) { mode=m;main_id=TID();attached=1;managed_calls=off_thread_calls=live_handles=bad_frees=0;handles[0].live=handles[1].live=0;if(m==6)methods[0].type=&tclass;if(m==8)runtime.klass=&classes[1]; }
 API int fixture_handles(void) {return live_handles;}
+API int fixture_bad_frees(void) {return bad_frees;}
+API int fixture_high_handles(void) {return ((uintptr_t)&handles[0]>>32)!=0;}
 API int fixture_calls(void) {return managed_calls;}
 API int fixture_off_thread_calls(void) {return off_thread_calls;}
 API void *il2cpp_domain_get(void) {return &domain;}
@@ -57,8 +61,13 @@ API int il2cpp_type_get_type(Type *t) {return t->kind;}
 API void *il2cpp_object_unbox(Object *o) {return &o->value;}
 API Class *il2cpp_object_get_class(Object *o) {return o->klass;}
 API unsigned char il2cpp_class_is_assignable_from(Class *a,Class *b) {return a==b;}
-API uint32_t il2cpp_gchandle_new(Object *o,unsigned char pin) {(void)o;(void)pin;live_handles++;return live_handles;}
-API void il2cpp_gchandle_free(uint32_t h) {(void)h;live_handles--;}
+/* Unity 6 API: typedef void* Il2CppGCHandle. Preserve all pointer bits. */
+API void *il2cpp_gchandle_new(Object *o,unsigned char pin) {
+ int i;(void)pin;for(i=0;i<2;i++)if(!handles[i].live){handles[i].live=1;handles[i].target=o;live_handles++;return &handles[i];}return NULL;
+}
+API void il2cpp_gchandle_free(void *h) {
+ int i;for(i=0;i<2;i++)if(h==&handles[i]&&handles[i].live){handles[i].live=0;handles[i].target=NULL;live_handles--;return;}bad_frees++;
+}
 API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc) {
  (void)obj;(void)args;if(exc)*exc=NULL;if(m->action==0){if(mode==9&&exc)*exc=&exception;return NULL;}
  managed_calls++;if(TID()!=main_id)off_thread_calls++;

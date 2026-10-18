@@ -33,17 +33,22 @@ for i in range(1500):
         script=session.create_script(FUNCTION+'''
 rpc.exports={probe(){return probeUIKitRoot();},counts(){
  const read=name=>new NativeFunction(Module.getGlobalExportByName(name),'int',[])();
- return {handles:read('fixture_handles'),calls:read('fixture_calls'),off:read('fixture_off_thread_calls')};
+ return {handles:read('fixture_handles'),calls:read('fixture_calls'),off:read('fixture_off_thread_calls'),bad_frees:read('fixture_bad_frees'),high:read('fixture_high_handles')};
 }};''',name='synthetic-uikit-root')
         script.load();value=validate(script.exports_sync.probe())
         expected={0:'root-ready',1:'off-main-thread',2:'runtime-not-ready',3:'window-not-ready',4:'managed-exception',5:'callback-timeout',6:'signature-mismatch',7:'off-main-thread',8:'object-class-mismatch',9:'original-frame-exception'}[mode]
         assert value['stage']==expected,value
         counts=script.exports_sync.counts()
         assert counts['handles']==0,counts
+        assert counts['bad_frees']==0,counts
+        assert counts['high']==1,'Synthetic handles must exercise bits above uint32'
         assert counts['off']==(1 if mode==7 else 0),counts
         assert counts['calls']=={0:3,1:1,2:2,3:3,4:1,5:0,6:0,7:1,8:2,9:0}[mode],(counts,value)
         assert value['managed_calls']==counts['calls'],(counts,value)
         if mode!=6:assert value['hooks_detached'],value
+        if mode==0:
+            for resource in ('runtime','window'):
+                assert value[resource+'_handle_acquired'] and value[resource+'_handle_released'],value
         assert not value['cleanup_failed'],value
         assert not any(x in json.dumps(value) for x in ('0x','token','private-text'))
         print('Root observer synthetic case',mode,expected,flush=True)

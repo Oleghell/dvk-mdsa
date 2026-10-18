@@ -120,11 +120,14 @@ metadata, scope and the still-unimplemented main-thread/live-object gate.
 installation or OCR is needed for this offline development step.
 
 
-## Guarded live-root probe 0.1.4 (experimental, explicit opt-in)
+## Guarded live-root probe 0.1.5 (experimental, explicit opt-in)
 
 `python rootless-unity/diagnose_uikit.py` opens the dedicated #4-only probe GUI.
 The ordinary `diagnose_device.py` entrypoint remains metadata-only 0.1.3.
-See [DIAGNOSTICS-0.1.4.md](DIAGNOSTICS-0.1.4.md) before running. The new mode
+See [DIAGNOSTICS-0.1.5.md](DIAGNOSTICS-0.1.5.md) before running.
+Do not repeat 0.1.4: its uint32 GC-handle binding truncated pointer-sized Unity 6
+handles. 0.1.5 preserves the full opaque pointer and tests high-bit handles.
+Restart only test MuMu #4 before retrying; no APK reinstall. The new mode
 observes only the exported invocation API for a bounded period, requires an
 existing frame callback plus the UIKit main-thread check, and invokes only two
 root-presence getters after that guard. No guessed code pointers, text/field
