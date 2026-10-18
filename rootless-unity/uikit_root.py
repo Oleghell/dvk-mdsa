@@ -16,8 +16,9 @@ STAGES={'not-started','unsupported-pointer-size','api-incomplete','metadata-not-
  'callback-timeout','off-main-thread','runtime-not-ready','window-not-ready','object-class-mismatch',
  'root-ready','cleanup-failed'}
 STEPS={'not-started','resolve-api','metadata','prepare-observer','observe-frame','main-thread-check','runtime-get','window-get','done'}
-FUNCTION=r'''
+_TEMPLATE=r'''
 function probeUIKitRoot() {
+ __INIT_HELPERS__
  const r={stage:'not-started',step:'not-started',api_available:false,metadata_ready:false,
   observer_installed:false,observed_callback:false,main_thread_confirmed:false,
   runtime_available:false,window_available:false,object_classes_validated:false,
@@ -26,6 +27,7 @@ function probeUIKitRoot() {
   runtime_handle_released:false,window_handle_released:false,observed_calls:0,managed_calls:0,
   watched_sources:{'uikit-component-update':false,'uikit-runtime-update':false,'unity-execute-tasks':false},
   frame_source:'not-observed'};
+ __INIT_REPORT__
  if(Process.pointerSize!==8){r.stage='unsupported-pointer-size';return Promise.resolve(r);}
  let f=null,addresses={},thread=ptr(0),attachedHere=false,setup=null;
  try {
@@ -44,6 +46,7 @@ function probeUIKitRoot() {
    unbox:bind('object_unbox','pointer',['pointer']),objectClass:bind('object_get_class','pointer',['pointer']),
    assignable:bind('class_is_assignable_from','bool',['pointer','pointer']),
    keep:bind('gchandle_new','pointer',['pointer','bool']),release:bind('gchandle_free','void',['pointer'])};
+  __EXTRA_BINDINGS__
   r.step='metadata';const domain=f.domain();if(domain.isNull()){r.stage='metadata-not-ready';return Promise.resolve(r);}
   if(f.current().isNull()) {
    thread=f.attach(domain);if(thread.isNull()){r.stage='metadata-not-ready';return Promise.resolve(r);}
@@ -81,8 +84,8 @@ function probeUIKitRoot() {
   const watchers=[];
   for(const [label,m,isStatic] of specs)if(signature(m,isStatic,1)){watchers.push([label,m]);r.watched_sources[label]=true;}
   if(watchers.length===0){r.stage='metadata-not-ready';return Promise.resolve(r);}
-  setup={runtime,window,guard,instance,root,watchers};r.metadata_ready=true;
- } catch(_) {r.stage='native-call-failed';}
+  setup={runtime,window,guard,instance,root,watchers};__SETUP_EXTENSION__r.metadata_ready=true;
+ } catch(_) {setup=null;r.stage='native-call-failed';}
  finally {
   if(attachedHere&&f!==null){try{f.detach(thread);r.metadata_thread_detached=f.current().isNull();if(!r.metadata_thread_detached)r.cleanup_failed=true;}catch(_){r.cleanup_failed=true;}}
  }
@@ -134,7 +137,7 @@ function probeUIKitRoot() {
       if(window.isNull())throw 'window-not-ready';
       windowHandle=f.keep(window,0);r.window_handle_acquired=!windowHandle.isNull();if(windowHandle.isNull())throw 'native-call-failed';
       if(!f.assignable(setup.window,f.objectClass(window)))throw 'object-class-mismatch';
-      r.object_classes_validated=true;stage='root-ready';
+      r.object_classes_validated=true;__BODY_EXTENSION__stage='root-ready';
      } catch(e) {stage=(typeof e==='string'&&__STAGES__.includes(e))?e:'native-call-failed';}
      finally {
       for(const [label,h] of [['window',windowHandle],['runtime',runtimeHandle]])if(!h.isNull()){try{f.release(h);r[label+'_handle_released']=true;}catch(_){r.cleanup_failed=true;}}
@@ -147,7 +150,19 @@ function probeUIKitRoot() {
   }catch(_){finish('hook-unavailable');}
  });
 }
-'''.replace('__APIS__',json.dumps(APIS)).replace('__STAGES__',json.dumps(sorted(STAGES)))
+'''
+
+
+def build_function(*,extra_apis=(),helpers='',init='',bindings='',setup='',body=''):
+    # Internal build-time composition only; never accepts RPC/user-supplied code.
+    return (_TEMPLATE.replace('__APIS__',json.dumps(APIS+list(extra_apis)))
+        .replace('__STAGES__',json.dumps(sorted(STAGES)))
+        .replace('__INIT_HELPERS__',helpers).replace('__INIT_REPORT__',init)
+        .replace('__EXTRA_BINDINGS__',bindings).replace('__SETUP_EXTENSION__',setup)
+        .replace('__BODY_EXTENSION__',body))
+
+
+FUNCTION=build_function()
 
 
 def validate(value):

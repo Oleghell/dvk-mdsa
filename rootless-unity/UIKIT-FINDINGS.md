@@ -113,3 +113,7 @@ Layout reference consulted:
 https://github.com/Perfare/Il2CppDumper/blob/master/Il2CppDumper/Il2Cpp/MetadataClass.cs
 Frida API:
 https://frida.re/docs/javascript-api/
+
+## Bounded structure follow-up (0.1.6)
+
+After 0.1.5 confirmed the root/main thread and pointer-handle cleanup on test MuMu #4, `uikit_tree.py` adds an opt-in structure-only snapshot. It reads UIView children through checked reference-collection getters and records fixed type categories and accessibility-like flags, never text, object names, geometry or input. Unknown collections fail closed. Limits and user instructions are in `DIAGNOSTICS-0.1.6.md`. C ABI regression fixtures run on owned synthetic graphs; a real-device tree result is still required. `diagnose_tree.py` is the dedicated entry point; the previous root-only and metadata-only entries retain their modes.

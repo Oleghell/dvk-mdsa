@@ -133,3 +133,7 @@ existing frame callback plus the UIKit main-thread check, and invokes only two
 root-presence getters after that guard. No guessed code pointers, text/field
 reads, traversal or UI actions. Synthetic tests are not proof of MuMu/libnb
 compatibility; do not mark the full workflow migrated based on `root-ready`.
+
+### UIKit structure probe 0.1.6 (opt-in, test #4 only)
+
+See [DIAGNOSTICS-0.1.6.md](DIAGNOSTICS-0.1.6.md) for the bounded structure-only GUI. It uses the existing authenticated Gadget and verified main-thread root, not OCR or screen coordinates. It does not read UI text or perform actions. Run `python rootless-unity/diagnose_tree.py` from the repository root with the pinned Frida client, or use the separately built Windows EXE. Keep the old private `test-apks` folder. No APK reinstall. Synthetic graph tests do not establish real-device tree support.
