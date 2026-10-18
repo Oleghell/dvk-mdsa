@@ -1,0 +1,44 @@
+{
+  "source_package": "drug.vokrug",
+  "source_version": "6.8.1",
+  "source_version_code": 10702,
+  "frida_version": "17.24.1",
+  "apktool_version": "3.0.3",
+  "scope": "separate-empty-test-emulator-only",
+  "runtime_tested": false,
+  "unity_objects_available": "not-tested",
+  "root_used": false,
+  "ocr_used": false,
+  "security_settings_modified": false,
+  "changes": [
+    "added Launcher static initializer loading frida-gadget",
+    "added official ARM64 Gadget and local token-authenticated resume config",
+    "replaced source signatures/stamp with separate test signing certificate"
+  ],
+  "files": [
+    {
+      "file": "base.apk",
+      "source_sha256": "8def5efdd6dfaf239fd970ff6c3180095c0ed8f430a53151025a066fa42b0f6f",
+      "sha256": "c80c992beaea72912e1fdc4a57011d2c8d7567fe9bea31f4d94acb9ccd7575b5",
+      "test_signer_sha256": "a0435fa171d9b9d6e4a4a849d166fd24e16f7c80130a502e139c09b6fcd954d8",
+      "unchanged_entries_verified": 3145,
+      "manifest_byte_identical": true
+    },
+    {
+      "file": "split-001.apk",
+      "source_sha256": "56762d3739624f5f4d8395f903817e8d90734aeeb4b8370d6ddfc11fdd2f3e19",
+      "sha256": "2bcda72196ee83ff4513a3477cbf791788b9a951a90c8c5cffea8f14982772a6",
+      "test_signer_sha256": "a0435fa171d9b9d6e4a4a849d166fd24e16f7c80130a502e139c09b6fcd954d8",
+      "unchanged_entries_verified": 13,
+      "manifest_byte_identical": true
+    }
+  ],
+  "dex_round_trip": {
+    "class_count": 8540,
+    "changed_classes": [
+      "drug/vokrug/activity/Launcher.smali"
+    ],
+    "original_methods_preserved": true,
+    "original_method_count_verified": 1
+  }
+}

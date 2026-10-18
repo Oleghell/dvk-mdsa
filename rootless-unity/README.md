@@ -51,3 +51,60 @@ python rootless-unity/apk_export.py
 
 `--self-check` opens/verifies/closes the real Tk window without contacting ADB.
 The Windows release is built with PyInstaller 6.16.0; no Android APKs or test keys are released.
+
+## Audited 6.8.1 offline bootstrap (experimental)
+
+`prepare_test_apks.py` now implements an **offline** bootstrap for the exact APK pair
+received through the private chat. It is not part of the exporter EXE and has no ADB,
+network client, installer or device actions. Other input versions fail SHA-256 checks.
+
+The audited launcher is `drug.vokrug.activity.Launcher` in `classes5.dex`; it inherits
+from `dv.DVPlayerActivity` and originally has only its constructor. The added class
+initializer explicitly calls `System.loadLibrary("frida-gadget")`. Existing app methods,
+Unity native libraries, resources and the binary Android manifests remain unchanged.
+Only `classes5.dex` is taken from the DEX rebuild. The official ARM64 Gadget 17.24.1
+and its `.config.so` are added to the ARM64 split. Original APK signatures/source-stamp
+metadata are replaced with signatures from a **new separate test key**, not the helper key.
+
+The config uses Android loopback `127.0.0.1:27042`, fresh token authentication,
+`on_load=resume`, and `on_port_conflict=fail`; no script, asset server or portal.
+The token is embedded in the test APK and is not a secret from anyone who can inspect
+that APK. Use only an isolated trusted test emulator. Never forward it publicly or
+through a tunnel/MCP. No anti-detection naming, integrity hooks, trust checks, root
+checks, certificate pinning, debuggable flag or network-security config are altered.
+
+Private build example (Linux, trusted JDK/Android build-tools, Apktool 3.0.3):
+
+```
+python rootless-unity/prepare_test_apks.py \
+  --source /private/source-apks \
+  --work /private/new-empty-build-directory \
+  --apktool /tools/apktool_3.0.3.jar \
+  --gadget /tools/frida-gadget-17.24.1-android-arm64.so.xz \
+  --java-home /tools/jdk-17 \
+  --build-tools /tools/android-build-tools
+```
+
+The builder intentionally does not download tools. Apktool and the Gadget XZ must
+match pinned official-release SHA-256 values. Work/source must be outside this repo.
+`test-apks/` contains only test APKs/report; `private/` contains keys/token/build logs
+and must never be shared or committed. Reproduction creates a new signing key/token,
+so signed output hashes naturally differ. Use a new build directory on each attempt.
+A failed build can leave partial private outputs; do not install those.
+
+The static report is in `OFFLINE_BUILD_REPORT-6.8.1.json`. Signatures and alignment
+were checked with Android tools. A local round-trip disassembly of 8,540 classes in
+`classes5.dex` found only Launcher changed, with its original constructor preserved.
+**This is not an Android install, ART-verifier or runtime test.** Gadget load, ARM
+translation support, Unity object enumeration and all user actions are still untested.
+
+Before installation, create a **fresh separate MuMu instance**, confirm its ADB serial
+is not the working instance (`127.0.0.1:5555`) and that `drug.vokrug` is absent. Do not
+uninstall or replace any existing installation. No automatic installer exists in this
+stage. If startup fails because the app rejects modification/signing, stop; do not
+bypass the rejection. Login state is not copied. Use a test account if login is needed.
+
+Official references:
+- https://frida.re/docs/gadget/
+- https://github.com/frida/frida/releases/tag/17.24.1
+- https://github.com/iBotPeaches/Apktool/releases/tag/v3.0.3
