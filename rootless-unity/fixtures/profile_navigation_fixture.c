@@ -33,7 +33,7 @@ static int modal_reads;
 static Type pentries={21,&pc[21]};
 static Object pentrylist={&pc[21],0};
 static Type pvisible={21,&pc[17]},piter={21,&pc[19]};
-static Type pentry={18,&pc[4]},pbool={2},presource={18,&pc[7]};
+static Type pentry={18,&pc[4]},pbool={2},presource={18,&pc[7]},pbyrow={18,&pc[1]},pbyentry={18,&pc[4]},pwrongref={18,&pc[8]};
 static Method pm[]={
  {"get_ScrollView",&nc[4],0,&pt[20],40},
  {"get_VisibleCells",&pc[0],0,&pvisible,41},
@@ -98,7 +98,7 @@ static Object app_root={&nc[7],0},tabs={&nc[8],0},dv_container={&nc[9],0},ui_con
 static Object other_filters={&nc[5],0};
 static Object view_chain[35],other_window={&classes[1],0};
 static int phase,opens,cancels,virtual_calls,hidden_reads;
-static void tree_init(int m){int i;if(m==164)attached=0;row_reads=0;modal_reads=plist_reads=profile_reads=selected_wrong=pi_count=0;for(i=0;i<22;i++){pt[i].kind=18;pt[i].klass=&pc[i];}for(i=0;i<4;i++)pi[i].klass=&pc[19];prow.klass= m==150?&pc[11]:m==151?&pc[12]:&pc[10];precord.klass=m==150?&pc[14]:m==151?&pc[15]:&pc[13];phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==145)pm[20].arity=2;if(m==146)pm[3].param=&tbool;if(m==147)pm[7].type=&tvoid;if(m==163)pm[14].type=&tbool;if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
+static void tree_init(int m){int i;if(m>=170&&m<=179){pm[3].type=&pbyrow;pm[24].type=&pbyentry;}if(m==173)pm[3].type=&pwrongref;if(m==174)pm[1].type=&pbyrow;if(m==176)pm[3].flags=64;if(m==177)pm[3].param=&tbool;if(m==178)pm[3].flags=16;if(m==179)pm[3].arity=2;if(m==164)attached=0;row_reads=0;modal_reads=plist_reads=profile_reads=selected_wrong=pi_count=0;for(i=0;i<22;i++){pt[i].kind=18;pt[i].klass=&pc[i];}for(i=0;i<4;i++)pi[i].klass=&pc[19];prow.klass= m==150||m==171?&pc[11]:m==151||m==172?&pc[12]:&pc[10];precord.klass=m==150||m==171?&pc[14]:m==151||m==172?&pc[15]:&pc[13];phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==145)pm[20].arity=2;if(m==146)pm[3].param=&tbool;if(m==147)pm[7].type=&tvoid;if(m==163)pm[14].type=&tbool;if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
 static Class *tree_class(Image *im,const char *ns,const char *name){int i;
  if(mode==162&&!strcmp(name,"AvatarView"))return NULL;
  if(im==&profile_image&&!strcmp(ns,"DV.Profiles")&&!strcmp(name,"ProfileViewController"))return &pc[9];
@@ -135,9 +135,9 @@ API Class *il2cpp_class_get_parent(Class *c){(void)c;return NULL;}
 API Class *il2cpp_class_get_nested_types(Class *c,void **cursor){uintptr_t i=(uintptr_t)*cursor;if(c!=&pc[2]||i>=(mode==160?6:7))return NULL;*cursor=(void *)(i+1);return &pc[10+i];}
 API Type *il2cpp_method_get_param(Method *m,unsigned int n){if(m==&pm[20])return n==0?&pentry:n==1?&pbool:n==2?&presource:NULL;return n==0?m->param:NULL;}
 API Class *il2cpp_method_get_class(Method *m){return m->klass;}
-API unsigned char il2cpp_type_is_byref(Type *t){(void)t;return 0;}
+API unsigned char il2cpp_type_is_byref(Type *t){return t==&pbyrow||t==&pbyentry||t==&pwrongref;}
 API Class *il2cpp_class_from_type(Type *t){return t->klass;}
-API Method *il2cpp_object_get_virtual_method(Object *o,Method *m){(void)o;virtual_calls++;return m;}
+API Method *il2cpp_object_get_virtual_method(Object *o,Method *m){(void)o;virtual_calls++;if(mode==176&&m==&pm[3])return &pm[13];return m;}
 API int fixture_visible_reads(void){return plist_reads;}
 API int fixture_wrong_selection(void){return selected_wrong;}
 API int fixture_modal_reads(void){return modal_reads;}
@@ -160,7 +160,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 40:return &ptable;
  case 41:return &pvisiblelist;
  case 42:plist_reads++;if(mode==149)slow();pnumber=mode==154?25:mode==132?0:1;return &pbox;
- case 43:row_reads++;if(mode==157&&row_reads>1)return &other;if(!args||!args[0]||*(int *)args[0]!=0){selected_wrong++;*exc=&exception;return NULL;}return &prow;
+ case 43:if(mode==175)return &potheruser;row_reads++;if(mode==157&&row_reads>1)return &other;if(!args||!args[0]||*(int *)args[0]!=0){selected_wrong++;*exc=&exception;return NULL;}return &prow;
  case 44:pi[0].source=obj==&prow?1:0;pi[0].index=-1;return (Object *)&pi[0];
  case 45:if(pi_count>=3)pi_count=0;pi_count++;pi[pi_count]=*(PIterator *)obj;return (Object *)&pi[pi_count];
  case 46:pnumber=mode==155?17:((PIterator *)obj)->source;return &pbox;

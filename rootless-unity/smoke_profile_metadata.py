@@ -23,7 +23,7 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
         expected={130:('profile-metadata-ready','ready'),145:('native-call-failed','profile-method:open'),
                   146:('native-call-failed','profile-method:visibleItem'),147:('native-call-failed','profile-method:next'),
                   160:('native-call-failed','profile-rows'),161:('native-call-failed','profile-nested'),
-                  162:('native-call-failed','profile-class:avatar'),163:('native-call-failed','profile-method:cellAvatar'),164:('profile-metadata-ready','ready')}
+                  162:('native-call-failed','profile-class:avatar'),163:('native-call-failed','profile-method:cellAvatar'),164:('profile-metadata-ready','ready'),170:('native-call-failed','profile-method:visibleItem'),171:('native-call-failed','profile-method:visibleItem'),172:('native-call-failed','profile-method:visibleItem')}
         assert (v['stage'],d['checkpoint'])==expected[mode],(mode,v,c)
         assert all(n==0 for n in c.values()),(mode,v,c)
         if mode==164:assert v['metadata_thread_attached'] and v['metadata_thread_detached'],v
@@ -43,5 +43,5 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
         child.stdout.close();child.stderr.close()
 
 if __name__=='__main__':
-    for mode in (130,145,146,147,160,161,162,163,164):one(Path(sys.argv[1]).resolve(strict=True),mode)
+    for mode in (130,145,146,147,160,161,162,163,164,170,171,172):one(Path(sys.argv[1]).resolve(strict=True),mode)
     print('Read-only metadata ABI passed; live MuMu cause NOT yet confirmed.')

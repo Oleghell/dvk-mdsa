@@ -7,11 +7,12 @@ import json
 import uikit_navigation as base
 from uikit_root import APIS as ROOT_APIS
 
-VERSION='0.3.0'
+VERSION='0.3.2'
+METADATA_CHECKPOINTS=('base', 'classes', 'method:avatarUser', 'method:cellAvatar', 'method:cellEntry', 'method:child', 'method:childCount', 'method:children', 'method:contentUser', 'method:currentContent', 'method:entryCount', 'method:entryItem', 'method:entryUser', 'method:enumerator', 'method:next', 'method:open', 'method:profileChecked', 'method:promo', 'method:recordEntries', 'method:rowItems', 'method:scroll', 'method:selfUser', 'method:visible', 'method:visibleCount', 'method:visibleItem', 'nested', 'ready')
 EXTRA_APIS=['il2cpp_class_get_nested_types','il2cpp_class_get_declaring_type']
 PREPARE=r'''
  function prepareProfile(f,s,getClass,get,signature){
-  const required={table:['Core.dll','UIKit','TableView'],tableCell:['Core.dll','UIKit','TableCell'],
+  r.navigation.metadata_checkpoint='classes';const required={table:['Core.dll','UIKit','TableView'],tableCell:['Core.dll','UIKit','TableCell'],
    searchTable:['DV.Search.dll','DV.Search','SearchTableView'],cell:['DV.Search.dll','DV','SearchCell'],
    entry:['DV.Search.dll','DV.Search','SearchEntry'],entryInterface:['DV.Search.dll','DV.Search','ISearchEntry'],
    avatar:['DV.dll','DV','AvatarView'],resource:['DV.dll','DV.Common','ResourceImageView'],
@@ -19,7 +20,7 @@ PREPARE=r'''
   for(const [key,args] of Object.entries(required)){s[key]=getClass(...args);if(s[key].isNull())throw new Error('metadata');}
   const name=p=>{if(p.isNull())throw new Error('metadata');let out='';for(let i=0;i<96;i++){const c=p.add(i).readU8();if(c===0)return out;if(c<32||c>126)throw new Error('metadata');out+=String.fromCharCode(c);}throw new Error('metadata');};
   const typeName=(k,ns,n)=>!k.isNull()&&name(f.className(k))===n&&name(f.classNamespace(k))===ns&&name(f.imageName(f.classImage(k)))==='Core.dll';
-  const nested={};const cursor=Memory.alloc(Process.pointerSize);cursor.writePointer(ptr(0));
+  r.navigation.metadata_checkpoint='nested';const nested={};const cursor=Memory.alloc(Process.pointerSize);cursor.writePointer(ptr(0));
   for(let i=0;i<64;i++){const k=f.nested(s.searchTable,cursor);if(k.isNull())break;
    const label=name(f.className(k));if(['LineCell','BlockACell','BlockBCell','LineRecord','BlockARecord','BlockBRecord','RowRecord'].includes(label)){
     if(!f.declaring(k).equals(s.searchTable)||name(f.classNamespace(k))!=='')throw new Error('metadata');nested[label]=k;
@@ -28,40 +29,45 @@ PREPARE=r'''
   }
   if(Object.keys(nested).length!==7)throw new Error('metadata');s.rows=[nested.LineCell,nested.BlockACell,nested.BlockBCell];
   s.rowRecords=[nested.LineRecord,nested.BlockARecord,nested.BlockBRecord];s.record=nested.RowRecord;
-  const checked=(klass,label,kind,result=null,args=[],unboxed=false,ownerExact=true)=>{
+  const checked=(klass,label,kind,result=null,args=[],unboxed=false,ownerExact=true,allowReferenceReturn=false)=>{
    const m=f.method(klass,Memory.allocUtf8String(label),args.length),bits=Memory.alloc(4);bits.writeU32(0);
-   if(m.isNull()||f.arity(m)!==args.length||(f.flags(m,bits)&(16|1024))!==0||f.typeKind(f.returnType(m))!==kind||f.byref(f.returnType(m)))throw new Error('signature');
+   if(m.isNull()||f.arity(m)!==args.length||(f.flags(m,bits)&(16|1024))!==0||f.typeKind(f.returnType(m))!==kind)throw new Error('signature');
+   const byref=!!f.byref(f.returnType(m));
+   // CoreList<T>.get_Item(Int32) is ref T in this APK. runtime_invoke already
+   // normalizes ref-to-reference returns to Il2CppObject*, not a slot pointer.
+   // Only the two exact typed CoreList indexers opt in; all others stay strict.
+   if(byref&&!(allowReferenceReturn&&kind===18&&result!==null&&!f.isValueType(result)))throw new Error('signature');
    const owner=f.methodClass(m);if(owner.isNull()||(ownerExact?!owner.equals(klass):!f.assignable(owner,klass)))throw new Error('signature');
    if(result&&!f.classFromType(f.returnType(m)).equals(result))throw new Error('signature');
    for(let i=0;i<args.length;i++){const t=f.param(m,i);if(t.isNull()||f.byref(t)||f.typeKind(t)!==args[i].kind||(args[i].klass&&!f.classFromType(t).equals(args[i].klass)))throw new Error('signature');}
-   return {m,klass,kind,arity:args.length,params:args,result,unboxed};
+   return {m,klass,kind,arity:args.length,params:args,result,unboxed,byref};
   };
-  s.profileChecked=checked;
-  s.scroll=checked(s.search,'get_ScrollView',18);
-  s.visible=checked(s.table,'get_VisibleCells',21);
+  r.navigation.metadata_checkpoint='method:profileChecked';s.profileChecked=checked;
+  r.navigation.metadata_checkpoint='method:scroll';s.scroll=checked(s.search,'get_ScrollView',18);
+  r.navigation.metadata_checkpoint='method:visible';s.visible=checked(s.table,'get_VisibleCells',21);
   s.visibleClass=f.classFromType(f.returnType(s.visible.m));
   if(f.isValueType(s.visibleClass)||!typeName(s.visibleClass,'Core.Collections','CoreList`1'))throw new Error('signature');
-  s.visibleCount=checked(s.visibleClass,'get_Count',8);
-  s.visibleItem=checked(s.visibleClass,'get_Item',18,s.tableCell,[{kind:8}]);
-  s.children=checked(s.view,'get_Subviews',21);
+  r.navigation.metadata_checkpoint='method:visibleCount';s.visibleCount=checked(s.visibleClass,'get_Count',8);
+  r.navigation.metadata_checkpoint='method:visibleItem';s.visibleItem=checked(s.visibleClass,'get_Item',18,s.tableCell,[{kind:8}],false,true,true);
+  r.navigation.metadata_checkpoint='method:children';s.children=checked(s.view,'get_Subviews',21);
   s.iterator=f.classFromType(f.returnType(s.children.m));const owner=f.declaring(s.iterator);
   if(!f.isValueType(s.iterator)||!typeName(s.iterator,'','Iterator')||!typeName(owner,'Core.Collections.StructBased','ShortList`1')||!f.isValueType(owner))throw new Error('signature');
-  s.enumerator=checked(s.iterator,'GetEnumerator',21,s.iterator,[],true);
-  s.childCount=checked(s.iterator,'get_Count',8,null,[],true);
-  s.next=checked(s.iterator,'MoveNext',2,null,[],true);s.child=checked(s.iterator,'get_Current',18,s.view,[],true);
-  s.rowItems=s.rows.map((row,i)=>checked(row,'get_Item',18,s.rowRecords[i],[],false,false));
-  s.recordEntries=checked(s.record,'get_Items',21);s.entryList=f.classFromType(f.returnType(s.recordEntries.m));
+  r.navigation.metadata_checkpoint='method:enumerator';s.enumerator=checked(s.iterator,'GetEnumerator',21,s.iterator,[],true);
+  r.navigation.metadata_checkpoint='method:childCount';s.childCount=checked(s.iterator,'get_Count',8,null,[],true);
+  r.navigation.metadata_checkpoint='method:next';s.next=checked(s.iterator,'MoveNext',2,null,[],true);r.navigation.metadata_checkpoint='method:child';s.child=checked(s.iterator,'get_Current',18,s.view,[],true);
+  r.navigation.metadata_checkpoint='method:rowItems';s.rowItems=s.rows.map((row,i)=>checked(row,'get_Item',18,s.rowRecords[i],[],false,false));
+  r.navigation.metadata_checkpoint='method:recordEntries';s.recordEntries=checked(s.record,'get_Items',21);s.entryList=f.classFromType(f.returnType(s.recordEntries.m));
   if(f.isValueType(s.entryList)||!typeName(s.entryList,'Core.Collections','CoreList`1'))throw new Error('signature');
-  s.entryCount=checked(s.entryList,'get_Count',8);s.entryItem=checked(s.entryList,'get_Item',18,s.entry,[{kind:8}]);
-  s.promo=checked(s.record,'IsPromoEntry',2,null,[{kind:18,klass:s.entryInterface}]);
-  s.cellEntry=checked(s.cell,'get_Entry',18,s.entry);s.cellAvatar=checked(s.cell,'get_AvatarView',18,s.avatar);
-  s.entryUser=checked(s.entry,'get_User',18,s.user);s.avatarUser=checked(s.avatar,'get_User',18,s.user);
-  s.selfUser=checked(s.user,'get_IsCurrentUser',2);
-  s.currentContent=checked(s.profile,'get_CurrentProfileController',18,s.content);
-  s.contentUser=checked(s.content,'get_User',18,s.user);
-  s.open=checked(s.search,'DV.Search.SearchTableView.IDelegate.OnUserSelected',1,null,
+  r.navigation.metadata_checkpoint='method:entryCount';s.entryCount=checked(s.entryList,'get_Count',8);r.navigation.metadata_checkpoint='method:entryItem';s.entryItem=checked(s.entryList,'get_Item',18,s.entry,[{kind:8}],false,true,true);
+  r.navigation.metadata_checkpoint='method:promo';s.promo=checked(s.record,'IsPromoEntry',2,null,[{kind:18,klass:s.entryInterface}]);
+  r.navigation.metadata_checkpoint='method:cellEntry';s.cellEntry=checked(s.cell,'get_Entry',18,s.entry);r.navigation.metadata_checkpoint='method:cellAvatar';s.cellAvatar=checked(s.cell,'get_AvatarView',18,s.avatar);
+  r.navigation.metadata_checkpoint='method:entryUser';s.entryUser=checked(s.entry,'get_User',18,s.user);r.navigation.metadata_checkpoint='method:avatarUser';s.avatarUser=checked(s.avatar,'get_User',18,s.user);
+  r.navigation.metadata_checkpoint='method:selfUser';s.selfUser=checked(s.user,'get_IsCurrentUser',2);
+  r.navigation.metadata_checkpoint='method:currentContent';s.currentContent=checked(s.profile,'get_CurrentProfileController',18,s.content);
+  r.navigation.metadata_checkpoint='method:contentUser';s.contentUser=checked(s.content,'get_User',18,s.user);
+  r.navigation.metadata_checkpoint='method:open';s.open=checked(s.search,'DV.Search.SearchTableView.IDelegate.OnUserSelected',1,null,
    [{kind:18,klass:s.entry},{kind:2},{kind:18,klass:s.resource}]);
-  return s;
+  r.navigation.metadata_checkpoint='ready';return s;
  }
 '''
 TICK=r'''
@@ -164,9 +170,11 @@ def build():
     helpers=replace_once(helpers,"['canClose','card','get_CanBeClosedByUser',2],",'')
     helpers=replace_once(helpers,"['open','search','ShowSearchSettings',1],['cancel','card','DismissWithCancel',1]", "['cancel','profile','DV.Profiles.ProfileViewController.IDelegate.OnCloseRequested',1]")
     helpers=replace_once(helpers,'  return s;\n }','  return prepareProfile(f,s,getClass,get,signature);\n }')
-    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "selection_status:'not-checked',target_user_verified:false,profile_content_verified:false,action_backend:'semantic-controller-handlers',ui_text_read:false")
+    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "metadata_checkpoint:'base',selection_status:'not-checked',target_user_verified:false,profile_content_verified:false,action_backend:'semantic-controller-handlers',ui_text_read:false")
     helpers=replace_once(helpers,"if(entry.arity===1){if(!f.classFromType", "if(entry.params){for(let i=0;i<entry.params.length;i++){const t=f.param(m,i),a=entry.params[i];if(t.isNull()||f.byref(t)||f.typeKind(t)!==a.kind||(a.klass&&!f.classFromType(t).equals(a.klass)))fail('signature-mismatch');}if(entry.result&&!f.classFromType(f.returnType(m)).equals(entry.result))fail('signature-mismatch');}\n   else if(entry.arity===1){if(!f.classFromType")
+    helpers=replace_once(helpers,"||f.byref(f.returnType(m)))fail('signature-mismatch');","||!!f.byref(f.returnType(m))!==!!entry.byref)fail('signature-mismatch');")
     helpers=replace_once(helpers,'const out=f.invoke(m,obj,params,ex);',"let receiver=obj;if(entry.unboxed){receiver=f.unbox(obj);if(receiver.isNull())fail('signature-mismatch');}\n   const out=f.invoke(m,receiver,params,ex);")
+    helpers=replace_once(helpers,"if(!ex.readPointer().isNull())fail('managed-exception');return out;","if(!ex.readPointer().isNull())fail('managed-exception');if(entry.byref&&!out.isNull()&&!f.assignable(entry.result,f.objectClass(out)))fail('unexpected-object');return out;")
     helpers=replace_once(helpers,'const held=[];const deadline=Date.now()+100;', 'const held=[];const heldByObject=new Map();const deadline=Date.now()+100;')
     helpers=replace_once(helpers,"if(obj.isNull())fail('unexpected-object');if(held.length>=64)", "if(obj.isNull())fail('unexpected-object');const key=obj.toString();if(heldByObject.has(key))return heldByObject.get(key);if(held.length>=64)")
     helpers=replace_once(helpers,'held.push(h);return h;', 'held.push(h);heldByObject.set(key,h);return h;')
@@ -193,8 +201,9 @@ def validate(value):
     import copy
     out=copy.deepcopy(value);n=out['navigation']
     flags={'cleanup_failed','search_verified','profile_verified','return_verified','open_attempted','open_completed','close_attempted','close_completed','ui_text_read'}
-    fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','selection_status','target_user_verified','profile_content_verified'}
+    fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','selection_status','target_user_verified','profile_content_verified','metadata_checkpoint'}
     if set(n)!=fields:raise ValueError('Unexpected profile fields')
+    if n.pop('metadata_checkpoint',None) not in METADATA_CHECKPOINTS:raise ValueError('Unexpected metadata checkpoint')
     if n.get('phase') not in {'search','wait-profile','confirm-profile','wait-return','done'}:raise ValueError('Unexpected profile phase')
     path=n.get('controller_path')
     kinds=base.KINDS-{'filters'}|{'profile'}

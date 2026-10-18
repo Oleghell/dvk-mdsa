@@ -31,18 +31,18 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
             timer=threading.Timer(.01,cancel);timer.start()
         value=validate(script.exports_sync.probe());n=value['navigation'];c=script.exports_sync.counts()
         actual=n['stage'] if n['stage'] in ('navigation-ready','not-attempted') else n['error']
-        expected={130:'navigation-ready',135:'selection-changed',138:'identity-changed',139:'unexpected-object',140:'identity-changed',141:'managed-exception',143:'managed-exception',145:'not-attempted',146:'not-attempted',147:'not-attempted',148:'cancelled',149:'cancelled',150:'navigation-ready',151:'navigation-ready',152:'cancelled',153:'selection-changed',154:'selection-limit',155:'selection-limit',156:'unexpected-object',157:'selection-changed',158:'wrong-screen',159:'identity-changed'}
+        expected={130:'navigation-ready',135:'selection-changed',138:'identity-changed',139:'unexpected-object',140:'identity-changed',141:'managed-exception',143:'managed-exception',145:'not-attempted',146:'not-attempted',147:'not-attempted',148:'cancelled',149:'cancelled',150:'navigation-ready',151:'navigation-ready',152:'cancelled',153:'selection-changed',154:'selection-limit',155:'selection-limit',156:'unexpected-object',157:'selection-changed',158:'wrong-screen',159:'identity-changed',170:'navigation-ready',171:'navigation-ready',172:'navigation-ready',173:'not-attempted',174:'not-attempted',175:'unexpected-object',176:'signature-mismatch',177:'not-attempted',178:'not-attempted',179:'not-attempted'}
         if mode in expected:assert actual==expected[mode],(mode,n,c,value['stage'])
         else:assert actual in ('frame-limit','call-limit','transition-timeout'),(mode,n,c)
         assert c['handles']==c['bad']==c['off']==c['wrong']==0,(mode,n,c)
         assert c['calls']==value['managed_calls']+n['managed_calls'],(mode,n,c)
         assert n['handles_acquired']==n['handles_released'],(mode,n,c)
         assert c['opens']<=1 and c['closes']<=1,(mode,c)
-        if mode in (130,150,151):
+        if mode in (130,150,151,170,171,172):
             assert c['opens']==c['closes']==1,(mode,c)
             assert n['profile_verified'] and n['profile_content_verified'] and n['target_user_verified'] and n['return_verified'],n
             assert n['selection_status']=='selected',n
-        if mode in (131,132,133,134,135,136,145,146,147,149,152,153,154,155,157,158):assert c['opens']==c['closes']==0,(mode,c)
+        if mode in (131,132,133,134,135,136,145,146,147,149,152,153,154,155,157,158,173,174,175,176,177,178,179):assert c['opens']==c['closes']==0,(mode,c)
         if mode in (137,138,139,140,141,142,148):assert c['opens']==1 and c['closes']==0,(mode,c)
         assert not any(s in json.dumps(value) for s in ('0x','private-text','token'))
         print('Synthetic profile',mode,actual,flush=True)
@@ -60,5 +60,5 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         child.stdout.close();child.stderr.close()
 
 if __name__=='__main__':
-    for mode in range(130,160):one(Path(sys.argv[1]).resolve(strict=True),mode)
+    for mode in list(range(130,160))+list(range(170,180)):one(Path(sys.argv[1]).resolve(strict=True),mode)
     print('Synthetic profile ABI passed; live MuMu profile workflow NOT yet tested.')

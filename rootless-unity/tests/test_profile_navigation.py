@@ -12,7 +12,7 @@ from test_uikit_root import ready_uikit
 def ready_profile():
     value=ready_navigation();n=value['navigation']
     for old,new in [('filters_verified','profile_verified'),('cancel_attempted','close_attempted'),('cancel_completed','close_completed')]:n[new]=n.pop(old)
-    n.update(selection_status='selected',target_user_verified=True,profile_content_verified=True)
+    n.update(metadata_checkpoint='ready',selection_status='selected',target_user_verified=True,profile_content_verified=True)
     return value
 
 class ProfileFake(FakeFrida):
@@ -52,11 +52,22 @@ class ProfileSchema(unittest.TestCase):
         for name in ('frameBusy','pendingFinish','fixedCancellationRequested',"['content','targetUser','card','origin']",'heldByObject',"f.keep(obj,1)"):
             self.assertIn(name,p.FUNCTION)
 
+    def test_ref_returns_only_for_two_typed_indexers(self):
+        self.assertEqual(p.FUNCTION.count('false,true,true);'),2)
+        self.assertIn('byref&&!(allowReferenceReturn&&kind===18&&result!==null&&!f.isValueType(result))',p.FUNCTION)
+        self.assertIn('!!f.byref(f.returnType(m))!==!!entry.byref',p.FUNCTION)
+        self.assertIn("if(entry.byref&&!out.isNull()&&!f.assignable(entry.result,f.objectClass(out)))",p.FUNCTION)
+        self.assertNotIn('out.readPointer()',p.FUNCTION)
+    def test_metadata_checkpoint_closed(self):
+        for v in ('private-user',None,123):
+            x=ready_profile();x['navigation']['metadata_checkpoint']=v
+            with self.assertRaises(ValueError):p.validate(x)
+
 class ProfileTransport(unittest.TestCase):
     def test_fixed_profile_script_and_cleanup(self):
         f=ProfileFake();result=d.inspect_gadget(37149,'a'*64,lambda:False,frida_api=f,profile_probe=True)
         self.assertEqual(result['stage'],'navigation-ready');self.assertTrue(result['rpc_root_ok'])
-        self.assertEqual(f.script_name,'dvk-uikit-profile-navigation-0.3.0')
+        self.assertEqual(f.script_name,'dvk-uikit-profile-navigation-0.3.2')
         self.assertIn('rpc.exports.cancel',f.script_source);self.assertNotIn('rpc.exports.click',f.script_source)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
     def test_no_retry_after_possible_profile_action(self):
@@ -82,7 +93,7 @@ class ProfileTransport(unittest.TestCase):
                 folder=Path(temp)/'test-apks';folder.mkdir();old=folder.parent/'rootless-navigation-0.2.3.json';old.write_text('keep')
                 with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                     result,path=d.diagnose(Adb(),folder,inspector=lambda *a:gadget,profile_probe=True)
-                self.assertEqual(path.name,'rootless-profile-navigation-0.3.0.json');self.assertEqual(old.read_text(),'keep')
+                self.assertEqual(path.name,'rootless-profile-navigation-0.3.2.json');self.assertEqual(old.read_text(),'keep')
                 self.assertEqual(result['mode'],'uikit-search-profile-return');self.assertEqual(result['profile_may_remain_open'],not success)
                 self.assertNotIn('filters_may_remain_open',result)
                 self.assertEqual(result['target'],'127.0.0.1:5563');self.assertEqual(result['working_instance'],'127.0.0.1:5555')
