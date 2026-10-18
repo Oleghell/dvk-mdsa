@@ -96,7 +96,7 @@ class Commands(unittest.TestCase):
             p.touch()
             reader = m.AdbReader(str(p))
             def fake(command, **kwargs):
-                self.assertEqual(command, [str(p), 'version'])
+                self.assertEqual(command, [str(p.resolve()), 'version'])
                 self.assertFalse(kwargs['shell'])
                 self.assertEqual(kwargs['env']['ADB_SERVER_SOCKET'], 'tcp:localhost:5037')
                 self.assertNotIn('ANDROID_SERIAL', kwargs['env'])
@@ -169,7 +169,7 @@ class Export(unittest.TestCase):
                     self.assertEqual(item['sha256'], hashlib.sha256(data).hexdigest())
                     self.assertEqual(item['size_bytes'], len(data))
             self.assertEqual(reader.path_reads, 2)
-            self.assertEqual(list(Path(temp).iterdir()), [output])
+            self.assertEqual([p.resolve() for p in Path(temp).iterdir()], [output])
 
     def test_failure_cleans_staging(self):
         with tempfile.TemporaryDirectory() as temp:
