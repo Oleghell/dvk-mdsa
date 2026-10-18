@@ -18,6 +18,10 @@ static Class nc[]={
  {"DV.Search","SearchSettingsCardController"},{"Fixture","Other"},
  {"DV","RootViewController"},{"DV","MainTabsController"},{"DV.Common","DVContainerViewController"},
  {"UIKit","UIContainerViewController"},{"DV.Common","DVNavigationController"},{"UIKit","UINavigationController"}};
+static Class modal_class={"Core.Collections","ReadOnlyList`1"};
+static Type tint={8},tmodal={21,&modal_class};
+static Object modal_list={&modal_class,0};
+static int modal_reads;
 static Type tvc={18,&nc[1]},tview={18,&nc[0]},tnav={18,&nc[12]};
 static Method nm[]={
  {"get_RootViewController",&classes[1],0,&tvc,10},
@@ -42,17 +46,22 @@ static Method nm[]={
  {"get_CurrentViewController",&nc[10],64,&tvc,29},
  {"get_InTransition",&nc[11],0,&tbool,30},
  {"get_InTransition",&nc[12],0,&tbool,31},
- {"HasPresentedViewControllers",&nc[1],0,&tbool,32}};
+ {"HasPresentedViewControllers",&nc[1],0,&tbool,32},
+ {"get_PresentedViewControllers",&nc[1],0,&tmodal,33},
+ {"get_NearestPresentingViewController",&nc[1],0,&tvc,34},
+ {"get_Count",&modal_class,0,&tint,35},
+ {"get_Item",&modal_class,64,&tvc,36,1,&tint}};
 static Object search={&nc[4],0},filters={&nc[5],0},other={&nc[6],0},view={&nc[0],0},boolbox={NULL,0},replacement={&nc[4],0};
 static Object app_root={&nc[7],0},tabs={&nc[8],0},dv_container={&nc[9],0},ui_container={&nc[10],0},dv_nav={&nc[11],0},ui_nav={&nc[12],0},deep[14];
+static Object other_filters={&nc[5],0};
 static Object view_chain[35],other_window={&classes[1],0};
 static int phase,opens,cancels,virtual_calls,hidden_reads;
-static void tree_init(int m){int i;phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
+static void tree_init(int m){int i;modal_reads=0;phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
 static Class *tree_class(Image *im,const char *ns,const char *name){int i;for(i=0;i<13;i++){
  Image *want=(i<2||i==10||i==12)?&images[0]:(i<4||i>=7)?&images[3]:&nav_image;
  if(im==want&&!strcmp(ns,nc[i].ns)&&!strcmp(name,nc[i].name))return &nc[i];}return NULL;}
-static Method *tree_method(Class *c,const char *name,int arity){int i;if(arity!=0)return NULL;
- for(i=0;i<23;i++)if(c==nm[i].klass&&!strcmp(name,nm[i].name))return &nm[i];return NULL;}
+static Method *tree_method(Class *c,const char *name,int arity){int i;
+ for(i=0;i<27;i++)if(arity==nm[i].arity&&c==nm[i].klass&&!strcmp(name,nm[i].name))return &nm[i];return NULL;}
 static unsigned char tree_assignable(Class *a,Class *b){
  if(a==&nc[0])return b==&nc[0]||b==&classes[1];
  if(a==&nc[1])return (uintptr_t)b>=(uintptr_t)&nc[1]&&(uintptr_t)b<=(uintptr_t)&nc[12];
@@ -60,11 +69,18 @@ static unsigned char tree_assignable(Class *a,Class *b){
  if(a==&nc[12])return b==&nc[11]||b==&nc[12];
  if(a==&nc[2])return b==&nc[2]||b==&nc[4];
  if(a==&nc[3])return b==&nc[3]||b==&nc[5];return 0;}
-static void *tree_unbox(Object *o){(void)o;return NULL;}
+static int modal_count;static Object countbox={NULL,0};
+static void *tree_unbox(Object *o){return o==&countbox?&modal_count:NULL;}
+API unsigned char il2cpp_class_is_valuetype(Class *c){return mode==113&&c==&modal_class;}
+API const char *il2cpp_class_get_name(Class *c){return mode==114&&c==&modal_class?"OtherList":c->name;}
+API const char *il2cpp_class_get_namespace(Class *c){return c->ns;}
+API Image *il2cpp_class_get_image(Class *c){(void)c;return &images[0];}
+API Type *il2cpp_method_get_param(Method *m,unsigned int n){return n==0?m->param:NULL;}
 API Class *il2cpp_method_get_class(Method *m){return m->klass;}
 API unsigned char il2cpp_type_is_byref(Type *t){(void)t;return 0;}
 API Class *il2cpp_class_from_type(Type *t){return t->klass;}
 API Method *il2cpp_object_get_virtual_method(Object *o,Method *m){(void)o;virtual_calls++;return m;}
+API int fixture_modal_reads(void){return modal_reads;}
 API int fixture_opens(void){return opens;}
 API int fixture_cancels(void){return cancels;}
 API int fixture_virtual_calls(void){return virtual_calls;}
@@ -79,7 +95,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  if(mode==67&&m->action==15){*exc=&exception;return NULL;}
  switch(m->action){
  case 10:if(mode==77)slow();return mode>=80?&app_root:active();
- case 11:if(mode==88)return &view;return (mode==72||phase!=1||mode==87)?NULL:&view;
+ case 11:if(mode>=98)return NULL;if(mode==88)return &view;return (mode==72||phase!=1||mode==87)?NULL:&view;
  case 12:if(obj==&app_root)return mode==81?&dv_nav:&ui_nav;return NULL;
  case 13:return mode==88?&other:active();
  case 14:yes=mode!=96;break;
@@ -97,7 +113,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 24:yes=mode!=92&&phase==1;break;
  case 25:return mode==81?&dv_nav:&ui_nav;
  case 26:yes=0;break;
- case 27:return mode==82?&other:mode==83?NULL:active();
+ case 27:if(mode>=98)return &search;return mode==82?&other:mode==83?NULL:active();
  case 28:return &ui_container;
  case 29:
   if(mode==84)return obj==&ui_nav?&ui_container:&ui_nav;
@@ -105,7 +121,31 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
   if(mode==81){if(obj==&dv_nav)return &dv_container;if(obj==&ui_container)return &tabs;}
   return &tabs;
  case 30:case 31:yes=mode==86;break;
- case 32:yes=mode==87||(obj==&app_root&&phase==1);break;
+ case 32:yes=mode==87||((obj==&app_root||obj==&search)&&phase==1);break;
+ case 33:
+  if(mode<98)return NULL;
+  if(phase!=1)return NULL;
+  if(mode==115&&obj==&filters)return &modal_list;
+  if(mode==100)return obj==&search?&modal_list:NULL;
+  if(mode==101)return obj==&tabs?&modal_list:NULL;
+  if(mode==117)return obj==&dv_container?&modal_list:NULL;
+  if(mode==102||mode==116)return NULL;
+  return obj==&app_root?&modal_list:NULL;
+ case 34:if(mode==117)return &dv_container;return mode>=98?&app_root:(Object *)obj;
+ case 35:
+  modal_reads++;modal_count=1;
+  if(mode==118)slow();if(mode==121)return NULL;
+  if(mode==103)modal_count=2;if(mode==104)modal_count=-1;if(mode==105)modal_count=9;
+  if(mode==106&&modal_reads%2==0)modal_count=0;
+  return &countbox;
+ case 36:
+  if(mode==119){*exc=&exception;return NULL;}
+  if(mode==120&&modal_reads>=3)return &other_filters;
+  if(!args||!args[0]||*(int *)args[0]!=0){*exc=&exception;return NULL;}
+  if(mode==107)return NULL;if(mode==99)return &other;
+  if(mode==108&&modal_reads%2==0)return &other;
+  if(mode==115)return &filters;
+  return &filters;
  case 23:cancels++;if(mode==74){*exc=&exception;return NULL;}if(mode!=75)phase=2;return NULL;
  }
  boolbox.value=(unsigned char)yes;return &boolbox;

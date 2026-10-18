@@ -10,7 +10,7 @@ MAX_CALLS=6000
 ERRORS={'cancelled','none','wrong-screen','screen-not-ready','unexpected-screen','identity-changed',
         'transition-timeout','frame-limit','call-limit','frame-budget','managed-exception',
         'signature-mismatch','unexpected-object','handle-allocation-failed','native-call-failed',
-        'observer-stopped','cleanup-failed','controller-cycle','controller-depth-limit','presentation-not-resolved','view-parent-cycle','view-parent-depth-limit'}
+        'observer-stopped','cleanup-failed','controller-cycle','controller-depth-limit','presentation-not-resolved','view-parent-cycle','view-parent-depth-limit','modal-ambiguous','modal-count-invalid','modal-changed','handle-limit'}
 PHASES={'search','wait-filters','confirm-filters','wait-return','done'}
 KINDS={'not-checked','none','search','filters','other','root','main-tabs','dv-container','ui-container','dv-navigation','ui-navigation'}
 HELPERS=r'''
@@ -52,14 +52,30 @@ HELPERS=r'''
    ['uiCurrent','uiContainer','get_CurrentViewController',18,'vc'],
    ['dvTransition','dvNav','get_InTransition',2],['uiTransition','uiNav','get_InTransition',2],
    ['hasPresented','vc','HasPresentedViewControllers',2],
+   ['presented','vc','get_PresentedViewControllers',21],
+   ['nearestPresenter','vc','get_NearestPresentingViewController',18,'vc'],
    ['open','search','ShowSearchSettings',1],['cancel','card','DismissWithCancel',1]];
   for(const [key,owner,name,kind,result] of specs){
    const klass=owner==='window'?getClass('Core.dll','UIKit','UIWindow'):s[owner];
    const m=get(klass,name);
    if(!signature(m,false,kind)||!f.methodClass(m).equals(klass)||f.byref(f.returnType(m)))throw new Error('signature');
    if(result&&!f.assignable(s[result],f.classFromType(f.returnType(m))))throw new Error('return-type');
-   s[key]={m,klass,kind};
+   s[key]={m,klass,kind,arity:0};
   }
+  // Exact declared reference collection; never treat it as a boxed iterator.
+  const klass=f.classFromType(f.returnType(s.presented.m));
+  const small=p=>{if(p.isNull())return '';let value='';for(let i=0;i<96;i++){const c=p.add(i).readU8();if(c===0)return value;if(c<32||c>126)throw new Error('signature');value+=String.fromCharCode(c);}throw new Error('signature');};
+  if(klass.isNull()||f.isValueType(klass)||small(f.className(klass))!=='ReadOnlyList`1'||
+     small(f.classNamespace(klass))!=='Core.Collections'||small(f.imageName(f.classImage(klass)))!=='Core.dll')throw new Error('signature');
+  s.modalClass=klass;
+  const count=f.method(klass,Memory.allocUtf8String('get_Count'),0);
+  const item=f.method(klass,Memory.allocUtf8String('get_Item'),1);
+  if(!signature(count,false,8)||!f.methodClass(count).equals(klass)||f.byref(f.returnType(count)))throw new Error('signature');
+  const bits=Memory.alloc(4);bits.writeU32(0);
+  if(item.isNull()||f.arity(item)!==1||(f.flags(item,bits)&(16|1024))!==0||!f.methodClass(item).equals(klass)||
+     f.typeKind(f.returnType(item))!==18||f.byref(f.returnType(item))||!f.classFromType(f.returnType(item)).equals(s.vc))throw new Error('signature');
+  const param=f.param(item,0);if(param.isNull()||f.typeKind(param)!==8||f.byref(param))throw new Error('signature');
+  s.modalCount={m:count,klass,kind:8,arity:0};s.modalItem={m:item,klass,kind:18,arity:1};
   return s;
  }
  function navigationTick(f,s,window,n,state){
@@ -67,23 +83,24 @@ HELPERS=r'''
   n.readiness_check='not-checked';n.view_parent_depth=0;n.readiness={has_view:null,is_presented:null,hidden:null,interactive:null,attached_to_main_window:null};
   const fail=e=>{throw e;};
   const own=obj=>{
-   if(obj.isNull())fail('unexpected-object');const h=f.keep(obj,1);
+   if(obj.isNull())fail('unexpected-object');if(held.length>=64)fail('handle-limit');const h=f.keep(obj,1);
    if(h.isNull())fail('handle-allocation-failed');n.handles_acquired++;held.push(h);return h;
   };
   const target=h=>{const obj=f.target(h);if(obj.isNull())fail('unexpected-object');return obj;};
-  const call=(entry,obj)=>{
+  const call=(entry,obj,params=ptr(0))=>{
    if(state.stop!==null)fail(state.stop);if(fixedCancellationRequested)fail('cancelled');
    if(Date.now()>deadline)fail('frame-budget');if(n.managed_calls>=6000)fail('call-limit');
    if(obj.isNull()||!f.assignable(entry.klass,f.objectClass(obj)))fail('unexpected-object');
    let m=entry.m;const flags=Memory.alloc(4);flags.writeU32(0);
    if((f.flags(m,flags)&64)!==0){
-    m=f.virtualMethod(obj,m);if(m.isNull()||f.arity(m)!==0||f.typeKind(f.returnType(m))!==entry.kind||f.byref(f.returnType(m)))fail('signature-mismatch');
+    m=f.virtualMethod(obj,m);if(m.isNull()||f.arity(m)!==entry.arity||f.typeKind(f.returnType(m))!==entry.kind||f.byref(f.returnType(m)))fail('signature-mismatch');
     const owner=f.methodClass(m);if(owner.isNull()||!f.assignable(owner,f.objectClass(obj)))fail('signature-mismatch');
    }
+   if(entry.arity===1){if(!f.classFromType(f.returnType(m)).equals(s.vc))fail('signature-mismatch');const p=f.param(m,0);if(p.isNull()||f.typeKind(p)!==8||f.byref(p))fail('signature-mismatch');}
    const flags2=Memory.alloc(4);flags2.writeU32(0);
    if((f.flags(m,flags2)&(16|1024))!==0)fail('signature-mismatch');
    const ex=Memory.alloc(8);ex.writePointer(ptr(0));n.managed_calls++;
-   const out=f.invoke(m,obj,ptr(0),ex);if(!ex.readPointer().isNull())fail('managed-exception');return out;
+   const out=f.invoke(m,obj,params,ex);if(!ex.readPointer().isNull())fail('managed-exception');return out;
   };
   const bool=(entry,obj)=>{
    const b=call(entry,obj);if(b.isNull())fail('signature-mismatch');
@@ -98,6 +115,22 @@ HELPERS=r'''
     if(f.assignable(s[key],klass))return label;
    return 'other';
   };
+  const modal=current=>{
+   const list=call(s.presented,current);if(list.isNull())return ptr(0);
+   own(list);if(!f.objectClass(list).equals(s.modalClass))fail('unexpected-object');
+   const count=()=>{const b=call(s.modalCount,list);if(b.isNull())fail('signature-mismatch');const p=f.unbox(b);if(p.isNull())fail('signature-mismatch');return p.readS32();};
+   const length=count();if(length<0||length>8)fail('modal-count-invalid');
+   if(length===0)return ptr(0);
+   n.readiness_check='modal-list';
+   // No stack-order guess: only one exact, stable controller is actionable.
+   if(length!==1)fail('modal-ambiguous');
+   const index=Memory.alloc(4);index.writeS32(0);const params=Memory.alloc(Process.pointerSize);params.writePointer(index);
+   const item=call(s.modalItem,list,params);if(item.isNull())fail('unexpected-object');own(item);
+   if(!f.assignable(s.vc,f.objectClass(item)))fail('unexpected-object');
+   if(count()!==length)fail('modal-changed');
+   const again=call(s.modalItem,list,params);if(!again.equals(item))fail('modal-changed');
+   return item;
+  };
   const resolve=current=>{
    const seen=new Set();n.controller_path=[];
    for(let depth=0;depth<12;depth++){
@@ -105,14 +138,24 @@ HELPERS=r'''
     const h=own(current),key=target(h).toString();
     if(seen.has(key))fail('controller-cycle');seen.add(key);
     const k=kind(current);n.controller_path.push(k);
-    if(k==='search'||k==='filters')return current;
     if(k==='other')fail(n.phase==='search'?'wrong-screen':'unexpected-screen');
     if(bool(s.presenting,current)||bool(s.dismissing,current))return ptr(0);
+    const presented=modal(current);
+    if(!presented.isNull()){current=presented;continue;}
+    if(k==='search'||k==='filters'){
+     // A selected search tab can delegate presentation to an owner outside its
+     // container path. Resolve that owner's real collection, not a screen tap.
+     if(k==='search'&&bool(s.hasPresented,current)){
+      const owner=call(s.nearestPresenter,current);if(owner.isNull())fail('presentation-not-resolved');own(owner);
+      const pending=modal(owner);
+      if(pending.isNull()){n.readiness_check='modal-pending';if(n.phase==='search')fail('presentation-not-resolved');return ptr(0);}
+      current=pending;continue;
+     }
+     return current;
+    }
     if(k==='root'&&bool(s.loading,current))return ptr(0);
     if(k==='dv-navigation'&&bool(s.dvTransition,current))return ptr(0);
     if(k==='ui-navigation'&&bool(s.uiTransition,current))return ptr(0);
-    // An unresolved modal must never be mistaken for its background search tab.
-    if(bool(s.hasPresented,current)){n.readiness_check='modal-pending';if(n.phase==='search')fail('presentation-not-resolved');return ptr(0);}
     const entry=k==='root'?s.rootNav:k==='main-tabs'?s.tabCurrent:
      k==='dv-container'?s.dvCurrent:s.uiCurrent;
     current=call(entry,current);
@@ -143,15 +186,14 @@ HELPERS=r'''
    const root=call(s.windowRoot,window);own(root);
    const rootTop=call(s.top,root);if(!rootTop.isNull())own(rootTop);n.root_top_kind=kind(rootTop);
    const last=call(s.lastView,window);n.last_presented_kind='none';
-   let candidate=rootTop.isNull()?root:rootTop;
+   let candidate=root;
    if(!last.isNull()){
     own(last);n.readiness_check='presented-view';n.readiness.hidden=bool(s.hidden,last);n.readiness.interactive=bool(s.interactive,last);if(n.readiness.hidden||!n.readiness.interactive)return;
     candidate=call(s.viewController,last);if(candidate.isNull())fail('unexpected-object');own(candidate);
     n.last_presented_kind=kind(candidate);
-   }else if(bool(s.hasPresented,root)){n.readiness_check='modal-pending';if(n.phase==='search')fail('presentation-not-resolved');return;}
+   }
    const current=resolve(candidate);if(current.isNull())return;
    const k=kind(current);
-   if(k==='search'&&bool(s.hasPresented,current)){n.readiness_check='modal-pending';if(n.phase==='search')fail('presentation-not-resolved');return;}
    if(n.phase==='search'&&k!=='search')fail('wrong-screen');
    if(n.phase!=='search'&&!['search','filters'].includes(k))fail('unexpected-screen');
    if(bool(s.presenting,current)||bool(s.dismissing,current))return;
@@ -192,10 +234,13 @@ HELPERS=r'''
  }
 '''
 APIS=['il2cpp_method_get_class','il2cpp_type_is_byref','il2cpp_class_from_type',
-      'il2cpp_gchandle_get_target','il2cpp_object_get_virtual_method']
+      'il2cpp_gchandle_get_target','il2cpp_object_get_virtual_method',
+      'il2cpp_method_get_param','il2cpp_class_is_valuetype','il2cpp_class_get_name','il2cpp_class_get_namespace','il2cpp_class_get_image']
 BINDINGS="""Object.assign(f,{
  methodClass:bind('method_get_class','pointer',['pointer']),byref:bind('type_is_byref','bool',['pointer']),
  classFromType:bind('class_from_type','pointer',['pointer']),target:bind('gchandle_get_target','pointer',['pointer']),
+ param:bind('method_get_param','pointer',['pointer','uint']),isValueType:bind('class_is_valuetype','bool',['pointer']),
+ className:bind('class_get_name','pointer',['pointer']),classNamespace:bind('class_get_namespace','pointer',['pointer']),classImage:bind('class_get_image','pointer',['pointer']),
  virtualMethod:bind('object_get_virtual_method','pointer',['pointer','pointer'])});"""
 FUNCTION=build_function(extra_apis=APIS,helpers=HELPERS.replace('__NAV_ERRORS__',__import__('json').dumps(sorted(ERRORS))),
  init='r.navigation=emptyNavigation();const navState={origin:ptr(0),card:ptr(0),stop:null};',
@@ -241,7 +286,7 @@ def validate(value):
     if not isinstance(path,list) or len(path)>12 or any(type(k) is not str or k not in KINDS-{'not-checked','none'} for k in path):raise ValueError('Invalid controller path')
     readiness=n['readiness']
     if not isinstance(readiness,dict) or set(readiness)!={'has_view','is_presented','hidden','interactive','attached_to_main_window'} or any(v is not None and type(v) is not bool for v in readiness.values()):raise ValueError('Invalid readiness flags')
-    if n['readiness_check'] not in {'not-checked','has-view','view-hidden','view-interactive','view-parent-chain','ready','presented-view','modal-pending'}:raise ValueError('Invalid readiness step')
+    if n['readiness_check'] not in {'not-checked','has-view','view-hidden','view-interactive','view-parent-chain','ready','presented-view','modal-pending','modal-list'}:raise ValueError('Invalid readiness step')
     if type(n['view_parent_depth']) is not int or not 0<=n['view_parent_depth']<32:raise ValueError('Invalid parent depth')
     if n['stage']=='navigation-ready' and (n['readiness_check']!='ready' or readiness['has_view'] is not True or readiness['hidden'] is not False or readiness['interactive'] is not True or readiness['attached_to_main_window'] is not True):raise ValueError('Navigation without ready attached view')
     chain=['search_verified','open_attempted','open_completed','filters_verified','cancel_attempted','cancel_completed','return_verified']

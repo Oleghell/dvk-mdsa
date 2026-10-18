@@ -93,7 +93,7 @@ class NavigationTransport(unittest.TestCase):
                 previous=folder.parent/'rootless-diagnostics-0.1.8.json';previous.write_text('keep')
                 with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                     result,path=d.diagnose(Adb(),folder,inspector=lambda *a:gadget,navigation_probe=True)
-                self.assertEqual(path.name,'rootless-navigation-0.2.2.json');self.assertEqual(previous.read_text(),'keep')
+                self.assertEqual(path.name,'rootless-navigation-0.2.3.json');self.assertEqual(previous.read_text(),'keep')
                 self.assertTrue(result['ui_actions_attempted'] and result['ui_actions_performed'])
                 self.assertEqual(result['filters_may_remain_open'],not complete)
                 for flag in ('root_used','ocr_used','working_device_modified','app_installation_modified','ui_text_read'):self.assertFalse(result[flag])
@@ -111,7 +111,7 @@ class ActiveControllerRegression(unittest.TestCase):
             self.assertIn(method,n.FUNCTION)
         self.assertNotIn('get_ChildViewControllers',n.FUNCTION)
         self.assertNotIn('get_Subviews',n.FUNCTION)
-        self.assertIn("if(k==='search'||k==='filters')return current;",n.FUNCTION)
+        self.assertIn("if(k==='search'||k==='filters'){",n.FUNCTION)
     def test_hierarchy_limits_and_no_guessing(self):
         self.assertIn('controller-cycle',n.FUNCTION)
         self.assertIn('depth<12',n.FUNCTION)
@@ -134,3 +134,22 @@ class ViewReadinessRegression(unittest.TestCase):
             with self.assertRaises(ValueError):n.validate(v)
         v=ready_navigation();v['navigation']['readiness']['private']='data'
         with self.assertRaises(ValueError):n.validate(v)
+
+class ModalControllerRegression(unittest.TestCase):
+    def test_exact_reference_collection_and_typed_index(self):
+        for required in ('get_PresentedViewControllers','get_NearestPresentingViewController','ReadOnlyList`1',
+                         "f.objectClass(list).equals(s.modalClass)","f.typeKind(param)!==8",'params.writePointer(index)',
+                         's.modalCount','s.modalItem'):
+            self.assertIn(required,n.FUNCTION)
+        self.assertNotIn('f.unbox(list)',n.FUNCTION)
+        self.assertNotIn('GetEnumerator',n.FUNCTION)
+    def test_no_implicit_stack_order_or_unbounded_scan(self):
+        for required in ("if(length!==1)fail('modal-ambiguous')", "if(count()!==length)fail('modal-changed')",
+                         "if(!again.equals(item))fail('modal-changed')", 'length<0||length>8',
+                         'held.length>=64', 'let candidate=root;', 'const presented=modal(current);'):
+            self.assertIn(required,n.FUNCTION)
+        self.assertLess(n.FUNCTION.index('const presented=modal(current);'),n.FUNCTION.index("if(k==='search'||k==='filters'){"))
+    def test_fixed_modal_error_vocabulary(self):
+        for reason in ('modal-ambiguous','modal-count-invalid','modal-changed','handle-limit'):
+            v=ready_navigation();v['navigation'].update(stage='navigation-stopped',error=reason)
+            n.validate(v)
