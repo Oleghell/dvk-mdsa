@@ -1,10 +1,10 @@
-# Current test: semantic navigation 0.2.0
+# Current test: semantic navigation 0.2.1
 
-See [NAVIGATION-0.2.0.md](NAVIGATION-0.2.0.md) for the separate consented
+See [NAVIGATION-0.2.1.md](NAVIGATION-0.2.1.md) for the separate consented
 search → open filters → cancel → verify return workflow on the existing MuMu #4.
 No OCR, coordinates, root, reinstall, messages or changes to working #0.
 It invokes two existing UIKit UI handlers, not Android Accessibility clicks.
-Live navigation still requires the user's first 0.2.0 report; 0.1.8 proved structure only.
+Live navigation still requires the user's first 0.2.1 report; 0.1.8 proved structure only.
 Older preparation/diagnostic utilities below remain available, but are not the current navigation entry point.
 
 ---

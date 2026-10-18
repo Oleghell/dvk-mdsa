@@ -15,7 +15,7 @@ def ready_navigation():
       'managed_calls':70,'handles_acquired':26,'handles_released':26,'cleanup_failed':False,
       'search_verified':True,'filters_verified':True,'return_verified':True,
       'open_attempted':True,'open_completed':True,'cancel_attempted':True,'cancel_completed':True,
-      'root_top_kind':'search','last_presented_kind':'none','action_backend':'semantic-controller-handlers','ui_text_read':False}
+      'root_top_kind':'search','last_presented_kind':'none','controller_path':['search'],'action_backend':'semantic-controller-handlers','ui_text_read':False}
     return root
 
 class NavigationSchema(unittest.TestCase):
@@ -48,6 +48,7 @@ class NavigationSchema(unittest.TestCase):
         self.assertIn("keep:bind('gchandle_new','pointer',['pointer','bool'])",n.FUNCTION)
         self.assertIn("f.keep(obj,1)",n.FUNCTION)
         self.assertNotIn('setInterval',n.FUNCTION)
+        self.assertIn("get_CurrentViewController",n.FUNCTION)
 
 class NavFake(FakeFrida):
     def create_script(self,source,name):
@@ -91,9 +92,27 @@ class NavigationTransport(unittest.TestCase):
                 previous=folder.parent/'rootless-diagnostics-0.1.8.json';previous.write_text('keep')
                 with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                     result,path=d.diagnose(Adb(),folder,inspector=lambda *a:gadget,navigation_probe=True)
-                self.assertEqual(path.name,'rootless-navigation-0.2.0.json');self.assertEqual(previous.read_text(),'keep')
+                self.assertEqual(path.name,'rootless-navigation-0.2.1.json');self.assertEqual(previous.read_text(),'keep')
                 self.assertTrue(result['ui_actions_attempted'] and result['ui_actions_performed'])
                 self.assertEqual(result['filters_may_remain_open'],not complete)
                 for flag in ('root_used','ocr_used','working_device_modified','app_installation_modified','ui_text_read'):self.assertFalse(result[flag])
                 text=path.read_text(encoding='utf-8')
                 for private in ('PRIVATE','a'*64):self.assertNotIn(private,text)
+
+class ActiveControllerRegression(unittest.TestCase):
+    def test_fixed_category_path_only(self):
+        v=ready_navigation();v['navigation']['controller_path']=['ui-navigation','main-tabs','search'];n.validate(v)
+        for path in (['PRIVATE USER'],['search']*13,'search',[True]):
+            v=ready_navigation();v['navigation']['controller_path']=path
+            with self.assertRaises(ValueError):n.validate(v)
+    def test_explicit_active_container_getters_not_all_children(self):
+        for method in ('get_MainNavigationController','get_CurrentViewController','HasPresentedViewControllers','get_InTransition'):
+            self.assertIn(method,n.FUNCTION)
+        self.assertNotIn('get_ChildViewControllers',n.FUNCTION)
+        self.assertNotIn('get_Subviews',n.FUNCTION)
+        self.assertIn("if(k==='search'||k==='filters')return current;",n.FUNCTION)
+    def test_hierarchy_limits_and_no_guessing(self):
+        self.assertIn('controller-cycle',n.FUNCTION)
+        self.assertIn('depth<12',n.FUNCTION)
+        self.assertIn('presentation-not-resolved',n.FUNCTION)
+        self.assertNotIn('get_Name',n.FUNCTION)

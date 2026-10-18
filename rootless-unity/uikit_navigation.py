@@ -10,21 +10,26 @@ MAX_CALLS=6000
 ERRORS={'cancelled','none','wrong-screen','screen-not-ready','unexpected-screen','identity-changed',
         'transition-timeout','frame-limit','call-limit','frame-budget','managed-exception',
         'signature-mismatch','unexpected-object','handle-allocation-failed','native-call-failed',
-        'observer-stopped','cleanup-failed'}
+        'observer-stopped','cleanup-failed','controller-cycle','controller-depth-limit','presentation-not-resolved'}
 PHASES={'search','wait-filters','confirm-filters','wait-return','done'}
-KINDS={'not-checked','none','search','filters','other'}
+KINDS={'not-checked','none','search','filters','other','root','main-tabs','dv-container','ui-container','dv-navigation','ui-navigation'}
 HELPERS=r'''
  function emptyNavigation(){return {stage:'not-attempted',phase:'search',error:'none',frames:0,
   managed_calls:0,handles_acquired:0,handles_released:0,cleanup_failed:false,
   search_verified:false,filters_verified:false,return_verified:false,
   open_attempted:false,open_completed:false,cancel_attempted:false,cancel_completed:false,
-  root_top_kind:'not-checked',last_presented_kind:'not-checked',
+  root_top_kind:'not-checked',last_presented_kind:'not-checked',controller_path:[],
   action_backend:'semantic-controller-handlers',ui_text_read:false};}
  function prepareNavigation(f,getClass,get,signature){
   const spec={view:['Core.dll','UIKit','UIView'],vc:['Core.dll','UIKit','UIViewController'],
    dv:['DV.dll','DV.Common','DVViewController'],card:['DV.dll','DV','CardViewController'],
    search:['DV.Search.dll','DV.Search','SearchTabController'],
-   filters:['DV.Search.dll','DV.Search','SearchSettingsCardController']};
+   filters:['DV.Search.dll','DV.Search','SearchSettingsCardController'],
+   appRoot:['DV.dll','DV','RootViewController'],tabs:['DV.dll','DV','MainTabsController'],
+   dvContainer:['DV.dll','DV.Common','DVContainerViewController'],
+   uiContainer:['Core.dll','UIKit','UIContainerViewController'],
+   dvNav:['DV.dll','DV.Common','DVNavigationController'],
+   uiNav:['Core.dll','UIKit','UINavigationController']};
   const s={};for(const [key,args] of Object.entries(spec)){
    s[key]=getClass(...args);if(s[key].isNull())throw new Error('metadata');
   }
@@ -39,6 +44,13 @@ HELPERS=r'''
    ['visible','dv','get_IsEffectivelyPresented',2],
    ['hidden','view','get_EffectivelyHidden',2],['interactive','view','get_UserInteractionEnabled',2],
    ['canClose','card','get_CanBeClosedByUser',2],
+   ['rootNav','appRoot','get_MainNavigationController',18,'vc'],
+   ['loading','appRoot','get_IsShowingLoadingView',2],
+   ['tabCurrent','tabs','get_CurrentViewController',18,'vc'],
+   ['dvCurrent','dvContainer','get_CurrentViewController',18,'vc'],
+   ['uiCurrent','uiContainer','get_CurrentViewController',18,'vc'],
+   ['dvTransition','dvNav','get_InTransition',2],['uiTransition','uiNav','get_InTransition',2],
+   ['hasPresented','vc','HasPresentedViewControllers',2],
    ['open','search','ShowSearchSettings',1],['cancel','card','DismissWithCancel',1]];
   for(const [key,owner,name,kind,result] of specs){
    const klass=owner==='window'?getClass('Core.dll','UIKit','UIWindow'):s[owner];
@@ -76,17 +88,48 @@ HELPERS=r'''
    const p=f.unbox(b);if(p.isNull())fail('signature-mismatch');const v=p.readU8();
    if(v!==0&&v!==1)fail('signature-mismatch');return v===1;
   };
-  const kind=obj=>obj.isNull()?'none':f.objectClass(obj).equals(s.search)?'search':f.objectClass(obj).equals(s.filters)?'filters':'other';
+  const kind=obj=>{
+   if(obj.isNull())return 'none';const klass=f.objectClass(obj);
+   if(klass.equals(s.search))return 'search';if(klass.equals(s.filters))return 'filters';
+   for(const [label,key] of [['root','appRoot'],['main-tabs','tabs'],['dv-navigation','dvNav'],
+    ['ui-navigation','uiNav'],['dv-container','dvContainer'],['ui-container','uiContainer']])
+    if(f.assignable(s[key],klass))return label;
+   return 'other';
+  };
+  const resolve=current=>{
+   const seen=new Set();n.controller_path=[];
+   for(let depth=0;depth<12;depth++){
+    if(current.isNull())fail('screen-not-ready');
+    const h=own(current),key=target(h).toString();
+    if(seen.has(key))fail('controller-cycle');seen.add(key);
+    const k=kind(current);n.controller_path.push(k);
+    if(k==='search'||k==='filters')return current;
+    if(k==='other')fail(n.phase==='search'?'wrong-screen':'unexpected-screen');
+    if(bool(s.presenting,current)||bool(s.dismissing,current))return ptr(0);
+    if(k==='root'&&bool(s.loading,current))return ptr(0);
+    if(k==='dv-navigation'&&bool(s.dvTransition,current))return ptr(0);
+    if(k==='ui-navigation'&&bool(s.uiTransition,current))return ptr(0);
+    // An unresolved modal must never be mistaken for its background search tab.
+    if(bool(s.hasPresented,current))fail('presentation-not-resolved');
+    const entry=k==='root'?s.rootNav:k==='main-tabs'?s.tabCurrent:
+     k==='dv-container'?s.dvCurrent:s.uiCurrent;
+    current=call(entry,current);
+   }
+   fail('controller-depth-limit');
+  };
   try {
    const root=call(s.windowRoot,window);own(root);
-   let current=call(s.top,root);own(current);n.root_top_kind=kind(current);
+   const rootTop=call(s.top,root);if(!rootTop.isNull())own(rootTop);n.root_top_kind=kind(rootTop);
    const last=call(s.lastView,window);n.last_presented_kind='none';
+   let candidate=rootTop.isNull()?root:rootTop;
    if(!last.isNull()){
     own(last);if(bool(s.hidden,last)||!bool(s.interactive,last))fail('screen-not-ready');
-    const owner=call(s.viewController,last);own(owner);
-    current=call(s.top,owner);own(current);n.last_presented_kind=kind(current);
-   }
+    candidate=call(s.viewController,last);if(candidate.isNull())fail('unexpected-object');own(candidate);
+    n.last_presented_kind=kind(candidate);
+   }else if(bool(s.hasPresented,root))fail('presentation-not-resolved');
+   const current=resolve(candidate);if(current.isNull())return;
    const k=kind(current);
+   if(k==='search'&&bool(s.hasPresented,current))fail('presentation-not-resolved');
    if(n.phase==='search'&&k!=='search')fail('wrong-screen');
    if(n.phase!=='search'&&!['search','filters'].includes(k))fail('unexpected-screen');
    if(bool(s.presenting,current)||bool(s.dismissing,current))return;
@@ -165,15 +208,17 @@ def validate(value):
     flags={'cleanup_failed','search_verified','filters_verified','return_verified','open_attempted',
            'open_completed','cancel_attempted','cancel_completed','ui_text_read'}
     fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released',
-                  'root_top_kind','last_presented_kind','action_backend'}
+                  'root_top_kind','last_presented_kind','controller_path','action_backend'}
     if not isinstance(n,dict) or set(n)!=fields:raise ValueError('Unexpected navigation fields')
     if n['stage'] not in {'not-attempted','navigation-running','navigation-ready','navigation-stopped','cleanup-failed'} or n['phase'] not in PHASES or n['error'] not in ERRORS:raise ValueError('Invalid navigation state')
     if n['stage']=='navigation-running':raise ValueError('Unfinished navigation')
     if any(type(n[k]) is not bool for k in flags):raise ValueError('Invalid navigation flag')
-    for key,limit in [('frames',MAX_FRAMES),('managed_calls',MAX_CALLS),('handles_acquired',180*8+2),('handles_released',180*8+2)]:
+    for key,limit in [('frames',MAX_FRAMES),('managed_calls',MAX_CALLS),('handles_acquired',180*24+2),('handles_released',180*24+2)]:
         if type(n[key]) is not int or not 0<=n[key]<=limit:raise ValueError('Invalid navigation count')
     if n['handles_released']>n['handles_acquired'] or (not n['cleanup_failed'] and n['handles_acquired']!=n['handles_released']):raise ValueError('Unreported handle leak')
     if any(n[k] not in KINDS for k in ('root_top_kind','last_presented_kind')) or n['action_backend']!='semantic-controller-handlers' or n['ui_text_read']:raise ValueError('Unexpected backend or screen data')
+    path=n['controller_path']
+    if not isinstance(path,list) or len(path)>12 or any(type(k) is not str or k not in KINDS-{'not-checked','none'} for k in path):raise ValueError('Invalid controller path')
     chain=['search_verified','open_attempted','open_completed','filters_verified','cancel_attempted','cancel_completed','return_verified']
     for earlier,later in zip(chain,chain[1:]):
         if n[later] and not n[earlier]:raise ValueError('Out-of-order navigation')

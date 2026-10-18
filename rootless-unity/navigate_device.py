@@ -7,7 +7,7 @@ from diagnose_device import DiagnosticAdb,diagnose,find_adb,TestError
 def launch_gui(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг — поиск → фильтры → отмена, 0.2.0')
+    root=tk.Tk();root.title('ДругВокруг — поиск → фильтры → отмена, 0.2.1')
     root.geometry('930x620');root.minsize(840,580)
     main=ttk.Frame(root,padding=18);main.pack(fill='both',expand=True)
     ttk.Label(main,text='Первый функциональный тест — только MuMu #4 (5563)',font=('Segoe UI',12,'bold')).pack(anchor='w')
@@ -49,7 +49,7 @@ def launch_gui(self_check=False):
     row=ttk.Frame(main);row.pack(fill='x',pady=10)
     button=ttk.Button(row,text='Открыть фильтры → отменить → проверить возврат',command=start);button.pack(side='left')
     ttk.Button(row,text='Остановить тест',command=stop.set).pack(side='left',padx=12)
-    ttk.Label(main,text='Отчёт: rootless-navigation-0.2.0.json рядом со старой папкой test-apks.\n'
+    ttk.Label(main,text='Отчёт: rootless-navigation-0.2.1.json рядом со старой папкой test-apks.\n'
         'При остановке фильтры могут остаться открытыми: закройте их вручную крестиком, не галочкой.\n'
         'Токены, PID, адреса памяти, полные пути, тексты и изображения в отчёт не записываются.',wraplength=880).pack(anchor='w',pady=8)
     def poll():
