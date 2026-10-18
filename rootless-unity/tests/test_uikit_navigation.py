@@ -15,7 +15,8 @@ def ready_navigation():
       'managed_calls':70,'handles_acquired':26,'handles_released':26,'cleanup_failed':False,
       'search_verified':True,'filters_verified':True,'return_verified':True,
       'open_attempted':True,'open_completed':True,'cancel_attempted':True,'cancel_completed':True,
-      'root_top_kind':'search','last_presented_kind':'none','controller_path':['search'],'action_backend':'semantic-controller-handlers','ui_text_read':False}
+      'root_top_kind':'search','last_presented_kind':'none','controller_path':['search'],'action_backend':'semantic-controller-handlers','ui_text_read':False,
+      'readiness_check':'ready','view_parent_depth':1,'readiness':{'has_view':True,'is_presented':False,'hidden':False,'interactive':True,'attached_to_main_window':True}}
     return root
 
 class NavigationSchema(unittest.TestCase):
@@ -41,7 +42,7 @@ class NavigationSchema(unittest.TestCase):
     def test_only_fixed_semantic_actions(self):
         for forbidden in ('get_Text','set_Text','get_Name','get_Subviews','OnApplyButton','OnResetButton','OnContactButton','DismissWithSuccess','OnDidClicked','NativeCallback','Interceptor.replace','Memory.scan','il2cpp_field_', 'input tap'):
             self.assertNotIn(forbidden,n.FUNCTION)
-        for required in ('DV.Search.dll','SearchTabController','SearchSettingsCardController','ShowSearchSettings','DismissWithCancel','get_IsEffectivelyPresented','get_IsBeingPresented','get_IsBeingDismissed','virtualMethod','cancelNavigation'):
+        for required in ('DV.Search.dll','SearchTabController','SearchSettingsCardController','ShowSearchSettings','DismissWithCancel','get_Parent','get_IsBeingPresented','get_IsBeingDismissed','virtualMethod','cancelNavigation'):
             self.assertIn(required,n.FUNCTION)
     def test_closed_fixed_rpc_and_pointer_handles(self):
         self.assertNotIn('rpc.exports',n.FUNCTION)
@@ -92,7 +93,7 @@ class NavigationTransport(unittest.TestCase):
                 previous=folder.parent/'rootless-diagnostics-0.1.8.json';previous.write_text('keep')
                 with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                     result,path=d.diagnose(Adb(),folder,inspector=lambda *a:gadget,navigation_probe=True)
-                self.assertEqual(path.name,'rootless-navigation-0.2.1.json');self.assertEqual(previous.read_text(),'keep')
+                self.assertEqual(path.name,'rootless-navigation-0.2.2.json');self.assertEqual(previous.read_text(),'keep')
                 self.assertTrue(result['ui_actions_attempted'] and result['ui_actions_performed'])
                 self.assertEqual(result['filters_may_remain_open'],not complete)
                 for flag in ('root_used','ocr_used','working_device_modified','app_installation_modified','ui_text_read'):self.assertFalse(result[flag])
@@ -116,3 +117,20 @@ class ActiveControllerRegression(unittest.TestCase):
         self.assertIn('depth<12',n.FUNCTION)
         self.assertIn('presentation-not-resolved',n.FUNCTION)
         self.assertNotIn('get_Name',n.FUNCTION)
+
+class ViewReadinessRegression(unittest.TestCase):
+    def test_presentation_is_not_visibility(self):
+        for presented in (True,False):
+            v=ready_navigation();v['navigation']['readiness']['is_presented']=presented;n.validate(v)
+        self.assertNotIn('get_IsEffectivelyPresented',n.FUNCTION)
+        self.assertIn('cursor.equals(window)',n.FUNCTION)
+    def test_no_ready_without_attached_visible_interactive_view(self):
+        for key,value in [('has_view',False),('hidden',True),('interactive',False),('attached_to_main_window',False),('attached_to_main_window',None)]:
+            v=ready_navigation();v['navigation']['readiness'][key]=value
+            with self.assertRaises(ValueError):n.validate(v)
+    def test_fixed_readiness_data_only(self):
+        for key,value in [('readiness_check','PRIVATE TEXT'),('view_parent_depth',32),('view_parent_depth',True)]:
+            v=ready_navigation();v['navigation'][key]=value
+            with self.assertRaises(ValueError):n.validate(v)
+        v=ready_navigation();v['navigation']['readiness']['private']='data'
+        with self.assertRaises(ValueError):n.validate(v)

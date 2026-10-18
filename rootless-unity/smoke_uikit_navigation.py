@@ -43,18 +43,18 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         finally:
             if timer:timer.cancel();timer.join(timeout=2)
         n=value['navigation'];c=script.exports_sync.counts()
-        expected={60:'navigation-ready',61:'wrong-screen',62:'not-attempted',63:'screen-not-ready',64:'screen-not-ready',
-                  65:'screen-not-ready',66:'managed-exception',67:'managed-exception',68:'screen-not-ready',
+        expected={60:'navigation-ready',61:'wrong-screen',62:'not-attempted',63:'frame-limit',64:'frame-limit',
+                  65:'screen-not-ready',66:'managed-exception',67:'managed-exception',68:'frame-limit',
                   69:'frame-limit',70:'identity-changed',71:'unexpected-screen',72:'navigation-ready',
-                  73:'frame-limit',74:'managed-exception',75:'frame-limit',76:'cancelled',77:'transition-timeout',78:'cancelled',79:'cancelled',80:'navigation-ready',81:'navigation-ready',82:'wrong-screen',83:'screen-not-ready',84:'controller-cycle',85:'controller-depth-limit',86:'frame-limit',87:'presentation-not-resolved',88:'wrong-screen',89:'navigation-ready',90:'not-attempted'}[mode]
+                  73:'frame-limit',74:'managed-exception',75:'frame-limit',76:'cancelled',77:'transition-timeout',78:'cancelled',79:'cancelled',80:'navigation-ready',81:'navigation-ready',82:'wrong-screen',83:'frame-limit',84:'controller-cycle',85:'controller-depth-limit',86:'frame-limit',87:'presentation-not-resolved',88:'wrong-screen',89:'navigation-ready',90:'not-attempted',91:'view-parent-cycle',92:'navigation-ready',93:'frame-limit',94:'view-parent-depth-limit',95:'frame-limit',96:'frame-limit',97:'navigation-ready'}[mode]
         actual=n['stage'] if n['stage'] in ('navigation-ready','not-attempted') else n['error']
         assert actual==expected,(mode,value,c)
         assert c['handles']==c['bad']==c['off']==0,(mode,c)
         assert c['opens']<=1 and c['cancels']<=1,c
         assert c['calls']==value['managed_calls']+n['managed_calls'],(value,c)
         if mode==79:assert c['opens']==1 and c['cancels']==0,c
-        if mode in (60,72,80,81,89):assert c['opens']==c['cancels']==1 and c['virtual']>=1,c
-        if mode in (61,62,63,64,67,68,73,82,83,84,85,86,87,88,90):assert c['opens']==c['cancels']==0,c
+        if mode in (60,72,80,81,89,92,97):assert c['opens']==c['cancels']==1 and c['virtual']>=1,c
+        if mode in (61,62,63,64,67,68,73,82,83,84,85,86,87,88,90,91,93,94,95,96):assert c['opens']==c['cancels']==0,c
         assert n['handles_acquired']==n['handles_released'],n
         if mode==80:assert n['controller_path']==['ui-navigation','main-tabs','search'],n
         if mode==81:assert n['controller_path']==['dv-navigation','dv-container','ui-container','main-tabs','search'],n
@@ -73,5 +73,5 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         child.stdout.close();child.stderr.close()
 
 if __name__=='__main__':
-    for mode in range(60,91):one(Path(sys.argv[1]).resolve(strict=True),mode)
+    for mode in range(60,98):one(Path(sys.argv[1]).resolve(strict=True),mode)
     print('Synthetic navigation ABI passed; live MuMu navigation NOT yet tested.')

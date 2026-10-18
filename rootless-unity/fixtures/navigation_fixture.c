@@ -28,7 +28,7 @@ static Method nm[]={
  {"get_View",&nc[1],0,&tview,15},
  {"get_IsBeingPresented",&nc[1],0,&tbool,16},
  {"get_IsBeingDismissed",&nc[1],0,&tbool,17},
- {"get_IsEffectivelyPresented",&nc[2],0,&tbool,18},
+ {"get_Parent",&nc[0],0,&tview,18},
  {"get_EffectivelyHidden",&nc[0],0,&tbool,19},
  {"get_UserInteractionEnabled",&nc[0],0,&tbool,20},
  {"get_CanBeClosedByUser",&nc[3],64,&tbool,21},
@@ -45,14 +45,16 @@ static Method nm[]={
  {"HasPresentedViewControllers",&nc[1],0,&tbool,32}};
 static Object search={&nc[4],0},filters={&nc[5],0},other={&nc[6],0},view={&nc[0],0},boolbox={NULL,0},replacement={&nc[4],0};
 static Object app_root={&nc[7],0},tabs={&nc[8],0},dv_container={&nc[9],0},ui_container={&nc[10],0},dv_nav={&nc[11],0},ui_nav={&nc[12],0},deep[14];
-static int phase,opens,cancels,virtual_calls;
-static void tree_init(int m){int i;phase=opens=cancels=virtual_calls=0;for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
+static Object view_chain[35],other_window={&classes[1],0};
+static int phase,opens,cancels,virtual_calls,hidden_reads;
+static void tree_init(int m){int i;phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
 static Class *tree_class(Image *im,const char *ns,const char *name){int i;for(i=0;i<13;i++){
  Image *want=(i<2||i==10||i==12)?&images[0]:(i<4||i>=7)?&images[3]:&nav_image;
  if(im==want&&!strcmp(ns,nc[i].ns)&&!strcmp(name,nc[i].name))return &nc[i];}return NULL;}
 static Method *tree_method(Class *c,const char *name,int arity){int i;if(arity!=0)return NULL;
  for(i=0;i<23;i++)if(c==nm[i].klass&&!strcmp(name,nm[i].name))return &nm[i];return NULL;}
 static unsigned char tree_assignable(Class *a,Class *b){
+ if(a==&nc[0])return b==&nc[0]||b==&classes[1];
  if(a==&nc[1])return (uintptr_t)b>=(uintptr_t)&nc[1]&&(uintptr_t)b<=(uintptr_t)&nc[12];
  if(a==&nc[10])return b==&nc[8]||b==&nc[10]||b==&nc[11]||b==&nc[12];
  if(a==&nc[12])return b==&nc[11]||b==&nc[12];
@@ -80,16 +82,19 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 11:if(mode==88)return &view;return (mode==72||phase!=1||mode==87)?NULL:&view;
  case 12:if(obj==&app_root)return mode==81?&dv_nav:&ui_nav;return NULL;
  case 13:return mode==88?&other:active();
- case 14:yes=1;break;
+ case 14:yes=mode!=96;break;
  case 15:return &view;
  case 16:yes=(mode==73);break;
  case 17:yes=0;break;
- case 18:yes=mode!=68;break;
- case 19:yes=mode==63;break;
+ case 18:
+  if(mode==94){if(obj==&view)return &view_chain[0];if((uintptr_t)obj>=(uintptr_t)&view_chain[0]&&(uintptr_t)obj<(uintptr_t)&view_chain[34])return ((Object *)obj)+1;}
+  if(mode==95)return obj==&other_window?NULL:&other_window;
+  if(mode==68||mode==93)return NULL;if(mode==91)return &view;return &window;
+ case 19:hidden_reads++;yes=mode==63||(mode==97&&hidden_reads<4);break;
  case 20:yes=mode!=64;break;
  case 21:yes=mode!=65;break;
  case 22:opens++;if(mode==79)slow();if(mode==66){*exc=&exception;return NULL;}if(mode!=69&&mode!=76)phase=1;return NULL;
- case 24:yes=phase==1;break;
+ case 24:yes=mode!=92&&phase==1;break;
  case 25:return mode==81?&dv_nav:&ui_nav;
  case 26:yes=0;break;
  case 27:return mode==82?&other:mode==83?NULL:active();

@@ -10,7 +10,7 @@ MAX_CALLS=6000
 ERRORS={'cancelled','none','wrong-screen','screen-not-ready','unexpected-screen','identity-changed',
         'transition-timeout','frame-limit','call-limit','frame-budget','managed-exception',
         'signature-mismatch','unexpected-object','handle-allocation-failed','native-call-failed',
-        'observer-stopped','cleanup-failed','controller-cycle','controller-depth-limit','presentation-not-resolved'}
+        'observer-stopped','cleanup-failed','controller-cycle','controller-depth-limit','presentation-not-resolved','view-parent-cycle','view-parent-depth-limit'}
 PHASES={'search','wait-filters','confirm-filters','wait-return','done'}
 KINDS={'not-checked','none','search','filters','other','root','main-tabs','dv-container','ui-container','dv-navigation','ui-navigation'}
 HELPERS=r'''
@@ -19,6 +19,7 @@ HELPERS=r'''
   search_verified:false,filters_verified:false,return_verified:false,
   open_attempted:false,open_completed:false,cancel_attempted:false,cancel_completed:false,
   root_top_kind:'not-checked',last_presented_kind:'not-checked',controller_path:[],
+  readiness_check:'not-checked',view_parent_depth:0,readiness:{has_view:null,is_presented:null,hidden:null,interactive:null,attached_to_main_window:null},
   action_backend:'semantic-controller-handlers',ui_text_read:false};}
  function prepareNavigation(f,getClass,get,signature){
   const spec={view:['Core.dll','UIKit','UIView'],vc:['Core.dll','UIKit','UIViewController'],
@@ -41,7 +42,7 @@ HELPERS=r'''
    ['viewController','view','get_ViewController',18,'vc'],
    ['hasView','vc','get_HasView',2],['viewOf','vc','get_View',18,'view'],
    ['presenting','vc','get_IsBeingPresented',2],['dismissing','vc','get_IsBeingDismissed',2],['isPresented','vc','get_IsPresented',2],
-   ['visible','dv','get_IsEffectivelyPresented',2],
+   ['parent','view','get_Parent',18,'view'],
    ['hidden','view','get_EffectivelyHidden',2],['interactive','view','get_UserInteractionEnabled',2],
    ['canClose','card','get_CanBeClosedByUser',2],
    ['rootNav','appRoot','get_MainNavigationController',18,'vc'],
@@ -63,6 +64,7 @@ HELPERS=r'''
  }
  function navigationTick(f,s,window,n,state){
   const held=[];const deadline=Date.now()+100;
+  n.readiness_check='not-checked';n.view_parent_depth=0;n.readiness={has_view:null,is_presented:null,hidden:null,interactive:null,attached_to_main_window:null};
   const fail=e=>{throw e;};
   const own=obj=>{
    if(obj.isNull())fail('unexpected-object');const h=f.keep(obj,1);
@@ -99,7 +101,7 @@ HELPERS=r'''
   const resolve=current=>{
    const seen=new Set();n.controller_path=[];
    for(let depth=0;depth<12;depth++){
-    if(current.isNull())fail('screen-not-ready');
+    if(current.isNull())return ptr(0);
     const h=own(current),key=target(h).toString();
     if(seen.has(key))fail('controller-cycle');seen.add(key);
     const k=kind(current);n.controller_path.push(k);
@@ -110,12 +112,32 @@ HELPERS=r'''
     if(k==='dv-navigation'&&bool(s.dvTransition,current))return ptr(0);
     if(k==='ui-navigation'&&bool(s.uiTransition,current))return ptr(0);
     // An unresolved modal must never be mistaken for its background search tab.
-    if(bool(s.hasPresented,current))fail('presentation-not-resolved');
+    if(bool(s.hasPresented,current)){n.readiness_check='modal-pending';if(n.phase==='search')fail('presentation-not-resolved');return ptr(0);}
     const entry=k==='root'?s.rootNav:k==='main-tabs'?s.tabCurrent:
      k==='dv-container'?s.dvCurrent:s.uiCurrent;
     current=call(entry,current);
    }
    fail('controller-depth-limit');
+  };
+  const checkView=(current)=>{
+   n.readiness={has_view:null,is_presented:null,hidden:null,interactive:null,attached_to_main_window:null};
+   n.view_parent_depth=0;n.readiness_check='has-view';
+   n.readiness.has_view=bool(s.hasView,current);if(!n.readiness.has_view)return false;
+   // IsPresented describes presentation, not visibility of a selected child tab.
+   n.readiness.is_presented=bool(s.isPresented,current);
+   const view=call(s.viewOf,current);own(view);
+   n.readiness_check='view-hidden';n.readiness.hidden=bool(s.hidden,view);if(n.readiness.hidden)return false;
+   n.readiness_check='view-interactive';n.readiness.interactive=bool(s.interactive,view);if(!n.readiness.interactive)return false;
+   n.readiness_check='view-parent-chain';const seen=new Set();let cursor=view;
+   for(let depth=0;depth<32;depth++){
+    n.view_parent_depth=depth;const key=cursor.toString();
+    if(seen.has(key))fail('view-parent-cycle');seen.add(key);
+    if(cursor.equals(window)){n.readiness.attached_to_main_window=true;n.readiness_check='ready';return true;}
+    cursor=call(s.parent,cursor);
+    if(cursor.isNull()){n.readiness.attached_to_main_window=false;return false;}
+    own(cursor);
+   }
+   fail('view-parent-depth-limit');
   };
   try {
    const root=call(s.windowRoot,window);own(root);
@@ -123,19 +145,17 @@ HELPERS=r'''
    const last=call(s.lastView,window);n.last_presented_kind='none';
    let candidate=rootTop.isNull()?root:rootTop;
    if(!last.isNull()){
-    own(last);if(bool(s.hidden,last)||!bool(s.interactive,last))fail('screen-not-ready');
+    own(last);n.readiness_check='presented-view';n.readiness.hidden=bool(s.hidden,last);n.readiness.interactive=bool(s.interactive,last);if(n.readiness.hidden||!n.readiness.interactive)return;
     candidate=call(s.viewController,last);if(candidate.isNull())fail('unexpected-object');own(candidate);
     n.last_presented_kind=kind(candidate);
-   }else if(bool(s.hasPresented,root))fail('presentation-not-resolved');
+   }else if(bool(s.hasPresented,root)){n.readiness_check='modal-pending';if(n.phase==='search')fail('presentation-not-resolved');return;}
    const current=resolve(candidate);if(current.isNull())return;
    const k=kind(current);
-   if(k==='search'&&bool(s.hasPresented,current))fail('presentation-not-resolved');
+   if(k==='search'&&bool(s.hasPresented,current)){n.readiness_check='modal-pending';if(n.phase==='search')fail('presentation-not-resolved');return;}
    if(n.phase==='search'&&k!=='search')fail('wrong-screen');
    if(n.phase!=='search'&&!['search','filters'].includes(k))fail('unexpected-screen');
    if(bool(s.presenting,current)||bool(s.dismissing,current))return;
-   if(!bool(s.hasView,current)||!(k==='search'?bool(s.visible,current):bool(s.isPresented,current)))fail('screen-not-ready');
-   const view=call(s.viewOf,current);own(view);
-   if(bool(s.hidden,view)||!bool(s.interactive,view))fail('screen-not-ready');
+   if(!checkView(current))return;
    if(n.phase==='search'){
     n.search_verified=true;state.origin=own(current);held.splice(held.indexOf(state.origin),1);
     n.open_attempted=true;call(s.open,current);n.open_completed=true;n.phase='wait-filters';return;
@@ -208,17 +228,22 @@ def validate(value):
     flags={'cleanup_failed','search_verified','filters_verified','return_verified','open_attempted',
            'open_completed','cancel_attempted','cancel_completed','ui_text_read'}
     fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released',
-                  'root_top_kind','last_presented_kind','controller_path','action_backend'}
+                  'root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth'}
     if not isinstance(n,dict) or set(n)!=fields:raise ValueError('Unexpected navigation fields')
     if n['stage'] not in {'not-attempted','navigation-running','navigation-ready','navigation-stopped','cleanup-failed'} or n['phase'] not in PHASES or n['error'] not in ERRORS:raise ValueError('Invalid navigation state')
     if n['stage']=='navigation-running':raise ValueError('Unfinished navigation')
     if any(type(n[k]) is not bool for k in flags):raise ValueError('Invalid navigation flag')
-    for key,limit in [('frames',MAX_FRAMES),('managed_calls',MAX_CALLS),('handles_acquired',180*24+2),('handles_released',180*24+2)]:
+    for key,limit in [('frames',MAX_FRAMES),('managed_calls',MAX_CALLS),('handles_acquired',180*64+2),('handles_released',180*64+2)]:
         if type(n[key]) is not int or not 0<=n[key]<=limit:raise ValueError('Invalid navigation count')
     if n['handles_released']>n['handles_acquired'] or (not n['cleanup_failed'] and n['handles_acquired']!=n['handles_released']):raise ValueError('Unreported handle leak')
     if any(n[k] not in KINDS for k in ('root_top_kind','last_presented_kind')) or n['action_backend']!='semantic-controller-handlers' or n['ui_text_read']:raise ValueError('Unexpected backend or screen data')
     path=n['controller_path']
     if not isinstance(path,list) or len(path)>12 or any(type(k) is not str or k not in KINDS-{'not-checked','none'} for k in path):raise ValueError('Invalid controller path')
+    readiness=n['readiness']
+    if not isinstance(readiness,dict) or set(readiness)!={'has_view','is_presented','hidden','interactive','attached_to_main_window'} or any(v is not None and type(v) is not bool for v in readiness.values()):raise ValueError('Invalid readiness flags')
+    if n['readiness_check'] not in {'not-checked','has-view','view-hidden','view-interactive','view-parent-chain','ready','presented-view','modal-pending'}:raise ValueError('Invalid readiness step')
+    if type(n['view_parent_depth']) is not int or not 0<=n['view_parent_depth']<32:raise ValueError('Invalid parent depth')
+    if n['stage']=='navigation-ready' and (n['readiness_check']!='ready' or readiness['has_view'] is not True or readiness['hidden'] is not False or readiness['interactive'] is not True or readiness['attached_to_main_window'] is not True):raise ValueError('Navigation without ready attached view')
     chain=['search_verified','open_attempted','open_completed','filters_verified','cancel_attempted','cancel_completed','return_verified']
     for earlier,later in zip(chain,chain[1:]):
         if n[later] and not n[earlier]:raise ValueError('Out-of-order navigation')
