@@ -98,8 +98,9 @@ static Object app_root={&nc[7],0},tabs={&nc[8],0},dv_container={&nc[9],0},ui_con
 static Object other_filters={&nc[5],0};
 static Object view_chain[35],other_window={&classes[1],0};
 static int phase,opens,cancels,virtual_calls,hidden_reads;
-static void tree_init(int m){int i;row_reads=0;modal_reads=plist_reads=profile_reads=selected_wrong=pi_count=0;for(i=0;i<22;i++){pt[i].kind=18;pt[i].klass=&pc[i];}for(i=0;i<4;i++)pi[i].klass=&pc[19];prow.klass= m==150?&pc[11]:m==151?&pc[12]:&pc[10];precord.klass=m==150?&pc[14]:m==151?&pc[15]:&pc[13];phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==145)pm[20].arity=2;if(m==146)pm[3].param=&tbool;if(m==147)pm[7].type=&tvoid;if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
+static void tree_init(int m){int i;if(m==164)attached=0;row_reads=0;modal_reads=plist_reads=profile_reads=selected_wrong=pi_count=0;for(i=0;i<22;i++){pt[i].kind=18;pt[i].klass=&pc[i];}for(i=0;i<4;i++)pi[i].klass=&pc[19];prow.klass= m==150?&pc[11]:m==151?&pc[12]:&pc[10];precord.klass=m==150?&pc[14]:m==151?&pc[15]:&pc[13];phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==145)pm[20].arity=2;if(m==146)pm[3].param=&tbool;if(m==147)pm[7].type=&tvoid;if(m==163)pm[14].type=&tbool;if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
 static Class *tree_class(Image *im,const char *ns,const char *name){int i;
+ if(mode==162&&!strcmp(name,"AvatarView"))return NULL;
  if(im==&profile_image&&!strcmp(ns,"DV.Profiles")&&!strcmp(name,"ProfileViewController"))return &pc[9];
  if(im==&profile_image&&!strcmp(ns,"DV.Profiles")&&!strcmp(name,"ProfilesQueueViewController"))return &nc[5];
  for(i=0;i<22;i++){Image *want=(i<2||i>=17)?&images[0]:(i==2||i==3||i==4||i==5)?&nav_image:i==9?&profile_image:&images[3];if(im==want&&!strcmp(ns,pc[i].ns)&&!strcmp(name,pc[i].name))return &pc[i];}
@@ -129,9 +130,9 @@ API unsigned char il2cpp_class_is_valuetype(Class *c){return c==&pc[18]||c==&pc[
 API const char *il2cpp_class_get_name(Class *c){return mode==114&&c==&modal_class?"OtherList":c->name;}
 API const char *il2cpp_class_get_namespace(Class *c){return c->ns;}
 API Image *il2cpp_class_get_image(Class *c){return c==&pc[9]||c==&nc[5]?&profile_image:&images[0];}
-API Class *il2cpp_class_get_declaring_type(Class *c){if(c==&pc[19])return &pc[18];if(c>=&pc[10]&&c<=&pc[16])return &pc[2];return NULL;}
+API Class *il2cpp_class_get_declaring_type(Class *c){if(mode==161&&c==&pc[10])return NULL;if(c==&pc[19])return &pc[18];if(c>=&pc[10]&&c<=&pc[16])return &pc[2];return NULL;}
 API Class *il2cpp_class_get_parent(Class *c){(void)c;return NULL;}
-API Class *il2cpp_class_get_nested_types(Class *c,void **cursor){uintptr_t i=(uintptr_t)*cursor;if(c!=&pc[2]||i>=7)return NULL;*cursor=(void *)(i+1);return &pc[10+i];}
+API Class *il2cpp_class_get_nested_types(Class *c,void **cursor){uintptr_t i=(uintptr_t)*cursor;if(c!=&pc[2]||i>=(mode==160?6:7))return NULL;*cursor=(void *)(i+1);return &pc[10+i];}
 API Type *il2cpp_method_get_param(Method *m,unsigned int n){if(m==&pm[20])return n==0?&pentry:n==1?&pbool:n==2?&presource:NULL;return n==0?m->param:NULL;}
 API Class *il2cpp_method_get_class(Method *m){return m->klass;}
 API unsigned char il2cpp_type_is_byref(Type *t){(void)t;return 0;}
