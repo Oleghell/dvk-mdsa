@@ -30,7 +30,12 @@ static Method methods[]={
 static Image images[]={{"Core.dll"},{"UIKit.Unity.dll"},{"UnityEngine.CoreModule.dll"},{"DV.dll"}};
 #ifdef NAV_FIXTURE
 static Image nav_image={"DV.Search.dll"};
+#ifdef PROFILE_FIXTURE
+static Image profile_image={"DV.Profile.dll"};
+static Image *image_array[]={&images[0],&images[1],&images[2],&images[3],&nav_image,&profile_image};
+#else
 static Image *image_array[]={&images[0],&images[1],&images[2],&images[3],&nav_image};
+#endif
 #else
 static Image *image_array[]={&images[0],&images[1],&images[2],&images[3]};
 #endif

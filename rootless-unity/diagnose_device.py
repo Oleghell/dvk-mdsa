@@ -107,17 +107,20 @@ def cleanup_frida(frida, manager, address, script, session, device):
     finally:timer.cancel()
 
 
-def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False):
+def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False):
     if frida_api is None:
         import frida as frida_api
     frida=frida_api
+    navigation_probe=navigation_probe or profile_probe
     uikit_root_probe=uikit_root_probe or uikit_tree_probe or navigation_probe
     source=SCRIPT
     native_validator=validate_metadata
     if uikit_root_probe:
         import uikit_profile
         import uikit_root
-        if navigation_probe:
+        if profile_probe:
+            import uikit_profile_navigation as probe_module
+        elif navigation_probe:
             import uikit_navigation as probe_module
         elif uikit_tree_probe:
             import uikit_tree as probe_module
@@ -158,7 +161,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
                     session=device.attach(process.pid)
                     report['attached']=True
                     report['stage']='create-fixed-script'
-                    script=session.create_script(source,name='dvk-uikit-navigation-0.2.3' if navigation_probe else 'dvk-uikit-tree-0.1.8' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
+                    script=session.create_script(source,name='dvk-uikit-profile-navigation-0.3.0' if profile_probe else 'dvk-uikit-navigation-0.2.3' if navigation_probe else 'dvk-uikit-tree-0.1.8' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
                     report['stage']='load-fixed-script';script.load()
                     report['stage']='runtime-rpc'
                     report['runtime']=validate_runtime(script.exports_sync.runtime())
@@ -221,12 +224,13 @@ def listening_port(text):
     return any(re.fullmatch(r'[0-9a-fA-F.:\[\]*]+:27042', part) for line in text.splitlines() for part in line.split())
 
 
-def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False):
+def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False):
+    navigation_probe=navigation_probe or profile_probe
     uikit_root_probe=uikit_root_probe or uikit_tree_probe or navigation_probe
-    version='0.2.3' if navigation_probe else '0.1.8' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
+    version='0.3.0' if profile_probe else '0.2.3' if navigation_probe else '0.1.8' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
     if uikit_root_probe and inspector is inspect_gadget:
-        inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,uikit_root_probe=True,uikit_tree_probe=uikit_tree_probe,navigation_probe=navigation_probe)
-    report={'tool_version':version,'mode':('uikit-search-filter-cancel' if navigation_probe else 'uikit-structure-only' if uikit_tree_probe else 'uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
+        inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,uikit_root_probe=True,uikit_tree_probe=uikit_tree_probe,navigation_probe=navigation_probe,profile_probe=profile_probe)
+    report={'tool_version':version,'mode':('uikit-search-profile-return' if profile_probe else 'uikit-search-filter-cancel' if navigation_probe else 'uikit-structure-only' if uikit_tree_probe else 'uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
             'instances_verified_distinct':False,'install_requested':False,'app_installation_modified':False,
             'working_device_modified':False,'root_used':False,'ocr_used':False,'messages_sent':0,
             'unity_object_access':'not-tested','status':'not-run'}
@@ -261,7 +265,7 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
                 else:
                     report[field]={'':'none-reported','0':'none-reported','libnb.so':'libnb','libhoudini.so':'houdini','libndk_translation.so':'ndk-translation'}.get(raw,'other-not-recorded')
             except TestError:report[field]='query-unavailable'
-        progress('Проверяю экран поиска → открываю фильтры → отменяю без сохранения…' if navigation_probe else 'Читаю ограниченную структуру UIKit, без текста и действий…' if uikit_tree_probe else 'Проверяю главный поток и наличие окна, без UI-действий…' if uikit_root_probe else 'Проверяю IL2CPP API и метаданные классов UI. Сам UI не меняется…')
+        progress('Выбираю одну видимую обычную анкету → профиль → возврат. Посещение может быть видно в гостях…' if profile_probe else 'Проверяю экран поиска → открываю фильтры → отменяю без сохранения…' if navigation_probe else 'Читаю ограниченную структуру UIKit, без текста и действий…' if uikit_tree_probe else 'Проверяю главный поток и наличие окна, без UI-действий…' if uikit_root_probe else 'Проверяю IL2CPP API и метаданные классов UI. Сам UI не меняется…')
         stage='forward-and-gadget'
         value=adb.run(['-s',TARGET,'forward','tcp:0','tcp:27042'])
         if not value.isdecimal() or not 1024 <= int(value) <= 65535:raise TestError('Некорректный порт ADB.')
@@ -281,10 +285,10 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
                 nav=report['gadget'].get('uikit_root',{}).get('navigation',{})
                 unknown=not nav and report['gadget'].get('stage')=='uikit-root-rpc'
                 report['ui_actions_attempted']=None if unknown else bool(nav.get('open_attempted'))
-                report['ui_actions_performed']=None if unknown else bool(nav.get('open_completed') or nav.get('cancel_completed'))
+                report['ui_actions_performed']=None if unknown else bool(nav.get('open_completed') or nav.get('close_completed' if profile_probe else 'cancel_completed'))
                 report['action_backend']='semantic-controller-handlers'
                 report['unity_object_access']='navigation-confirmed' if report['status']=='navigation-ready' else 'not-confirmed'
-                report['filters_may_remain_open']=unknown or bool(nav.get('open_attempted') and not nav.get('return_verified'))
+                report['profile_may_remain_open' if profile_probe else 'filters_may_remain_open']=unknown or bool(nav.get('open_attempted') and not nav.get('return_verified'))
     except Exception as error:
         report['status']='stopped';report['failure_stage']=stage
         report['error_type']=safe_error_type(error)
@@ -301,7 +305,7 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
             if stage=='device-preflight':
                 failed=[e for e in events if e['status']=='failed']
                 if failed:report['adb_failure']=failed[0].copy()
-    target=folder.parent/f"{'rootless-navigation' if navigation_probe else 'rootless-diagnostics'}-{version}.json"
+    target=folder.parent/f"{'rootless-profile-navigation' if profile_probe else 'rootless-navigation' if navigation_probe else 'rootless-diagnostics'}-{version}.json"
     target.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     return report,target
 
