@@ -39,6 +39,15 @@ rpc.exports = {
 
 
 class DiagnosticAdb(TestAdb):
+    def __init__(self,executable,folder):
+        super().__init__(executable,folder)
+        self.adb_events=[]
+
+    def observe_result(self,args,returncode,text,outcome='completed'):
+        from adb_evidence import MAX_EVENTS,event
+        if len(self.adb_events)<MAX_EVENTS:
+            self.adb_events.append(event(args,returncode,text,outcome))
+
     def validate(self, args):
         if args in (['-s', TARGET, 'shell', 'pidof', PACKAGE], ['-s', TARGET, 'shell', 'ss', '-ltn'],
                     ['-s', TARGET, 'shell', 'getprop', 'ro.product.cpu.abi'],
@@ -145,7 +154,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
                     session=device.attach(process.pid)
                     report['attached']=True
                     report['stage']='create-fixed-script'
-                    script=session.create_script(source,name='dvk-uikit-tree-0.1.6' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
+                    script=session.create_script(source,name='dvk-uikit-tree-0.1.7' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
                     report['stage']='load-fixed-script';script.load()
                     report['stage']='runtime-rpc'
                     report['runtime']=validate_runtime(script.exports_sync.runtime())
@@ -196,7 +205,7 @@ def listening_port(text):
 
 def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False, uikit_tree_probe=False):
     uikit_root_probe=uikit_root_probe or uikit_tree_probe
-    version='0.1.6' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
+    version='0.1.7' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
     if uikit_root_probe and inspector is inspect_gadget:
         inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,uikit_root_probe=True,uikit_tree_probe=uikit_tree_probe)
     report={'tool_version':version,'mode':('uikit-structure-only' if uikit_tree_probe else 'uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
@@ -255,6 +264,14 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
         if adb.forward_port is not None:
             try:adb.run(['-s',TARGET,'forward','--remove',f'tcp:{adb.forward_port}'],timeout=10)
             except Exception:report['forward_cleanup_failed']=True
+    events=getattr(adb,'adb_events',None)
+    if events is not None:
+        report['adb_checks']=events[:40]
+        if report['status']=='stopped' and events:
+            report['adb_last_check']=events[-1]['check']
+            if stage=='device-preflight':
+                failed=[e for e in events if e['status']=='failed']
+                if failed:report['adb_failure']=failed[0].copy()
     target=folder.parent/f'rootless-diagnostics-{version}.json'
     target.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     return report,target
@@ -262,7 +279,7 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
 
 def launch_gui(self_check=False,*,uikit_root_probe=False, uikit_tree_probe=False):
     uikit_root_probe=uikit_root_probe or uikit_tree_probe
-    version='0.1.6' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
+    version='0.1.7' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
     import queue
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
@@ -293,7 +310,7 @@ def launch_gui(self_check=False,*,uikit_root_probe=False, uikit_tree_probe=False
     consent=tk.BooleanVar(value=False)
     if uikit_root_probe:
         ttk.Checkbutton(main,text=('Разрешаю одноразовое чтение структуры без текста только на #4 (5563).' if uikit_tree_probe else 'Разрешаю временное наблюдение и проверку наличия окна только на #4 (5563).'),variable=consent).pack(anchor='w',pady=4)
-    state=tk.StringVar(value='Если EXE лежит рядом со старой test-apks, путь уже правильный.')
+    state=tk.StringVar(value='Если EXE лежит рядом со старой test-apks, путь уже правильный. При ошибке ADB отчёт покажет конкретную проверку.')
     ttk.Label(main,textvariable=state,wraplength=790).pack(anchor='w',pady=10)
     events=queue.Queue();stop=threading.Event();busy=False
     def worker(executable,directory):

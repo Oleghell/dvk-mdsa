@@ -97,6 +97,10 @@ class TestAdb:
             return
         raise TestError('Команда вне разрешённого тестового списка.')
 
+    def observe_result(self,args,returncode,text,outcome='completed'):
+        # No-op for the installer. The read-only diagnostic subclass stores only fixed safe enums.
+        pass
+
     def run(self, args, timeout=30):
         self.validate(args)
         env = os.environ.copy()
@@ -111,15 +115,19 @@ class TestAdb:
                 output.seek(0)
                 text = output.read(65537).decode('utf-8', errors='replace').strip()
             if len(text) > 65536:
+                self.observe_result(args,result.returncode,'','oversized-output')
                 raise TestError('Слишком длинный ответ ADB.')
+            self.observe_result(args,result.returncode,text)
             if result.returncode != 0:
                 match = re.search(r'Failure \[([A-Z][A-Z0-9_]+)', text)
                 suffix = ' Код: '+match.group(1) if match else ''
                 raise TestError('ADB не выполнил операцию.'+suffix+' Ничего не удаляйте и не включайте root.')
             return text
         except subprocess.TimeoutExpired as exc:
+            self.observe_result(args,None,'','timeout')
             raise TestError('ADB не ответил вовремя. Установка могла уже завершиться; автоматически повторять её нельзя.') from exc
         except OSError as exc:
+            self.observe_result(args,None,'','launch-failed')
             raise TestError('Не удалось запустить выбранный ADB.') from exc
 
 

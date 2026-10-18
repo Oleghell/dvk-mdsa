@@ -85,7 +85,7 @@ class Integration(unittest.TestCase):
             old=folder.parent/'rootless-diagnostics-0.1.5.json';old.write_text('keep')
             with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                 result,path=d.diagnose(Adb(),folder,inspector=lambda *a:{'stage':'tree-ready'},uikit_tree_probe=True)
-            self.assertEqual(path.name,'rootless-diagnostics-0.1.6.json');self.assertEqual(old.read_text(),'keep')
+            self.assertEqual(path.name,'rootless-diagnostics-0.1.7.json');self.assertEqual(old.read_text(),'keep')
             self.assertEqual(result['unity_object_access'],'structure-snapshot');self.assertEqual(result['mode'],'uikit-structure-only')
             for k in ('ui_actions_performed','ui_text_read','working_device_modified','app_installation_modified','root_used','ocr_used'):
                 self.assertFalse(result[k])

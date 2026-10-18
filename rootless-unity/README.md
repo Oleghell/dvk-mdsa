@@ -137,3 +137,7 @@ compatibility; do not mark the full workflow migrated based on `root-ready`.
 ### UIKit structure probe 0.1.6 (opt-in, test #4 only)
 
 See [DIAGNOSTICS-0.1.6.md](DIAGNOSTICS-0.1.6.md) for the bounded structure-only GUI. It uses the existing authenticated Gadget and verified main-thread root, not OCR or screen coordinates. It does not read UI text or perform actions. Run `python rootless-unity/diagnose_tree.py` from the repository root with the pinned Frida client, or use the separately built Windows EXE. Keep the old private `test-apks` folder. No APK reinstall. Synthetic graph tests do not establish real-device tree support.
+
+### Safe ADB evidence 0.1.7
+
+[DIAGNOSTICS-0.1.7.md](DIAGNOSTICS-0.1.7.md) describes fixed-label ADB failure reporting for repeated `device-preflight` stops. This does not add commands, retry installation, modify ports or claim to fix the user's connection. Tree limits and no-OCR/no-input behavior are unchanged. The structure GUI now writes `rootless-diagnostics-0.1.7.json`; the older root-only and metadata-only modes retain their report versions.
