@@ -13,6 +13,12 @@ m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
 
 def runtime():return {'frida_version':'17.24.1','arch':'arm64','platform':'linux'}
+def evidence():
+    return {'maps_available':True,'maps_complete':True,'map_line_count':20,'map_limit_reached':False,
+            'mapped_ranges':{n:0 for n in m.FIXED_MODULES},'apk_mappings_present':False,
+            'global_export_api_available':True,'global_exports':{n:False for n in m.EXPORTS},'global_export_errors':0}
+
+
 def modules(ready=True):
     return {'module_count':100,'fixed_modules':{n:ready for n in m.FIXED_MODULES},
             'il2cpp_exports':{n:ready for n in m.EXPORTS},'engine_name_matches':2 if ready else 0}
@@ -39,7 +45,7 @@ class FakeFrida:
     def attach(self,target):self.attached_to=target;return self
     def create_script(self,source,name):
         self.script_source=source
-        self.exports_sync=SimpleNamespace(runtime=lambda:runtime(),modules=self.get_modules)
+        self.exports_sync=SimpleNamespace(runtime=lambda:runtime(),modules=self.get_modules,evidence=evidence)
         return self
     def get_modules(self):
         if self.phase_error=='rpc':raise type('RPCException',(Exception,),{})('PRIVATE TOKEN')
@@ -61,7 +67,7 @@ class Inspect(unittest.TestCase):
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
     def test_partial_module_result_not_hidden_as_timeout(self):
         r=m.inspect_gadget(37149,'a'*64,lambda:False,frida_api=FakeFrida(ready=False))
-        self.assertEqual(r['stage'],'connected-modules-incomplete')
+        self.assertEqual(r['stage'],'engine-not-confirmed')
         self.assertTrue(r['connected'] and r['attached'] and r['rpc_modules_ok'])
         self.assertEqual(r['modules']['engine_name_matches'],0)
     def test_rpc_error_keeps_stage_not_sensitive_exception(self):
@@ -128,7 +134,7 @@ class Report(unittest.TestCase):
             text=path.read_text(encoding='utf-8')
             for secret in ('a'*64,'123456789','PRIVATE ID','0.0.0.0:*'):self.assertNotIn(secret,text)
             self.assertTrue(result['guest_port_27042_listening'])
-            self.assertEqual(path.name,'rootless-diagnostics-0.1.1.json')
+            self.assertEqual(path.name,'rootless-diagnostics-0.1.2.json')
 
 
 if __name__=='__main__':unittest.main()

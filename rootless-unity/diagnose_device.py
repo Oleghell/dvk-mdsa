@@ -10,12 +10,15 @@ import time
 from test_device import (TestAdb, TestError, TARGET, WORKING, PACKAGE, EXPORTS,
                          bundle_token, preflight, recheck, find_adb)
 
-VERSION = '0.1.1'
+from module_evidence import EVIDENCE_FUNCTION, validate_evidence, classify_evidence
+
+VERSION = '0.1.2'
 FIXED_MODULES = ['libfrida-gadget.so', 'libunity.so', 'libil2cpp.so', 'libmain.so']
-SCRIPT = '''
+SCRIPT = "'use strict';\n" + EVIDENCE_FUNCTION + '''
 'use strict';
 rpc.exports = {
   runtime() {return {frida_version: Frida.version, arch: Process.arch, platform: Process.platform};},
+  evidence() { return moduleEvidence(); },
   modules() {
     const names = ['libfrida-gadget.so', 'libunity.so', 'libil2cpp.so', 'libmain.so'];
     const all = Process.enumerateModules();
@@ -34,7 +37,9 @@ rpc.exports = {
 
 class DiagnosticAdb(TestAdb):
     def validate(self, args):
-        if args in (['-s', TARGET, 'shell', 'pidof', PACKAGE], ['-s', TARGET, 'shell', 'ss', '-ltn']):
+        if args in (['-s', TARGET, 'shell', 'pidof', PACKAGE], ['-s', TARGET, 'shell', 'ss', '-ltn'],
+                    ['-s', TARGET, 'shell', 'getprop', 'ro.product.cpu.abi'],
+                    ['-s', TARGET, 'shell', 'getprop', 'ro.dalvik.vm.native.bridge']):
             return
         if len(args) > 2 and (args[2] == 'install-multiple' or args[2:5] == ['shell','am','start']):
             raise TestError('Эта версия только диагностирует; установка и запуск запрещены.')
@@ -96,7 +101,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None):
     frida=frida_api
     if frida.__version__ != '17.24.1':raise TestError('Нужен клиент Frida 17.24.1.')
     report={'client_version':'17.24.1','connected':False,'attached':False,'rpc_runtime_ok':False,
-            'rpc_modules_ok':False,'attempts':0,'stage':'not-started','error_types':[],
+            'rpc_modules_ok':False,'rpc_evidence_ok':False,'attempts':0,'stage':'not-started','error_types':[],
             'process_count':None,'process_selection':'single-authenticated-process-by-pid'}
     manager=frida.get_device_manager();address='127.0.0.1:'+str(port)
     guard=frida.Cancellable()
@@ -126,7 +131,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None):
                     session=device.attach(process.pid)
                     report['attached']=True
                     report['stage']='create-fixed-script'
-                    script=session.create_script(SCRIPT,name='dvk-fixed-diagnostics-0.1.1')
+                    script=session.create_script(SCRIPT,name='dvk-fixed-diagnostics-0.1.2')
                     report['stage']='load-fixed-script';script.load()
                     report['stage']='runtime-rpc'
                     report['runtime']=validate_runtime(script.exports_sync.runtime())
@@ -134,8 +139,10 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None):
                     report['stage']='modules-rpc'
                     report['modules']=validate_modules(script.exports_sync.modules())
                     report['rpc_modules_ok']=True
-                    flags=report['modules']['fixed_modules']
-                    report['stage']='modules-ready' if flags['libunity.so'] and flags['libil2cpp.so'] else 'connected-modules-incomplete'
+                    report['stage']='evidence-rpc'
+                    report['evidence']=validate_evidence(script.exports_sync.evidence())
+                    report['rpc_evidence_ok']=True
+                    report['stage']=classify_evidence(report['modules']['fixed_modules'],report['evidence'])
                     return report
                 except Exception as error:
                     kind=safe_error_type(error)
@@ -185,7 +192,15 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
         except TestError:
             report['socket_query']='unavailable'
             report['guest_port_27042_listening']=None
-        progress('Проверяю подключение, отдельный процесс и два этапа RPC Gadget…')
+        for prop,field in (('ro.product.cpu.abi','device_primary_abi'),('ro.dalvik.vm.native.bridge','native_bridge_kind')):
+            try:
+                raw=adb.run(['-s',TARGET,'shell','getprop',prop])
+                if prop=='ro.product.cpu.abi':
+                    report[field]=raw if raw in ('x86_64','x86','arm64-v8a','armeabi-v7a','armeabi') else 'other-or-unavailable'
+                else:
+                    report[field]={'':'none-reported','0':'none-reported','libnb.so':'libnb','libhoudini.so':'houdini','libndk_translation.so':'ndk-translation'}.get(raw,'other-not-recorded')
+            except TestError:report[field]='query-unavailable'
+        progress('Проверяю Gadget, список модулей и независимые признаки загрузки Unity…')
         stage='forward-and-gadget'
         value=adb.run(['-s',TARGET,'forward','tcp:0','tcp:27042'])
         if not value.isdecimal() or not 1024 <= int(value) <= 65535:raise TestError('Некорректный порт ADB.')
@@ -200,7 +215,7 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
         if adb.forward_port is not None:
             try:adb.run(['-s',TARGET,'forward','--remove',f'tcp:{adb.forward_port}'],timeout=10)
             except Exception:report['forward_cleanup_failed']=True
-    target=folder.parent/'rootless-diagnostics-0.1.1.json'
+    target=folder.parent/'rootless-diagnostics-0.1.2.json'
     target.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     return report,target
 
@@ -209,12 +224,12 @@ def launch_gui(self_check=False):
     import queue
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг — подробная диагностика 0.1.1, без установки')
+    root=tk.Tk();root.title('ДругВокруг — подробная диагностика 0.1.2, без установки')
     root.geometry('850x490');root.minsize(780,450)
     main=ttk.Frame(root,padding=18);main.pack(fill='both',expand=True)
     ttk.Label(main,text='Только диагностика #4 (5563) — APK не переустанавливается',font=('Segoe UI',12,'bold')).pack(anchor='w')
     ttk.Label(main,text='Запустите оба MuMu и оставьте тестовый ДругВокруг открытым на #4.\n'
-        'Новая проверка покажет этап: соединение → процесс → RPC → Unity-модули.\n'
+        'Проверка: Gadget → модули → карта библиотек и глобальные IL2CPP-экспорты.\n'
         'Нет установки, запуска приложения, OCR, снимков экрана и чтения переписок.',wraplength=790).pack(anchor='w',pady=12)
     base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).parent
     binary=tk.StringVar(value=find_adb());folder=tk.StringVar(value=str(base/'test-apks'))
@@ -244,8 +259,8 @@ def launch_gui(self_check=False):
     row=ttk.Frame(main);row.pack(fill='x',pady=8)
     button=ttk.Button(row,text='Собрать подробный отчёт — без установки',command=start);button.pack(side='left')
     ttk.Button(row,text='Отменить',command=stop.set).pack(side='left',padx=10)
-    ttk.Label(main,text='Результат: rootless-diagnostics-0.1.1.json рядом со старой папкой test-apks.\n'
-        'В отчёт не попадают токены, boot ID, PID, адреса сокетов и содержимое приложения.',wraplength=790).pack(anchor='w',pady=10)
+    ttk.Label(main,text='Результат: rootless-diagnostics-0.1.2.json рядом со старой папкой test-apks.\n'
+        'В отчёт не попадают токены, boot ID, PID, адреса памяти, полные пути и данные приложения.',wraplength=790).pack(anchor='w',pady=10)
     def poll():
         nonlocal busy
         while not events.empty():

@@ -2,6 +2,7 @@
 import sys
 import frida
 from diagnose_device import SCRIPT, validate_runtime, validate_modules
+from module_evidence import validate_evidence
 
 
 def main():
@@ -16,7 +17,13 @@ def main():
         assert modules['module_count']>0
         assert modules['fixed_modules']['libunity.so'] is False
         assert modules['fixed_modules']['libil2cpp.so'] is False
-        print('Both fixed diagnostic RPC methods passed on owned synthetic child. NO Android compatibility claim.')
+        evidence=validate_evidence(script.exports_sync.evidence())
+        if sys.platform.startswith('linux'):
+            assert evidence['maps_available'] and evidence['maps_complete'], evidence
+            assert evidence['map_line_count']>0
+        elif sys.platform=='win32':
+            assert evidence['maps_available'] is False
+        print('All fixed diagnostic RPC methods passed on owned synthetic child. NO Android compatibility claim.')
     finally:
         if script:
             try:script.unload()
