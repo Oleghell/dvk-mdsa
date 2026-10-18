@@ -141,3 +141,7 @@ See [DIAGNOSTICS-0.1.6.md](DIAGNOSTICS-0.1.6.md) for the bounded structure-only 
 ### Safe ADB evidence 0.1.7
 
 [DIAGNOSTICS-0.1.7.md](DIAGNOSTICS-0.1.7.md) describes fixed-label ADB failure reporting for repeated `device-preflight` stops. This does not add commands, retry installation, modify ports or claim to fix the user's connection. Tree limits and no-OCR/no-input behavior are unchanged. The structure GUI now writes `rootless-diagnostics-0.1.7.json`; the older root-only and metadata-only modes retain their report versions.
+
+### Subviews boxed Iterator adapter 0.1.8
+
+[DIAGNOSTICS-0.1.8.md](DIAGNOSTICS-0.1.8.md) adds the exact metadata-verified `ShortList<UIView>.Iterator` protocol without OCR, text reads or UI input. The dedicated structure GUI writes `rootless-diagnostics-0.1.8.json`. Read-only ADB evidence from 0.1.7 is retained. No APK reinstall. Synthetic C ABI coverage includes the unboxed receiver and mandatory GetEnumerator copy; a real MuMu tree report is still needed.

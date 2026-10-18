@@ -154,7 +154,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
                     session=device.attach(process.pid)
                     report['attached']=True
                     report['stage']='create-fixed-script'
-                    script=session.create_script(source,name='dvk-uikit-tree-0.1.7' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
+                    script=session.create_script(source,name='dvk-uikit-tree-0.1.8' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
                     report['stage']='load-fixed-script';script.load()
                     report['stage']='runtime-rpc'
                     report['runtime']=validate_runtime(script.exports_sync.runtime())
@@ -205,7 +205,7 @@ def listening_port(text):
 
 def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False, uikit_tree_probe=False):
     uikit_root_probe=uikit_root_probe or uikit_tree_probe
-    version='0.1.7' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
+    version='0.1.8' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
     if uikit_root_probe and inspector is inspect_gadget:
         inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,uikit_root_probe=True,uikit_tree_probe=uikit_tree_probe)
     report={'tool_version':version,'mode':('uikit-structure-only' if uikit_tree_probe else 'uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
@@ -253,7 +253,10 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
         if uikit_root_probe:
             report['unity_object_access']='root-presence-confirmed' if report['status']=='root-ready' else 'not-confirmed'
             if uikit_tree_probe:
-                report['unity_object_access']='structure-snapshot' if report['status'] in ('tree-ready','tree-limited') else 'not-confirmed'
+                root_result=report['gadget'].get('uikit_root',{})
+                root_confirmed=all(root_result.get(k) is True for k in ('main_thread_confirmed','window_available','object_classes_validated'))
+                report['unity_root_access']='confirmed' if root_confirmed else 'not-confirmed'
+                report['unity_object_access']='structure-snapshot' if report['status'] in ('tree-ready','tree-limited') else 'root-presence-confirmed' if root_confirmed else 'not-confirmed'
             report['ui_text_read']=False
             report['ui_actions_performed']=False
     except Exception as error:
@@ -279,7 +282,7 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
 
 def launch_gui(self_check=False,*,uikit_root_probe=False, uikit_tree_probe=False):
     uikit_root_probe=uikit_root_probe or uikit_tree_probe
-    version='0.1.7' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
+    version='0.1.8' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
     import queue
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox

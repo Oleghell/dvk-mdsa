@@ -117,3 +117,7 @@ https://frida.re/docs/javascript-api/
 ## Bounded structure follow-up (0.1.6)
 
 After 0.1.5 confirmed the root/main thread and pointer-handle cleanup on test MuMu #4, `uikit_tree.py` adds an opt-in structure-only snapshot. It reads UIView children through checked reference-collection getters and records fixed type categories and accessibility-like flags, never text, object names, geometry or input. Unknown collections fail closed. Limits and user instructions are in `DIAGNOSTICS-0.1.6.md`. C ABI regression fixtures run on owned synthetic graphs; a real-device tree result is still required. `diagnose_tree.py` is the dedicated entry point; the previous root-only and metadata-only entries retain their modes.
+
+## Subviews value-type iterator (0.1.8)
+
+The user's 0.1.7 report passed ADB/root checks but stopped after the first UIWindow with `unsupported-collection`, with cleanup confirmed. Offline type-table verification of the provided APK established `UIView.Subviews` as `Core.Collections.StructBased.ShortList<UIView>.Iterator`, a nested boxed value-type result. See `SUBVIEWS-OFFLINE-EVIDENCE.json` for fixed-name evidence only. `uikit_tree.py` now validates that exact closed class and enumerates a temporary GetEnumerator copy through unboxed receivers obtained by the C API; it never applies a guessed object-header offset. Runtime confirmation of this new adapter is still needed. Details, limits and ABI references: `DIAGNOSTICS-0.1.8.md`.

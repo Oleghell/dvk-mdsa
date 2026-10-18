@@ -1,0 +1,22 @@
+{
+  "evidence_scope": "fixed UIKit collection metadata only; no APK bytes or runtime addresses",
+  "metadata_version": 31,
+  "metadata_sha256": "a8bfb78cf4cbf5dbc7da5e0f8b4f739a88a54a16a2957656d2d9982f0061ef24",
+  "offline_type_table_cross_checked": true,
+  "declaring_type": "UIKit.UIView",
+  "property_getter": "get_Subviews/0",
+  "return_image": "Core.dll",
+  "return_kind": "IL2CPP_TYPE_GENERICINST",
+  "return_value_type": true,
+  "return_nested_definition": "Core.Collections.StructBased.ShortList`1/Iterator",
+  "return_generic_argument": "UIKit.UIView",
+  "enumeration_methods": [
+    {"name": "GetEnumerator", "arity": 0, "static": false, "byref": false, "return": "Iterator<T>"},
+    {"name": "get_Count", "arity": 0, "static": false, "byref": false, "return": "System.Int32"},
+    {"name": "MoveNext", "arity": 0, "static": false, "byref": false, "return": "System.Boolean"},
+    {"name": "get_Current", "arity": 0, "static": false, "byref": false, "return": "T"}
+  ],
+  "runtime_validation_required": true,
+  "runtime_field_offsets_used": false,
+  "get_item_int32_assumed": false
+}

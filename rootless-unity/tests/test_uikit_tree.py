@@ -16,7 +16,7 @@ def ready_tree():
         'nodes':[{'id':0,'parent':None,'depth':0,'kind':'UIWindow','effectively_hidden':False,
                   'user_interaction_enabled':True,'control_enabled':None,'child_count':0}],
         'managed_calls':4,'handles_acquired':2,'handles_released':2,'cleanup_failed':False,
-        'truncated_reasons':[],'repeated_references':0}
+        'truncated_reasons':[],'repeated_references':0,'collection_adapters':['short-list-iterator'],'last_collection_stage':'done'}
     return r
 
 class TreeFake(UIFake):
@@ -43,7 +43,7 @@ class TreeSchema(unittest.TestCase):
         v=ready_tree();v['stage']='off-main-thread';v['main_thread_confirmed']=False
         with self.assertRaises(ValueError):t.validate(v)
     def test_tree_counts_bounded(self):
-        for key,bad in (('managed_calls',513),('managed_calls',True),('handles_acquired',129),('handles_released',3)):
+        for key,bad in (('managed_calls',513),('managed_calls',True),('handles_acquired',193),('handles_released',3)):
             v=ready_tree();v['tree'][key]=bad
             with self.assertRaises(ValueError):t.validate(v)
     def test_unreported_leak_rejected(self):
@@ -53,10 +53,23 @@ class TreeSchema(unittest.TestCase):
         v=ready_tree();v['tree'].update(stage='tree-limited',complete=False)
         with self.assertRaises(ValueError):t.validate(v)
         v['tree']['truncated_reasons']=['time-budget'];t.validate(v)
+    def test_only_fixed_adapter_and_collection_stage_labels(self):
+        for key,value in (('collection_adapters',['PRIVATE TYPE']),('last_collection_stage','PRIVATE METHOD')):
+            v=ready_tree();v['tree'][key]=value
+            with self.assertRaises(ValueError):t.validate(v)
+    def test_iterator_handle_budget_allows_copy_and_no_leak(self):
+        v=ready_tree();v['tree'].update(handles_acquired=192,handles_released=192);t.validate(v)
+        v['tree']['handles_released']=191
+        with self.assertRaises(ValueError):t.validate(v)
+    def test_value_type_uses_api_not_guessed_header(self):
+        self.assertIn('obj=f.unbox(obj)',t.FUNCTION)
+        self.assertNotIn('obj.add(',t.FUNCTION)
+        self.assertIn('klass.equals(s.subviewsClass)',t.FUNCTION)
+        self.assertIn("checked(enumerator,0,21)",t.FUNCTION)
     def test_no_content_getters_or_actions(self):
         for bad in ('get_Text','set_Text','get_Name','get_Position','OnDidClicked','sendMessage','screencap','input tap','Interceptor.replace','Memory.scan','il2cpp_field_','NativeCallback'):
             self.assertNotIn(bad,t.FUNCTION)
-        for required in ('get_Subviews','get_EffectivelyHidden','get_UserInteractionEnabled','get_Enabled','get_Count','get_Item','gchandle_get_target','f.keep(obj,1)','f.isValueType(klass)'):
+        for required in ('get_Subviews','get_EffectivelyHidden','get_UserInteractionEnabled','get_Enabled','get_Count','get_Item','gchandle_get_target','f.keep(obj,1)','f.isValueType(klass)','MoveNext','get_Current','GetEnumerator','f.unbox(obj)','ShortList`1','f.methodClass(m).equals(klass)'):
             self.assertIn(required,t.FUNCTION)
         self.assertNotIn('__BODY_EXTENSION__',t.FUNCTION)
 
@@ -85,7 +98,7 @@ class Integration(unittest.TestCase):
             old=folder.parent/'rootless-diagnostics-0.1.5.json';old.write_text('keep')
             with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                 result,path=d.diagnose(Adb(),folder,inspector=lambda *a:{'stage':'tree-ready'},uikit_tree_probe=True)
-            self.assertEqual(path.name,'rootless-diagnostics-0.1.7.json');self.assertEqual(old.read_text(),'keep')
+            self.assertEqual(path.name,'rootless-diagnostics-0.1.8.json');self.assertEqual(old.read_text(),'keep')
             self.assertEqual(result['unity_object_access'],'structure-snapshot');self.assertEqual(result['mode'],'uikit-structure-only')
             for k in ('ui_actions_performed','ui_text_read','working_device_modified','app_installation_modified','root_used','ocr_used'):
                 self.assertFalse(result[k])

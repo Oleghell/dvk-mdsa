@@ -30,10 +30,12 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
 }};''',name='synthetic-uikit-tree')
         script.load();value=validate(script.exports_sync.probe());tree=value['tree']
         assert value['stage']=='root-ready',value
-        expected={20:('tree-ready','none'),21:('tree-limited','none'),22:('tree-error','collection-count-out-of-range'),23:('tree-limited','none'),24:('tree-error','unsupported-collection'),25:('tree-limited','none'),26:('tree-error','unsupported-collection'),27:('tree-error','managed-exception'),28:('tree-limited','none'),29:('tree-limited','none')}[mode]
+        expected={20:('tree-ready','none'),21:('tree-limited','none'),22:('tree-error','collection-count-out-of-range'),23:('tree-limited','none'),24:('tree-error','unsupported-collection'),25:('tree-limited','none'),26:('tree-error','unsupported-collection'),27:('tree-error','managed-exception'),28:('tree-limited','none'),29:('tree-limited','none'),30:('tree-ready','none'),31:('tree-error','unsupported-collection'),32:('tree-error','signature-mismatch'),33:('tree-error','iterator-count-mismatch'),34:('tree-error','collection-count-out-of-range'),35:('tree-error','managed-exception'),36:('tree-limited','none'),37:('tree-limited','none'),38:('tree-error','unsupported-collection'),39:('tree-error','iterator-count-mismatch'),40:('tree-limited','none'),41:('tree-limited','none'),42:('tree-error','managed-exception'),43:('tree-error','null-object'),44:('tree-error','signature-mismatch'),45:('tree-error','signature-mismatch')}[mode]
         assert (tree['stage'],tree['error'])==expected,tree
-        if mode==20:assert len(tree['nodes'])==4 and tree['complete'],tree
+        if mode in (20,30):assert len(tree['nodes'])==4 and tree['complete'],tree
         if mode in (21,23,25,28,29):assert {28:'node-limit',29:'time-budget',21:'repeated-reference',23:'children-limit',25:'depth-limit'}[mode] in tree['truncated_reasons'],tree
+        if mode>=30 and mode not in (31,38):assert 'short-list-iterator' in tree['collection_adapters'],tree
+        if mode in (36,37,40,41):assert {36:'repeated-reference',37:'children-limit',40:'depth-limit',41:'node-limit'}[mode] in tree['truncated_reasons'],tree
         counts=script.exports_sync.counts()
         assert counts=={'handles':0,'bad_frees':0,'high':1,'wrong_index':0,'off':0},counts
         assert tree['handles_acquired']==tree['handles_released'] and not value['cleanup_failed'],value
@@ -53,5 +55,5 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
 
 if __name__=='__main__':
     library=Path(sys.argv[1]).resolve(strict=True)
-    for mode in range(20,30):one(library,mode)
+    for mode in range(20,46):one(library,mode)
     print('Tree C ABI checks passed; real MuMu graph NOT yet tested.')

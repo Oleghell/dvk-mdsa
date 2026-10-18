@@ -1,8 +1,8 @@
-name: Build guarded UIKit bounded structure probe and safe ADB evidence 0.1.7
+name: Build guarded UIKit boxed ShortList iterator and safe ADB evidence 0.1.8
 "on":
   push:
     branches: [feature/android-ui-hierarchy]
-    paths: ['rootless-unity/adb_evidence.py', 'rootless-unity/uikit_tree.py', 'rootless-unity/diagnose_tree.py', 'rootless-unity/smoke_uikit_tree.py', 'rootless-unity/uikit_root.py', 'rootless-unity/uikit_profile.py', 'rootless-unity/diagnose_uikit.py', 'rootless-unity/smoke_uikit_root.py', 'rootless-unity/native_metadata.py', 'rootless-unity/smoke_native_metadata.py', 'rootless-unity/fixtures/**', 'rootless-unity/module_evidence.py', 'rootless-unity/diagnose_device.py', 'rootless-unity/test_device.py', 'rootless-unity/smoke_diagnostics.py', 'rootless-unity/tests/**', 'rootless-unity/apk_export.py', 'rootless-unity/DIAGNOSTICS-0.1.7.md', '.github/workflows/rootless-diagnostics.yml']
+    paths: ['rootless-unity/SUBVIEWS-OFFLINE-EVIDENCE.json', 'rootless-unity/adb_evidence.py', 'rootless-unity/uikit_tree.py', 'rootless-unity/diagnose_tree.py', 'rootless-unity/smoke_uikit_tree.py', 'rootless-unity/uikit_root.py', 'rootless-unity/uikit_profile.py', 'rootless-unity/diagnose_uikit.py', 'rootless-unity/smoke_uikit_root.py', 'rootless-unity/native_metadata.py', 'rootless-unity/smoke_native_metadata.py', 'rootless-unity/fixtures/**', 'rootless-unity/module_evidence.py', 'rootless-unity/diagnose_device.py', 'rootless-unity/test_device.py', 'rootless-unity/smoke_diagnostics.py', 'rootless-unity/tests/**', 'rootless-unity/apk_export.py', 'rootless-unity/DIAGNOSTICS-0.1.8.md', '.github/workflows/rootless-diagnostics.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -84,27 +84,27 @@ jobs:
           $ErrorActionPreference='Stop'
           python -m pip install pyinstaller==6.16.0 frida==17.24.1
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-          python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-rootless-diagnostics --distpath out/Dvk-rootless-diagnostics-0.1.7-windows-x64 rootless-unity/diagnose_tree.py
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-rootless-diagnostics --distpath out/Dvk-rootless-diagnostics-0.1.8-windows-x64 rootless-unity/diagnose_tree.py
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-          $app=Start-Process -FilePath out/Dvk-rootless-diagnostics-0.1.7-windows-x64/Dvk-rootless-diagnostics.exe -ArgumentList '--self-check' -PassThru
+          $app=Start-Process -FilePath out/Dvk-rootless-diagnostics-0.1.8-windows-x64/Dvk-rootless-diagnostics.exe -ArgumentList '--self-check' -PassThru
           if (-not $app.WaitForExit(45000)) {$app.Kill();throw 'Packaged GUI self-check timed out'}
           if ($app.ExitCode -ne 0) {throw 'Packaged GUI/Frida self-check failed'}
-          $root='out/Dvk-rootless-diagnostics-0.1.7-windows-x64'
-          Copy-Item rootless-unity/DIAGNOSTICS-0.1.7.md "$root/README.md"
+          $root='out/Dvk-rootless-diagnostics-0.1.8-windows-x64'
+          Copy-Item rootless-unity/DIAGNOSTICS-0.1.8.md "$root/README.md"
           $license=python -c "import importlib.metadata; d=importlib.metadata.distribution('frida'); print(d.locate_file(next(p for p in d.files if str(p).endswith('licenses/COPYING'))))"
           if ($LASTEXITCODE -ne 0) {throw 'Frida license lookup failed'}
           Copy-Item -LiteralPath $license -Destination "$root/FRIDA-COPYING.txt"
-          @{version='0.1.7';source_commit=$env:GITHUB_SHA;target='127.0.0.1:5563';protected_working_instance='127.0.0.1:5555';frida='17.24.1';root=$false;ocr=$false;mode='uikit-structure-only';max_nodes=64;max_depth=8;max_children=32;tree_budget_ms=150;ui_actions_available=$false;ui_text_read=$false;observer_max_seconds=8;installation_available=$false;android_runtime_tested=$false;adb_raw_output_recorded=$false;adb_max_checks=40;unity_object_access='not-tested'} | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
+          @{version='0.1.8';source_commit=$env:GITHUB_SHA;target='127.0.0.1:5563';protected_working_instance='127.0.0.1:5555';frida='17.24.1';root=$false;ocr=$false;mode='uikit-structure-only';max_nodes=64;max_depth=8;max_children=32;tree_budget_ms=150;ui_actions_available=$false;ui_text_read=$false;observer_max_seconds=8;installation_available=$false;android_runtime_tested=$false;adb_raw_output_recorded=$false;adb_max_checks=40;boxed_shortlist_iterator_supported=$true;max_tree_handles_total=192;unity_object_access='not-tested'} | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
           Get-ChildItem $root -File | Sort-Object Name | ForEach-Object {'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(),$_.Name} | Set-Content "$root/SHA256SUMS.txt" -Encoding ASCII
       - uses: actions/upload-artifact@v4
         with:
-          name: Dvk-rootless-diagnostics-0.1.7-windows-x64
-          path: out/Dvk-rootless-diagnostics-0.1.7-windows-x64/
+          name: Dvk-rootless-diagnostics-0.1.8-windows-x64
+          path: out/Dvk-rootless-diagnostics-0.1.8-windows-x64/
           if-no-files-found: error
           retention-days: 14
   publish:
     needs: [test, windows]
-    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release rootless diagnostics 0.1.7') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release rootless diagnostics 0.1.8') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -115,13 +115,13 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: Dvk-rootless-diagnostics-0.1.7-windows-x64
-          path: release/Dvk-rootless-diagnostics-0.1.7-windows-x64
+          name: Dvk-rootless-diagnostics-0.1.8-windows-x64
+          path: release/Dvk-rootless-diagnostics-0.1.8-windows-x64
       - name: Publish tool only; private test APKs are never uploaded to GitHub
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd release
-          zip -r Dvk-rootless-diagnostics-0.1.7-windows-x64.zip Dvk-rootless-diagnostics-0.1.7-windows-x64
-          sha256sum Dvk-rootless-diagnostics-0.1.7-windows-x64.zip > SHA256SUMS.txt
-          gh release create rootless-diagnostics-v0.1.7 Dvk-rootless-diagnostics-0.1.7-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Rootless diagnostics 0.1.7 — existing MuMu number 4 app only" --notes-file ../rootless-unity/DIAGNOSTICS-0.1.7.md
+          zip -r Dvk-rootless-diagnostics-0.1.8-windows-x64.zip Dvk-rootless-diagnostics-0.1.8-windows-x64
+          sha256sum Dvk-rootless-diagnostics-0.1.8-windows-x64.zip > SHA256SUMS.txt
+          gh release create rootless-diagnostics-v0.1.8 Dvk-rootless-diagnostics-0.1.8-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Rootless diagnostics 0.1.8 — existing MuMu number 4 app only" --notes-file ../rootless-unity/DIAGNOSTICS-0.1.8.md

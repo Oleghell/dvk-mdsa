@@ -5,7 +5,7 @@
 static Class tc[]={
  {"UIKit","UIView"},{"UIKit","Control"},{"UIKit","Button"},{"UIKit","Label"},
  {"UIKit","TextField"},{"UIKit","UITextView"},{"DV","DVButton"},
- {"Core.Collections","ReadOnlyList`1"},{"Fixture","Int32"},{"Fixture","Unknown"}};
+ {"Core.Collections","ReadOnlyList`1"},{"Fixture","Int32"},{"Fixture","Unknown"},{"Core.Collections.StructBased","ShortList`1"},{"","Iterator"}};
 static Type tint={8,NULL},tview={18,&tc[0]},tlist={18,&tc[7]};
 static Method tm[]={
  {"get_EffectivelyHidden",&tc[0],0,&tbool,10,0,NULL},
@@ -14,19 +14,34 @@ static Method tm[]={
  {"get_Enabled",&tc[1],0,&tbool,13,0,NULL},
  {"get_Count",&tc[7],0,&tint,14,0,NULL},
  {"get_Item",&tc[7],0,&tview,15,1,&tint}};
+static Type titerator={21,&tc[11]};
+static Method iterator_methods[]={
+ {"get_Count",&tc[11],0,&tint,16,0,NULL},
+ {"MoveNext",&tc[11],0,&tbool,17,0,NULL},
+ {"get_Current",&tc[11],0,&tview,18,0,NULL},
+ {"GetEnumerator",&tc[11],0,&titerator,19,0,NULL}};
+typedef struct Cursor {int owner,index;} Cursor;
+typedef struct IteratorBox {Object base;Cursor cursor;} IteratorBox;
+static IteratorBox iterator_boxes[100],enumerator_boxes[100];
+static Object *iterator_invoke(Method *,void *,void **);
 typedef struct Node {Object base;int index;} Node;
 typedef struct List {Object base;int owner;} List;
 typedef struct BoxInt {Object base;int number;} BoxInt;
 static Node nodes[100];static List lists[100];static BoxInt boxed_int;
 static int wrong_index;
-static void tree_init(int m){int i;for(i=0;i<100;i++){
- nodes[i].base.klass=&tc[i%5+2];nodes[i].index=i;lists[i].base.klass=&tc[7];lists[i].owner=i;}
+static void tree_init(int m){int i;
+ if(m>=30){tm[2].type=&titerator;if(m==38)titerator.klass=&tc[7];}
+ if(m==32)iterator_methods[2].type=&tint;
+for(i=0;i<100;i++){
+ nodes[i].base.klass=&tc[i%5+2];nodes[i].index=i;lists[i].base.klass=&tc[7];lists[i].owner=i;iterator_boxes[i].base.klass=&tc[11];iterator_boxes[i].cursor.owner=i;iterator_boxes[i].cursor.index=-1;enumerator_boxes[i].base.klass=&tc[11];enumerator_boxes[i].cursor.owner=i;enumerator_boxes[i].cursor.index=-1;}
  boxed_int.base.klass=&tc[8];wrong_index=0;
  if(m==24)lists[0].base.klass=&tc[9];
 }
 static Class *tree_class(Image *im,const char *ns,const char *name){int i;for(i=0;i<8;i++){
  if(!strcmp(ns,tc[i].ns)&&!strcmp(name,tc[i].name)&&im==&images[i==6?3:0])return &tc[i];}return NULL;}
-static Method *tree_method(Class *c,const char *name,int arity){int i;for(i=0;i<6;i++){
+static Method *tree_method(Class *c,const char *name,int arity){int i;
+ for(i=0;i<4;i++)if(c==&tc[11]&&!strcmp(name,iterator_methods[i].name)&&arity==0)return &iterator_methods[i];
+for(i=0;i<6;i++){
  if(!strcmp(name,tm[i].name)&&arity==(int)tm[i].arity&&
  (c==tm[i].klass||(tm[i].klass==&tc[0]&&(c==&classes[1]||c==&tc[1]||c==&tc[2]||c==&tc[3]||c==&tc[4]||c==&tc[5]||c==&tc[6]))))return &tm[i];}return NULL;}
 static unsigned char tree_assignable(Class *a,Class *b){
@@ -34,19 +49,27 @@ static unsigned char tree_assignable(Class *a,Class *b){
  if(a==&tc[1])return b==&tc[1]||b==&tc[2]||b==&tc[4]||b==&tc[6];
  if(a==&tc[2])return b==&tc[6];return 0;
 }
-static void *tree_unbox(Object *o){return o==&boxed_int.base?&boxed_int.number:NULL;}
+static void *tree_unbox(Object *o){int i;if(o==&boxed_int.base)return &boxed_int.number;
+ for(i=0;i<100;i++)if(o==&iterator_boxes[i].base)return &iterator_boxes[i].cursor;
+ for(i=0;i<100;i++)if(o==&enumerator_boxes[i].base)return &enumerator_boxes[i].cursor;return NULL;}
 API const char *il2cpp_class_get_name(Class *c){return c->name;}
 API const char *il2cpp_class_get_namespace(Class *c){return c->ns;}
 API Image *il2cpp_class_get_image(Class *c){return c==&tc[6]?&images[3]:&images[0];}
-API unsigned char il2cpp_class_is_valuetype(Class *c){return mode==26&&c==&tc[7];}
+API unsigned char il2cpp_class_is_valuetype(Class *c){return (mode==26&&c==&tc[7])||c==&tc[10]||c==&tc[11];}
+API Class *il2cpp_class_get_declaring_type(Class *c){return c==&tc[11]&&mode!=31?&tc[10]:NULL;}
+API Class *il2cpp_method_get_class(Method *m){return mode==44&&m->action>=16?&tc[0]:m->klass;}
+API unsigned char il2cpp_type_is_byref(Type *t){return mode==45&&t==&tview;}
 API Class *il2cpp_class_from_type(Type *t){return t->klass;}
 API Type *il2cpp_method_get_param(Method *m,uint32_t i){return i<m->arity?m->param:NULL;}
 API int fixture_wrong_index(void){return wrong_index;}
 static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
- int owner=obj==&window?0:((Node*)obj)->index;
+ int owner;
+ if(m->action>=16)return iterator_invoke(m,obj,exc);
+ owner=obj==&window?0:((Node*)obj)->index;
  if(m->action==10||m->action==11||m->action==13){fixture_boxed_bool.value=m->action!=10;return &fixture_boxed_bool;}
  if(m->action==12){
   if(mode==29&&owner==0){clock_t until=clock()+CLOCKS_PER_SEC/5;while(clock()<until){/* synthetic slow getter */}}
+  if(mode>=30){iterator_boxes[owner].cursor.index=-1;return &iterator_boxes[owner].base;}
   return &lists[owner].base;
  }
  if(m->action==14){
@@ -63,6 +86,37 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
   if(mode==27&&index==1){if(exc)*exc=&exception;return NULL;}
   if(mode==28)return &nodes[3*owner+index+1].base;
   if(mode==25)return &nodes[owner+1].base;
+  return &nodes[index+1].base;
+ }return NULL;
+}
+
+/* Value-type receiver MUST be exactly object_unbox(box), not box or a guessed header offset. */
+static Object *iterator_invoke(Method *m,void *receiver,void **exc){
+ int i,owner,index,count,is_enumerator=0;Cursor *cursor=NULL;
+ for(i=0;i<100;i++)if(receiver==&iterator_boxes[i].cursor){cursor=&iterator_boxes[i].cursor;break;}
+ if(!cursor)for(i=0;i<100;i++)if(receiver==&enumerator_boxes[i].cursor){cursor=&enumerator_boxes[i].cursor;is_enumerator=1;break;}
+ if(!cursor){wrong_index++;if(exc)*exc=&exception;return NULL;}
+ owner=cursor->owner;
+ if(m->action==19){enumerator_boxes[owner].cursor.index=-1;return &enumerator_boxes[owner].base;}
+ if(!is_enumerator){wrong_index++;if(exc)*exc=&exception;return NULL;}
+ count=owner==0?(mode==37?40:3):0;
+ if(mode==40)count=owner<12?1:0;
+ if(mode==41)count=owner<40?3:0;
+ if(m->action==16){boxed_int.number=mode==34?4097:count;return &boxed_int.base;}
+ if(m->action==17){
+  if(mode==35){if(exc)*exc=&exception;return NULL;}
+  cursor->index++;fixture_boxed_bool.value=cursor->index<count;
+  if(mode==33&&cursor->index==1)fixture_boxed_bool.value=0;
+  if(mode==39&&cursor->index==count)fixture_boxed_bool.value=1;
+  return &fixture_boxed_bool;
+ }
+ if(m->action==18){
+  index=cursor->index;if(index<0||index>=count){wrong_index++;if(exc)*exc=&exception;return NULL;}
+  if(mode==42){if(exc)*exc=&exception;return NULL;}
+  if(mode==43)return NULL;
+  if(mode==36&&index==1)return &window;
+  if(mode==40)return &nodes[owner+1].base;
+  if(mode==41)return &nodes[3*owner+index+1].base;
   return &nodes[index+1].base;
  }return NULL;
 }
