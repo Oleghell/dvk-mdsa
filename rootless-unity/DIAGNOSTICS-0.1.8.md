@@ -11,7 +11,7 @@
 - Сохранён прежний адаптер проверенных reference-type списков.
 - Новый адаптер разрешает **только** известный вложенный `Iterator` из Core.dll, с родителем `Core.Collections.StructBased.ShortList<T>`, признаком value type и точным совпадением фактического класса с объявленным возвращаемым классом Subviews.
 - Перед вызовами проверяются нулевая арность, instance-флаги, declaring class, отсутствие byref и типы возврата `Count:Int32`, `MoveNext:Boolean`, `Current:UIView`, `GetEnumerator:тот же Iterator`.
-- Используется стандартный протокол `GetEnumerator → Count → MoveNext → Current`. `get_Item(Int32)` не предполагается для этого типа: в исходных метаданных у него другая generic-сигнатура.
+- Используется стандартный протокол `GetEnumerator → Count → MoveNext → Current`. `get_Item(Int32)` не используется этим адаптером. Уточнение после 0.1.8: повторная проверка правильной секции parameterDefinitions подтвердила Int32; прежний вывод о другой generic-сигнатуре был ошибочным. Рабочий протокол Iterator не меняется.
 - `runtime_invoke` возвращает boxed copy value type. Для вызова instance-метода получатель получается через **`il2cpp_object_unbox`**, не через guessed object-header offset. Все боксы удерживаются opaque pointer-sized GC handles и освобождаются.
 - `MoveNext` меняет только временную закреплённую копию итератора, возвращённую GetEnumerator. Методы действий UIView/Control, setter и UI-ввод не вызываются.
 - Count ограничен 0…4096; преждевременное/лишнее значение MoveNext даёт `iterator-count-mismatch`. Неизвестный тип или неподходящая сигнатура по-прежнему останавливает обход.

@@ -1,3 +1,14 @@
+# Current test: semantic navigation 0.2.0
+
+See [NAVIGATION-0.2.0.md](NAVIGATION-0.2.0.md) for the separate consented
+search → open filters → cancel → verify return workflow on the existing MuMu #4.
+No OCR, coordinates, root, reinstall, messages or changes to working #0.
+It invokes two existing UIKit UI handlers, not Android Accessibility clicks.
+Live navigation still requires the user's first 0.2.0 report; 0.1.8 proved structure only.
+Older preparation/diagnostic utilities below remain available, but are not the current navigation entry point.
+
+---
+
 # APK source exporter 0.1.0 — rootless preparation only
 
 This utility **does not yet inject Frida Gadget, access Unity objects, or automate the app**.

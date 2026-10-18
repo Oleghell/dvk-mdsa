@@ -28,7 +28,12 @@ static Method methods[]={
  {"OnUnityUpdate",&classes[0],0,&tvoid,0},
  {"ExecuteTasks",&classes[3],16,&tvoid,0}};
 static Image images[]={{"Core.dll"},{"UIKit.Unity.dll"},{"UnityEngine.CoreModule.dll"},{"DV.dll"}};
+#ifdef NAV_FIXTURE
+static Image nav_image={"DV.Search.dll"};
+static Image *image_array[]={&images[0],&images[1],&images[2],&images[3],&nav_image};
+#else
 static Image *image_array[]={&images[0],&images[1],&images[2],&images[3]};
+#endif
 static Object runtime={&classes[0],0},window={&classes[1],0},fixture_boxed_bool={NULL,0};
 typedef struct Handle {Object *target;int live;} Handle;
 #ifdef TREE_FIXTURE
@@ -58,7 +63,7 @@ API void *il2cpp_domain_get(void) {return &domain;}
 API void *il2cpp_thread_current(void) {return attached?&thread:NULL;}
 API void *il2cpp_thread_attach(void *d) {(void)d;attached=1;return &thread;}
 API void il2cpp_thread_detach(void *t) {(void)t;attached=0;}
-API Image **il2cpp_domain_get_assemblies(void *d,size_t *n) {(void)d;*n=4;return image_array;}
+API Image **il2cpp_domain_get_assemblies(void *d,size_t *n) {(void)d;*n=sizeof(image_array)/sizeof(image_array[0]);return image_array;}
 API Image *il2cpp_assembly_get_image(Image *a) {return a;}
 API const char *il2cpp_image_get_name(Image *i) {return i->name;}
 API Class *il2cpp_class_from_name(Image *im,const char *ns,const char *name) {
