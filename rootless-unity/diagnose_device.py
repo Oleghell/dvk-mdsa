@@ -98,10 +98,17 @@ def cleanup_frida(frida, manager, address, script, session, device):
     finally:timer.cancel()
 
 
-def inspect_gadget(port, token, cancelled, *, frida_api=None):
+def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=False):
     if frida_api is None:
         import frida as frida_api
     frida=frida_api
+    source=SCRIPT
+    native_validator=validate_metadata
+    if uikit_root_probe:
+        import uikit_profile
+        import uikit_root
+        source=SCRIPT.replace(NATIVE_FUNCTION,uikit_profile.SCRIPT,1)+uikit_root.FUNCTION+'\nrpc.exports.root = () => probeUIKitRoot();'
+        native_validator=uikit_profile.validate
     if frida.__version__ != '17.24.1':raise TestError('Нужен клиент Frida 17.24.1.')
     report={'client_version':'17.24.1','connected':False,'attached':False,'rpc_runtime_ok':False,
             'rpc_modules_ok':False,'rpc_evidence_ok':False,'rpc_native_ok':False,'attempts':0,'stage':'not-started','error_types':[],
@@ -134,7 +141,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None):
                     session=device.attach(process.pid)
                     report['attached']=True
                     report['stage']='create-fixed-script'
-                    script=session.create_script(SCRIPT,name='dvk-fixed-diagnostics-0.1.3')
+                    script=session.create_script(source,name='dvk-uikit-root-0.1.4' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
                     report['stage']='load-fixed-script';script.load()
                     report['stage']='runtime-rpc'
                     report['runtime']=validate_runtime(script.exports_sync.runtime())
@@ -148,9 +155,16 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None):
                     report['discovery_stage']=classify_evidence(report['modules']['fixed_modules'],report['evidence'])
                     if report['runtime']['arch']=='arm64' and report['runtime']['platform']=='linux':
                         report['stage']='native-metadata-rpc'
-                        report['native_metadata']=validate_metadata(script.exports_sync.native())
+                        report['native_metadata']=native_validator(script.exports_sync.native())
                         report['rpc_native_ok']=True
                         report['stage']=report['native_metadata']['stage']
+                        if uikit_root_probe:
+                            report['rpc_root_ok']=False
+                            if report['stage']=='metadata-ready':
+                                report['stage']='uikit-root-rpc'
+                                report['uikit_root']=uikit_root.validate(script.exports_sync.root())
+                                report['rpc_root_ok']=True
+                                report['stage']=report['uikit_root']['stage']
                     else:
                         report['stage']=report['discovery_stage']
                     return report
@@ -174,8 +188,11 @@ def listening_port(text):
     return any(re.fullmatch(r'[0-9a-fA-F.:\[\]*]+:27042', part) for line in text.splitlines() for part in line.split())
 
 
-def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget):
-    report={'tool_version':VERSION,'mode':'native-metadata-only-existing-test-app','target':TARGET,'working_instance':WORKING,
+def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False):
+    version='0.1.4' if uikit_root_probe else VERSION
+    if uikit_root_probe and inspector is inspect_gadget:
+        inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,uikit_root_probe=True)
+    report={'tool_version':version,'mode':('uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
             'instances_verified_distinct':False,'install_requested':False,'app_installation_modified':False,
             'working_device_modified':False,'root_used':False,'ocr_used':False,'messages_sent':0,
             'unity_object_access':'not-tested','status':'not-run'}
@@ -210,13 +227,17 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
                 else:
                     report[field]={'':'none-reported','0':'none-reported','libnb.so':'libnb','libhoudini.so':'houdini','libndk_translation.so':'ndk-translation'}.get(raw,'other-not-recorded')
             except TestError:report[field]='query-unavailable'
-        progress('Проверяю IL2CPP API и метаданные классов UI. Сам UI не меняется…')
+        progress('Проверяю главный поток и наличие окна, без UI-действий…' if uikit_root_probe else 'Проверяю IL2CPP API и метаданные классов UI. Сам UI не меняется…')
         stage='forward-and-gadget'
         value=adb.run(['-s',TARGET,'forward','tcp:0','tcp:27042'])
         if not value.isdecimal() or not 1024 <= int(value) <= 65535:raise TestError('Некорректный порт ADB.')
         adb.forward_port=int(value)
         report['gadget']=inspector(adb.forward_port,token,cancelled)
         report['status']=report['gadget']['stage']
+        if uikit_root_probe:
+            report['unity_object_access']='root-presence-confirmed' if report['status']=='root-ready' else 'not-confirmed'
+            report['ui_text_read']=False
+            report['ui_actions_performed']=False
     except Exception as error:
         report['status']='stopped';report['failure_stage']=stage
         report['error_type']=safe_error_type(error)
@@ -225,22 +246,26 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
         if adb.forward_port is not None:
             try:adb.run(['-s',TARGET,'forward','--remove',f'tcp:{adb.forward_port}'],timeout=10)
             except Exception:report['forward_cleanup_failed']=True
-    target=folder.parent/'rootless-diagnostics-0.1.3.json'
+    target=folder.parent/f'rootless-diagnostics-{version}.json'
     target.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     return report,target
 
 
-def launch_gui(self_check=False):
+def launch_gui(self_check=False,*,uikit_root_probe=False):
+    version='0.1.4' if uikit_root_probe else VERSION
     import queue
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг — проверка IL2CPP API 0.1.3, без установки')
-    root.geometry('850x490');root.minsize(780,450)
+    root=tk.Tk();root.title(f'ДругВокруг — проверка UIKit {version}, без установки')
+    root.geometry('900x560' if uikit_root_probe else '850x490');root.minsize(780,450)
     main=ttk.Frame(root,padding=18);main.pack(fill='both',expand=True)
     ttk.Label(main,text='Только диагностика #4 (5563) — APK не переустанавливается',font=('Segoe UI',12,'bold')).pack(anchor='w')
-    ttk.Label(main,text='Запустите оба MuMu и оставьте тестовый ДругВокруг открытым на #4.\n'
-        'Проверка: вызов IL2CPP API → домен → метаданные классов UI (не сами объекты).\n'
-        'Нет установки, UI-нажатий, OCR и чтения переписок. Возможен сбой тестового приложения.',wraplength=790).pack(anchor='w',pady=12)
+    description=('Наблюдение IL2CPP до 8 секунд → проверка главного потока → наличие UIKit-окна.\n'
+        'Три managed-вызова: проверка потока и два getter. Тексты и переписки не читаются.\n'
+        'Возможны замедление, зависание или сбой тестового приложения. Рабочий #0 не изменяется.'
+        if uikit_root_probe else 'Проверка: вызов IL2CPP API → домен → метаданные классов UI (не сами объекты).\n'
+        'Нет установки, UI-нажатий, OCR и чтения переписок. Возможен сбой тестового приложения.')
+    ttk.Label(main,text='Запустите оба MuMu и оставьте тестовый ДругВокруг открытым на #4.\n'+description,wraplength=820).pack(anchor='w',pady=12)
     base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).parent
     binary=tk.StringVar(value=find_adb());folder=tk.StringVar(value=str(base/'test-apks'))
     for label,var,picker in (
@@ -252,24 +277,29 @@ def launch_gui(self_check=False):
             value=pick()
             if value:v.set(value)
         ttk.Button(row,text='Выбрать…',command=choose).pack(side='right',padx=(8,0))
+    consent=tk.BooleanVar(value=False)
+    if uikit_root_probe:
+        ttk.Checkbutton(main,text='Разрешаю временное наблюдение и проверку наличия окна только на #4 (5563).',variable=consent).pack(anchor='w',pady=4)
     state=tk.StringVar(value='Если EXE лежит рядом со старой test-apks, путь уже правильный.')
     ttk.Label(main,textvariable=state,wraplength=790).pack(anchor='w',pady=10)
     events=queue.Queue();stop=threading.Event();busy=False
     def worker(executable,directory):
         try:
             path=Path(directory).resolve(strict=True)
-            result,report=diagnose(DiagnosticAdb(executable,path),path,lambda s:events.put(('status',s)),stop.is_set)
+            result,report=diagnose(DiagnosticAdb(executable,path),path,lambda s:events.put(('status',s)),stop.is_set,uikit_root_probe=uikit_root_probe)
             events.put(('done',(result['status'],str(report))))
         except Exception as error:events.put(('error',str(error) if isinstance(error,TestError) else 'Проверьте ADB, старую папку test-apks и право записи отчёта.'))
     def start():
         nonlocal busy
         if busy:return
+        if uikit_root_probe and not consent.get():
+            messagebox.showinfo('Подтверждение','Отметьте разрешение проверки только на #4.');return
         busy=True;stop.clear();button.config(state='disabled')
         threading.Thread(target=worker,args=(binary.get(),folder.get()),daemon=True).start()
     row=ttk.Frame(main);row.pack(fill='x',pady=8)
-    button=ttk.Button(row,text='Проверить IL2CPP API — без нажатий в приложении',command=start);button.pack(side='left')
+    button=ttk.Button(row,text=('Проверить главный поток и окно — без нажатий' if uikit_root_probe else 'Проверить IL2CPP API — без нажатий в приложении'),command=start);button.pack(side='left')
     ttk.Button(row,text='Отменить',command=stop.set).pack(side='left',padx=10)
-    ttk.Label(main,text='Результат: rootless-diagnostics-0.1.3.json рядом со старой папкой test-apks.\n'
+    ttk.Label(main,text=f'Результат: rootless-diagnostics-{version}.json рядом со старой папкой test-apks.\n'
         'В отчёт не попадают токены, boot ID, PID, адреса памяти, полные пути и данные приложения.',wraplength=790).pack(anchor='w',pady=10)
     def poll():
         nonlocal busy
@@ -280,7 +310,7 @@ def launch_gui(self_check=False):
             if kind=='error':state.set(value);messagebox.showerror('Диагностика остановлена',value)
             else:
                 status,path=value;state.set('Этап результата: '+status)
-                messagebox.showinfo('Подробный отчёт готов','Прикрепите в чат:\n'+path+'\n\nЭто диагностический результат, не подтверждение доступа к UI-объектам.')
+                messagebox.showinfo('Подробный отчёт готов','Прикрепите в чат:\n'+path+('\n\nЭто проверка наличия корня, не готовая автоматизация.' if uikit_root_probe else '\n\nЭто диагностический результат, не подтверждение доступа к UI-объектам.'))
         root.after(100,poll)
     def close():
         if busy:stop.set();messagebox.showinfo('Отмена','Дождитесь завершения текущей проверки и удаления её локального forward.')

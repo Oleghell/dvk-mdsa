@@ -60,7 +60,9 @@ live-object probe to avoid returning profile/conversation contents.
 The metadata contains `UIRuntimeComponent.Update/0` (instance),
 `UIRuntime.OnUnityUpdate/0` (instance),
 `UnitySynchronizationContext.Exec/0` (instance), and `UIRuntime.RunOnMainThread/1`
-(static). These are **candidates**, not an implemented or verified scheduler.
+(static). These are candidates, not a general-purpose verified scheduler. A one-shot
+export observer is now implemented in `uikit_root.py` / diagnostics 0.1.4, with
+synthetic C ABI tests. Its operation in MuMu is not yet confirmed.
 
 The next runtime step must observe an existing frame callback without replacing
 its behavior, verify `get_IsOnMainThread` there, then attempt only a null/non-null

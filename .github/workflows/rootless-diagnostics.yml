@@ -1,8 +1,8 @@
-name: Build IL2CPP metadata diagnostics 0.1.3
+name: Build guarded UIKit root presence probe 0.1.4
 "on":
   push:
     branches: [feature/android-ui-hierarchy]
-    paths: ['rootless-unity/native_metadata.py', 'rootless-unity/smoke_native_metadata.py', 'rootless-unity/fixtures/**', 'rootless-unity/module_evidence.py', 'rootless-unity/diagnose_device.py', 'rootless-unity/test_device.py', 'rootless-unity/smoke_diagnostics.py', 'rootless-unity/tests/**', 'rootless-unity/apk_export.py', 'rootless-unity/DIAGNOSTICS-0.1.3.md', '.github/workflows/rootless-diagnostics.yml']
+    paths: ['rootless-unity/uikit_root.py', 'rootless-unity/uikit_profile.py', 'rootless-unity/diagnose_uikit.py', 'rootless-unity/smoke_uikit_root.py', 'rootless-unity/native_metadata.py', 'rootless-unity/smoke_native_metadata.py', 'rootless-unity/fixtures/**', 'rootless-unity/module_evidence.py', 'rootless-unity/diagnose_device.py', 'rootless-unity/test_device.py', 'rootless-unity/smoke_diagnostics.py', 'rootless-unity/tests/**', 'rootless-unity/apk_export.py', 'rootless-unity/DIAGNOSTICS-0.1.4.md', '.github/workflows/rootless-diagnostics.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -41,6 +41,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
           python rootless-unity/smoke_native_metadata.py ./metadata_fixture.dll
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+      - name: Exercise guarded one-shot observer and root presence on Linux fixture
+        if: runner.os == 'Linux'
+        run: |
+          cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/root_fixture.c -o root_fixture.so
+          python rootless-unity/smoke_uikit_root.py ./root_fixture.so
+      - name: Exercise guarded one-shot observer and root presence on Windows fixture
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/root_fixture.c /Fe:root_fixture.dll
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          python rootless-unity/smoke_uikit_root.py ./root_fixture.dll
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
   windows:
     needs: test
     runs-on: windows-2022
@@ -52,33 +65,33 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Package metadata diagnostics, never user's APKs or secrets
+      - name: Package guarded UIKit root probe, never user's APKs or secrets
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           python -m pip install pyinstaller==6.16.0 frida==17.24.1
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-          python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-rootless-diagnostics --distpath out/Dvk-rootless-diagnostics-0.1.3-windows-x64 rootless-unity/diagnose_device.py
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-rootless-diagnostics --distpath out/Dvk-rootless-diagnostics-0.1.4-windows-x64 rootless-unity/diagnose_uikit.py
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-          $app=Start-Process -FilePath out/Dvk-rootless-diagnostics-0.1.3-windows-x64/Dvk-rootless-diagnostics.exe -ArgumentList '--self-check' -PassThru
+          $app=Start-Process -FilePath out/Dvk-rootless-diagnostics-0.1.4-windows-x64/Dvk-rootless-diagnostics.exe -ArgumentList '--self-check' -PassThru
           if (-not $app.WaitForExit(45000)) {$app.Kill();throw 'Packaged GUI self-check timed out'}
           if ($app.ExitCode -ne 0) {throw 'Packaged GUI/Frida self-check failed'}
-          $root='out/Dvk-rootless-diagnostics-0.1.3-windows-x64'
-          Copy-Item rootless-unity/DIAGNOSTICS-0.1.3.md "$root/README.md"
+          $root='out/Dvk-rootless-diagnostics-0.1.4-windows-x64'
+          Copy-Item rootless-unity/DIAGNOSTICS-0.1.4.md "$root/README.md"
           $license=python -c "import importlib.metadata; d=importlib.metadata.distribution('frida'); print(d.locate_file(next(p for p in d.files if str(p).endswith('licenses/COPYING'))))"
           if ($LASTEXITCODE -ne 0) {throw 'Frida license lookup failed'}
           Copy-Item -LiteralPath $license -Destination "$root/FRIDA-COPYING.txt"
-          @{version='0.1.3';source_commit=$env:GITHUB_SHA;target='127.0.0.1:5563';protected_working_instance='127.0.0.1:5555';frida='17.24.1';root=$false;ocr=$false;mode='native-metadata-only';installation_available=$false;android_runtime_tested=$false;unity_object_access='not-tested'} | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
+          @{version='0.1.4';source_commit=$env:GITHUB_SHA;target='127.0.0.1:5563';protected_working_instance='127.0.0.1:5555';frida='17.24.1';root=$false;ocr=$false;mode='uikit-root-presence-only';ui_actions_available=$false;ui_text_read=$false;observer_max_seconds=8;installation_available=$false;android_runtime_tested=$false;unity_object_access='not-tested'} | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
           Get-ChildItem $root -File | Sort-Object Name | ForEach-Object {'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(),$_.Name} | Set-Content "$root/SHA256SUMS.txt" -Encoding ASCII
       - uses: actions/upload-artifact@v4
         with:
-          name: Dvk-rootless-diagnostics-0.1.3-windows-x64
-          path: out/Dvk-rootless-diagnostics-0.1.3-windows-x64/
+          name: Dvk-rootless-diagnostics-0.1.4-windows-x64
+          path: out/Dvk-rootless-diagnostics-0.1.4-windows-x64/
           if-no-files-found: error
           retention-days: 14
   publish:
     needs: [test, windows]
-    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release rootless diagnostics 0.1.3') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release rootless diagnostics 0.1.4') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -89,13 +102,13 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: Dvk-rootless-diagnostics-0.1.3-windows-x64
-          path: release/Dvk-rootless-diagnostics-0.1.3-windows-x64
+          name: Dvk-rootless-diagnostics-0.1.4-windows-x64
+          path: release/Dvk-rootless-diagnostics-0.1.4-windows-x64
       - name: Publish tool only; private test APKs are never uploaded to GitHub
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd release
-          zip -r Dvk-rootless-diagnostics-0.1.3-windows-x64.zip Dvk-rootless-diagnostics-0.1.3-windows-x64
-          sha256sum Dvk-rootless-diagnostics-0.1.3-windows-x64.zip > SHA256SUMS.txt
-          gh release create rootless-diagnostics-v0.1.3 Dvk-rootless-diagnostics-0.1.3-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Rootless diagnostics 0.1.3 — existing MuMu number 4 app only" --notes-file ../rootless-unity/DIAGNOSTICS-0.1.3.md
+          zip -r Dvk-rootless-diagnostics-0.1.4-windows-x64.zip Dvk-rootless-diagnostics-0.1.4-windows-x64
+          sha256sum Dvk-rootless-diagnostics-0.1.4-windows-x64.zip > SHA256SUMS.txt
+          gh release create rootless-diagnostics-v0.1.4 Dvk-rootless-diagnostics-0.1.4-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Rootless diagnostics 0.1.4 — existing MuMu number 4 app only" --notes-file ../rootless-unity/DIAGNOSTICS-0.1.4.md

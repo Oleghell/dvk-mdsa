@@ -118,3 +118,15 @@ metadata, scope and the still-unimplemented main-thread/live-object gate.
 `offline_metadata.py` verifies a private metadata file without a device connection;
 `uikit_profile.py` provides a fixed **metadata-only** catalog. No new EXE, APK
 installation or OCR is needed for this offline development step.
+
+
+## Guarded live-root probe 0.1.4 (experimental, explicit opt-in)
+
+`python rootless-unity/diagnose_uikit.py` opens the dedicated #4-only probe GUI.
+The ordinary `diagnose_device.py` entrypoint remains metadata-only 0.1.3.
+See [DIAGNOSTICS-0.1.4.md](DIAGNOSTICS-0.1.4.md) before running. The new mode
+observes only the exported invocation API for a bounded period, requires an
+existing frame callback plus the UIKit main-thread check, and invokes only two
+root-presence getters after that guard. No guessed code pointers, text/field
+reads, traversal or UI actions. Synthetic tests are not proof of MuMu/libnb
+compatibility; do not mark the full workflow migrated based on `root-ready`.
