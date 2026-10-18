@@ -1,0 +1,78 @@
+name: Build rootless APK source exporter
+"on":
+  push:
+    branches: [feature/android-ui-hierarchy]
+    paths: ['rootless-unity/**', '.github/workflows/rootless-apk-export.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test read-only ADB allowlist and synthetic APK export
+        run: python -m unittest discover -s rootless-unity/tests -v
+  windows:
+    needs: test
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Package Windows GUI without bridge or image dependencies
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install pyinstaller==6.16.0
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-apk-export --distpath out/Dvk-apk-export-0.1.0-windows-x64 rootless-unity/apk_export.py
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          $app=Start-Process -FilePath out/Dvk-apk-export-0.1.0-windows-x64/Dvk-apk-export.exe -ArgumentList '--self-check' -PassThru
+          if (-not $app.WaitForExit(45000)) {$app.Kill();throw 'Packaged GUI self-check timed out'}
+          if ($app.ExitCode -ne 0) {throw 'Packaged GUI self-check failed'}
+          Copy-Item rootless-unity/README.md out/Dvk-apk-export-0.1.0-windows-x64/README.md
+          @{version='0.1.0';source_commit=$env:GITHUB_SHA;mode='installed-apk-read-only-export';root=$false;ocr=$false;apk_modification=$false;unity_runtime_access='not-implemented';real_device_tested=$false} | ConvertTo-Json | Set-Content out/Dvk-apk-export-0.1.0-windows-x64/BUILD_INFO.json -Encoding UTF8
+          Get-ChildItem out/Dvk-apk-export-0.1.0-windows-x64 -File | Sort-Object Name | ForEach-Object {'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(),$_.Name} | Set-Content out/Dvk-apk-export-0.1.0-windows-x64/SHA256SUMS.txt -Encoding ASCII
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dvk-apk-export-0.1.0-windows-x64
+          path: out/Dvk-apk-export-0.1.0-windows-x64/
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: [test, windows]
+    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release APK exporter 0.1.0') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: Dvk-apk-export-0.1.0-windows-x64
+          path: release/Dvk-apk-export-0.1.0-windows-x64
+      - name: Publish exporter only, never user's application APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release
+          zip -r Dvk-apk-export-0.1.0-windows-x64.zip Dvk-apk-export-0.1.0-windows-x64
+          sha256sum Dvk-apk-export-0.1.0-windows-x64.zip > SHA256SUMS.txt
+          gh release create rootless-apk-export-v0.1.0 Dvk-apk-export-0.1.0-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "APK exporter 0.1.0 — read-only rootless preparation" --notes-file ../rootless-unity/README.md
