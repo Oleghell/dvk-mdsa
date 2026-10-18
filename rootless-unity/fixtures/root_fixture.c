@@ -29,7 +29,7 @@ static Method methods[]={
  {"ExecuteTasks",&classes[3],16,&tvoid,0}};
 static Image images[]={{"Core.dll"},{"UIKit.Unity.dll"},{"UnityEngine.CoreModule.dll"}};
 static Image *image_array[]={&images[0],&images[1],&images[2]};
-static Object runtime={&classes[0],0},window={&classes[1],0},boolean={NULL,0};
+static Object runtime={&classes[0],0},window={&classes[1],0},fixture_boxed_bool={NULL,0};
 static int domain,thread,exception,mode,attached,managed_calls,off_thread_calls,live_handles;
 API void fixture_init(int m) { mode=m;main_id=TID();attached=1;managed_calls=off_thread_calls=live_handles=0;if(m==6)methods[0].type=&tclass;if(m==8)runtime.klass=&classes[1]; }
 API int fixture_handles(void) {return live_handles;}
@@ -63,7 +63,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc) {
  (void)obj;(void)args;if(exc)*exc=NULL;if(m->action==0){if(mode==9&&exc)*exc=&exception;return NULL;}
  managed_calls++;if(TID()!=main_id)off_thread_calls++;
  if(mode==4&&m->action==1){if(exc)*exc=&exception;return NULL;}
- if(m->action==1){boolean.value=(mode!=1&&TID()==main_id);return &boolean;}
+ if(m->action==1){fixture_boxed_bool.value=(mode!=1&&TID()==main_id);return &fixture_boxed_bool;}
  if(m->action==2)return mode==2?NULL:&runtime;
  if(m->action==3)return mode==3?NULL:&window;
  return NULL;
