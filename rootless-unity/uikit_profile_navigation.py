@@ -7,8 +7,9 @@ import json
 import uikit_navigation as base
 from uikit_root import APIS as ROOT_APIS
 
-VERSION='0.3.2'
+VERSION='0.3.3'
 METADATA_CHECKPOINTS=('base', 'classes', 'method:avatarUser', 'method:cellAvatar', 'method:cellEntry', 'method:child', 'method:childCount', 'method:children', 'method:contentUser', 'method:currentContent', 'method:entryCount', 'method:entryItem', 'method:entryUser', 'method:enumerator', 'method:next', 'method:open', 'method:profileChecked', 'method:promo', 'method:recordEntries', 'method:rowItems', 'method:scroll', 'method:selfUser', 'method:visible', 'method:visibleCount', 'method:visibleItem', 'nested', 'ready')
+SELECTION_CHECKS={'not-checked','visible-list','row-binding','row-children','cell-entry','promotion','record-items','entry-membership','entry-user','avatar-user','visible-stability','row-stability','cell-stability','items-stability','promotion-stability','selected'}
 EXTRA_APIS=['il2cpp_class_get_nested_types','il2cpp_class_get_declaring_type']
 PREPARE=r'''
  function prepareProfile(f,s,getClass,get,signature){
@@ -99,8 +100,13 @@ TICK=r'''
    }
    if(bool(s.next,iterator))fail('selection-changed');return result;
   };
+  const promoted=(record,entry)=>{
+   const box=call(s.promo,record,args([entry]));if(box.isNull())fail('signature-mismatch');
+   const value=f.unbox(box);if(value.isNull())fail('signature-mismatch');const result=value.readU8();
+   if(result!==0&&result!==1)fail('signature-mismatch');return result===1;
+  };
   const chooseVisibleCandidate=search=>{
-   n.selection_status='no-visible-row';
+   n.selection_check='visible-list';n.selection_status='no-visible-row';
    const table=call(s.scroll,search);if(table.isNull())return null;own(table);
    if(!f.objectClass(table).equals(s.searchTable))fail('unexpected-object');
    if(!attached(table,table))return null;
@@ -112,31 +118,33 @@ TICK=r'''
     const row=indexed(s.visibleItem,visible,i);if(row.isNull())fail('unexpected-object');own(row);
     const ri=s.rows.findIndex(k=>f.objectClass(row).equals(k));if(ri<0)continue;
     if(!attached(row,table))continue;
-    const record=call(s.rowItems[ri],row);if(record.isNull())continue;own(record);
+    n.selection_check='row-binding';const record=call(s.rowItems[ri],row);if(record.isNull())continue;own(record);
     n.selection_status='no-eligible-cell';const queue=[{view:row,depth:0}],seen=new Set();let visited=0;
     while(queue.length){
      const item=queue.shift();if(++visited>16)fail('selection-limit');const key=item.view.toString();if(seen.has(key))fail('view-parent-cycle');seen.add(key);
      if(f.objectClass(item.view).equals(s.cell)){
       const cell=item.view;if(!attached(cell,row))continue;
-      const entry=call(s.cellEntry,cell);if(entry.isNull())continue;own(entry);
-      const entries=call(s.recordEntries,record);if(entries.isNull())fail('selection-changed');own(entries);
+      n.selection_check='cell-entry';const entry=call(s.cellEntry,cell);if(entry.isNull())continue;own(entry);
+      n.selection_check='promotion';if(promoted(record,entry))continue;
+      n.selection_check='record-items';const entries=call(s.recordEntries,record);if(entries.isNull())fail('selection-changed');own(entries);
       if(!f.objectClass(entries).equals(s.entryList))fail('unexpected-object');
       const total=integer(s.entryCount,entries);if(total<0||total>16)fail('selection-limit');let member=-1;
-      for(let j=0;j<total;j++)if(indexed(s.entryItem,entries,j).equals(entry)){member=j;break;}
+      n.selection_check='entry-membership';for(let j=0;j<total;j++)if(indexed(s.entryItem,entries,j).equals(entry)){member=j;break;}
       if(member<0)fail('selection-changed');
-      const promotedBox=call(s.promo,record,args([entry]));if(promotedBox.isNull())fail('signature-mismatch');const bp=f.unbox(promotedBox);if(bp.isNull())fail('signature-mismatch');const promoted=bp.readU8();if(promoted!==0&&promoted!==1)fail('signature-mismatch');if(promoted===1)continue;
-      const user=call(s.entryUser,entry);if(user.isNull())continue;own(user);
+      n.selection_check='entry-user';const user=call(s.entryUser,entry);if(user.isNull())continue;own(user);
       if(bool(s.selfUser,user))continue;
       const avatar=call(s.cellAvatar,cell);if(avatar.isNull())continue;own(avatar);
-      if(!call(s.avatarUser,avatar).equals(user))fail('selection-changed');
+      n.selection_check='avatar-user';if(!call(s.avatarUser,avatar).equals(user))fail('selection-changed');
       if(!attached(avatar,cell))continue;
-      if(integer(s.visibleCount,visible)!==count||!indexed(s.visibleItem,visible,i).equals(row)||
-         !call(s.rowItems[ri],row).equals(record)||!call(s.cellEntry,cell).equals(entry)||
-         !call(s.cellAvatar,cell).equals(avatar)||!call(s.entryUser,entry).equals(user)||
-         !call(s.recordEntries,record).equals(entries)||integer(s.entryCount,entries)!==total||!indexed(s.entryItem,entries,member).equals(entry))fail('selection-changed');
+      n.selection_check='visible-stability';if(integer(s.visibleCount,visible)!==count||!indexed(s.visibleItem,visible,i).equals(row))fail('selection-changed');
+      n.selection_check='row-stability';if(!call(s.rowItems[ri],row).equals(record))fail('selection-changed');
+      n.selection_check='cell-stability';if(!call(s.cellEntry,cell).equals(entry)||!call(s.cellAvatar,cell).equals(avatar)||!call(s.entryUser,entry).equals(user))fail('selection-changed');
+      n.selection_check='items-stability';if(!call(s.recordEntries,record).equals(entries)||integer(s.entryCount,entries)!==total||!indexed(s.entryItem,entries,member).equals(entry))fail('selection-changed');
+      n.selection_check='promotion-stability';if(promoted(record,entry))fail('selection-changed');
+      n.selection_check='selected';
       n.selection_status='selected';return {entry,user,avatar};
      }
-     if(item.depth<3)for(const child of childViews(item.view))queue.push({view:child,depth:item.depth+1});
+     if(item.depth<3){n.selection_check='row-children';for(const child of childViews(item.view))queue.push({view:child,depth:item.depth+1});}
     }
    }
    return null;
@@ -170,11 +178,12 @@ def build():
     helpers=replace_once(helpers,"['canClose','card','get_CanBeClosedByUser',2],",'')
     helpers=replace_once(helpers,"['open','search','ShowSearchSettings',1],['cancel','card','DismissWithCancel',1]", "['cancel','profile','DV.Profiles.ProfileViewController.IDelegate.OnCloseRequested',1]")
     helpers=replace_once(helpers,'  return s;\n }','  return prepareProfile(f,s,getClass,get,signature);\n }')
-    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "metadata_checkpoint:'base',selection_status:'not-checked',target_user_verified:false,profile_content_verified:false,action_backend:'semantic-controller-handlers',ui_text_read:false")
+    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "metadata_checkpoint:'base',selection_check:'not-checked',selection_retries:0,selection_status:'not-checked',target_user_verified:false,profile_content_verified:false,action_backend:'semantic-controller-handlers',ui_text_read:false")
     helpers=replace_once(helpers,"if(entry.arity===1){if(!f.classFromType", "if(entry.params){for(let i=0;i<entry.params.length;i++){const t=f.param(m,i),a=entry.params[i];if(t.isNull()||f.byref(t)||f.typeKind(t)!==a.kind||(a.klass&&!f.classFromType(t).equals(a.klass)))fail('signature-mismatch');}if(entry.result&&!f.classFromType(f.returnType(m)).equals(entry.result))fail('signature-mismatch');}\n   else if(entry.arity===1){if(!f.classFromType")
     helpers=replace_once(helpers,"||f.byref(f.returnType(m)))fail('signature-mismatch');","||!!f.byref(f.returnType(m))!==!!entry.byref)fail('signature-mismatch');")
     helpers=replace_once(helpers,'const out=f.invoke(m,obj,params,ex);',"let receiver=obj;if(entry.unboxed){receiver=f.unbox(obj);if(receiver.isNull())fail('signature-mismatch');}\n   const out=f.invoke(m,receiver,params,ex);")
     helpers=replace_once(helpers,"if(!ex.readPointer().isNull())fail('managed-exception');return out;","if(!ex.readPointer().isNull())fail('managed-exception');if(entry.byref&&!out.isNull()&&!f.assignable(entry.result,f.objectClass(out)))fail('unexpected-object');return out;")
+    helpers=replace_once(helpers,"} catch(e){n.error=typeof e==='string'", "} catch(e){if(e==='selection-changed'&&n.phase==='search'&&!n.open_attempted&&n.selection_retries<2){n.selection_retries++;return;}n.error=typeof e==='string'")
     helpers=replace_once(helpers,'const held=[];const deadline=Date.now()+100;', 'const held=[];const heldByObject=new Map();const deadline=Date.now()+100;')
     helpers=replace_once(helpers,"if(obj.isNull())fail('unexpected-object');if(held.length>=64)", "if(obj.isNull())fail('unexpected-object');const key=obj.toString();if(heldByObject.has(key))return heldByObject.get(key);if(held.length>=64)")
     helpers=replace_once(helpers,'held.push(h);return h;', 'held.push(h);heldByObject.set(key,h);return h;')
@@ -201,9 +210,12 @@ def validate(value):
     import copy
     out=copy.deepcopy(value);n=out['navigation']
     flags={'cleanup_failed','search_verified','profile_verified','return_verified','open_attempted','open_completed','close_attempted','close_completed','ui_text_read'}
-    fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','selection_status','target_user_verified','profile_content_verified','metadata_checkpoint'}
+    fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','selection_status','target_user_verified','profile_content_verified','metadata_checkpoint','selection_check','selection_retries'}
     if set(n)!=fields:raise ValueError('Unexpected profile fields')
     if n.pop('metadata_checkpoint',None) not in METADATA_CHECKPOINTS:raise ValueError('Unexpected metadata checkpoint')
+    if n.pop('selection_check',None) not in SELECTION_CHECKS:raise ValueError('Unexpected selection checkpoint')
+    retries=n.pop('selection_retries',None)
+    if type(retries) is not int or not 0<=retries<=2:raise ValueError('Invalid selection retry count')
     if n.get('phase') not in {'search','wait-profile','confirm-profile','wait-return','done'}:raise ValueError('Unexpected profile phase')
     path=n.get('controller_path')
     kinds=base.KINDS-{'filters'}|{'profile'}

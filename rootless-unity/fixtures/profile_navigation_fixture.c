@@ -61,6 +61,9 @@ static Method pm[]={
  {"get_Count",&pc[21],0,&tint,63},
  {"get_Item",&pc[21],0,&pt[4],64,1,&tint}};
 static Object ptable={&pc[2],0},pvisiblelist={&pc[17],0},prow={&pc[10],0},precord={&pc[13],0},pcell={&pc[3],0},pentryobj={&pc[4],0},pavatar={&pc[6],0},puser={&pc[8],0},potheruser={&pc[8],0},pcontent={&pc[9],0},pothercontent={&pc[9],0};
+static Object preplacementrow={&pc[10],0};
+static Object ppromocell={&pc[3],0},ppromoentry={&pc[4],0};
+static int entry_reads,avatar_reads,promo_reads;
 static Object pbox={NULL,0};static int pnumber,plist_reads,profile_reads,selected_wrong,row_reads;
 typedef struct PIterator {Class *klass;int source,index;} PIterator;
 static PIterator pi[4];static int pi_count;
@@ -98,7 +101,7 @@ static Object app_root={&nc[7],0},tabs={&nc[8],0},dv_container={&nc[9],0},ui_con
 static Object other_filters={&nc[5],0};
 static Object view_chain[35],other_window={&classes[1],0};
 static int phase,opens,cancels,virtual_calls,hidden_reads;
-static void tree_init(int m){int i;if(m>=170&&m<=179){pm[3].type=&pbyrow;pm[24].type=&pbyentry;}if(m==173)pm[3].type=&pwrongref;if(m==174)pm[1].type=&pbyrow;if(m==176)pm[3].flags=64;if(m==177)pm[3].param=&tbool;if(m==178)pm[3].flags=16;if(m==179)pm[3].arity=2;if(m==164)attached=0;row_reads=0;modal_reads=plist_reads=profile_reads=selected_wrong=pi_count=0;for(i=0;i<22;i++){pt[i].kind=18;pt[i].klass=&pc[i];}for(i=0;i<4;i++)pi[i].klass=&pc[19];prow.klass= m==150||m==171?&pc[11]:m==151||m==172?&pc[12]:&pc[10];precord.klass=m==150||m==171?&pc[14]:m==151||m==172?&pc[15]:&pc[13];phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==145)pm[20].arity=2;if(m==146)pm[3].param=&tbool;if(m==147)pm[7].type=&tvoid;if(m==163)pm[14].type=&tbool;if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
+static void tree_init(int m){int i;entry_reads=avatar_reads=promo_reads=0;if(m>=170&&m<=189){pm[3].type=&pbyrow;pm[24].type=&pbyentry;}if(m==173)pm[3].type=&pwrongref;if(m==174)pm[1].type=&pbyrow;if(m==176)pm[3].flags=64;if(m==177)pm[3].param=&tbool;if(m==178)pm[3].flags=16;if(m==179)pm[3].arity=2;if(m==164)attached=0;row_reads=0;modal_reads=plist_reads=profile_reads=selected_wrong=pi_count=0;for(i=0;i<22;i++){pt[i].kind=18;pt[i].klass=&pc[i];}for(i=0;i<4;i++)pi[i].klass=&pc[19];prow.klass= m==150||m==171||m==180||m==181?&pc[11]:m==151||m==172||m==186?&pc[12]:&pc[10];precord.klass=m==150||m==171||m==180||m==181?&pc[14]:m==151||m==172||m==186?&pc[15]:&pc[13];phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==145)pm[20].arity=2;if(m==146)pm[3].param=&tbool;if(m==147)pm[7].type=&tvoid;if(m==163)pm[14].type=&tbool;if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
 static Class *tree_class(Image *im,const char *ns,const char *name){int i;
  if(mode==162&&!strcmp(name,"AvatarView"))return NULL;
  if(im==&profile_image&&!strcmp(ns,"DV.Profiles")&&!strcmp(name,"ProfileViewController"))return &pc[9];
@@ -154,27 +157,27 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  (void)args;int yes=0;if(m>=&pm[5]&&m<=&pm[8])obj=((char *)obj)-sizeof(void *);
  if(mode==67&&m->action==15){*exc=&exception;return NULL;}
  switch(m->action){
- case 62:return &pentrylist;
+ case 62:return mode==182?NULL:&pentrylist;
  case 63:pnumber=1;return &pbox;
- case 64:if(!args||!args[0]||*(int *)args[0]!=0){selected_wrong++;*exc=&exception;return NULL;}return mode==153?&other:&pentryobj;
+ case 64:if(!args||!args[0]||*(int *)args[0]!=0){selected_wrong++;*exc=&exception;return NULL;}entry_reads++;return mode==153?&other:mode==188||(mode==183&&entry_reads==1)?&ppromoentry:&pentryobj;
  case 40:return &ptable;
  case 41:return &pvisiblelist;
  case 42:plist_reads++;if(mode==149)slow();pnumber=mode==154?25:mode==132?0:1;return &pbox;
- case 43:if(mode==175)return &potheruser;row_reads++;if(mode==157&&row_reads>1)return &other;if(!args||!args[0]||*(int *)args[0]!=0){selected_wrong++;*exc=&exception;return NULL;}return &prow;
- case 44:pi[0].source=obj==&prow?1:0;pi[0].index=-1;return (Object *)&pi[0];
+ case 43:if(mode==175)return &potheruser;row_reads++;if(mode==157&&row_reads%2==0)return &other;if(mode==185&&row_reads==2)return &preplacementrow;if(!args||!args[0]||*(int *)args[0]!=0){selected_wrong++;*exc=&exception;return NULL;}return &prow;
+ case 44:pi[0].source=obj==&prow?(mode==180?2:1):0;pi[0].index=-1;return (Object *)&pi[0];
  case 45:if(pi_count>=3)pi_count=0;pi_count++;pi[pi_count]=*(PIterator *)obj;return (Object *)&pi[pi_count];
  case 46:pnumber=mode==155?17:((PIterator *)obj)->source;return &pbox;
  case 47:yes=++((PIterator *)obj)->index<((PIterator *)obj)->source;break;
- case 48:return &pcell;
+ case 48:return (mode==180&&((PIterator *)obj)->index==0)||mode==181?&ppromocell:&pcell;
  case 49:case 50:case 51:return &precord;
- case 52:if(!args||args[0]!=&pentryobj){selected_wrong++;*exc=&exception;return NULL;}yes=mode==133;break;
- case 53:return mode==134?NULL:&pentryobj;
+ case 52:if(!args||(args[0]!=&pentryobj&&args[0]!=&ppromoentry)){selected_wrong++;*exc=&exception;return NULL;}promo_reads++;yes=mode==133||args[0]==&ppromoentry||(mode==186&&promo_reads==2)||(mode==187&&promo_reads%2==0);break;
+ case 53:if(obj==&ppromocell)return &ppromoentry;return mode==134?NULL:&pentryobj;
  case 54:return &pavatar;
  case 55:return &puser;
- case 56:return mode==135?&potheruser:&puser;
+ case 56:avatar_reads++;return mode==135||(mode==184&&avatar_reads==1)?&potheruser:&puser;
  case 57:yes=mode==136;break;
  case 58:profile_reads++;if(mode==156)return &other;if(mode==137)return NULL;return mode==140&&profile_reads>2?&pothercontent:&pcontent;
- case 59:return mode==138?&potheruser:&puser;
+ case 59:return mode==138||mode==189?&potheruser:&puser;
  case 60:
   if(!args||args[0]!=&pentryobj||!args[1]||*(unsigned char *)args[1]!=0||args[2]!=&pavatar){selected_wrong++;*exc=&exception;return NULL;}
   opens++;if(mode==148)slow();if(mode==141){*exc=&exception;return NULL;}if(mode!=142)phase=1;return NULL;
@@ -189,7 +192,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 16:yes=(mode==73);break;
  case 17:yes=0;break;
  case 18:
-  if(obj==&pavatar)return &pcell;if(obj==&pcell)return &prow;if(obj==&prow)return &ptable;
+  if(obj==&ppromocell)return &prow;if(obj==&pavatar)return &pcell;if(obj==&pcell)return &prow;if(obj==&prow)return &ptable;
   if(obj==&ptable)return &window;
   if(mode==94){if(obj==&view)return &view_chain[0];if((uintptr_t)obj>=(uintptr_t)&view_chain[0]&&(uintptr_t)obj<(uintptr_t)&view_chain[34])return ((Object *)obj)+1;}
   if(mode==95)return obj==&other_window?NULL:&other_window;
