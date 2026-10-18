@@ -1,0 +1,43 @@
+name: Verify offline UIKit catalog and native metadata bindings
+'on':
+  push:
+    branches: [feature/android-ui-hierarchy]
+    paths: ['rootless-unity/offline_metadata.py', 'rootless-unity/uikit_profile.py', 'rootless-unity/native_metadata.py', 'rootless-unity/fixtures/**', 'rootless-unity/smoke_native_metadata.py', 'rootless-unity/tests/**', '.github/workflows/rootless-uikit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test strict offline reader, fixed profiles and device guards
+        run: python -m unittest discover -s rootless-unity/tests -v
+      - name: Install pinned Frida for owned-child tests only
+        run: python -m pip install frida==17.24.1
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Exercise fixed scripts in owned synthetic process
+        run: python rootless-unity/smoke_diagnostics.py
+      - name: Exercise actual native ABI and both catalogs on Linux fixture
+        if: runner.os == 'Linux'
+        run: |
+          cc -shared -fPIC -O2 rootless-unity/fixtures/metadata_fixture.c -o metadata_fixture.so
+          python rootless-unity/smoke_native_metadata.py ./metadata_fixture.so
+      - name: Exercise actual native ABI and both catalogs on Windows fixture
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          cl /nologo /LD /O2 /std:c11 rootless-unity/fixtures/metadata_fixture.c /Fe:metadata_fixture.dll
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          python rootless-unity/smoke_native_metadata.py ./metadata_fixture.dll
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}

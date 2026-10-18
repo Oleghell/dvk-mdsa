@@ -108,3 +108,13 @@ Official references:
 - https://frida.re/docs/gadget/
 - https://github.com/frida/frida/releases/tag/17.24.1
 - https://github.com/iBotPeaches/Apktool/releases/tag/v3.0.3
+
+## Actual UIKit definitions found offline
+
+The supplied 6.8.1 APK uses custom UIKit classes in `Core.dll`, `DV.dll` and
+`UIKit.Unity.dll`, rather than the generic Unity uGUI/TextMeshPro controls probed
+in diagnostics 0.1.3. See [UIKIT-FINDINGS.md](UIKIT-FINDINGS.md) for confirmed
+metadata, scope and the still-unimplemented main-thread/live-object gate.
+`offline_metadata.py` verifies a private metadata file without a device connection;
+`uikit_profile.py` provides a fixed **metadata-only** catalog. No new EXE, APK
+installation or OCR is needed for this offline development step.

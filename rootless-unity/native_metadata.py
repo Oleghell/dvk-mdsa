@@ -39,7 +39,7 @@ STAGES={'not-started','unsupported-pointer-size','metadata-api-incomplete','doma
 STEPS={'not-started','resolve-api','bind-api','domain-get','thread-current','thread-attach',
        'domain-assemblies','image-name','class-lookup','method-lookup','done'}
 
-NATIVE_FUNCTION = r'''
+_TEMPLATE = r'''
 function nativeMetadata() {
   const typeSpecs=__TYPES__;
   const methodSpecs=__METHODS__;
@@ -147,10 +147,27 @@ function nativeMetadata() {
   }
   return result;
 }
-'''.replace('__TYPES__',json.dumps(TYPES)).replace('__METHODS__',json.dumps(METHODS)).replace('__IMAGES__',json.dumps(IMAGES)).replace('__EXPORTS__',json.dumps(EXPORTS))
+'''
 
 
-def validate_metadata(value):
+def build_native_function(types,methods,images):
+    # Catalogs are build-time constants, never RPC inputs. JSON encoding prevents
+    # names from becoming executable JS. The native call set stays fixed.
+    type_keys=[t[0] for t in types]
+    method_keys=[f'{t}.{name}/{arity}' for t,name,arity in methods]
+    if len(set(type_keys))!=len(type_keys) or len(set(method_keys))!=len(method_keys):
+        raise ValueError('Duplicate catalog entry')
+    if not 0<len(types)<=64 or len(methods)>128 or len(images)>32:
+        raise ValueError('Catalog exceeds fixed limits')
+    if any(image not in images for _,image,_,_ in types) or any(t not in type_keys or type(n) is not int or not 0<=n<=16 for t,_,n in methods):
+        raise ValueError('Invalid catalog reference')
+    return _TEMPLATE.replace('__TYPES__',json.dumps(types)).replace('__METHODS__',json.dumps(methods)).replace('__IMAGES__',json.dumps(images)).replace('__EXPORTS__',json.dumps(EXPORTS))
+
+
+NATIVE_FUNCTION=build_native_function(TYPES,METHODS,IMAGES)
+
+
+def validate_metadata(value,*,types=TYPES,methods=METHODS,images=IMAGES):
     expected={'stage','step','native_calls_performed','api_exports','domain_available','current_thread_initially_attached',
               'thread_attach_performed','thread_detach_confirmed','cleanup_failed','assembly_count','assemblies_scanned',
               'metadata_limit_reached','known_images','known_types','known_methods'}
@@ -163,7 +180,7 @@ def validate_metadata(value):
     for key in ('assembly_count','assemblies_scanned'):
         if type(value[key]) is not int or not 0<=value[key]<=2048:raise ValueError('Invalid assembly count')
     if value['assemblies_scanned']>value['assembly_count']:raise ValueError('Invalid scan count')
-    for key,allowed in (('api_exports',EXPORTS),('known_images',IMAGES),('known_types',[t[0] for t in TYPES]),('known_methods',METHOD_KEYS)):
+    for key,allowed in (('api_exports',EXPORTS),('known_images',images),('known_types',[t[0] for t in types]),('known_methods',[f'{t}.{name}/{arity}' for t,name,arity in methods])):
         data=value[key]
         if not isinstance(data,dict) or set(data)!=set(allowed) or any(type(v) is not bool for v in data.values()):
             raise ValueError('Unexpected metadata map')

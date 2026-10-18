@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import frida
+import uikit_profile
 from native_metadata import NATIVE_FUNCTION, validate_metadata
 
 
@@ -23,10 +24,11 @@ time.sleep(45)
         threading.Thread(target=lambda:ready.put(child.stdout.readline()),daemon=True).start()
         assert ready.get(timeout=10).strip()=='ready','Synthetic child could not load fixture'
         session=frida.get_local_device().attach(child.pid)
-        source="'use strict';\n"+NATIVE_FUNCTION+"\nrpc.exports={probe(){return nativeMetadata();},attached(){return new NativeFunction(Module.getGlobalExportByName('fixture_is_attached'),'int',[])();}};"
+        body=uikit_profile.SCRIPT if mode==5 else NATIVE_FUNCTION
+        source="'use strict';\n"+body+"\nrpc.exports={probe(){return nativeMetadata();},attached(){return new NativeFunction(Module.getGlobalExportByName('fixture_is_attached'),'int',[])();}};"
         script=session.create_script(source,name='synthetic-native-metadata-smoke');script.load()
-        value=validate_metadata(script.exports_sync.probe())
-        expected={0:'metadata-ready',1:'domain-not-ready',2:'unsafe-assembly-count',3:'assemblies-not-ready',4:'metadata-ready'}[mode]
+        value=(uikit_profile.validate if mode==5 else validate_metadata)(script.exports_sync.probe())
+        expected={0:'metadata-ready',1:'domain-not-ready',2:'unsafe-assembly-count',3:'assemblies-not-ready',4:'metadata-ready',5:'metadata-ready'}[mode]
         assert value['stage']==expected,value
         assert script.exports_sync.attached()==(1 if mode==4 else 0),value
         if mode==0:
@@ -35,6 +37,14 @@ time.sleep(45)
             assert value['known_types']['UnityEngine.UI.InputField'] is False
             assert value['known_methods']['UnityEngine.UI.Button.get_onClick/0'] is True
             assert value['known_methods']['UnityEngine.Resources.FindObjectsOfTypeAll/1'] is True
+            assert value['thread_attach_performed'] and value['thread_detach_confirmed']
+        if mode==5:
+            assert value['assembly_count']==7 and value['assemblies_scanned']==7
+            for key in ('UIKit.UIRuntime','UIKit.UIView','DV.DVButton','UIKit.UIRuntimeComponent'):
+                assert value['known_types'][key] is True
+            for key in ('UIKit.UIRuntime.get_OptionalInstance/0','UIKit.UIView.get_Subviews/0','DV.DVButton.get_Text/0','UIKit.UIRuntimeComponent.Update/0'):
+                assert value['known_methods'][key] is True
+            assert value['known_types']['UIKit.TextField'] is False
             assert value['thread_attach_performed'] and value['thread_detach_confirmed']
         if mode==4:
             assert value['current_thread_initially_attached'] is True
@@ -57,7 +67,7 @@ time.sleep(45)
 
 def main():
     library=Path(sys.argv[1]).resolve(strict=True)
-    for mode in (0,1,2,3,4):print('Synthetic C ABI case',mode,one(library,mode))
+    for mode in (0,1,2,3,4,5):print('Synthetic C ABI case',mode,one(library,mode))
     print('Native bindings and thread cleanup passed on owned synthetic process; NO Android/ARM translation claim.')
 
 
