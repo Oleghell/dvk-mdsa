@@ -4,7 +4,7 @@ import uikit_navigation as base
 import uikit_root as root
 from uikit_profile_navigation import replace_once
 
-VERSION='0.3.18'
+VERSION='0.3.19'
 ERRORS=base.ERRORS|{'history-invalid','not-a-dialog','history-not-ready'}
 READ_STEPS={'not-checked','identity','model','manager','loaded-flag','count','last-message','recheck','sample','complete'}
 WAIT_REASONS={'not-checked','none','chat-not-actual','chat-draft','no-history-manager','null-history-manager','null-loaded-flag','history-loading','history-not-loaded','changing-count','changing-last-message','contradictory-last-message','view-not-ready','model-changed'}
@@ -89,7 +89,7 @@ READ=r'''
     state.waitSignature=signature;state.waitAt=Date.now();state.nextActionAt=Date.now()+1000;
    };
    n.read_checkpoint='model';n.model_actual=bool(s.actual,chat);n.model_draft=bool(s.draft,chat);n.model_has_cm=bool(s.hasCM,chat);
-   if(!n.model_actual||n.model_draft||!n.model_has_cm){invalidate(!n.model_actual?'chat-not-actual':n.model_draft?'chat-draft':'no-history-manager');return;}
+   if(!n.model_actual||!n.model_has_cm){invalidate(!n.model_actual?'chat-not-actual':'no-history-manager');return;}
    n.read_checkpoint='manager';const cm=call(s.messages,chat);n.cm_present=!cm.isNull();if(cm.isNull()){invalidate('null-history-manager');return;}own(cm);
    if(!f.objectClass(cm).equals(s.cm))fail('unexpected-object');save('cm',cm);
    n.read_checkpoint='loaded-flag';const loading=bool(s.historyLoading,cm),field=call(s.all,cm);n.history_loading=loading;n.loaded_field_present=!field.isNull();if(field.isNull()){invalidate('null-loaded-flag');return;}own(field);
@@ -104,7 +104,7 @@ READ=r'''
    if(!f.objectClass(fieldAgain).equals(s.loadedClass))fail('unexpected-object');
    const allAgain=bool(s.value,fieldAgain),loadingAgain=bool(s.historyLoading,cm);
    const actualAgain=bool(s.actual,chat),draftAgain=bool(s.draft,chat),hasAgain=bool(s.hasCM,chat);
-   if(!actualAgain||draftAgain||!hasAgain){n.model_actual=actualAgain;n.model_draft=draftAgain;n.model_has_cm=hasAgain;invalidate('model-changed');return;}
+   if(!actualAgain||draftAgain!==n.model_draft||!hasAgain){n.model_actual=actualAgain;n.model_draft=draftAgain;n.model_has_cm=hasAgain;invalidate('model-changed');return;}
    if(bool(s.presenting,current)||bool(s.dismissing,current)||!checkView(current)){invalidate('view-not-ready');return;}
    if(!resolve(candidate).equals(current)||!call(s.chat,current).equals(chat)||!call(s.chatUser,current).equals(user))fail('identity-changed');
    const third=integer(s.count,cm),lastAgain=call(s.last,chat);if(!lastAgain.isNull())own(lastAgain);
@@ -116,8 +116,8 @@ READ=r'''
    // A last-message marker contradicting Count=0 is not proof of empty history.
    if(first===0&&!lastMessage.isNull()){invalidate('contradictory-last-message');return;}
    n.read_checkpoint='sample';n.wait_reason='none';state.waitSignature=null;
-   const sample={count:first,last:!lastMessage.isNull()};
-   if(state.sample===null||state.sample.count!==sample.count||state.sample.last!==sample.last){
+   const sample={count:first,last:!lastMessage.isNull(),draft:n.model_draft};
+   if(state.sample===null||state.sample.count!==sample.count||state.sample.last!==sample.last||state.sample.draft!==sample.draft){
     state.sample=sample;n.samples=1;n.history_status='checking';n.message_count=null;state.nextActionAt=Date.now()+1000;return;
    }
    n.read_checkpoint='complete';n.samples=2;n.message_count=first;n.history_status=first===0?'empty':'not-empty';n.phase='done';n.stage='navigation-ready';
@@ -176,7 +176,7 @@ def validate(value):
         count=x['message_count']
         if type(count) is not int or not 0<=count<=1000000 or (state=='empty')!=(count==0):raise ValueError('Invalid history count')
         if x['metadata_checkpoint']!='ready' or x['loaded_value_method_found'] is not True or x['loaded_value_return_kind']!=2 or x['loaded_value_byref'] is not False or x['loaded_value_owner_verified'] is not True or x['loaded_value_owner_scope'] is not True or type(x['loaded_value_owner_inherited']) is not bool or x['loaded_value_static'] is not False or x['loaded_value_abstract'] is not False or x['loaded_value_arity']!=0 or not x['chat_identity_verified'] or x['samples']!=2 or x['history_fully_loaded'] is not True or x['history_loading'] is not False or n.get('stage')!='navigation-ready':raise ValueError('Unverified history state')
-        if x['read_checkpoint']!='complete' or x['wait_reason']!='none' or x['model_actual'] is not True or x['model_draft'] is not False or any(x[k] is not True for k in ('model_has_cm','cm_present','loaded_field_present')):raise ValueError('Unverified model state')
+        if x['read_checkpoint']!='complete' or x['wait_reason']!='none' or x['model_actual'] is not True or type(x['model_draft']) is not bool or any(x[k] is not True for k in ('model_has_cm','cm_present','loaded_field_present')):raise ValueError('Unverified model state')
         if state=='empty' and x['last_message_present'] is not False:raise ValueError('Contradictory empty state')
     elif x['message_count'] is not None or x['samples']==2:raise ValueError('Unknown count must stay unknown')
     if n.get('stage')=='navigation-ready' and not classified:raise ValueError('Missing history classification')

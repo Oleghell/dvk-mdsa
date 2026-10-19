@@ -4,7 +4,7 @@ from pathlib import Path
 from offline_metadata import Metadata31,MAX_BYTES,MetadataError
 from test_device import HASHES
 
-VERSION='0.3.18'
+VERSION='0.3.19'
 MAX_APK_BYTES=1024**3
 MAX_ENTRIES=100000
 LIMIT=1024

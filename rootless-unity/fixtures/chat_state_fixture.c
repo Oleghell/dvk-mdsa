@@ -103,7 +103,7 @@ static Class cc[]={{"DV.Models","User"},{"DV.Messages","Chat"},{"DV.Messages","M
  {"DV.CMs","MessagesCM"},{"DV.CMs","ContentDataList`1"},{"DataKit","BaseDataList`1"},{"DataKit","DataField`1"},{"DataKit","BaseField`1"},{"Other","Unrelated"}};
 static Type ctuser={18,&cc[0]},ctchat={18,&cc[1]},ctmessage={18,&cc[2]},ctcm={18,&cc[3]},ctfield={21,&cc[6]},ctvalue={2};
 static Object user={&cc[0],0},other_user={&cc[0],0},chat={&cc[1],0},other_chat={&cc[1],0},cm={&cc[3],0},other_cm={&cc[3],0},loaded_field={&cc[6],1},last_message={&cc[2],0};
-static Object integer_box={NULL,0};static int integer_value,count_reads,state_reads,binding_reads,bad_receiver,cm_reads,loading_reads,sample_frames;
+static Object integer_box={NULL,0};static int integer_value,count_reads,draft_reads,state_reads,binding_reads,bad_receiver,cm_reads,loading_reads,sample_frames;
 static Method cmeth[]={
  {"get_User",&nc[5],0,&ctuser,40},{"get_Chat",&nc[5],0,&ctchat,41},
  {"get_Dialog",&cc[1],0,&tbool,42},{"get_DialogOpponent",&cc[1],0,&ctuser,43},
@@ -112,7 +112,7 @@ static Method cmeth[]={
  {"get_LastMessage",&cc[1],0,&ctmessage,48},{"get_LoadInProgress",&cc[4],0,&tbool,49},
  {"get_AllIsLoaded",&cc[4],0,&ctfield,50},{"get_Count",&cc[5],0,&tint,51},
  {"get_Value",&cc[6],0,&ctvalue,52}};
-static void chat_init(void){count_reads=state_reads=binding_reads=bad_receiver=cm_reads=loading_reads=sample_frames=0;value_field_class=&cc[6];bad_byref_type=&ctvalue;ctvalue.kind=mode==315?8:2;if(mode==337){cc[8].ns="DataKit";cc[8].name="BaseField`1";}cmeth[12].klass=(mode>=328&&mode<=337)?&cc[7]:&cc[6];cmeth[12].flags=mode==332?16:mode==333?1024:0;cmeth[12].arity=mode==334?1:0;if(mode==318)cmeth[9].flags=16;}
+static void chat_init(void){count_reads=draft_reads=state_reads=binding_reads=bad_receiver=cm_reads=loading_reads=sample_frames=0;value_field_class=&cc[6];bad_byref_type=&ctvalue;ctvalue.kind=mode==315?8:2;if(mode==337){cc[8].ns="DataKit";cc[8].name="BaseField`1";}cmeth[12].klass=(mode>=328&&mode<=337)?&cc[7]:&cc[6];cmeth[12].flags=mode==332?16:mode==333?1024:0;cmeth[12].arity=mode==334?1:0;if(mode==318)cmeth[9].flags=16;}
 static Class *chat_class(Image *im,const char *ns,const char *name){int i;for(i=0;i<9;i++){Image *want=i==0||i==4?&images[3]:i>=5?&images[0]:&chat_image;if(im==want&&!strcmp(ns,cc[i].ns)&&!strcmp(name,cc[i].name))return &cc[i];}return NULL;}
 static Image *chat_class_image(Class *k){int i;if(k==&nc[5]||(mode==331&&k==&cc[7]))return &chat_image;for(i=0;i<9;i++)if(k==&cc[i])return i==0||i==4?&images[3]:i>=5?&images[0]:&chat_image;return &images[0];}
 static Method *chat_method(Class *k,const char *name,int arity){int i;for(i=0;i<13;i++)if(arity==0&&(k==cmeth[i].klass||(i==12&&k==&cc[6]))&&!strcmp(name,cmeth[i].name)){if(mode==317&&i==12)return NULL;return &cmeth[i];}return NULL;}
@@ -152,14 +152,14 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){int yes=0
  case 42:yes=1;break;
  case 43:return mode==312?&other_user:&user;
  case 44:state_reads++;yes=mode!=305&&(mode!=338||sample_frames>1);break;
- case 45:yes=mode==306;break;
- case 46:yes=mode!=307&&(mode!=339||sample_frames>1);break;
+ case 45:draft_reads++;yes=mode==341?draft_reads%2==1:mode==342?sample_frames==1:mode==306||(mode>=343&&mode<=346);break;
+ case 46:yes=mode!=307&&mode!=344&&(mode!=339||sample_frames>1);break;
  case 47:cm_reads++;if(mode==308)return NULL;if(mode==314&&sample_frames>1)return &other_cm;if(mode==320)return &user;return &cm;
  case 48:return mode==311?&last_message:mode==326&&count_reads>=3?&last_message:NULL;
- case 49:loading_reads++;yes=mode==304||mode==340||(mode==324&&loading_reads%2==0);break;
+ case 49:loading_reads++;yes=mode==304||mode==340||mode==343||(mode==324&&loading_reads%2==0);break;
  case 50:return mode==321?NULL:&loaded_field;
- case 51:count_reads++;if(mode==319){*exc=&exception;return NULL;}integer_value=mode==303?7:mode==309?-1:mode==310&&count_reads%2==0?1:mode==325&&count_reads%3==0?1:0;return &integer_box;
- case 52:if(obj!=((mode==302||mode==336)?(void *)&loaded_field.value:(void *)&loaded_field))bad_receiver++;yes=mode==322?2:mode!=304&&mode!=323;break;
+ case 51:count_reads++;if(mode==319){*exc=&exception;return NULL;}integer_value=(mode==303||mode==346)?7:mode==309?-1:mode==310&&count_reads%2==0?1:mode==325&&count_reads%3==0?1:0;return &integer_box;
+ case 52:if(obj!=((mode==302||mode==336)?(void *)&loaded_field.value:(void *)&loaded_field))bad_receiver++;yes=mode==322?2:mode!=304&&mode!=323&&mode!=345;break;
  }
  boolbox.value=(unsigned char)yes;return &boolbox;
 }
