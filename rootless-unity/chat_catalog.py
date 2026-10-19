@@ -7,20 +7,22 @@ from pathlib import Path
 from offline_metadata import MetadataError
 from friends_catalog import inspect_bundle as inspect_definitions,definition_fields,label
 
-VERSION='0.3.13'
-MAX_TYPES=32
-MAX_DEPTH=3
+VERSION='0.3.14'
+MAX_TYPES=256
+MAX_DEPTH=6
 MAX_METHODS=512
 MAX_FIELDS=128
 MAX_PARAMETERS=64
-MAX_TOTAL_METHODS=4096
-MAX_TOTAL_FIELDS=2048
-MAX_TOTAL_PARAMETERS=4096
+MAX_TOTAL_METHODS=24576
+MAX_TOTAL_FIELDS=8192
+MAX_TOTAL_PARAMETERS=24576
 ROOTS=(('DV.Profile.dll','DV.Profiles','ProfileViewController'),
        ('DV.Profile.dll','DV.Profiles','ProfilesQueueViewController'),
        ('DV.Messages.dll','DV.Messages','MessagesViewController'),
        ('DV.Messages.dll','DV.Messages','ChatsViewController'))
 WORDS=('chat','message','history','dialog','conversation')
+MAX_DISCOVERY_OWNERS=96
+MAX_CANDIDATES=48
 STATE_WORDS=('load','ready','actual','state','count','empty','hasmore','complete','initial','cache','page','cursor')
 
 
@@ -65,10 +67,12 @@ def collect(metadata):
         target=identity(metadata.types[hits[0]])
         return {**result,'status':'resolved','target':target} if target else {**result,'status':'unsupported-name'}
     def app(t):return t['image'].startswith('DV') and t['image'].endswith('.dll') and identity(t) is not None
+    def framework(t):return t['image']=='Core.dll' and (t['namespace']=='DataKit' or t['namespace'].startswith('DataKit.')) and identity(t) is not None
+    def supported(t):return app(t) or framework(t)
     queued=set();queue=[];truncated=False
     def enqueue(owner,depth,role):
         nonlocal truncated
-        if owner in queued or not app(metadata.types[owner]):return
+        if owner in queued or not supported(metadata.types[owner]):return
         if depth>MAX_DEPTH or len(queued)>=MAX_TYPES:truncated=True;return
         queued.add(owner);queue.append((owner,depth,role))
     def follow(ti,depth):
@@ -79,17 +83,37 @@ def collect(metadata):
         hits=[i for i,t in enumerate(metadata.types) if (t['image'],t['namespace'],t['name'])==(image,ns,name)]
         roots.append({'image':image,'namespace':ns,'type':name,'status':'found' if len(hits)==1 else 'missing' if not hits else 'ambiguous'})
         if len(hits)==1:enqueue(hits[0],0,'controller')
-    # Bounded supplemental discovery prevents dependence on guessed model names.
-    candidates=[]
+    # Do not let public-message models consume the queue before route owners
+    # or generic ContentList ancestors, whose constructed typeIndex is unresolved
+    # in metadata alone. Export their DEFINITIONS, never guess a generic binding.
+    route_owners=[];framework_owners=[];candidates=[]
     for index,t in enumerate(metadata.types):
-        if not app(t) or t['name'].startswith('<'):continue
+        if not supported(t) or t['name'].startswith('<'):continue
+        methods=metadata.methods[t['method_start']:t['method_start']+t['method_count']]
+        names=[m['name'].lower() for m in methods]
+        profile=t['namespace']=='DV.Profiles' or t['namespace'].startswith('DV.Profiles.')
+        route=any(any(w in n for w in WORDS) and any(w in n for w in ('button','pressed','click','request','show','open','route')) and not n.startswith(('<','__')) for n in names)
+        direct=t['name'] in ('ProfileOverlayView','MessagesRouter','MessagesCM','Chat','MessagesManager')
+        nested_delegate=t['name']=='IDelegate' and t['image'] in ('DV.Profile.dll','DV.Messages.dll')
+        profile_controls=profile and any(w in t['name'].lower() for w in ('overlay','button','router'))
+        if app(t) and (route or direct or nested_delegate or profile_controls):
+            priority=0 if direct else 1 if profile_controls or nested_delegate else 2
+            route_owners.append((priority,t['image'],t['namespace'],t['name'],index))
+        if framework(t) and (any(w in t['name'].lower() for w in ('content','list','load','page','cursor')) or any(n.startswith('get_') and any(w in n for w in STATE_WORDS) for n in names)):
+            framework_owners.append((t['image'],t['namespace'],t['name'],index))
+        if not app(t):continue
         text=(t['namespace']+'.'+t['name']).lower()
         if not any(w in text for w in WORDS):continue
         if not (any(w in t['namespace'].lower() for w in ('model','registry','cm')) or t['name'].endswith('CM')):continue
         priority=0 if t['name'].lower() in ('chat','message','messagescm','chatcm','chatsregistry','messagesregistry') else 1
         candidates.append((priority,t['image'],t['namespace'],t['name'],index))
-    candidates.sort()
-    for *_,index in candidates[:12]:enqueue(index,0,'candidate')
+    discovery=[]
+    for category,owners,limit in (('route-owner',route_owners,MAX_DISCOVERY_OWNERS),('content-framework',framework_owners,MAX_DISCOVERY_OWNERS),('candidate',candidates,MAX_CANDIDATES)):
+        owners.sort()
+        for *_,index in owners[:limit]:enqueue(index,0,category)
+        capped=len(owners)>limit
+        truncated=truncated or capped
+        discovery.append({'category':category,'total':len(owners),'selected':min(len(owners),limit),'truncated':capped})
     nodes=[];method_count=field_count=parameter_count=0
     for owner,depth,role in queue:
         t=metadata.types[owner];node={**identity(t),'type_definition_index':owner,'byval_type_index':t['byval_type_index'],
@@ -124,7 +148,7 @@ def collect(metadata):
         node['truncated']=len(methods)>len(exported_methods) or len(fields)>len(exported_fields) or any(m['parameters_truncated'] for m in node['methods'])
         nodes.append(node)
     return {'purpose':'chat-route-and-loaded-empty-history-definitions','roots':roots,'types':nodes,
-            'candidate_total':len(candidates),'candidates_truncated':len(candidates)>12,
+            'candidate_total':len(candidates),'candidates_truncated':len(candidates)>MAX_CANDIDATES,'discovery':discovery,
             'truncated':truncated or any(n['truncated'] for n in nodes)}
 
 
@@ -137,5 +161,5 @@ def inspect_bundle(folder,cancelled=lambda:False,expected_hashes=None):
 def write_report(folder,cancelled=lambda:False):
     out=inspect_bundle(folder,cancelled)
     target=Path(folder).parent/f'rootless-chat-metadata-{VERSION}.json'
-    target.write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    target.write_text(json.dumps(out,ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
     return out,target

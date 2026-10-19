@@ -42,7 +42,7 @@ class ChatCatalog(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             folder=Path(temp)/'test-apks';folder.mkdir();hashes=bundle(folder,bytes(fixture()))
             with patch('friends_catalog.HASHES',hashes):out,path=c.write_report(folder)
-            self.assertEqual(path.name,'rootless-chat-metadata-0.3.13.json')
+            self.assertEqual(path.name,'rootless-chat-metadata-0.3.14.json')
             self.assertEqual(json.loads(path.read_text()),out)
             for key in ('ui_actions_attempted','method_values_read','chat_opened','history_read','draft_prepared'):self.assertIs(out[key],False)
             self.assertEqual(out['messages_sent'],0);self.assertEqual(out['mode'],'offline-chat-catalog')
@@ -90,6 +90,46 @@ class ChatCatalog(unittest.TestCase):
         method=next(m for m in interface['methods'] if m['method']=='OnChatRequested')
         self.assertEqual(method['arity'],2);self.assertEqual(len(method['parameters']),1)
         self.assertTrue(method['parameters_truncated']);self.assertTrue(out['truncated'])
+
+    def test_route_owner_and_overlay_are_not_starved_by_public_models(self):
+        defs=[('DV.Profile.dll','DV.Profiles','ProfileOverlayView',[('OnBlueButton',0,False,0)]),
+              ('DV.dll','DV.Routing','UnusualRouter',[('ShowConversation',0,False,0)])]
+        defs += [('DV.dll','DV.Models','PublicMessage'+str(i),[]) for i in range(65)]
+        out=c.collect(Metadata31(metadata_fixture(defs)))
+        names=[t['type'] for t in out['types']]
+        self.assertIn('ProfileOverlayView',names);self.assertIn('UnusualRouter',names)
+        self.assertTrue(out['candidates_truncated']);self.assertTrue(out['truncated'])
+        route=next(d for d in out['discovery'] if d['category']=='route-owner')
+        self.assertEqual(route['total'],2);self.assertFalse(route['truncated'])
+
+    def test_generic_content_definitions_exported_without_guessing_binding(self):
+        defs=[('DV.dll','DV.CMs','MessagesCM',[('get_Chat',0,False,0)]),
+              ('Core.dll','DataKit','ContentList`1',[('get_Count',0,False,0),('get_IsLoaded',0,False,0)]),
+              ('Core.dll','Unrelated','ContentList`1',[('get_Count',0,False,0)])]
+        data=bytearray(metadata_fixture(defs));h=struct.unpack_from('<64I',data)
+        struct.pack_into('<i',data,h[40]+4*4,90001) # constructed generic reference, not a definition index
+        out=c.collect(Metadata31(bytes(data)))
+        cm=next(t for t in out['types'] if t['type']=='MessagesCM')
+        self.assertEqual(cm['parent'],{'type_index':90001,'status':'unresolved'})
+        frameworks=[t for t in out['types'] if t['image']=='Core.dll']
+        self.assertEqual(len(frameworks),1);self.assertEqual(frameworks[0]['namespace'],'DataKit')
+        self.assertIn('get_IsLoaded',[m['method'] for m in frameworks[0]['methods']])
+
+    def test_discovery_cap_is_explicit_and_routes_precede_candidates(self):
+        defs=[('DV.dll','DV.Routing','Route'+str(i),[('OpenChat',0,False,0)]) for i in range(4)]
+        defs += [('DV.dll','DV.Models','Chat',[])]
+        with patch.object(c,'MAX_DISCOVERY_OWNERS',2):out=c.collect(Metadata31(metadata_fixture(defs)))
+        route=next(d for d in out['discovery'] if d['category']=='route-owner')
+        self.assertTrue(route['truncated']);self.assertEqual(route['total'],5)
+        self.assertEqual(route['selected'],2);self.assertTrue(out['truncated'])
+        self.assertEqual(out['types'][0]['type'],'Chat')
+
+    def test_compact_report_round_trips_without_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder=Path(temp)/'test-apks';folder.mkdir();hashes=bundle(folder,bytes(fixture()))
+            with patch('friends_catalog.HASHES',hashes):out,path=c.write_report(folder)
+            raw=path.read_text();self.assertEqual(raw.count('\n'),1)
+            self.assertEqual(json.loads(raw),out);self.assertNotIn('PRIVATE',raw)
 
 class ChatCatalogGUI(unittest.TestCase):
     def test_chat_button_is_offline_and_never_autostarts(self):
