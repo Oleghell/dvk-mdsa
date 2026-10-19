@@ -84,7 +84,7 @@ static unsigned char tree_assignable(Class *a,Class *b){
 static int modal_count;static Object countbox={NULL,0};
 static void *tree_unbox(Object *o){void *extra=chat_unbox(o);if(extra)return extra;return o==&countbox?&modal_count:NULL;}
 static Class *value_field_class;
-API unsigned char il2cpp_class_is_valuetype(Class *c){return mode==302&&c==value_field_class;}
+API unsigned char il2cpp_class_is_valuetype(Class *c){return (mode==302||mode==336)&&c==value_field_class;}
 API const char *il2cpp_class_get_name(Class *c){return mode==114&&c==&modal_class?"OtherList":c->name;}
 API const char *il2cpp_class_get_namespace(Class *c){return c->ns;}
 API Image *il2cpp_class_get_image(Class *c){return chat_class_image(c);}
@@ -100,7 +100,7 @@ API int fixture_cancels(void){return cancels;}
 API int fixture_virtual_calls(void){return virtual_calls;}
 static Object *active(void){return mode==301?&search:&filters;}
 static Class cc[]={{"DV.Models","User"},{"DV.Messages","Chat"},{"DV.Messages","Message"},
- {"DV.CMs","MessagesCM"},{"DV.CMs","ContentDataList`1"},{"DataKit","BaseDataList`1"},{"DataKit","DataField`1"}};
+ {"DV.CMs","MessagesCM"},{"DV.CMs","ContentDataList`1"},{"DataKit","BaseDataList`1"},{"DataKit","DataField`1"},{"DataKit","BaseField`1"},{"Other","Unrelated"}};
 static Type ctuser={18,&cc[0]},ctchat={18,&cc[1]},ctmessage={18,&cc[2]},ctcm={18,&cc[3]},ctfield={21,&cc[6]},ctvalue={2};
 static Object user={&cc[0],0},other_user={&cc[0],0},chat={&cc[1],0},other_chat={&cc[1],0},cm={&cc[3],0},other_cm={&cc[3],0},loaded_field={&cc[6],1},last_message={&cc[2],0};
 static Object integer_box={NULL,0};static int integer_value,count_reads,state_reads,binding_reads,bad_receiver,cm_reads,loading_reads,sample_frames;
@@ -112,13 +112,13 @@ static Method cmeth[]={
  {"get_LastMessage",&cc[1],0,&ctmessage,48},{"get_LoadInProgress",&cc[4],0,&tbool,49},
  {"get_AllIsLoaded",&cc[4],0,&ctfield,50},{"get_Count",&cc[5],0,&tint,51},
  {"get_Value",&cc[6],0,&ctvalue,52}};
-static void chat_init(void){count_reads=state_reads=binding_reads=bad_receiver=cm_reads=loading_reads=sample_frames=0;value_field_class=&cc[6];bad_byref_type=&ctvalue;ctvalue.kind=mode==315?8:2;if(mode==318)cmeth[9].flags=16;}
-static Class *chat_class(Image *im,const char *ns,const char *name){int i;for(i=0;i<7;i++){Image *want=i==0||i==4?&images[3]:i>=5?&images[0]:&chat_image;if(im==want&&!strcmp(ns,cc[i].ns)&&!strcmp(name,cc[i].name))return &cc[i];}return NULL;}
-static Image *chat_class_image(Class *k){int i;if(k==&nc[5])return &chat_image;for(i=0;i<7;i++)if(k==&cc[i])return i==0||i==4?&images[3]:i>=5?&images[0]:&chat_image;return &images[0];}
-static Method *chat_method(Class *k,const char *name,int arity){int i;for(i=0;i<13;i++)if(arity==0&&k==cmeth[i].klass&&!strcmp(name,cmeth[i].name)){if(mode==317&&i==12)return NULL;return &cmeth[i];}return NULL;}
-static unsigned char chat_assignable(Class *a,Class *b){return (a==&cc[4]&&(b==&cc[3]||b==&cc[4]))||(a==&cc[5]&&(b==&cc[3]||b==&cc[4]||b==&cc[5]));}
+static void chat_init(void){count_reads=state_reads=binding_reads=bad_receiver=cm_reads=loading_reads=sample_frames=0;value_field_class=&cc[6];bad_byref_type=&ctvalue;ctvalue.kind=mode==315?8:2;if(mode==337){cc[8].ns="DataKit";cc[8].name="BaseField`1";}cmeth[12].klass=(mode>=328&&mode<=337)?&cc[7]:&cc[6];cmeth[12].flags=mode==332?16:mode==333?1024:0;cmeth[12].arity=mode==334?1:0;if(mode==318)cmeth[9].flags=16;}
+static Class *chat_class(Image *im,const char *ns,const char *name){int i;for(i=0;i<9;i++){Image *want=i==0||i==4?&images[3]:i>=5?&images[0]:&chat_image;if(im==want&&!strcmp(ns,cc[i].ns)&&!strcmp(name,cc[i].name))return &cc[i];}return NULL;}
+static Image *chat_class_image(Class *k){int i;if(k==&nc[5]||(mode==331&&k==&cc[7]))return &chat_image;for(i=0;i<9;i++)if(k==&cc[i])return i==0||i==4?&images[3]:i>=5?&images[0]:&chat_image;return &images[0];}
+static Method *chat_method(Class *k,const char *name,int arity){int i;for(i=0;i<13;i++)if(arity==0&&(k==cmeth[i].klass||(i==12&&k==&cc[6]))&&!strcmp(name,cmeth[i].name)){if(mode==317&&i==12)return NULL;return &cmeth[i];}return NULL;}
+static unsigned char chat_assignable(Class *a,Class *b){return ((a==&cc[6]&&b==&cc[6])||(a==&cc[7]&&b==&cc[6]&&mode!=335))||(a==&cc[4]&&(b==&cc[3]||b==&cc[4]))||(a==&cc[5]&&(b==&cc[3]||b==&cc[4]||b==&cc[5]));}
 static void *chat_unbox(Object *o){if(o==&integer_box)return &integer_value;if(o==&loaded_field)return &loaded_field.value;return NULL;}
-API Class *il2cpp_class_get_parent(Class *k){if(k==&cc[3])return &cc[4];if(k==&cc[4])return &cc[5];return NULL;}
+API Class *il2cpp_class_get_parent(Class *k){if(k==&cc[6]&&mode>=328&&mode<=337)return (mode==329||mode==337)?&cc[8]:mode==330?&cc[6]:&cc[7];if(k==&cc[3])return &cc[4];if(k==&cc[4])return &cc[5];return NULL;}
 API int fixture_state_reads(void){return state_reads;}
 API int fixture_bad_receiver(void){return bad_receiver;}
 API int fixture_sample_frames(void){return sample_frames;}
@@ -159,7 +159,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){int yes=0
  case 49:loading_reads++;yes=mode==304||(mode==324&&loading_reads%2==0);break;
  case 50:return mode==321?NULL:&loaded_field;
  case 51:count_reads++;if(mode==319){*exc=&exception;return NULL;}integer_value=mode==303?7:mode==309?-1:mode==310&&count_reads%2==0?1:mode==325&&count_reads>=3?1:0;return &integer_box;
- case 52:if(obj!=(mode==302?(void *)&loaded_field.value:(void *)&loaded_field))bad_receiver++;yes=mode==322?2:mode!=304&&mode!=323;break;
+ case 52:if(obj!=((mode==302||mode==336)?(void *)&loaded_field.value:(void *)&loaded_field))bad_receiver++;yes=mode==322?2:mode!=304&&mode!=323;break;
  }
  boolbox.value=(unsigned char)yes;return &boolbox;
 }

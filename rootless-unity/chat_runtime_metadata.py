@@ -1,7 +1,7 @@
 """Fixed, metadata-only IL2CPP graph. No objects, invocation, hooks or UI actions."""
 import json
 
-VERSION='0.3.16'
+VERSION='0.3.17'
 ROOTS=[('DV.Profile.dll','DV.Profiles','ProfilesQueueViewController'),
        ('DV.Profile.dll','DV.Profiles','ProfileOverlayView'),
        ('DV.Messages.dll','DV.Messages','MessagesViewController'),

@@ -32,10 +32,11 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         assert c['handles']==c['bad']==c['off']==c['opens']==c['closes']==c['receiver']==0,(mode,out,c)
         assert c['calls']==out['managed_calls']+n['managed_calls'],(mode,out,c)
         assert n['handles_acquired']==n['handles_released'],(mode,out,c)
-        if mode in (300,302,303):
+        if mode in (300,302,303,328,336):
             assert n['stage']=='navigation-ready' and n['history_status']==('not-empty' if mode==303 else 'empty'),(mode,out,c)
             assert n['message_count']==(7 if mode==303 else 0) and n['samples']==2 and elapsed>=1.9,(mode,out,c,elapsed)
-        elif mode in (315,316,317,318):
+            assert n['loaded_value_owner_verified'] is True and n['loaded_value_owner_inherited']==(mode in (328,336)),(mode,out,c)
+        elif mode in (315,316,317,318,329,330,331,332,333,334,335,337):
             assert n['stage']=='not-attempted' and n['history_status']=='unknown' and c['states']==0,(mode,out,c)
         else:
             assert n['stage']=='navigation-stopped' and n['history_status']=='unknown' and n['message_count'] is None,(mode,out,c)
@@ -60,5 +61,5 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         child.stdout.close();child.stderr.close()
 
 if __name__=='__main__':
-    for mode in range(300,328):one(Path(sys.argv[1]).resolve(strict=True),mode)
+    for mode in range(300,338):one(Path(sys.argv[1]).resolve(strict=True),mode)
     print('Read-only chat state ABI passed; Android still requires a manual test.')

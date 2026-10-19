@@ -4,7 +4,7 @@ import uikit_navigation as base
 import uikit_root as root
 from uikit_profile_navigation import replace_once
 
-VERSION='0.3.16'
+VERSION='0.3.17'
 ERRORS=base.ERRORS|{'history-invalid','not-a-dialog'}
 CHECKPOINTS={'base','classes','chat-methods','cm-methods','loaded-type','loaded-value','ready'}
 EXTRA=r'''
@@ -15,9 +15,9 @@ EXTRA=r'''
   for(const [key,args] of Object.entries(defs)){s[key]=getClass(...args);if(s[key].isNull())throw new Error('metadata');}
   const name=p=>{if(p.isNull())throw new Error('signature');let s='';for(let i=0;i<192;i++){const c=p.add(i).readU8();if(c===0)return s;if(c<32||c>126)throw new Error('signature');s+=String.fromCharCode(c);}throw new Error('signature');};
   const is=(k,image,ns,label)=>!k.isNull()&&name(f.className(k))===label&&name(f.classNamespace(k))===ns&&name(f.imageName(f.classImage(k)))===image;
-  const checked=(klass,label,kind,result=null,unboxed=false)=>{
+  const checked=(klass,label,kind,result=null,unboxed=false,verifiedOwner=null)=>{
    const m=f.method(klass,Memory.allocUtf8String(label),0),bits=Memory.alloc(4);bits.writeU32(0);
-   if(m.isNull()||f.arity(m)!==0||(f.flags(m,bits)&(16|1024))!==0||f.typeKind(f.returnType(m))!==kind||f.byref(f.returnType(m))||!f.methodClass(m).equals(klass))throw new Error('signature');
+   if(m.isNull()||f.arity(m)!==0||(f.flags(m,bits)&(16|1024))!==0||f.typeKind(f.returnType(m))!==kind||f.byref(f.returnType(m))||!f.methodClass(m).equals(verifiedOwner===null?klass:verifiedOwner))throw new Error('signature');
    if(result&&!f.classFromType(f.returnType(m)).equals(result))throw new Error('signature');
    return {m,klass,kind,arity:0,unboxed};
   };
@@ -40,8 +40,29 @@ EXTRA=r'''
   if(!is(s.loadedClass,'Core.dll','DataKit','DataField`1'))throw new Error('signature');
   n.metadata_checkpoint='loaded-value';const method=f.method(s.loadedClass,Memory.allocUtf8String('get_Value'),0);
   n.loaded_value_method_found=!method.isNull();
-  if(!method.isNull()){n.loaded_value_return_kind=f.typeKind(f.returnType(method));n.loaded_value_byref=!!f.byref(f.returnType(method));}
-  s.value=checked(s.loadedClass,'get_Value',2,null,!!f.isValueType(s.loadedClass));
+  let verifiedOwner=null;
+  if(!method.isNull()){
+   n.loaded_value_return_kind=f.typeKind(f.returnType(method));n.loaded_value_byref=!!f.byref(f.returnType(method));
+   const bits=Memory.alloc(4);bits.writeU32(0);const flags=f.flags(method,bits),owner=f.methodClass(method);
+   n.loaded_value_arity=f.arity(method);n.loaded_value_static=!!(flags&16);n.loaded_value_abstract=!!(flags&1024);
+   n.loaded_value_owner_verified=false;n.loaded_value_owner_inherited=false;
+   n.loaded_value_owner_scope=!owner.isNull()&&name(f.imageName(f.classImage(owner)))==='Core.dll'&&name(f.classNamespace(owner))==='DataKit';
+   // Only the exact owner pointer on the actual bounded parent chain is accepted.
+   // A matching generic name or assignability alone is never sufficient.
+   let k=s.loadedClass;const owners=new Set();
+   for(let i=0;i<10&&!k.isNull();i++){
+    const key=k.toString();if(owners.has(key))throw new Error('hierarchy');owners.add(key);
+    if(k.equals(owner)){
+     n.loaded_value_owner_inherited=!k.equals(s.loadedClass);
+     n.loaded_value_owner_verified=n.loaded_value_owner_scope&&!!f.assignable(owner,s.loadedClass);
+     if(n.loaded_value_owner_verified)verifiedOwner=owner;
+     break;
+    }
+    k=f.classParent(k);
+   }
+  }
+  if(verifiedOwner===null)throw new Error('signature');
+  s.value=checked(s.loadedClass,'get_Value',2,null,!!f.isValueType(s.loadedClass),verifiedOwner);
   n.metadata_checkpoint='ready';return s;
  }
 '''
@@ -95,7 +116,7 @@ def build():
     helpers=replace_once(helpers,"['canClose','card','get_CanBeClosedByUser',2],",'')
     helpers=replace_once(helpers,"['open','search','ShowSearchSettings',1],['cancel','card','DismissWithCancel',1]",'')
     helpers=replace_once(helpers,'  return s;\n }','  return prepareChat(f,s,getClass);\n }')
-    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "action_backend:'read-only-chat-state',ui_text_read:false,metadata_checkpoint:'base',loaded_value_method_found:null,loaded_value_return_kind:null,loaded_value_byref:null,history_status:'unknown',message_count:null,history_fully_loaded:null,history_loading:null,last_message_present:null,samples:0,sample_interval_ms:1000,chat_identity_verified:false,app_actions_attempted:false,messages_sent:0")
+    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "action_backend:'read-only-chat-state',ui_text_read:false,metadata_checkpoint:'base',loaded_value_method_found:null,loaded_value_return_kind:null,loaded_value_byref:null,loaded_value_owner_verified:null,loaded_value_owner_inherited:null,loaded_value_owner_scope:null,loaded_value_static:null,loaded_value_abstract:null,loaded_value_arity:null,history_status:'unknown',message_count:null,history_fully_loaded:null,history_loading:null,last_message_present:null,samples:0,sample_interval_ms:1000,chat_identity_verified:false,app_actions_attempted:false,messages_sent:0")
     helpers=replace_once(helpers,"if(n.phase==='search'&&k!=='search')", "if(n.phase==='search'&&k!=='filters')")
     start=helpers.index("   if(n.phase==='search'){\n    n.search_verified=true;")
     end=helpers.index("  } catch(e)",start)
@@ -118,14 +139,15 @@ FUNCTION=build()
 def validate(value):
     if not isinstance(value,dict) or not isinstance(value.get('navigation'),dict):raise ValueError('Missing chat state')
     v=copy.deepcopy(value);n=v['navigation']
-    extras={'metadata_checkpoint','loaded_value_method_found','loaded_value_return_kind','loaded_value_byref','history_status','message_count','history_fully_loaded','history_loading','last_message_present','samples','sample_interval_ms','chat_identity_verified','app_actions_attempted','messages_sent'}
+    extras={'metadata_checkpoint','loaded_value_method_found','loaded_value_return_kind','loaded_value_byref','loaded_value_owner_verified','loaded_value_owner_inherited','loaded_value_owner_scope','loaded_value_static','loaded_value_abstract','loaded_value_arity','history_status','message_count','history_fully_loaded','history_loading','last_message_present','samples','sample_interval_ms','chat_identity_verified','app_actions_attempted','messages_sent'}
     if not extras<=set(n):raise ValueError('Missing chat state fields')
     x={k:n.pop(k) for k in extras}
     if x['metadata_checkpoint'] not in CHECKPOINTS:raise ValueError('Unknown checkpoint')
     if x['history_status'] not in {'unknown','not-ready','checking','empty','not-empty'}:raise ValueError('Invalid history state')
-    for k in ('loaded_value_method_found','loaded_value_byref','history_fully_loaded','history_loading','last_message_present'):
+    for k in ('loaded_value_method_found','loaded_value_byref','loaded_value_owner_verified','loaded_value_owner_inherited','loaded_value_owner_scope','loaded_value_static','loaded_value_abstract','history_fully_loaded','history_loading','last_message_present'):
         if x[k] is not None and type(x[k]) is not bool:raise ValueError('Invalid history flag')
     if x['loaded_value_return_kind'] is not None and (type(x['loaded_value_return_kind']) is not int or not 0<=x['loaded_value_return_kind']<=255):raise ValueError('Invalid return kind')
+    if x['loaded_value_arity'] is not None and (type(x['loaded_value_arity']) is not int or not 0<=x['loaded_value_arity']<=255):raise ValueError('Invalid getter arity')
     for k in ('chat_identity_verified','app_actions_attempted'):
         if type(x[k]) is not bool:raise ValueError('Invalid chat flag')
     if type(x['messages_sent']) is not int or x['messages_sent']!=0 or x['app_actions_attempted']:raise ValueError('Forbidden chat action')
@@ -137,7 +159,7 @@ def validate(value):
     if classified:
         count=x['message_count']
         if type(count) is not int or not 0<=count<=1000000 or (state=='empty')!=(count==0):raise ValueError('Invalid history count')
-        if x['metadata_checkpoint']!='ready' or x['loaded_value_method_found'] is not True or x['loaded_value_return_kind']!=2 or x['loaded_value_byref'] is not False or not x['chat_identity_verified'] or x['samples']!=2 or x['history_fully_loaded'] is not True or x['history_loading'] is not False or n.get('stage')!='navigation-ready':raise ValueError('Unverified history state')
+        if x['metadata_checkpoint']!='ready' or x['loaded_value_method_found'] is not True or x['loaded_value_return_kind']!=2 or x['loaded_value_byref'] is not False or x['loaded_value_owner_verified'] is not True or x['loaded_value_owner_scope'] is not True or type(x['loaded_value_owner_inherited']) is not bool or x['loaded_value_static'] is not False or x['loaded_value_abstract'] is not False or x['loaded_value_arity']!=0 or not x['chat_identity_verified'] or x['samples']!=2 or x['history_fully_loaded'] is not True or x['history_loading'] is not False or n.get('stage')!='navigation-ready':raise ValueError('Unverified history state')
         if state=='empty' and x['last_message_present'] is not False:raise ValueError('Contradictory empty state')
     elif x['message_count'] is not None or x['samples']==2:raise ValueError('Unknown count must stay unknown')
     if n.get('stage')=='navigation-ready' and not classified:raise ValueError('Missing history classification')
