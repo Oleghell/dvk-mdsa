@@ -7,6 +7,8 @@ from diagnose_device import DiagnosticAdb,diagnose,TestError
 DEFAULT_ADB='C:/Users/XXX/Desktop/platform-tools/adb.exe'
 
 def result_status(result):
+    if result.get('mode')=='offline-chat-catalog':
+        return 'Метаданные чата готовы — пришли отчёт.' if result.get('status')=='catalog-ready' else 'Метаданные чата: '+result.get('reason','ошибка')
     if result.get('mode')=='offline-friends-catalog':
         return 'Метаданные готовы — пришли отчёт.' if result.get('status')=='catalog-ready' else 'Метаданные: '+result.get('reason','ошибка')
     batch=result.get('gadget',{}).get('batch')
@@ -33,11 +35,11 @@ def result_status(result):
 def launch_gui(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг · 0.3.12')
+    root=tk.Tk();root.title('ДругВокруг · 0.3.13')
     root.geometry('640x300');root.minsize(620,300)
     main=ttk.Frame(root,padding=14);main.pack(fill='both',expand=True)
     ttk.Label(main,text='MuMu #4 · профиль и друзья',font=('Segoe UI',11,'bold')).pack(anchor='w')
-    ttk.Label(main,text='До 10 видимых анкет из поиска #4. Без сообщений и прокрутки.').pack(anchor='w',pady=(4,10))
+    ttk.Label(main,text='Чат: сначала «Метаданные чата». Проверки профилей сохранены.').pack(anchor='w',pady=(4,10))
     base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).parent
     binary=tk.StringVar(value=DEFAULT_ADB);folder=tk.StringVar(value=str(base/'test-apks'))
     for label,var,picker in (
@@ -49,7 +51,7 @@ def launch_gui(self_check=False):
             p=pick()
             if p:v.set(p)
         ttk.Button(row,text='Выбрать',command=choose).pack(side='right',padx=(8,0))
-    state=tk.StringVar(value='Визиты видны в гостях. Без повторов в одном запуске. Паузы — 1 с.')
+    state=tk.StringVar(value='Метаданные чата — без MuMu. Отправки нет. Паузы в UI — 1 с.')
     ttk.Label(main,textvariable=state,wraplength=590).pack(anchor='w',pady=(4,6))
     events=queue.Queue();stop=threading.Event();busy=False;report=None
     def worker(executable,directory,batch=False):
@@ -59,18 +61,20 @@ def launch_gui(self_check=False):
             events.put(('done',(result,path)))
         except Exception as e:
             events.put(('error',str(e) if isinstance(e,TestError) else 'Проверь ADB, test-apks и доступ к папке.'))
-    def catalog_worker(directory):
+    def catalog_worker(directory,chat=False):
         try:
-            from friends_catalog import write_report
+            if chat:from chat_catalog import write_report
+            else:from friends_catalog import write_report
             p=Path(directory).resolve(strict=True)
             events.put(('done',write_report(p,stop.is_set)))
         except Exception:events.put(('error','Проверь test-apks и доступ к папке.'))
     def start(mode='profile'):
         nonlocal busy,report
         if busy:return
-        busy=True;report=None;stop.clear();state.set('Читаю метаданные APK…' if mode=='catalog' else 'Проверка…')
-        batch_button.config(state='disabled');button.config(state='disabled');metadata_button.config(state='disabled');stop_button.config(state='normal');report_button.config(state='disabled')
-        if mode=='catalog':threading.Thread(target=catalog_worker,args=(folder.get(),),daemon=True).start()
+        busy=True;report=None;stop.clear();state.set('Читаю метаданные APK…' if mode in ('catalog','chat-catalog') else 'Проверка…')
+        chat_metadata_button.config(state='disabled');batch_button.config(state='disabled');button.config(state='disabled');metadata_button.config(state='disabled');stop_button.config(state='normal');report_button.config(state='disabled')
+        if mode=='chat-catalog':threading.Thread(target=catalog_worker,args=(folder.get(),True),daemon=True).start()
+        elif mode=='catalog':threading.Thread(target=catalog_worker,args=(folder.get(),),daemon=True).start()
         elif mode=='batch':threading.Thread(target=worker,args=(binary.get(),folder.get(),True),daemon=True).start()
         else:threading.Thread(target=worker,args=(binary.get(),folder.get()),daemon=True).start()
     def request_stop():
@@ -79,8 +83,10 @@ def launch_gui(self_check=False):
         if report is None:return
         try:os.startfile(str(report))
         except (AttributeError,OSError):messagebox.showinfo('Отчёт',str(report))
+    diagnostics_row=ttk.Frame(main);diagnostics_row.pack(fill='x',pady=(2,6))
+    chat_metadata_button=ttk.Button(diagnostics_row,text='Метаданные чата',command=lambda:start('chat-catalog'));chat_metadata_button.pack(side='left',padx=(0,8))
+    metadata_button=ttk.Button(diagnostics_row,text='Найти счётчик',command=lambda:start('catalog'));metadata_button.pack(side='left',padx=(0,8))
     row=ttk.Frame(main);row.pack(fill='x',pady=(2,6))
-    metadata_button=ttk.Button(row,text='Найти счётчик',command=lambda:start('catalog'));metadata_button.pack(side='left',padx=(0,8))
     batch_button=ttk.Button(row,text='Проверить 10',command=lambda:start('batch'));batch_button.pack(side='left',padx=(0,8))
     button=ttk.Button(row,text='Проверить профиль',command=start);button.pack(side='left')
     stop_button=ttk.Button(row,text='Стоп',command=request_stop,state='disabled');stop_button.pack(side='left',padx=8)
@@ -91,7 +97,7 @@ def launch_gui(self_check=False):
         while not events.empty():
             kind,value=events.get_nowait()
             if kind=='status':state.set(value);continue
-            busy=False;batch_button.config(state='normal');button.config(state='normal');metadata_button.config(state='normal');stop_button.config(state='disabled')
+            busy=False;chat_metadata_button.config(state='normal');batch_button.config(state='normal');button.config(state='normal');metadata_button.config(state='normal');stop_button.config(state='disabled')
             if kind=='error':state.set(value)
             else:
                 result,report=value;state.set(result_status(result));report_button.config(state='normal')
@@ -104,13 +110,14 @@ def launch_gui(self_check=False):
     needed=main.winfo_reqheight()
     if needed>root.winfo_height():root.geometry('640x'+str(needed));root.minsize(620,needed)
     if self_check:
-        root.update();assert root.winfo_viewable() and all(w.winfo_viewable() for w in (metadata_button,batch_button,button,stop_button,report_button))
+        root.update();assert root.winfo_viewable() and all(w.winfo_viewable() for w in (chat_metadata_button,metadata_button,batch_button,button,stop_button,report_button))
         assert main.winfo_reqheight()<=root.winfo_height(),'Compact controls are clipped'
-        assert row.winfo_reqwidth()+28<=root.winfo_width(),'Compact buttons are clipped'
+        assert max(row.winfo_reqwidth(),diagnostics_row.winfo_reqwidth())+28<=root.winfo_width(),'Compact buttons are clipped'
         import frida
         from profile_batch import FUNCTION
-        import friends_catalog
-        assert friends_catalog.VERSION=='0.3.12'
+        import friends_catalog,chat_catalog
+        assert chat_catalog.VERSION=='0.3.13'
+        assert friends_catalog.VERSION=='0.3.13'
         assert frida.__version__=='17.24.1' and 'OnUserSelected' in FUNCTION
         root.destroy();return
     root.after(100,poll);root.mainloop()

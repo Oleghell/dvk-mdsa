@@ -41,7 +41,7 @@ class Metadata31:
         self.methods=[]
         for row in self._rows(self._method_bytes,'<IiiiiiI4H'):
             self.methods.append({'name':self._string(row[0]),'declaring_type':row[1],
-                                 'return_type_index':row[2],
+                                 'return_type_index':row[2],'parameter_start':row[4],'method_flags':row[7],
                                  'parameter_count':row[-1],'static':bool(row[7]&0x10)})
         self.types=[]
         for row in self._rows(self._type_bytes,'<II14i8HII'):
@@ -51,7 +51,7 @@ class Metadata31:
             if not n and not -1<=first<=len(self.methods):
                 raise MetadataError('Invalid empty method range')
             self.types.append({'name':self._string(row[0]),'namespace':self._string(row[1]),
-                               'byval_type_index':row[2],
+                               'byval_type_index':row[2],'declaring_type_index':row[3],'parent_type_index':row[4],
                                'method_start':first,'method_count':n,'image':None})
         self.images=[]
         for row in self._rows(self._image_bytes,'<IiiIiIiIiI'):

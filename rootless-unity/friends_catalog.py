@@ -4,7 +4,7 @@ from pathlib import Path
 from offline_metadata import Metadata31,MAX_BYTES,MetadataError
 from test_device import HASHES
 
-VERSION='0.3.12'
+VERSION='0.3.13'
 MAX_APK_BYTES=1024**3
 MAX_ENTRIES=100000
 LIMIT=1024
@@ -135,7 +135,7 @@ def profile_model_graph(metadata):
         node['fields'].sort(key=lambda f:f['field']);node['getters'].sort(key=lambda m:m['method']);nodes.append(node)
     return {'status':'definitions-only','roots':roots,'types':nodes,'truncated':truncated or any(n['truncated'] for n in nodes)}
 
-def inspect_bundle(folder,cancelled=lambda:False,expected_hashes=None):
+def inspect_bundle(folder,cancelled=lambda:False,expected_hashes=None,*,collector=None):
     expected=HASHES if expected_hashes is None else expected_hashes
     report={'tool_version':VERSION,'mode':'offline-friends-catalog','status':'not-run','ui_actions_attempted':False,'messages_sent':0,'method_values_read':False,'catalog':None}
     try:
@@ -165,7 +165,7 @@ def inspect_bundle(folder,cancelled=lambda:False,expected_hashes=None):
         if len(data)>MAX_BYTES:raise CatalogError('metadata-size')
         metadata=Metadata31(data)
         if cancelled():raise CatalogError('cancelled')
-        report['catalog']=collect(metadata)
+        report['catalog']=(collect if collector is None else collector)(metadata)
         if cancelled():raise CatalogError('cancelled')
         report['metadata_version']=31;report['status']='catalog-ready'
     except CatalogError as e:report.update(status='catalog-stopped',reason=str(e),catalog=None)
