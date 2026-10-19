@@ -180,7 +180,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 62:return mode==182?NULL:&pentrylist;
  case 63:pnumber=1;return &pbox;
  case 64:if(!args||!args[0]||*(int *)args[0]!=0){selected_wrong++;*exc=&exception;return NULL;}entry_reads++;return mode==153?&other:mode==188||(mode==183&&entry_reads==1)?&ppromoentry:&pentryobj;
- case 40:return &ptable;
+ case 40:return mode==200?NULL:&ptable;
  case 41:return &pvisiblelist;
  case 42:plist_reads++;if(mode==149)slow();pnumber=stress_mode()?stress_count():mode==154?25:mode==132?0:1;return &pbox;
  case 43:
@@ -206,13 +206,13 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 48:
   if(stress_mode()){Object *source=((PIterator *)obj)->view;int i=stress_index(source,stress_rows,24),j;if(i>=0)return &stress_wrap[i][0];for(j=0;j<24;j++){if(source==&stress_wrap[j][0])return &stress_wrap[j][1];if(source==&stress_wrap[j][1])return &stress_cells[j];}selected_wrong++;return NULL;}
   return (mode==180&&((PIterator *)obj)->index==0)||mode==181?&ppromocell:&pcell;
- case 49:case 50:case 51:return &precord;
+ case 49:case 50:case 51:return mode==201?NULL:&precord;
  case 52:if(!args||(args[0]!=&pentryobj&&args[0]!=&ppromoentry)){selected_wrong++;*exc=&exception;return NULL;}promo_reads++;yes=mode==192||mode==133||args[0]==&ppromoentry||(mode==186&&promo_reads==2)||(mode==187&&promo_reads%2==0);break;
  case 53:
   if(stress_mode()){int i=stress_index(obj,stress_cells,24);stress_current_row=i;return mode==193||i==stress_count()-1?&pentryobj:&ppromoentry;}
   if(obj==&ppromocell)return &ppromoentry;return mode==134?NULL:&pentryobj;
- case 54:return &pavatar;
- case 55:return &puser;
+ case 54:return mode==199?NULL:&pavatar;
+ case 55:if(mode==198||(mode==202&&entry_reads==1))return NULL;return &puser;
  case 56:avatar_reads++;return mode==135||(mode==184&&avatar_reads==1)?&potheruser:&puser;
  case 57:yes=mode==136||(mode==193&&stress_current_row!=stress_count()-1);break;
  case 58:profile_reads++;if(mode==156)return &other;if(mode==137)return NULL;return mode==140&&profile_reads>2?&pothercontent:&pcontent;

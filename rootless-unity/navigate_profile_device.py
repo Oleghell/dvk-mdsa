@@ -7,11 +7,11 @@ from diagnose_device import DiagnosticAdb,diagnose,find_adb,TestError
 def launch_gui(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг — одна анкета → профиль → назад, 0.3.4')
+    root=tk.Tk();root.title('ДругВокруг — одна анкета → профиль → назад, 0.3.5')
     root.geometry('960x670');root.minsize(900,630)
     main=ttk.Frame(root,padding=18);main.pack(fill='both',expand=True)
     ttk.Label(main,text='Одна анкета, без сообщений — только MuMu #4 (5563)',font=('Segoe UI',12,'bold')).pack(anchor='w')
-    ttk.Label(main,text='1. Запустите оба MuMu. На #4 откройте поиск людей (сетку анкет), закройте диалоги и фильтры.\n'
+    ttk.Label(main,text='1. Запустите оба MuMu. На #4 откройте уже загруженный поиск людей (сетку анкет), закройте диалоги и фильтры.\n'
         '2. Этот тест проверит экран, откроет одну видимую обычную анкету и вернётся к тому же поиску.\n'
         'Не трогайте интерфейс #4 во время теста. При неизвестном экране тест остановится без кликов.\n\n'
         'Нет OCR, скриншотов, координат и root. Используются UIKit-контроллеры Unity и их UI-обработчики,\n'
@@ -50,7 +50,7 @@ def launch_gui(self_check=False):
     row=ttk.Frame(main);row.pack(fill='x',pady=10)
     button=ttk.Button(row,text='Открыть одну анкету → закрыть → проверить возврат',command=start);button.pack(side='left')
     ttk.Button(row,text='Остановить тест',command=stop.set).pack(side='left',padx=12)
-    ttk.Label(main,text='Отчёт: rootless-profile-navigation-0.3.4.json рядом со старой папкой test-apks.\n'
+    ttk.Label(main,text='Отчёт: rootless-profile-navigation-0.3.5.json рядом со старой папкой test-apks.\n'
         'При остановке профиль может остаться открытым. Вернитесь в поиск вручную, не запускайте повтор вслепую.\n'
         'Токены, PID, адреса памяти, полные пути, тексты и изображения в отчёт не записываются.',wraplength=880).pack(anchor='w',pady=8)
     def poll():
