@@ -47,5 +47,5 @@ class ReplyMetadata(unittest.TestCase):
             gui.launch_gui();thread.assert_not_called()
             commands={c.kwargs.get('text'):c.kwargs.get('command') for c in ttk.Button.call_args_list}
             commands['Подготовить ответы · без отправки']();self.assertIs(thread.call_args.kwargs['args'][7],True)
-            commands['Автопроход · до 10 анкет']();thread.return_value.start.assert_called_once()
+            commands['Новая десятка · сохранить привязки']();thread.return_value.start.assert_called_once()
         ttk.Checkbutton.assert_not_called()

@@ -72,9 +72,10 @@ class Cohort(unittest.TestCase):
         with patch.dict(sys.modules,{'tkinter':tk,'tkinter.ttk':ttk,'tkinter.filedialog':tk.filedialog,'tkinter.messagebox':tk.messagebox}),patch.object(gui.threading,'Thread') as thread:
             gui.launch_gui();thread.assert_not_called()
             commands={c.kwargs.get('text'):c.kwargs.get('command') for c in ttk.Button.call_args_list}
+            self.assertNotIn('Автопроход · до 10 анкет',commands)
             commands['Новая десятка · сохранить привязки']()
             self.assertIs(thread.call_args.kwargs['args'][8],True)
-            commands['Автопроход · до 10 анкет']();thread.return_value.start.assert_called_once()
+            commands['Новая десятка · сохранить привязки']();thread.return_value.start.assert_called_once()
         ttk.Checkbutton.assert_not_called()
     def test_conflicting_modes_are_closed(self):
         import diagnose_device as d

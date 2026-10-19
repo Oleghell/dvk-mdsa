@@ -1,8 +1,8 @@
-name: Build durable new-ten enrollment 0.3.26
+name: Build bounded return timeout fix and single cohort button 0.3.27
 "on":
   push:
     branches: [feature/android-ui-hierarchy]
-    paths: ['rootless-unity/cohort_pass.py', 'rootless-unity/smoke_cohort_pass.py', 'rootless-unity/conversation_engine.py', 'rootless-unity/telegram_notify.py', 'rootless-unity/search_scan.py', 'rootless-unity/reply_metadata.py', 'rootless-unity/smoke_reply_metadata.py', 'rootless-unity/chat_batch.py', 'rootless-unity/smoke_chat_batch.py', 'rootless-unity/greetings.py', 'rootless-unity/chat_send_probe.py', 'rootless-unity/smoke_chat_send.py', 'rootless-unity/chat_state_probe.py', 'rootless-unity/smoke_chat_state.py', 'rootless-unity/chat_runtime_metadata.py', 'rootless-unity/smoke_chat_runtime_metadata.py', 'rootless-unity/chat_catalog.py', 'rootless-unity/profile_batch.py', 'rootless-unity/smoke_profile_batch.py', 'rootless-unity/run_unit_tests.py', 'rootless-unity/friends_catalog.py', 'rootless-unity/offline_metadata.py', 'rootless-unity/profile_metadata.py', 'rootless-unity/smoke_profile_metadata.py', 'rootless-unity/uikit_profile_navigation.py', 'rootless-unity/smoke_profile_navigation.py', 'rootless-unity/uikit_navigation.py', 'rootless-unity/navigate_profile_device.py', 'rootless-unity/smoke_uikit_navigation.py', 'rootless-unity/PROFILE-NAVIGATION-0.3.26.md', 'rootless-unity/SUBVIEWS-OFFLINE-EVIDENCE.json', 'rootless-unity/adb_evidence.py', 'rootless-unity/uikit_tree.py', 'rootless-unity/diagnose_tree.py', 'rootless-unity/smoke_uikit_tree.py', 'rootless-unity/uikit_root.py', 'rootless-unity/uikit_profile.py', 'rootless-unity/diagnose_uikit.py', 'rootless-unity/smoke_uikit_root.py', 'rootless-unity/native_metadata.py', 'rootless-unity/smoke_native_metadata.py', 'rootless-unity/fixtures/**', 'rootless-unity/module_evidence.py', 'rootless-unity/diagnose_device.py', 'rootless-unity/test_device.py', 'rootless-unity/smoke_diagnostics.py', 'rootless-unity/tests/**', 'rootless-unity/apk_export.py', 'rootless-unity/README.md', '.github/workflows/rootless-profile-navigation.yml']
+    paths: ['rootless-unity/cohort_pass.py', 'rootless-unity/smoke_cohort_pass.py', 'rootless-unity/conversation_engine.py', 'rootless-unity/telegram_notify.py', 'rootless-unity/search_scan.py', 'rootless-unity/reply_metadata.py', 'rootless-unity/smoke_reply_metadata.py', 'rootless-unity/chat_batch.py', 'rootless-unity/smoke_chat_batch.py', 'rootless-unity/greetings.py', 'rootless-unity/chat_send_probe.py', 'rootless-unity/smoke_chat_send.py', 'rootless-unity/chat_state_probe.py', 'rootless-unity/smoke_chat_state.py', 'rootless-unity/chat_runtime_metadata.py', 'rootless-unity/smoke_chat_runtime_metadata.py', 'rootless-unity/chat_catalog.py', 'rootless-unity/profile_batch.py', 'rootless-unity/smoke_profile_batch.py', 'rootless-unity/run_unit_tests.py', 'rootless-unity/friends_catalog.py', 'rootless-unity/offline_metadata.py', 'rootless-unity/profile_metadata.py', 'rootless-unity/smoke_profile_metadata.py', 'rootless-unity/uikit_profile_navigation.py', 'rootless-unity/smoke_profile_navigation.py', 'rootless-unity/uikit_navigation.py', 'rootless-unity/navigate_profile_device.py', 'rootless-unity/smoke_uikit_navigation.py', 'rootless-unity/PROFILE-NAVIGATION-0.3.27.md', 'rootless-unity/SUBVIEWS-OFFLINE-EVIDENCE.json', 'rootless-unity/adb_evidence.py', 'rootless-unity/uikit_tree.py', 'rootless-unity/diagnose_tree.py', 'rootless-unity/smoke_uikit_tree.py', 'rootless-unity/uikit_root.py', 'rootless-unity/uikit_profile.py', 'rootless-unity/diagnose_uikit.py', 'rootless-unity/smoke_uikit_root.py', 'rootless-unity/native_metadata.py', 'rootless-unity/smoke_native_metadata.py', 'rootless-unity/fixtures/**', 'rootless-unity/module_evidence.py', 'rootless-unity/diagnose_device.py', 'rootless-unity/test_device.py', 'rootless-unity/smoke_diagnostics.py', 'rootless-unity/tests/**', 'rootless-unity/apk_export.py', 'rootless-unity/README.md', '.github/workflows/rootless-profile-navigation.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -146,27 +146,27 @@ jobs:
           $ErrorActionPreference='Stop'
           python -m pip install pyinstaller==6.16.0 frida==17.24.1
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-          python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-rootless-profile-navigation --distpath out/Dvk-rootless-profile-navigation-0.3.26-windows-x64 rootless-unity/navigate_profile_device.py
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-rootless-profile-navigation --distpath out/Dvk-rootless-profile-navigation-0.3.27-windows-x64 rootless-unity/navigate_profile_device.py
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-          $app=Start-Process -FilePath out/Dvk-rootless-profile-navigation-0.3.26-windows-x64/Dvk-rootless-profile-navigation.exe -ArgumentList '--self-check' -PassThru
+          $app=Start-Process -FilePath out/Dvk-rootless-profile-navigation-0.3.27-windows-x64/Dvk-rootless-profile-navigation.exe -ArgumentList '--self-check' -PassThru
           if (-not $app.WaitForExit(45000)) {$app.Kill();throw 'Packaged GUI self-check timed out'}
           if ($app.ExitCode -ne 0) {throw 'Packaged GUI/Frida self-check failed'}
-          $root='out/Dvk-rootless-profile-navigation-0.3.26-windows-x64'
-          Copy-Item rootless-unity/PROFILE-NAVIGATION-0.3.26.md "$root/README.md"
+          $root='out/Dvk-rootless-profile-navigation-0.3.27-windows-x64'
+          Copy-Item rootless-unity/PROFILE-NAVIGATION-0.3.27.md "$root/README.md"
           $license=python -c "import importlib.metadata; d=importlib.metadata.distribution('frida'); print(d.locate_file(next(p for p in d.files if str(p).endswith('licenses/COPYING'))))"
           if ($LASTEXITCODE -ne 0) {throw 'Frida license lookup failed'}
           Copy-Item -LiteralPath $license -Destination "$root/FRIDA-COPYING.txt"
-          @{version='0.3.26';source_commit=$env:GITHUB_SHA;target='127.0.0.1:5563';protected_working_instance='127.0.0.1:5555';frida='17.24.1';root=$false;ocr=$false;mode='uikit-search-profile-return';max_frames=180;max_navigation_calls=6000;frame_budget_ms=100;scan_max_yields=8;scan_cells_per_slice=1;durable_cohort_available=$true;cohort_max_profiles=10;cohort_ack_after_durable_commit=$true;cohort_identity_storage='local-current-user-sqlite';cohort_android_tested=$false;reply_engine_available=$true;live_replies_available=$false;reply_metadata_available=$true;telegram_settings_available=$true;telegram_secret_storage='windows-current-user-dpapi';ui_actions_available=$true;max_open_attempts_per_profile=1;max_close_attempts_per_profile=1;chat_catalog_available=$true;chat_runtime_metadata_available=$true;chat_runtime_actions_available=$false;chat_opening_available=$true;open_chat_state_check_available=$true;history_state_reading_available=$true;chat_state_sample_interval_ms=1000;chat_state_android_tested=$false;history_reading_available=$false;draft_in_chat_available=$false;message_sending_available=$true;single_greeting_only=$false;automatic_pass_available=$true;automatic_pass_android_tested=$false;automatic_max_profiles=10;automatic_retry_available=$false;delivery_confirmation_available=$false;batch_max_profiles=10;batch_max_seconds=200;batch_android_tested=$false;identity_keys_recorded=$false;max_pre_action_selection_retries=2;max_selection_passes=3;max_rows_per_frame=1;action_delay_ms=1000;friends_threshold=50;friends_count_source='Profile.get_FriendsCount';friends_storage_type='System.Int64';friends_count_android_tested=$false;max_temporary_handles=64;max_total_handle_acquisitions=11520;action_backend='semantic-controller-handlers';ui_text_read=$false;observer_max_seconds=16;visits_may_be_visible=$true;installation_available=$false;android_runtime_tested=$false;adb_raw_output_recorded=$false;adb_max_checks=40;unity_object_access='not-tested'} | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
+          @{version='0.3.27';source_commit=$env:GITHUB_SHA;target='127.0.0.1:5563';protected_working_instance='127.0.0.1:5555';frida='17.24.1';root=$false;ocr=$false;mode='uikit-search-profile-return';max_frames=180;max_navigation_calls=6000;frame_budget_ms=100;scan_max_yields=8;scan_cells_per_slice=1;durable_cohort_available=$true;cohort_max_profiles=10;cohort_ack_after_durable_commit=$true;cohort_identity_storage='local-current-user-sqlite';cohort_android_tested=$false;reply_engine_available=$true;live_replies_available=$false;reply_metadata_available=$true;telegram_settings_available=$true;telegram_secret_storage='windows-current-user-dpapi';ui_actions_available=$true;max_open_attempts_per_profile=1;max_close_attempts_per_profile=1;chat_catalog_available=$true;chat_runtime_metadata_available=$true;chat_runtime_actions_available=$false;chat_opening_available=$true;open_chat_state_check_available=$true;history_state_reading_available=$true;chat_state_sample_interval_ms=1000;chat_state_android_tested=$false;history_reading_available=$false;draft_in_chat_available=$false;message_sending_available=$true;single_greeting_only=$false;automatic_pass_available=$true;automatic_pass_android_tested=$false;automatic_max_profiles=10;automatic_retry_available=$false;delivery_confirmation_available=$false;batch_max_profiles=10;batch_max_seconds=350;automatic_cycle_timeout_ms=30000;batch_android_tested=$false;identity_keys_recorded=$false;max_pre_action_selection_retries=2;max_selection_passes=3;max_rows_per_frame=1;action_delay_ms=1000;friends_threshold=50;friends_count_source='Profile.get_FriendsCount';friends_storage_type='System.Int64';friends_count_android_tested=$false;max_temporary_handles=64;max_total_handle_acquisitions=11520;action_backend='semantic-controller-handlers';ui_text_read=$false;observer_max_seconds=30;profile_only_observer_max_seconds=16;visits_may_be_visible=$true;installation_available=$false;android_runtime_tested=$false;adb_raw_output_recorded=$false;adb_max_checks=40;unity_object_access='not-tested'} | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
           Get-ChildItem $root -File | Sort-Object Name | ForEach-Object {'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(),$_.Name} | Set-Content "$root/SHA256SUMS.txt" -Encoding ASCII
       - uses: actions/upload-artifact@v4
         with:
-          name: Dvk-rootless-profile-navigation-0.3.26-windows-x64
-          path: out/Dvk-rootless-profile-navigation-0.3.26-windows-x64/
+          name: Dvk-rootless-profile-navigation-0.3.27-windows-x64
+          path: out/Dvk-rootless-profile-navigation-0.3.27-windows-x64/
           if-no-files-found: error
           retention-days: 14
   publish:
     needs: [test, windows]
-    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release rootless profile navigation 0.3.26') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release rootless profile navigation 0.3.27') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -177,13 +177,13 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: Dvk-rootless-profile-navigation-0.3.26-windows-x64
-          path: release/Dvk-rootless-profile-navigation-0.3.26-windows-x64
+          name: Dvk-rootless-profile-navigation-0.3.27-windows-x64
+          path: release/Dvk-rootless-profile-navigation-0.3.27-windows-x64
       - name: Publish tool only; private test APKs are never uploaded to GitHub
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd release
-          zip -r Dvk-rootless-profile-navigation-0.3.26-windows-x64.zip Dvk-rootless-profile-navigation-0.3.26-windows-x64
-          sha256sum Dvk-rootless-profile-navigation-0.3.26-windows-x64.zip > SHA256SUMS.txt
-          gh release create rootless-profile-navigation-v0.3.26 Dvk-rootless-profile-navigation-0.3.26-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Rootless profile navigation 0.3.26 — durable new-ten enrollment" --notes-file ../rootless-unity/PROFILE-NAVIGATION-0.3.26.md
+          zip -r Dvk-rootless-profile-navigation-0.3.27-windows-x64.zip Dvk-rootless-profile-navigation-0.3.27-windows-x64
+          sha256sum Dvk-rootless-profile-navigation-0.3.27-windows-x64.zip > SHA256SUMS.txt
+          gh release create rootless-profile-navigation-v0.3.27 Dvk-rootless-profile-navigation-0.3.27-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Rootless profile navigation 0.3.27 — bounded return timeout fix and single cohort button" --notes-file ../rootless-unity/PROFILE-NAVIGATION-0.3.27.md

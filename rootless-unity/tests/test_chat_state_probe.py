@@ -67,7 +67,7 @@ class ChatState(unittest.TestCase):
             self.assertIn(text,p.FUNCTION)
     def test_fixed_transport_no_retry_and_cleanup(self):
         f=ChatFake();r=d.inspect_gadget(37149,'a'*64,lambda:False,frida_api=f,chat_state_probe=True)
-        self.assertEqual(r['stage'],'navigation-ready');self.assertEqual(f.script_name,'dvk-open-chat-state-0.3.26')
+        self.assertEqual(r['stage'],'navigation-ready');self.assertEqual(f.script_name,'dvk-open-chat-state-0.3.27')
         self.assertIn('rpc.exports.cancel',f.script_source);self.assertNotIn('OnSendText',f.script_source)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
     def test_modes_cannot_mix(self):
@@ -82,7 +82,7 @@ class ChatState(unittest.TestCase):
             folder=Path(temp)/'test-apks';folder.mkdir()
             with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                 out,path=d.diagnose(Adb(),folder,inspector=lambda *a:{'stage':'navigation-ready','uikit_root':ready()},chat_state_probe=True)
-            self.assertEqual(path.name,'rootless-open-chat-state-0.3.26.json');self.assertEqual(out['mode'],'open-chat-state-read-only')
+            self.assertEqual(path.name,'rootless-open-chat-state-0.3.27.json');self.assertEqual(out['mode'],'open-chat-state-read-only')
             for key in ('ui_actions_attempted','ui_actions_performed','chat_opened','message_text_read','history_read','working_device_modified','app_installation_modified'):self.assertIs(out[key],False)
             self.assertIs(out['history_state_read'],True);self.assertIs(out['method_values_read'],True);self.assertEqual(out['messages_sent'],0)
             self.assertNotIn('PRIVATE',path.read_text());self.assertNotIn('a'*64,path.read_text())

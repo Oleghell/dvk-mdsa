@@ -150,6 +150,7 @@ static Object aoverlay={&ac[0],0},achatvc={&ac[1],0},achat={&ac[2],0},acm={&ac[3
 static Type atmanager={18,&ac[10]};
 static Object amanager={&ac[10],0};
 static int cohort_mode;
+static uint64_t delayed_return_at;
 API void fixture_cohort_mode(int m){cohort_mode=m;}
 static int auto_slowed;
 static int auto_opens,auto_backs,auto_sends,auto_bad,auto_actual_reads,auto_variant=-1,auto_int;
@@ -202,7 +203,9 @@ static Object *auto_invoke(Method *m,void *obj,void **args,void **exc){int yes=0
  case 92:return &afield;
  case 93:auto_int=mode==502||mode==515?1:0;return &aintbox;
  case 96:if(obj!=&achatvc||phase!=3||!args||args[0]!=&astring||auto_variant<0)auto_bad++;auto_action();auto_sends++;if(mode==505)*exc=&exception;return NULL;
- case 97:if(obj!=&achatvc||phase!=3)auto_bad++;auto_action();auto_backs++;if(mode==506){*exc=&exception;return NULL;}phase=mode>=513&&mode<=517?2:1;return NULL;
+ case 97:if(obj!=&achatvc||phase!=3)auto_bad++;auto_action();auto_backs++;if(mode==506){*exc=&exception;return NULL;}
+  if(auto_backs==3&&(cohort_mode==5||cohort_mode==6)){delayed_return_at=cohort_mode==5?clock_ms()+12000:0;return NULL;}
+  phase=mode>=513&&mode<=517?2:1;return NULL;
  case 98:return &amanager;
  case 99:longnumber=cohort_mode==1?0:cohort_mode==2?stress_current_row+1:9999;return &longbox;
  case 100:longnumber=cohort_mode==3?-1:cohort_mode==4?++id_reads:1000+stress_current_row;return &longbox;
@@ -271,7 +274,8 @@ API int fixture_modal_reads(void){return modal_reads;}
 API int fixture_opens(void){return opens;}
 API int fixture_cancels(void){return cancels;}
 API int fixture_virtual_calls(void){return virtual_calls;}
-static Object *active(void){if(phase==3)return &achatvc;if(mode==514&&phase==2)return &replacement;
+static Object *active(void){if(delayed_return_at&&phase==3&&clock_ms()>=delayed_return_at){phase=2;delayed_return_at=0;}
+ if(phase==3)return &achatvc;if(mode==514&&phase==2)return &replacement;
  if(mode==61)return &other;
  if(mode==71&&phase>0)return &other;
  if(mode==70&&phase==2)return &replacement;

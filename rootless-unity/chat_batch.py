@@ -5,10 +5,12 @@ import uikit_profile_navigation as single
 import chat_state_probe as chat
 import chat_send_probe as sender
 from greetings import choose_index,get_greeting
-VERSION='0.3.26'
+VERSION='0.3.27'
 LIMIT=10
+CYCLE_TIMEOUT_MS=30000
 ERRORS=single.base.ERRORS|chat.ERRORS|{'selection-limit','selection-changed','selection-unavailable','input-disabled','send-already-attempted'}
 DEFAULTS={
+ 'cycle_timeout_ms':CYCLE_TIMEOUT_MS,
  'scan_yields':0,'scan_slices':0,'chat_metadata_checkpoint':'base','read_checkpoint':'not-checked','wait_reason':'not-checked',
  'loaded_value_method_found':None,'loaded_value_return_kind':None,'loaded_value_byref':None,
  'loaded_value_owner_verified':None,'loaded_value_owner_inherited':None,'loaded_value_owner_scope':None,
@@ -118,6 +120,17 @@ def build(variants=None):
     if olderrors not in s:olderrors=json.dumps(sorted(single.base.ERRORS))
     s=replace(s,olderrors,json.dumps(sorted(ERRORS)))
     s=specialize(s)
+    # Poll transitions once per second, including transient not-ready views.
+    # Otherwise an unchanged visible chat can consume 180 callbacks before
+    # its return animation finishes. This only reads; it never repeats Back.
+    s=replace(s,"const deadline=Date.now()+100;",
+              "const deadline=Date.now()+100;\n  if(n.phase==='wait-chat'||n.phase==='wait-chat-back')state.nextActionAt=Date.now()+1000;")
+    # The cycle includes search slices, mandatory pauses, history samples,
+    # journal ACK (new cohort), and the final return animation. The former
+    # shared 16s timer could expire immediately after a successful Back.
+    # Keep a hard absolute deadline; never retry an action or reset on progress.
+    s=replace(s,"finish('callback-timeout');},16000);",
+              "finish('callback-timeout');},"+str(CYCLE_TIMEOUT_MS)+");")
     return 'const batchVariants='+json.dumps(variants)+';const batchGreetings='+json.dumps([get_greeting(i) for i in variants])+';const batchSent=new Set();\n'+s
 
 def build_random():return build([choose_index() for _ in range(LIMIT)])
@@ -129,6 +142,7 @@ def validate(value):
     n=v['navigation']
     if not set(DEFAULTS)<=set(n):raise ValueError('Missing chat cycle fields')
     x={k:n.pop(k) for k in DEFAULTS}
+    if type(x['cycle_timeout_ms']) is not int or x['cycle_timeout_ms']!=CYCLE_TIMEOUT_MS:raise ValueError('Invalid cycle timeout')
     for k in BOOLS:
         if type(x[k]) is not bool:raise ValueError('Invalid chat action flag')
     for k in NULL_BOOLS:
