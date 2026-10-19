@@ -4,10 +4,13 @@ from pathlib import Path
 from offline_metadata import Metadata31,MAX_BYTES,MetadataError
 from test_device import HASHES
 
-VERSION='0.3.9'
+VERSION='0.3.10'
 MAX_APK_BYTES=1024**3
 MAX_ENTRIES=100000
-LIMIT=128
+LIMIT=1024
+MAX_LINKED_TYPES=24
+MAX_LINK_DEPTH=3
+NODE_LIMIT=256
 SAFE=re.compile(r'[A-Za-z_<][A-Za-z0-9_.`<>+]*\Z')
 
 class CatalogError(ValueError):pass
@@ -53,7 +56,7 @@ def collect(metadata):
         for m in metadata.methods[t['method_start']:t['method_start']+t['method_count']]:
             mn=m['name']
             if not label(mn):continue
-            descriptor={'image':image,'namespace':ns,'type':name,'method':mn,'arity':m['parameter_count'],'static':m['static']}
+            descriptor={'image':image,'namespace':ns,'type':name,'method':mn,'arity':m['parameter_count'],'static':m['static'],'return_type_index':m.get('return_type_index')}
             # Only definition names: no literal strings, field values or pointers.
             if 'friend' in (ns+'.'+name+'.'+mn).lower():add('friend_methods',descriptor)
             if mn.startswith('get_') and m['parameter_count']==0 and not m['static']:
@@ -68,7 +71,69 @@ def collect(metadata):
         if (image,ns,name)==('DV.dll','DV.Models','User'):add('user_fields',descriptor)
         if (image,ns,name)==('DV.Profile.dll','DV.Profiles','ProfileViewController'):add('profile_fields',descriptor)
     for group in groups.values():group['definitions'].sort(key=lambda d:(d['image'],d['namespace'],d['type'],d.get('method',d.get('field','')),d.get('arity',0),d.get('static',False)))
+    groups['profile_model_graph']=profile_model_graph(metadata)
     return groups
+
+def profile_model_graph(metadata):
+    """Resolve declared types, never values; indexes refer to definitions, not offsets.
+
+    Seed with the two exact members found in the 0.3.9 report. Then follow only
+    count/stat/friend-related fields and zero-argument instance getter results.
+    Missing/ambiguous indexes remain explicit; never choose the first match.
+    """
+    byval={}
+    for index,t in enumerate(metadata.types):
+        key=t.get('byval_type_index')
+        if type(key) is int and key>=0:byval.setdefault(key,[]).append(index)
+    fields={}
+    for owner,name,ti in definition_fields(metadata):fields.setdefault(owner,[]).append((name,ti))
+    def identity(t):
+        if not all(label(t[k]) for k in ('image','name')) or (t['namespace'] and not label(t['namespace'])):return None
+        return {'image':t['image'],'namespace':t['namespace'],'type':t['name']}
+    def resolve(ti):
+        if type(ti) is not int or ti<0:return {'status':'invalid-index'}
+        hits=byval.get(ti,[])
+        if len(hits)!=1:return {'status':'unresolved' if not hits else 'ambiguous'}
+        found=identity(metadata.types[hits[0]])
+        return {'status':'resolved','target':found} if found else {'status':'unsupported-name'}
+    def is_app(t):return t['image'].startswith('DV') and t['image'].endswith('.dll')
+    roots=[];nodes=[];queued=set();queue=[];truncated=False
+    def follow(ti,depth):
+        nonlocal truncated
+        hits=byval.get(ti,[]) if type(ti) is int and ti>=0 else []
+        if len(hits)!=1:return
+        owner=hits[0];t=metadata.types[owner]
+        if owner in queued or not is_app(t) or identity(t) is None:return
+        if depth>MAX_LINK_DEPTH or len(queued)>=MAX_LINKED_TYPES:truncated=True;return
+        queued.add(owner);queue.append((owner,depth))
+    controllers=[i for i,t in enumerate(metadata.types) if (t['image'],t['namespace'],t['name'])==('DV.Profile.dll','DV.Profiles','ProfileViewController')]
+    if len(controllers)!=1:return {'status':'controller-missing' if not controllers else 'controller-ambiguous','roots':[],'types':[],'truncated':False}
+    owner=controllers[0];controller=metadata.types[owner]
+    methods=metadata.methods[controller['method_start']:controller['method_start']+controller['method_count']]
+    for kind,name in (('getter','get_Profile'),('field','m_Profile'),('field','m_StatsMarker')):
+        candidates=[m.get('return_type_index') for m in methods if m['name']==name and m['parameter_count']==0 and not m['static']] if kind=='getter' else [ti for fn,ti in fields.get(owner,[]) if fn==name]
+        root={'kind':kind,'member':name}
+        if len(candidates)!=1:root['status']='missing' if not candidates else 'ambiguous'
+        else:
+            ti=candidates[0];root.update(type_index=ti,**resolve(ti));follow(ti,0)
+        roots.append(root)
+    for owner,depth in queue:
+        t=metadata.types[owner];node={**identity(t),'depth':depth,'fields':[],'getters':[],'field_total':0,'getter_total':0,'truncated':False}
+        for name,ti in fields.get(owner,[]):
+            if not label(name):continue
+            node['field_total']+=1
+            if len(node['fields'])<NODE_LIMIT:node['fields'].append({'field':name,'type_index':ti,**resolve(ti)})
+            else:node['truncated']=True
+            if any(word in name.lower() for word in ('friend','stat','count','total','amount')):follow(ti,depth+1)
+        for m in metadata.methods[t['method_start']:t['method_start']+t['method_count']]:
+            name=m['name']
+            if not label(name) or not name.startswith('get_') or m['parameter_count'] or m['static']:continue
+            ti=m.get('return_type_index');node['getter_total']+=1
+            if len(node['getters'])<NODE_LIMIT:node['getters'].append({'method':name,'return_type_index':ti,**resolve(ti)})
+            else:node['truncated']=True
+            if any(word in name.lower() for word in ('friend','stat','count','total','amount')):follow(ti,depth+1)
+        node['fields'].sort(key=lambda f:f['field']);node['getters'].sort(key=lambda m:m['method']);nodes.append(node)
+    return {'status':'definitions-only','roots':roots,'types':nodes,'truncated':truncated or any(n['truncated'] for n in nodes)}
 
 def inspect_bundle(folder,cancelled=lambda:False,expected_hashes=None):
     expected=HASHES if expected_hashes is None else expected_hashes
