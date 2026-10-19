@@ -5,11 +5,11 @@ import uikit_profile_navigation as single
 import chat_state_probe as chat
 import chat_send_probe as sender
 from greetings import choose_index,get_greeting
-VERSION='0.3.23'
+VERSION='0.3.24'
 LIMIT=10
 ERRORS=single.base.ERRORS|chat.ERRORS|{'selection-limit','selection-changed','selection-unavailable','input-disabled','send-already-attempted'}
 DEFAULTS={
- 'chat_metadata_checkpoint':'base','read_checkpoint':'not-checked','wait_reason':'not-checked',
+ 'scan_yields':0,'scan_slices':0,'chat_metadata_checkpoint':'base','read_checkpoint':'not-checked','wait_reason':'not-checked',
  'loaded_value_method_found':None,'loaded_value_return_kind':None,'loaded_value_byref':None,
  'loaded_value_owner_verified':None,'loaded_value_owner_inherited':None,'loaded_value_owner_scope':None,
  'loaded_value_static':None,'loaded_value_abstract':None,'loaded_value_arity':None,
@@ -79,6 +79,7 @@ def build(variants=None):
     if len(variants)!=LIMIT:raise ValueError('Exactly ten bounded greeting choices are required')
     for i in variants:get_greeting(i)
     replace=single.replace_once
+    from search_scan import specialize
     s=profiles.FUNCTION
     # Reuse exact semantic profile selection and its in-memory uniqueness set.
     s=replace(s,' function prepareProfile(',chat.EXTRA.replace('n.metadata_checkpoint','n.chat_metadata_checkpoint')+'\n function prepareProfile(')
@@ -116,6 +117,7 @@ def build(variants=None):
     # The profile specialization may retain the base error list, augmented by its own builder.
     if olderrors not in s:olderrors=json.dumps(sorted(single.base.ERRORS))
     s=replace(s,olderrors,json.dumps(sorted(ERRORS)))
+    s=specialize(s)
     return 'const batchVariants='+json.dumps(variants)+';const batchGreetings='+json.dumps([get_greeting(i) for i in variants])+';const batchSent=new Set();\n'+s
 
 def build_random():return build([choose_index() for _ in range(LIMIT)])
@@ -132,6 +134,7 @@ def validate(value):
     for k in NULL_BOOLS:
         if x[k] is not None and type(x[k]) is not bool:raise ValueError('Invalid chat state flag')
     if x['chat_metadata_checkpoint'] not in chat.CHECKPOINTS or x['read_checkpoint'] not in chat.READ_STEPS or x['wait_reason'] not in chat.WAIT_REASONS:raise ValueError('Invalid chat checkpoint')
+    if any(type(x[k]) is not int or not 0<=x[k]<=180 for k in ('scan_yields','scan_slices')) or x['scan_yields']>8:raise ValueError('Invalid cooperative scan counters')
     if type(x['samples']) is not int or not 0<=x['samples']<=2 or type(x['sample_interval_ms']) is not int or x['sample_interval_ms']!=1000:raise ValueError('Invalid history samples')
     if x['history_status'] not in {'unknown','not-ready','checking','empty','not-empty'}:raise ValueError('Invalid history state')
     for k in ('loaded_value_arity','loaded_value_return_kind'):
@@ -182,7 +185,7 @@ def run(root,cancelled=lambda:False,progress=lambda text:None):
         out['attempts']+=1;progress(f'Автопроход {number}/{LIMIT}…')
         try:value=validate(root())
         except Exception:out.update(reason='probe-failed',errors=1,profile_may_remain_open=True,messages_sent=None,send_attempts=None,handlers_returned=None);break
-        n=value['navigation'];item={k:n[k] for k in ('stage','error','friends_status','friends_count','friends_eligible','chat_open_attempted','chat_return_verified','chat_return_route','history_status','message_count','send_attempted','send_handler_returned','greeting_variant')};item.update(number=number,opened=n['open_attempted'],returned=n['return_verified']);out['items'].append(item)
+        n=value['navigation'];item={k:n[k] for k in ('stage','error','scan_yields','scan_slices','friends_status','friends_count','friends_eligible','chat_open_attempted','chat_return_verified','chat_return_route','history_status','message_count','send_attempted','send_handler_returned','greeting_variant')};item.update(number=number,opened=n['open_attempted'],returned=n['return_verified']);out['items'].append(item)
         out['profile_may_remain_open']=n['open_attempted'] and not n['return_verified']
         out['send_attempts']+=int(n['send_attempted']);out['handlers_returned']+=int(n['send_handler_returned'])
         if n['send_attempted']:out['messages_sent']=None

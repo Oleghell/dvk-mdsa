@@ -24,10 +24,13 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},c
         assert all(c[k]==0 for k in ('bad','handles','off','pins','timing')),(mode,out,c)
         assert 0<=c['sends']<=c['chats']<=c['opens']<=10,(mode,out,c)
         if mode==500:assert out['status']=='batch-completed' and out['checked']==10 and out['handlers_returned']==c['sends']==6 and c['opens']==c['closes']==10 and c['chats']==c['backs']==6,(mode,out,c)
-        elif mode in (513,515):
+        elif mode==517:
+            assert out['status']=='batch-stopped' and out['reason']=='frame-budget' and c['sends']==c['opens']==0 and out['items'][0]['scan_yields']==8,(mode,out,c)
+        elif mode in (513,515,516):
             assert out['status']=='batch-completed' and out['checked']==10 and c['opens']==10 and c['closes']==4 and c['chats']==c['backs']==6,(mode,out,c)
-            assert c['sends']==(6 if mode==513 else 0) and out['not_empty']==(6 if mode==515 else 0),(mode,out,c)
+            assert c['sends']==(6 if mode in (513,516) else 0) and out['not_empty']==(6 if mode==515 else 0),(mode,out,c)
             assert sum(i['chat_return_route']=='search' for i in out['items'])==6
+            if mode==516:assert sum(i['scan_yields'] for i in out['items'])>=1
         elif mode in (501,509):assert out['status']=='batch-exhausted' and out['checked']==(5 if mode==501 else 1),(mode,out,c)
         elif mode==502:assert out['status']=='batch-completed' and out['not_empty']==6 and c['sends']==0,(mode,out,c)
         elif mode==511:assert out['status']=='batch-cancelled' and c['sends']==0,(mode,out,c)
@@ -48,7 +51,7 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},c
         if session:session.detach()
         child.terminate();child.wait(timeout=5);child.stdout.close();child.stderr.close()
 if __name__=='__main__':
-    modes=[int(x) for x in sys.argv[2:]] or list(range(500,516))
+    modes=[int(x) for x in sys.argv[2:]] or list(range(500,518))
     from concurrent.futures import ThreadPoolExecutor
     library=Path(sys.argv[1]).resolve(strict=True)
     with ThreadPoolExecutor(max_workers=4) as pool:

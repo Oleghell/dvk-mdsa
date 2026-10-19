@@ -86,7 +86,7 @@ static Object model_obj={&profile_model,0},other_model={&profile_model,0};
 static Object longbox={NULL,0};static int64_t longnumber;
 static int model_reads,actual_reads,id_reads;
 static Method identity_getter={"get_Id",&pc[8],0,&tlong,68};
-static int batch_mode(void){return (mode>=250&&mode<=257)||(mode>=500&&mode<=515);}
+static int batch_mode(void){return (mode>=250&&mode<=257)||(mode>=500&&mode<=517);}
 static Object ptable={&pc[2],0},pvisiblelist={&pc[17],0},prow={&pc[10],0},precord={&pc[13],0},pcell={&pc[3],0},pentryobj={&pc[4],0},pavatar={&pc[6],0},puser={&pc[8],0},potheruser={&pc[8],0},pcontent={&pc[9],0},pothercontent={&pc[9],0};
 static Object preplacementrow={&pc[10],0};
 static Object ppromocell={&pc[3],0},ppromoentry={&pc[4],0};
@@ -147,6 +147,7 @@ static Class ac[]={
  {"DV.Messages","Message"},{"System","String"}};
 static Type atvc={18,&ac[1]},atmodel={18,&profile_model},atuser={18,&pc[8]},atchat={18,&ac[2]},atcm={18,&ac[3]},atloaded={21,&ac[6]},atmessage={18,&ac[8]},atstring={14,&ac[9]},atoverlay={18,&ac[0]};
 static Object aoverlay={&ac[0],0},achatvc={&ac[1],0},achat={&ac[2],0},acm={&ac[3],0},acm_other={&ac[3],0},afield={&ac[6],0},alast={&ac[8],0},astring={&ac[9],0},aintbox={NULL,0};
+static int auto_slowed;
 static int auto_opens,auto_backs,auto_sends,auto_bad,auto_actual_reads,auto_variant=-1,auto_int;
 static uint64_t auto_last_action;static int auto_timing_bad;
 static void auto_action(void){uint64_t now=clock_ms();if(auto_last_action&&now-auto_last_action<990)auto_timing_bad++;auto_last_action=now;}
@@ -194,7 +195,7 @@ static Object *auto_invoke(Method *m,void *obj,void **args,void **exc){int yes=0
  case 92:return &afield;
  case 93:auto_int=mode==502||mode==515?1:0;return &aintbox;
  case 96:if(obj!=&achatvc||phase!=3||!args||args[0]!=&astring||auto_variant<0)auto_bad++;auto_action();auto_sends++;if(mode==505)*exc=&exception;return NULL;
- case 97:if(obj!=&achatvc||phase!=3)auto_bad++;auto_action();auto_backs++;if(mode==506){*exc=&exception;return NULL;}phase=mode>=513&&mode<=515?2:1;return NULL;
+ case 97:if(obj!=&achatvc||phase!=3)auto_bad++;auto_action();auto_backs++;if(mode==506){*exc=&exception;return NULL;}phase=mode>=513&&mode<=517?2:1;return NULL;
  }
  boolbox.value=(unsigned char)yes;return &boolbox;
 }
@@ -335,6 +336,13 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 49:case 50:case 51:return mode==201?NULL:&precord;
  case 52:if(!args||(args[0]!=&pentryobj&&args[0]!=&ppromoentry)){selected_wrong++;*exc=&exception;return NULL;}promo_reads++;yes=mode==192||mode==133||args[0]==&ppromoentry||(mode==186&&promo_reads==2)||(mode==187&&promo_reads%2==0);break;
  case 53:
+  if((mode==516&&!auto_slowed++)||mode==517){
+#ifdef _WIN32
+   Sleep(120);
+#else
+   struct timespec delay={0,120000000};nanosleep(&delay,NULL);
+#endif
+  }
   if(stress_mode()){int i=stress_index(obj,stress_cells,24);stress_current_row=i;return batch_mode()||mode==193||i==stress_count()-1?&pentryobj:&ppromoentry;}
   if(obj==&ppromocell)return &ppromoentry;return mode==134?NULL:&pentryobj;
  case 54:return mode==199?NULL:&pavatar;
