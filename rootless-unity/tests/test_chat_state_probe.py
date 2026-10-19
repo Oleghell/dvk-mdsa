@@ -12,7 +12,7 @@ from test_diagnose_device import FakeFrida
 def ready(count=0):
     r=ready_navigation();n=r['navigation']
     for k in ('search_verified','filters_verified','return_verified','open_attempted','open_completed','cancel_attempted','cancel_completed'):n[k]=False
-    n.update(root_top_kind='ui-navigation',controller_path=['root','ui-navigation','main-tabs','chat'],action_backend='read-only-chat-state',metadata_checkpoint='ready',loaded_value_method_found=True,loaded_value_return_kind=2,loaded_value_byref=False,loaded_value_owner_verified=True,loaded_value_owner_inherited=False,loaded_value_owner_scope=True,loaded_value_static=False,loaded_value_abstract=False,loaded_value_arity=0,
+    n.update(root_top_kind='ui-navigation',controller_path=['root','ui-navigation','main-tabs','chat'],action_backend='read-only-chat-state',metadata_checkpoint='ready',read_checkpoint='complete',wait_reason='none',model_actual=True,model_draft=False,model_has_cm=True,cm_present=True,loaded_field_present=True,loaded_value_method_found=True,loaded_value_return_kind=2,loaded_value_byref=False,loaded_value_owner_verified=True,loaded_value_owner_inherited=False,loaded_value_owner_scope=True,loaded_value_static=False,loaded_value_abstract=False,loaded_value_arity=0,
              history_status='empty' if count==0 else 'not-empty',message_count=count,history_fully_loaded=True,history_loading=False,last_message_present=False,samples=2,sample_interval_ms=1000,chat_identity_verified=True,app_actions_attempted=False,messages_sent=0)
     return r
 
@@ -24,6 +24,10 @@ class ChatFake(FakeFrida):
 
 class ChatState(unittest.TestCase):
     def test_empty_and_nonempty(self):p.validate(ready());p.validate(ready(7))
+    def test_diagnostics_are_closed_and_count_stays_unknown(self):
+        for key in ('read_checkpoint','wait_reason','model_actual','model_draft','model_has_cm','cm_present','loaded_field_present'):
+            r=ready();r['navigation'][key]='PRIVATE'
+            with self.assertRaises(ValueError,msg=key):p.validate(r)
     def test_verified_inherited_owner_allowed(self):
         r=ready();r['navigation']['loaded_value_owner_inherited']=True;p.validate(r)
     def test_unknown_never_exposes_zero(self):
@@ -31,7 +35,7 @@ class ChatState(unittest.TestCase):
         v['navigation']['message_count']=0
         with self.assertRaises(ValueError):p.validate(v)
     def test_empty_requires_stable_loaded_and_verified_state(self):
-        for key,value in [('samples',1),('samples',True),('sample_interval_ms',0),('history_fully_loaded',False),('history_loading',True),('last_message_present',True),('chat_identity_verified',False),('metadata_checkpoint','loaded-value'),('loaded_value_method_found',False),('loaded_value_return_kind',19),('loaded_value_byref',True),('loaded_value_owner_verified',False),('loaded_value_owner_scope',False),('loaded_value_owner_inherited',None),('loaded_value_static',True),('loaded_value_abstract',True),('loaded_value_arity',1),('loaded_value_arity',True),('message_count',-1),('message_count',True),('message_count',1)]:
+        for key,value in [('samples',1),('samples',True),('sample_interval_ms',0),('history_fully_loaded',False),('history_loading',True),('last_message_present',True),('chat_identity_verified',False),('metadata_checkpoint','loaded-value'),('loaded_value_method_found',False),('loaded_value_return_kind',19),('loaded_value_byref',True),('loaded_value_owner_verified',False),('loaded_value_owner_scope',False),('loaded_value_owner_inherited',None),('loaded_value_static',True),('loaded_value_abstract',True),('loaded_value_arity',1),('loaded_value_arity',True),('read_checkpoint','model'),('wait_reason','chat-draft'),('model_actual',False),('model_draft',True),('model_has_cm',False),('cm_present',False),('loaded_field_present',None),('message_count',-1),('message_count',True),('message_count',1)]:
             r=ready();r['navigation'][key]=value
             with self.assertRaises(ValueError,msg=key):p.validate(r)
     def test_no_text_data_or_ui_action_flags(self):
@@ -54,7 +58,7 @@ class ChatState(unittest.TestCase):
             self.assertIn(text,p.FUNCTION)
     def test_fixed_transport_no_retry_and_cleanup(self):
         f=ChatFake();r=d.inspect_gadget(37149,'a'*64,lambda:False,frida_api=f,chat_state_probe=True)
-        self.assertEqual(r['stage'],'navigation-ready');self.assertEqual(f.script_name,'dvk-open-chat-state-0.3.17')
+        self.assertEqual(r['stage'],'navigation-ready');self.assertEqual(f.script_name,'dvk-open-chat-state-0.3.18')
         self.assertIn('rpc.exports.cancel',f.script_source);self.assertNotIn('OnSendText',f.script_source)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
     def test_modes_cannot_mix(self):
@@ -69,7 +73,7 @@ class ChatState(unittest.TestCase):
             folder=Path(temp)/'test-apks';folder.mkdir()
             with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                 out,path=d.diagnose(Adb(),folder,inspector=lambda *a:{'stage':'navigation-ready','uikit_root':ready()},chat_state_probe=True)
-            self.assertEqual(path.name,'rootless-open-chat-state-0.3.17.json');self.assertEqual(out['mode'],'open-chat-state-read-only')
+            self.assertEqual(path.name,'rootless-open-chat-state-0.3.18.json');self.assertEqual(out['mode'],'open-chat-state-read-only')
             for key in ('ui_actions_attempted','ui_actions_performed','chat_opened','message_text_read','history_read','working_device_modified','app_installation_modified'):self.assertIs(out[key],False)
             self.assertIs(out['history_state_read'],True);self.assertIs(out['method_values_read'],True);self.assertEqual(out['messages_sent'],0)
             self.assertNotIn('PRIVATE',path.read_text());self.assertNotIn('a'*64,path.read_text())

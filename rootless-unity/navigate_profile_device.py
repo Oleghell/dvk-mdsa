@@ -11,9 +11,11 @@ def result_status(result):
         nav=result.get('gadget',{}).get('uikit_root',{}).get('navigation',{})
         if result.get('status')=='navigation-ready':
             return 'Доступная история пуста. Отправки нет.' if nav.get('history_status')=='empty' else 'Чат не пустой. Записей истории: '+str(nav.get('message_count'))+'.'
+        waiting={'chat-not-actual':'Модель чата ещё не актуальна','chat-draft':'Чат в состоянии черновика','no-history-manager':'История для этого чата ещё не создана','null-history-manager':'Объект истории отсутствует','null-loaded-flag':'Нет флага загрузки истории','history-loading':'История загружается','history-not-loaded':'История загружена не полностью','changing-count':'Счётчик меняется','changing-last-message':'История меняется','contradictory-last-message':'Count и последнее сообщение противоречат друг другу','view-not-ready':'Экран меняется','model-changed':'Модель чата изменилась при проверке'}
+        if nav.get('error')=='history-not-ready':return waiting.get(nav.get('wait_reason'),'История не готова')+'. Пустота не подтверждена.'
         if nav.get('error')=='wrong-screen':return 'На #4 открой личный чат и повтори проверку.'
         if nav.get('metadata_checkpoint') not in (None,'ready'):return 'Проверка не поддержана: '+nav['metadata_checkpoint']+'. Пришли отчёт.'
-        return 'Чат: неизвестно ('+str(nav.get('error') if nav.get('error') not in (None,'none') else result.get('status','ошибка'))+'). Пришли отчёт.'
+        return 'Чат: неизвестно ('+str(nav.get('error') if nav.get('error') not in (None,'none') else result.get('status','ошибка'))+'; этап '+str(nav.get('read_checkpoint','не начат'))+'). Пришли отчёт.'
     if result.get('mode')=='chat-runtime-metadata-only':
         return 'Типы чата проверены — пришли отчёт.' if result.get('status')=='chat-runtime-ready' else 'Типы чата: '+result.get('gadget',{}).get('native_metadata',{}).get('reason',result.get('status','ошибка'))
     if result.get('mode')=='offline-chat-catalog':
@@ -44,7 +46,7 @@ def result_status(result):
 def launch_gui(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг · 0.3.17')
+    root=tk.Tk();root.title('ДругВокруг · 0.3.18')
     root.geometry('640x300');root.minsize(620,300)
     main=ttk.Frame(root,padding=14);main.pack(fill='both',expand=True)
     ttk.Label(main,text='MuMu #4 · профиль и друзья',font=('Segoe UI',11,'bold')).pack(anchor='w')
@@ -129,10 +131,10 @@ def launch_gui(self_check=False):
         import frida
         from profile_batch import FUNCTION
         import friends_catalog,chat_catalog,chat_runtime_metadata,chat_state_probe
-        assert chat_state_probe.VERSION=='0.3.17'
-        assert chat_runtime_metadata.VERSION=='0.3.17'
-        assert chat_catalog.VERSION=='0.3.17'
-        assert friends_catalog.VERSION=='0.3.17'
+        assert chat_state_probe.VERSION=='0.3.18'
+        assert chat_runtime_metadata.VERSION=='0.3.18'
+        assert chat_catalog.VERSION=='0.3.18'
+        assert friends_catalog.VERSION=='0.3.18'
         assert frida.__version__=='17.24.1' and 'OnUserSelected' in FUNCTION
         root.destroy();return
     root.after(100,poll);root.mainloop()

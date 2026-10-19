@@ -151,14 +151,14 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){int yes=0
  case 41:binding_reads++;if(mode==313&&sample_frames>1)return &other_chat;return &chat;
  case 42:yes=1;break;
  case 43:return mode==312?&other_user:&user;
- case 44:state_reads++;yes=mode!=305;break;
+ case 44:state_reads++;yes=mode!=305&&(mode!=338||sample_frames>1);break;
  case 45:yes=mode==306;break;
- case 46:yes=mode!=307;break;
+ case 46:yes=mode!=307&&(mode!=339||sample_frames>1);break;
  case 47:cm_reads++;if(mode==308)return NULL;if(mode==314&&sample_frames>1)return &other_cm;if(mode==320)return &user;return &cm;
  case 48:return mode==311?&last_message:mode==326&&count_reads>=3?&last_message:NULL;
- case 49:loading_reads++;yes=mode==304||(mode==324&&loading_reads%2==0);break;
+ case 49:loading_reads++;yes=mode==304||mode==340||(mode==324&&loading_reads%2==0);break;
  case 50:return mode==321?NULL:&loaded_field;
- case 51:count_reads++;if(mode==319){*exc=&exception;return NULL;}integer_value=mode==303?7:mode==309?-1:mode==310&&count_reads%2==0?1:mode==325&&count_reads>=3?1:0;return &integer_box;
+ case 51:count_reads++;if(mode==319){*exc=&exception;return NULL;}integer_value=mode==303?7:mode==309?-1:mode==310&&count_reads%2==0?1:mode==325&&count_reads%3==0?1:0;return &integer_box;
  case 52:if(obj!=((mode==302||mode==336)?(void *)&loaded_field.value:(void *)&loaded_field))bad_receiver++;yes=mode==322?2:mode!=304&&mode!=323;break;
  }
  boolbox.value=(unsigned char)yes;return &boolbox;

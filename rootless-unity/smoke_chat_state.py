@@ -4,7 +4,7 @@ import json,queue,subprocess,sys,threading,time
 import frida
 import chat_state_probe as p
 
-WAIT_MODES={304,305,306,307,308,310,311,321,323,324,325,326}
+WAIT_MODES={340}
 
 def one(library,mode):
     child=subprocess.Popen([sys.executable,'-u','-c',"import ctypes,sys,time\nlib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)\nlib.fixture_init(int(sys.argv[2]))\nprint('ready',flush=True)\nfor _ in range(10000):\n lib.fixture_tick()\n time.sleep(.003)",str(library),str(mode)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
@@ -32,7 +32,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         assert c['handles']==c['bad']==c['off']==c['opens']==c['closes']==c['receiver']==0,(mode,out,c)
         assert c['calls']==out['managed_calls']+n['managed_calls'],(mode,out,c)
         assert n['handles_acquired']==n['handles_released'],(mode,out,c)
-        if mode in (300,302,303,328,336):
+        if mode in (300,302,303,328,336,338,339):
             assert n['stage']=='navigation-ready' and n['history_status']==('not-empty' if mode==303 else 'empty'),(mode,out,c)
             assert n['message_count']==(7 if mode==303 else 0) and n['samples']==2 and elapsed>=1.9,(mode,out,c,elapsed)
             assert n['loaded_value_owner_verified'] is True and n['loaded_value_owner_inherited']==(mode in (328,336)),(mode,out,c)
@@ -40,9 +40,11 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
             assert n['stage']=='not-attempted' and n['history_status']=='unknown' and c['states']==0,(mode,out,c)
         else:
             assert n['stage']=='navigation-stopped' and n['history_status']=='unknown' and n['message_count'] is None,(mode,out,c)
-            expected={301:'wrong-screen',309:'history-invalid',312:'identity-changed',313:'identity-changed',314:'identity-changed',319:'managed-exception',320:'unexpected-object',322:'signature-mismatch',327:'cancelled'}
+            expected={301:'wrong-screen',309:'history-invalid',312:'identity-changed',313:'identity-changed',314:'identity-changed',319:'managed-exception',320:'unexpected-object',322:'signature-mismatch',327:'cancelled',340:'cancelled'}
             if mode in expected:assert n['error']==expected[mode],(mode,out,c)
-            else:assert n['error']=='cancelled',(mode,out,c)
+            else:
+                reasons={304:'history-loading',305:'chat-not-actual',306:'chat-draft',307:'no-history-manager',308:'null-history-manager',310:'changing-count',311:'contradictory-last-message',321:'null-loaded-flag',323:'history-not-loaded',324:'history-loading',325:'changing-count',326:'contradictory-last-message'}
+                assert n['error']=='history-not-ready' and n['wait_reason']==reasons[mode],(mode,out,c)
         assert not any(t in json.dumps(out) for t in ('0x','private-text','token','user_id'))
         print('Synthetic chat state',mode,n['stage'],n['history_status'],n['error'],flush=True)
         return out
@@ -61,5 +63,5 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         child.stdout.close();child.stderr.close()
 
 if __name__=='__main__':
-    for mode in range(300,338):one(Path(sys.argv[1]).resolve(strict=True),mode)
+    for mode in range(300,341):one(Path(sys.argv[1]).resolve(strict=True),mode)
     print('Read-only chat state ABI passed; Android still requires a manual test.')
