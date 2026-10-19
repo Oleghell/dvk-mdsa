@@ -14,7 +14,7 @@ def cycle(friends=13,count=0):
         c=chat_ready(count)['navigation']
         for k in b.DEFAULTS:
             if k in c:n[k]=c[k]
-        n.update(chat_metadata_checkpoint='ready',chat_open_attempted=True,chat_open_completed=True,chat_verified=True,chat_back_attempted=True,chat_back_completed=True,chat_return_verified=True)
+        n.update(chat_metadata_checkpoint='ready',chat_open_attempted=True,chat_open_completed=True,chat_verified=True,chat_back_attempted=True,chat_back_completed=True,chat_return_verified=True,chat_return_route='profile')
         if count==0:n.update(send_attempted=True,send_handler_returned=True,messages_sent=None,greeting_variant=3)
     return r
 
@@ -35,6 +35,15 @@ class Automatic(unittest.TestCase):
     def test_visible_exhaustion(self):
         values=iter([cycle(),empty_search()]);out=b.run(lambda:next(values))
         self.assertEqual(out['status'],'batch-exhausted');self.assertEqual(out['checked'],1);self.assertEqual(out['handlers_returned'],1)
+    def test_direct_search_return_without_extra_profile_close(self):
+        r=cycle();n=r['navigation'];n.update(chat_return_route='search',close_attempted=False,close_completed=False,controller_path=['root','dv-navigation','main-tabs','search'])
+        b.validate(r);self.assertFalse(n['close_attempted']);self.assertFalse(n['close_completed'])
+        out=b.run(lambda:r);self.assertEqual(out['status'],'batch-completed');self.assertEqual(out['handlers_returned'],10)
+        self.assertTrue(all(i['chat_return_route']=='search' for i in out['items']))
+    def test_invalid_direct_search_return_rejected(self):
+        for key,value in [('return_verified',False),('chat_return_verified',False),('chat_back_completed',False),('chat_return_route','not-checked'),('close_attempted',True),('close_completed',True),('controller_path',['root','dv-navigation','main-tabs','profile']),('phase','wait-chat-back')]:
+            r=cycle();r['navigation'].update(chat_return_route='search',close_attempted=False,close_completed=False,controller_path=['root','dv-navigation','main-tabs','search']);r['navigation'][key]=value
+            with self.assertRaises(ValueError,msg=key):b.validate(r)
     def test_rpc_unknown_counters_not_false_zero(self):
         calls=[]
         def root():calls.append(1);raise RuntimeError('PRIVATE 0x123')
@@ -42,7 +51,7 @@ class Automatic(unittest.TestCase):
         for key in ('messages_sent','send_attempts','handlers_returned'):self.assertIsNone(out[key])
         self.assertEqual(len(calls),1);self.assertTrue(out['profile_may_remain_open']);self.assertNotIn('PRIVATE',json.dumps(out))
     def test_handler_exception_not_retry(self):
-        r=cycle();n=r['navigation'];n.update(stage='navigation-stopped',phase='check-chat',error='managed-exception',chat_back_attempted=False,chat_back_completed=False,chat_return_verified=False,send_handler_returned=False,close_attempted=False,close_completed=False,return_verified=False)
+        r=cycle();n=r['navigation'];n.update(stage='navigation-stopped',phase='check-chat',error='managed-exception',chat_back_attempted=False,chat_back_completed=False,chat_return_verified=False,chat_return_route='not-checked',send_handler_returned=False,close_attempted=False,close_completed=False,return_verified=False)
         calls=[]
         def root():calls.append(1);return r
         out=b.run(root)
@@ -103,7 +112,7 @@ class Integration(unittest.TestCase):
     def test_ten_cycles_same_connection_fixed_rpc(self):
         f=AutoFake();out=d.inspect_gadget(37149,'a'*64,lambda:False,frida_api=f,automatic_probe=True)
         self.assertEqual(out['stage'],'batch-completed');self.assertEqual(f.roots,10)
-        self.assertEqual(f.script_name,'dvk-automatic-pass-0.3.22');self.assertIn('rpc.exports.root = () => probeBatchProfile();',f.script_source)
+        self.assertEqual(f.script_name,'dvk-automatic-pass-0.3.23');self.assertIn('rpc.exports.root = () => probeBatchProfile();',f.script_source)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
     def test_conflicting_modes(self):
         for key in ('chat_send_probe','chat_state_probe','chat_runtime_probe','profile_metadata_probe','uikit_tree_probe'):
@@ -129,7 +138,7 @@ class Integration(unittest.TestCase):
             gadget={'stage':summary['status'],'batch':summary,'uikit_root':cycle()}
             with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                 result,path=d.diagnose(Adb(),folder,inspector=lambda *a:gadget,automatic_probe=True)
-            self.assertEqual(result['mode'],'automatic-profile-chat-pass');self.assertEqual(path.name,'rootless-automatic-pass-0.3.22.json')
+            self.assertEqual(result['mode'],'automatic-profile-chat-pass');self.assertEqual(path.name,'rootless-automatic-pass-0.3.23.json')
             self.assertIsNone(result['messages_sent']);self.assertEqual(result['send_attempts'],10);self.assertEqual(result['handlers_returned'],10)
             self.assertFalse(result['delivery_confirmed']);self.assertFalse(result['message_text_read'])
             for text in ('PRIVATE','a'*64,'user_id','identityKey'):self.assertNotIn(text,path.read_text())

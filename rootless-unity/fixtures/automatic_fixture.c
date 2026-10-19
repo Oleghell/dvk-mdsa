@@ -86,7 +86,7 @@ static Object model_obj={&profile_model,0},other_model={&profile_model,0};
 static Object longbox={NULL,0};static int64_t longnumber;
 static int model_reads,actual_reads,id_reads;
 static Method identity_getter={"get_Id",&pc[8],0,&tlong,68};
-static int batch_mode(void){return (mode>=250&&mode<=257)||(mode>=500&&mode<=512);}
+static int batch_mode(void){return (mode>=250&&mode<=257)||(mode>=500&&mode<=515);}
 static Object ptable={&pc[2],0},pvisiblelist={&pc[17],0},prow={&pc[10],0},precord={&pc[13],0},pcell={&pc[3],0},pentryobj={&pc[4],0},pavatar={&pc[6],0},puser={&pc[8],0},potheruser={&pc[8],0},pcontent={&pc[9],0},pothercontent={&pc[9],0};
 static Object preplacementrow={&pc[10],0};
 static Object ppromocell={&pc[3],0},ppromoentry={&pc[4],0};
@@ -192,9 +192,9 @@ static Object *auto_invoke(Method *m,void *obj,void **args,void **exc){int yes=0
  case 90:return mode==512?&alast:NULL;
  case 91:yes=mode==503;break;
  case 92:return &afield;
- case 93:auto_int=mode==502?1:0;return &aintbox;
+ case 93:auto_int=mode==502||mode==515?1:0;return &aintbox;
  case 96:if(obj!=&achatvc||phase!=3||!args||args[0]!=&astring||auto_variant<0)auto_bad++;auto_action();auto_sends++;if(mode==505)*exc=&exception;return NULL;
- case 97:if(obj!=&achatvc||phase!=3)auto_bad++;auto_action();auto_backs++;if(mode==506){*exc=&exception;return NULL;}phase=1;return NULL;
+ case 97:if(obj!=&achatvc||phase!=3)auto_bad++;auto_action();auto_backs++;if(mode==506){*exc=&exception;return NULL;}phase=mode>=513&&mode<=515?2:1;return NULL;
  }
  boolbox.value=(unsigned char)yes;return &boolbox;
 }
@@ -260,7 +260,7 @@ API int fixture_modal_reads(void){return modal_reads;}
 API int fixture_opens(void){return opens;}
 API int fixture_cancels(void){return cancels;}
 API int fixture_virtual_calls(void){return virtual_calls;}
-static Object *active(void){if(phase==3)return &achatvc;
+static Object *active(void){if(phase==3)return &achatvc;if(mode==514&&phase==2)return &replacement;
  if(mode==61)return &other;
  if(mode==71&&phase>0)return &other;
  if(mode==70&&phase==2)return &replacement;

@@ -4,7 +4,7 @@ import uikit_navigation as base
 import uikit_root as root
 from uikit_profile_navigation import replace_once
 
-VERSION='0.3.22'
+VERSION='0.3.23'
 ERRORS=base.ERRORS|{'history-invalid','not-a-dialog','history-not-ready'}
 READ_STEPS={'not-checked','identity','model','manager','loaded-flag','count','last-message','recheck','sample','complete'}
 WAIT_REASONS={'not-checked','none','chat-not-actual','chat-draft','no-history-manager','null-history-manager','null-loaded-flag','history-loading','history-not-loaded','changing-count','changing-last-message','contradictory-last-message','view-not-ready','model-changed'}

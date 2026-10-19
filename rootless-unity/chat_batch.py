@@ -5,7 +5,7 @@ import uikit_profile_navigation as single
 import chat_state_probe as chat
 import chat_send_probe as sender
 from greetings import choose_index,get_greeting
-VERSION='0.3.22'
+VERSION='0.3.23'
 LIMIT=10
 ERRORS=single.base.ERRORS|chat.ERRORS|{'selection-limit','selection-changed','selection-unavailable','input-disabled','send-already-attempted'}
 DEFAULTS={
@@ -17,7 +17,7 @@ DEFAULTS={
  'history_status':'unknown','message_count':None,'history_fully_loaded':None,'history_loading':None,
  'last_message_present':None,'samples':0,'sample_interval_ms':1000,'chat_identity_verified':False,
  'chat_open_attempted':False,'chat_open_completed':False,'chat_verified':False,
- 'chat_back_attempted':False,'chat_back_completed':False,'chat_return_verified':False,
+ 'chat_back_attempted':False,'chat_back_completed':False,'chat_return_verified':False,'chat_return_route':'not-checked',
  'send_attempted':False,'send_handler_returned':False,'messages_sent':0,'greeting_variant':None}
 BOOLS={k for k,v in DEFAULTS.items() if type(v) is bool}
 NULL_BOOLS={'loaded_value_method_found','loaded_value_byref','loaded_value_owner_verified','loaded_value_owner_inherited','loaded_value_owner_scope','loaded_value_static','loaded_value_abstract','model_actual','model_draft','model_has_cm','cm_present','loaded_field_present','history_fully_loaded','history_loading','last_message_present'}
@@ -61,8 +61,12 @@ PHASE_CODE=r'''
    }
    if(n.phase==='wait-chat-back'){
     if(k==='chat'){if(!current.equals(target(state.chatController)))fail('identity-changed');return;}
+    if(k==='search'){
+     if(!current.equals(target(state.origin)))fail('identity-changed');
+     n.chat_return_route='search';n.chat_return_verified=true;n.return_verified=true;n.phase='done';n.stage='navigation-ready';return;
+    }
     if(k!=='profile'||!current.equals(target(state.card))||!verifyProfile(current))fail('identity-changed');
-    n.chat_return_verified=true;n.phase='confirm-profile';state.nextActionAt=Date.now()+1000;return;
+    n.chat_return_route='profile';n.chat_return_verified=true;n.phase='confirm-profile';state.nextActionAt=Date.now()+1000;return;
    }
    if(n.phase==='check-chat'){
     if(k!=='chat')fail('unexpected-screen');
@@ -136,6 +140,14 @@ def validate(value):
     for a,b in zip(chain,chain[1:]):
         if x[b] and not x[a]:raise ValueError('Chat action out of order')
     if x['chat_open_attempted'] and n.get('friends_eligible') is not True:raise ValueError('Chat without eligible profile')
+    route=x['chat_return_route']
+    if route not in {'not-checked','profile','search'} or (route!='not-checked')!=x['chat_return_verified']:raise ValueError('Invalid chat return route')
+    if route=='search':
+        if n.get('phase')!='done' or n.get('stage')!='navigation-ready' or not n.get('return_verified') or n.get('close_attempted') or n.get('close_completed') or n.get('controller_path',[])[-1:]!=['search']:raise ValueError('Unverified direct search return')
+        # Only the validation copy adapts the legacy close-before-return invariant.
+        # The actual report retains close_attempted=False/close_completed=False.
+        n['close_attempted']=True;n['close_completed']=True
+
     if x['send_handler_returned'] and not x['send_attempted']:raise ValueError('Submission without invocation')
     if x['send_attempted']:
         get_greeting(x['greeting_variant'])
@@ -170,7 +182,7 @@ def run(root,cancelled=lambda:False,progress=lambda text:None):
         out['attempts']+=1;progress(f'Автопроход {number}/{LIMIT}…')
         try:value=validate(root())
         except Exception:out.update(reason='probe-failed',errors=1,profile_may_remain_open=True,messages_sent=None,send_attempts=None,handlers_returned=None);break
-        n=value['navigation'];item={k:n[k] for k in ('stage','error','friends_status','friends_count','friends_eligible','chat_open_attempted','chat_return_verified','history_status','message_count','send_attempted','send_handler_returned','greeting_variant')};item.update(number=number,opened=n['open_attempted'],returned=n['return_verified']);out['items'].append(item)
+        n=value['navigation'];item={k:n[k] for k in ('stage','error','friends_status','friends_count','friends_eligible','chat_open_attempted','chat_return_verified','chat_return_route','history_status','message_count','send_attempted','send_handler_returned','greeting_variant')};item.update(number=number,opened=n['open_attempted'],returned=n['return_verified']);out['items'].append(item)
         out['profile_may_remain_open']=n['open_attempted'] and not n['return_verified']
         out['send_attempts']+=int(n['send_attempted']);out['handlers_returned']+=int(n['send_handler_returned'])
         if n['send_attempted']:out['messages_sent']=None

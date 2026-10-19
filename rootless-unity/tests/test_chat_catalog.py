@@ -42,7 +42,7 @@ class ChatCatalog(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             folder=Path(temp)/'test-apks';folder.mkdir();hashes=bundle(folder,bytes(fixture()))
             with patch('friends_catalog.HASHES',hashes):out,path=c.write_report(folder)
-            self.assertEqual(path.name,'rootless-chat-metadata-0.3.22.json')
+            self.assertEqual(path.name,'rootless-chat-metadata-0.3.23.json')
             self.assertEqual(json.loads(path.read_text()),out)
             for key in ('ui_actions_attempted','method_values_read','chat_opened','history_read','draft_prepared'):self.assertIs(out[key],False)
             self.assertEqual(out['messages_sent'],0);self.assertEqual(out['mode'],'offline-chat-catalog')
