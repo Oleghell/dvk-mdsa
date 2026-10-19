@@ -77,7 +77,7 @@ class BatchTransport(unittest.TestCase):
     def test_same_script_and_connection_for_whole_batch(self):
         f=BatchFake();out=d.inspect_gadget(37149,'a'*64,lambda:False,frida_api=f,batch_probe=True)
         self.assertEqual(out['stage'],'batch-completed');self.assertEqual(f.roots,10)
-        self.assertEqual(f.script_name,'dvk-profile-batch-0.3.14')
+        self.assertEqual(f.script_name,'dvk-profile-batch-0.3.15')
         self.assertIn('rpc.exports.root = () => probeBatchProfile();',f.script_source)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
         self.assertEqual(out['batch']['checked'],10)
@@ -123,7 +123,7 @@ class BatchReport(unittest.TestCase):
                 folder=Path(temp)/'test-apks';folder.mkdir()
                 with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                     result,path=d.diagnose(Adb(),folder,inspector=lambda *a:gadget,batch_probe=True)
-                self.assertEqual(path.name,'rootless-profile-batch-0.3.14.json')
+                self.assertEqual(path.name,'rootless-profile-batch-0.3.15.json')
                 self.assertEqual(result['mode'],'uikit-search-ten-profiles')
                 self.assertEqual(result['profile_may_remain_open'],uncertain)
                 self.assertTrue(result['ui_actions_attempted'])
