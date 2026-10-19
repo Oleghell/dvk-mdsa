@@ -7,7 +7,7 @@ from pathlib import Path
 from offline_metadata import MetadataError
 from friends_catalog import inspect_bundle as inspect_definitions,definition_fields,label
 
-VERSION='0.3.24'
+VERSION='0.3.25'
 MAX_TYPES=256
 MAX_DEPTH=6
 MAX_METHODS=512

@@ -5,7 +5,7 @@ import uikit_profile_navigation as single
 import chat_state_probe as chat
 import chat_send_probe as sender
 from greetings import choose_index,get_greeting
-VERSION='0.3.24'
+VERSION='0.3.25'
 LIMIT=10
 ERRORS=single.base.ERRORS|chat.ERRORS|{'selection-limit','selection-changed','selection-unavailable','input-disabled','send-already-attempted'}
 DEFAULTS={

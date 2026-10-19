@@ -1,7 +1,7 @@
 """Bounded inventory for a future verified reply adapter. Definitions ONLY."""
 import copy,json
 import chat_runtime_metadata as base
-VERSION='0.3.24'
+VERSION='0.3.25'
 ROOTS=base.ROOTS+[
  ('DV.Messages.dll','DV.Messages','Message'),
  ('DV.Messages.dll','DV.Messages','ChatsViewController'),
@@ -21,8 +21,35 @@ DISCOVER=r'''
    }
   }
 '''
+IDENTITY_CACHE=r'''
+  // Immutable definition pointers only, scoped to this single inventory call.
+  // Never cache application objects or their values.
+  const identityCache=new Map(),descriptorCache=new Map();
+  const identity=k=>{
+   bounded();if(k.isNull())return null;const key=k.toString();
+   if(identityCache.has(key))return identityCache.get(key);
+   if(identityCache.size>=16384)fail('limits');
+   const im=f.class_get_image(k);if(im.isNull())fail('invalid-metadata');
+   const result={image:text(f.image_get_name(im)),namespace:text(f.class_get_namespace(k)),type:text(f.class_get_name(k))};
+   identityCache.set(key,result);return result;
+  };
+  const describe=t=>{
+   bounded();if(t.isNull())fail('invalid-metadata');const key=t.toString();
+   if(descriptorCache.has(key))return descriptorCache.get(key);
+   if(descriptorCache.size>=8192)fail('limits');
+   const result={kind:f.type_get_type(t),byref:!!f.type_is_byref(t),target:identity(f.class_from_type(t))};
+   descriptorCache.set(key,result);return result;
+  };
+'''
 def build():
     t=base._TEMPLATE.replace("  r.step='types';let totalMethods=0,totalFields=0,totalParams=0;",DISCOVER+"  r.step='types';let totalMethods=0,totalFields=0,totalParams=0;")
+    start=t.index('  const identity=k=>')
+    end=t.index('  const queue=[],seen=new Map();',start)
+    t=t[:start]+IDENTITY_CACHE+t[end:]
+    # Keep every existing global limit, including the five-second deadline.
+    # Cache exhaustion must use the same closed, marked-limited result.
+    t=t.replace("const fail=reason=>{throw reason;};",
+                "const fail=reason=>{if(reason==='limits')r.limited=true;throw reason;};")
     # Include the real constructed list/field/string owners, never guess generic bindings.
     t=t.replace("/^get_(Chat|MessagesCM|MessagesManager|Strategy)$/", "/^get_(Chat|Chats|ConversationsChats|MessagesCM|MessagesManager|MessagesRouter|Strategy|Value|Text|Content|Body|PreviewText)$/")
     t=t.replace('enqueue(f.class_from_type(ret),depth+1);',"{const kind=f.type_get_type(ret);if(kind===18||kind===21)enqueue(f.class_from_type(ret),depth+1);}")

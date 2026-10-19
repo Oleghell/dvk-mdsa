@@ -11,6 +11,15 @@ def reply_ready():
     for image,namespace,name in p.ROOTS[len(p.base.ROOTS):]:r['roots'].append(dict(image=image,namespace=namespace,type=name,found=False,class_index=None))
     return r
 class ReplyMetadata(unittest.TestCase):
+    def test_definition_cache_does_not_raise_budgets(self):
+        for fragment in ('deadline=Date.now()+5000','r.native_calls>=50000',
+                         'queue.length>=64','j<=256','j<=96',
+                         'identityCache=new Map()','descriptorCache=new Map()',
+                         'identityCache.size>=16384','descriptorCache.size>=8192'):
+            self.assertIn(fragment,p.FUNCTION)
+        # Both caches are local to the fixed metadata function, never globals.
+        self.assertGreater(p.FUNCTION.index('identityCache=new Map()'),
+                           p.FUNCTION.index('function nativeMetadata()'))
     def test_schema_and_no_values(self):
         p.validate(reply_ready())
         for name in ('runtime_invoke','field_get_value','gchandle_new','OnSendText','Memory.scan','get_Text()'):self.assertNotIn(name,p.FUNCTION)

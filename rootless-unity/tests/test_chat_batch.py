@@ -112,7 +112,7 @@ class Integration(unittest.TestCase):
     def test_ten_cycles_same_connection_fixed_rpc(self):
         f=AutoFake();out=d.inspect_gadget(37149,'a'*64,lambda:False,frida_api=f,automatic_probe=True)
         self.assertEqual(out['stage'],'batch-completed');self.assertEqual(f.roots,10)
-        self.assertEqual(f.script_name,'dvk-automatic-pass-0.3.24');self.assertIn('rpc.exports.root = () => probeBatchProfile();',f.script_source)
+        self.assertEqual(f.script_name,'dvk-automatic-pass-0.3.25');self.assertIn('rpc.exports.root = () => probeBatchProfile();',f.script_source)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
     def test_conflicting_modes(self):
         for key in ('chat_send_probe','chat_state_probe','chat_runtime_probe','profile_metadata_probe','uikit_tree_probe'):
@@ -138,7 +138,7 @@ class Integration(unittest.TestCase):
             gadget={'stage':summary['status'],'batch':summary,'uikit_root':cycle()}
             with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                 result,path=d.diagnose(Adb(),folder,inspector=lambda *a:gadget,automatic_probe=True)
-            self.assertEqual(result['mode'],'automatic-profile-chat-pass');self.assertEqual(path.name,'rootless-automatic-pass-0.3.24.json')
+            self.assertEqual(result['mode'],'automatic-profile-chat-pass');self.assertEqual(path.name,'rootless-automatic-pass-0.3.25.json')
             self.assertIsNone(result['messages_sent']);self.assertEqual(result['send_attempts'],10);self.assertEqual(result['handlers_returned'],10)
             self.assertFalse(result['delivery_confirmed']);self.assertFalse(result['message_text_read'])
             for text in ('PRIVATE','a'*64,'user_id','identityKey'):self.assertNotIn(text,path.read_text())

@@ -3,7 +3,7 @@ import copy,json
 import chat_state_probe as state
 from greetings import GREETINGS,get_greeting,choose_index
 from uikit_profile_navigation import replace_once
-VERSION='0.3.24'
+VERSION='0.3.25'
 GREETING=GREETINGS[0]
 ERRORS=state.ERRORS|{'chat-not-empty','input-disabled','send-already-attempted'}
 SEND_SETUP=r"""
