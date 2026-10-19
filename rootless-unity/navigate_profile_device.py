@@ -7,6 +7,8 @@ from diagnose_device import DiagnosticAdb,diagnose,TestError
 DEFAULT_ADB='C:/Users/XXX/Desktop/platform-tools/adb.exe'
 
 def result_status(result):
+    if result.get('mode')=='offline-friends-catalog':
+        return 'Метаданные готовы — пришли отчёт.' if result.get('status')=='catalog-ready' else 'Метаданные: '+result.get('reason','ошибка')
     navigation=result.get('gadget',{}).get('uikit_root',{}).get('navigation',{})
     if result.get('status')=='navigation-ready':
         if navigation.get('friends_status')=='read':
@@ -23,7 +25,7 @@ def result_status(result):
 def launch_gui(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг · 0.3.8')
+    root=tk.Tk();root.title('ДругВокруг · 0.3.9')
     root.geometry('640x300');root.minsize(620,300)
     main=ttk.Frame(root,padding=14);main.pack(fill='both',expand=True)
     ttk.Label(main,text='MuMu #4 · профиль и друзья',font=('Segoe UI',11,'bold')).pack(anchor='w')
@@ -49,12 +51,19 @@ def launch_gui(self_check=False):
             events.put(('done',(result,path)))
         except Exception as e:
             events.put(('error',str(e) if isinstance(e,TestError) else 'Проверь ADB, test-apks и доступ к папке.'))
-    def start():
+    def catalog_worker(directory):
+        try:
+            from friends_catalog import write_report
+            p=Path(directory).resolve(strict=True)
+            events.put(('done',write_report(p,stop.is_set)))
+        except Exception:events.put(('error','Проверь test-apks и доступ к папке.'))
+    def start(mode='profile'):
         nonlocal busy,report
         if busy:return
-        busy=True;report=None;stop.clear();state.set('Проверка…')
-        button.config(state='disabled');stop_button.config(state='normal');report_button.config(state='disabled')
-        threading.Thread(target=worker,args=(binary.get(),folder.get()),daemon=True).start()
+        busy=True;report=None;stop.clear();state.set('Читаю метаданные APK…' if mode=='catalog' else 'Проверка…')
+        button.config(state='disabled');metadata_button.config(state='disabled');stop_button.config(state='normal');report_button.config(state='disabled')
+        if mode=='catalog':threading.Thread(target=catalog_worker,args=(folder.get(),),daemon=True).start()
+        else:threading.Thread(target=worker,args=(binary.get(),folder.get()),daemon=True).start()
     def request_stop():
         if busy:stop.set();state.set('Остановка и очистка…')
     def open_report():
@@ -62,6 +71,7 @@ def launch_gui(self_check=False):
         try:os.startfile(str(report))
         except (AttributeError,OSError):messagebox.showinfo('Отчёт',str(report))
     row=ttk.Frame(main);row.pack(fill='x',pady=(2,6))
+    metadata_button=ttk.Button(row,text='Найти счётчик',command=lambda:start('catalog'));metadata_button.pack(side='left',padx=(0,8))
     button=ttk.Button(row,text='Проверить профиль',command=start);button.pack(side='left')
     stop_button=ttk.Button(row,text='Стоп',command=request_stop,state='disabled');stop_button.pack(side='left',padx=8)
     report_button=ttk.Button(row,text='Отчёт',command=open_report,state='disabled');report_button.pack(side='left')
@@ -71,7 +81,7 @@ def launch_gui(self_check=False):
         while not events.empty():
             kind,value=events.get_nowait()
             if kind=='status':state.set(value);continue
-            busy=False;button.config(state='normal');stop_button.config(state='disabled')
+            busy=False;button.config(state='normal');metadata_button.config(state='normal');stop_button.config(state='disabled')
             if kind=='error':state.set(value)
             else:
                 result,report=value;state.set(result_status(result));report_button.config(state='normal')
@@ -84,10 +94,12 @@ def launch_gui(self_check=False):
     needed=main.winfo_reqheight()
     if needed>root.winfo_height():root.geometry('640x'+str(needed));root.minsize(620,needed)
     if self_check:
-        root.update();assert root.winfo_viewable() and all(w.winfo_viewable() for w in (button,stop_button,report_button))
+        root.update();assert root.winfo_viewable() and all(w.winfo_viewable() for w in (metadata_button,button,stop_button,report_button))
         assert main.winfo_reqheight()<=root.winfo_height(),'Compact controls are clipped'
         import frida
         from uikit_profile_navigation import FUNCTION
+        import friends_catalog
+        assert friends_catalog.VERSION=='0.3.9'
         assert frida.__version__=='17.24.1' and 'OnUserSelected' in FUNCTION
         root.destroy();return
     root.after(100,poll);root.mainloop()

@@ -51,3 +51,16 @@ class CompactProfileGUI(unittest.TestCase):
             commands['Стоп']()
         tk.messagebox.showinfo.assert_not_called()
         ttk.Checkbutton.assert_not_called()
+
+    def test_metadata_button_needs_no_adb_or_profile_visit(self):
+        tk=MagicMock();ttk=MagicMock();tk.ttk=ttk
+        tk.Tk.return_value.winfo_height.return_value=300
+        ttk.Frame.return_value.winfo_reqheight.return_value=260
+        with patch.dict(sys.modules,{'tkinter':tk,'tkinter.ttk':ttk,'tkinter.filedialog':tk.filedialog,'tkinter.messagebox':tk.messagebox}),patch.object(gui.threading,'Thread') as thread:
+            gui.launch_gui()
+            commands={c.kwargs.get('text'):c.kwargs.get('command') for c in ttk.Button.call_args_list}
+            commands['Найти счётчик']()
+            self.assertEqual(thread.call_args.kwargs['target'].__name__,'catalog_worker')
+            self.assertEqual(len(thread.call_args.kwargs['args']),1)
+            thread.return_value.start.assert_called_once()
+        self.assertIn('пришли отчёт',gui.result_status({'mode':'offline-friends-catalog','status':'catalog-ready'}))
