@@ -1,5 +1,6 @@
 """Synthetic snapshots only; no device, real identity, network or credentials."""
 from dataclasses import replace
+from contextlib import closing
 import hashlib
 import json
 from pathlib import Path
@@ -289,7 +290,7 @@ class ReviewTests(unittest.TestCase):
     def test_reservation_is_durable_before_sender_called(self):
         draft, s = self.draft()
         def send(*args):
-            with sqlite3.connect(self.path) as other:
+            with closing(sqlite3.connect(self.path)) as other:
                 self.assertEqual(other.execute('SELECT status FROM review_drafts').fetchone()[0], 'attempted')
                 self.assertEqual(other.execute('SELECT stage FROM review_dialogs WHERE peer=\'20\'').fetchone()[0], 'pending_question')
             return True
