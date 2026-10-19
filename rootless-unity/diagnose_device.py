@@ -107,10 +107,14 @@ def cleanup_frida(frida, manager, address, script, session, device):
     finally:timer.cancel()
 
 
-def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False, batch_probe=False, chat_runtime_probe=False, chat_state_probe=False, chat_send_probe=False, automatic_probe=False, replies_probe=False, progress=lambda text:None):
+def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False, batch_probe=False, chat_runtime_probe=False, chat_state_probe=False, chat_send_probe=False, automatic_probe=False, replies_probe=False, cohort_store=None, progress=lambda text:None):
     if frida_api is None:
         import frida as frida_api
     frida=frida_api
+    if cohort_store is not None:
+        from cohort_pass import Store
+        if type(cohort_store) is not Store or not automatic_probe or any((replies_probe,chat_send_probe,chat_state_probe,chat_runtime_probe,batch_probe,profile_probe,navigation_probe,uikit_tree_probe,uikit_root_probe,profile_metadata_probe)):
+            raise TestError('Новая десятка — отдельный режим.')
     if replies_probe:
         if any((uikit_root_probe,uikit_tree_probe,navigation_probe,profile_probe,profile_metadata_probe,batch_probe,chat_runtime_probe,chat_state_probe,chat_send_probe,automatic_probe)):raise TestError('Подготовка ответов — отдельная проверка без действий.')
         chat_runtime_probe=True
@@ -138,7 +142,8 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
         import uikit_profile
         import uikit_root
         if automatic_probe:
-            import chat_batch as probe_module
+            if cohort_store is not None:import cohort_pass as probe_module
+            else:import chat_batch as probe_module
         elif chat_send_probe:
             import chat_send_probe as probe_module
         elif chat_state_probe:
@@ -155,6 +160,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
             import uikit_tree as probe_module
         else:probe_module=uikit_root
         source=SCRIPT.replace(NATIVE_FUNCTION,uikit_profile.SCRIPT,1)+(probe_module.build_random() if chat_send_probe or automatic_probe else probe_module.FUNCTION)+'\nrpc.exports.root = () => probeUIKitRoot();'
+        if cohort_store is not None:source+='\nrpc.exports.cohortpending = () => cohortReservation(); rpc.exports.cohortack = value => cohortAcknowledge(value);'
         if batch_probe:source=source.replace('rpc.exports.root = () => probeUIKitRoot();','rpc.exports.root = () => probeBatchProfile();')
         if navigation_probe or chat_state_probe:source+='\nrpc.exports.cancel = () => cancelNavigation();'
         native_validator=uikit_profile.validate
@@ -167,6 +173,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
     timer=threading.Timer(200 if batch_probe else 20,guard.cancel);timer.daemon=True;timer.start()
     device=session=script=None
     monitor_stop=threading.Event()
+    cohort_thread=None;cohort_failed=threading.Event()
     try:
         with guard:
             for attempt in range(3):
@@ -191,7 +198,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
                     session=device.attach(process.pid)
                     report['attached']=True
                     report['stage']='create-fixed-script'
-                    script=session.create_script(source,name='dvk-reply-metadata-0.3.25' if replies_probe else 'dvk-automatic-pass-0.3.25' if automatic_probe else 'dvk-one-greeting-0.3.25' if chat_send_probe else 'dvk-open-chat-state-0.3.25' if chat_state_probe else 'dvk-chat-runtime-metadata-0.3.25' if chat_runtime_probe else 'dvk-profile-batch-0.3.25' if batch_probe else 'dvk-profile-metadata-0.3.1' if profile_metadata_probe else 'dvk-uikit-profile-navigation-0.3.25' if profile_probe else 'dvk-uikit-navigation-0.2.3' if navigation_probe else 'dvk-uikit-tree-0.1.8' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
+                    script=session.create_script(source,name='dvk-reply-metadata-0.3.26' if replies_probe else 'dvk-automatic-pass-0.3.26' if automatic_probe else 'dvk-one-greeting-0.3.26' if chat_send_probe else 'dvk-open-chat-state-0.3.26' if chat_state_probe else 'dvk-chat-runtime-metadata-0.3.26' if chat_runtime_probe else 'dvk-profile-batch-0.3.26' if batch_probe else 'dvk-profile-metadata-0.3.1' if profile_metadata_probe else 'dvk-uikit-profile-navigation-0.3.26' if profile_probe else 'dvk-uikit-navigation-0.2.3' if navigation_probe else 'dvk-uikit-tree-0.1.8' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
                     report['stage']='load-fixed-script';script.load()
                     report['stage']='runtime-rpc'
                     report['runtime']=validate_runtime(script.exports_sync.runtime())
@@ -224,6 +231,9 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
                                                 except Exception:pass
                                                 return
                                     threading.Thread(target=monitor_cancel,daemon=True).start()
+                                if cohort_store is not None:
+                                    from cohort_pass import monitor
+                                    cohort_thread=threading.Thread(target=monitor,args=(script,cohort_store,monitor_stop,cancelled,cohort_failed),daemon=True);cohort_thread.start()
                                 if batch_probe:
                                     def batch_root():
                                         report['uikit_root']={}
@@ -233,6 +243,12 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
                                         return value
                                     report['batch']=probe_module.run(batch_root,cancelled,progress)
                                     report['stage']=report['batch']['status']
+                                    if cohort_store is not None:
+                                        monitor_stop.set();cohort_thread.join(timeout=6)
+                                        cohort_store.finish(report['batch'])
+                                        report['cohort']=cohort_store.summary()
+                                        report['cohort']['journal_failed']=cohort_failed.is_set()
+                                        report['batch'].update(unique_scope='durable-new-cohort',identity_keys_recorded=True)
                                     report['rpc_root_ok']=bool(report.get('uikit_root'))
                                 else:
                                     report['uikit_root']=probe_module.validate(script.exports_sync.root())
@@ -258,6 +274,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
         report['error_types'].append({'stage':report['stage'],'type':safe_error_type(error)})
     finally:
         monitor_stop.set();timer.cancel()
+        if cohort_thread is not None:cohort_thread.join(timeout=6)
         cleanup_frida(frida,manager,address,script,session,device)
     return report
 
@@ -267,7 +284,11 @@ def listening_port(text):
     return any(re.fullmatch(r'[0-9a-fA-F.:\[\]*]+:27042', part) for line in text.splitlines() for part in line.split())
 
 
-def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False, batch_probe=False, chat_runtime_probe=False, chat_state_probe=False, chat_send_probe=False, automatic_probe=False, replies_probe=False):
+def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False, batch_probe=False, chat_runtime_probe=False, chat_state_probe=False, chat_send_probe=False, automatic_probe=False, replies_probe=False, cohort_store=None):
+    if cohort_store is not None:
+        from cohort_pass import Store
+        if type(cohort_store) is not Store or not automatic_probe or any((replies_probe,chat_send_probe,chat_state_probe,chat_runtime_probe,batch_probe,profile_probe,navigation_probe,uikit_tree_probe,uikit_root_probe,profile_metadata_probe)):
+            raise TestError('Новая десятка — отдельный режим.')
     if replies_probe:
         if any((uikit_root_probe,uikit_tree_probe,navigation_probe,profile_probe,profile_metadata_probe,batch_probe,chat_runtime_probe,chat_state_probe,chat_send_probe,automatic_probe)):raise TestError('Подготовка ответов — отдельная проверка без действий.')
         chat_runtime_probe=True
@@ -282,10 +303,12 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
     profile_probe=profile_probe or batch_probe
     navigation_probe=navigation_probe or profile_probe
     uikit_root_probe=uikit_root_probe or uikit_tree_probe or navigation_probe or profile_metadata_probe or chat_state_probe
-    version='0.3.25' if chat_state_probe else '0.3.25' if chat_runtime_probe else '0.3.1' if profile_metadata_probe else '0.3.25' if profile_probe else '0.2.3' if navigation_probe else '0.1.8' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
-    if (uikit_root_probe or chat_runtime_probe) and inspector is inspect_gadget:
+    version='0.3.26' if chat_state_probe else '0.3.26' if chat_runtime_probe else '0.3.1' if profile_metadata_probe else '0.3.26' if profile_probe else '0.2.3' if navigation_probe else '0.1.8' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
+    if cohort_store is not None and inspector is inspect_gadget:
+        inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,automatic_probe=True,cohort_store=cohort_store,progress=progress)
+    elif (uikit_root_probe or chat_runtime_probe) and inspector is inspect_gadget:
         inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,uikit_root_probe=uikit_root_probe,uikit_tree_probe=uikit_tree_probe,navigation_probe=navigation_probe,profile_probe=profile_probe,profile_metadata_probe=profile_metadata_probe,batch_probe=batch_probe,chat_runtime_probe=chat_runtime_probe and not replies_probe,replies_probe=replies_probe,chat_state_probe=chat_state_probe and not chat_send_probe,chat_send_probe=chat_send_probe,automatic_probe=automatic_probe,progress=progress)
-    report={'tool_version':version,'mode':('reply-runtime-metadata-only' if replies_probe else 'automatic-profile-chat-pass' if automatic_probe else 'one-greeting-current-chat' if chat_send_probe else 'open-chat-state-read-only' if chat_state_probe else 'chat-runtime-metadata-only' if chat_runtime_probe else 'profile-metadata-only' if profile_metadata_probe else 'uikit-search-ten-profiles' if batch_probe else 'uikit-search-profile-return' if profile_probe else 'uikit-search-filter-cancel' if navigation_probe else 'uikit-structure-only' if uikit_tree_probe else 'uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
+    report={'tool_version':version,'mode':('new-ten-durable-enrollment' if cohort_store is not None else 'reply-runtime-metadata-only' if replies_probe else 'automatic-profile-chat-pass' if automatic_probe else 'one-greeting-current-chat' if chat_send_probe else 'open-chat-state-read-only' if chat_state_probe else 'chat-runtime-metadata-only' if chat_runtime_probe else 'profile-metadata-only' if profile_metadata_probe else 'uikit-search-ten-profiles' if batch_probe else 'uikit-search-profile-return' if profile_probe else 'uikit-search-filter-cancel' if navigation_probe else 'uikit-structure-only' if uikit_tree_probe else 'uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
             'instances_verified_distinct':False,'install_requested':False,'app_installation_modified':False,
             'working_device_modified':False,'root_used':False,'ocr_used':False,'messages_sent':0,
             'unity_object_access':'not-tested','status':'not-run'}
@@ -387,7 +410,7 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
             if stage=='device-preflight':
                 failed=[e for e in events if e['status']=='failed']
                 if failed:report['adb_failure']=failed[0].copy()
-    target=folder.parent/f"{'rootless-reply-metadata' if replies_probe else 'rootless-automatic-pass' if automatic_probe else 'rootless-one-greeting' if chat_send_probe else 'rootless-open-chat-state' if chat_state_probe else 'rootless-chat-runtime-metadata' if chat_runtime_probe else 'rootless-profile-metadata' if profile_metadata_probe else 'rootless-profile-batch' if batch_probe else 'rootless-profile-navigation' if profile_probe else 'rootless-navigation' if navigation_probe else 'rootless-diagnostics'}-{version}.json"
+    target=folder.parent/f"{'rootless-new-ten' if cohort_store is not None else 'rootless-reply-metadata' if replies_probe else 'rootless-automatic-pass' if automatic_probe else 'rootless-one-greeting' if chat_send_probe else 'rootless-open-chat-state' if chat_state_probe else 'rootless-chat-runtime-metadata' if chat_runtime_probe else 'rootless-profile-metadata' if profile_metadata_probe else 'rootless-profile-batch' if batch_probe else 'rootless-profile-navigation' if profile_probe else 'rootless-navigation' if navigation_probe else 'rootless-diagnostics'}-{version}.json"
     target.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     return report,target
 

@@ -1,7 +1,7 @@
 """Bounded inventory for a future verified reply adapter. Definitions ONLY."""
 import copy,json
 import chat_runtime_metadata as base
-VERSION='0.3.25'
+VERSION='0.3.26'
 ROOTS=base.ROOTS+[
  ('DV.Messages.dll','DV.Messages','Message'),
  ('DV.Messages.dll','DV.Messages','ChatsViewController'),

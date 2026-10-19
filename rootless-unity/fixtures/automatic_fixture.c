@@ -144,9 +144,13 @@ static Class ac[]={
  {"DV.Profiles","ProfileOverlayView"},{"DV.Messages","MessagesViewController"},
  {"DV.Messages","Chat"},{"DV.CMs","MessagesCM"},{"DV.CMs","ContentDataList`1"},
  {"DataKit","BaseDataList`1"},{"DataKit","DataField`1"},{"DataKit","BaseField`1"},
- {"DV.Messages","Message"},{"System","String"}};
+ {"DV.Messages","Message"},{"System","String"},{"DV.Messages","MessagesManager"}};
 static Type atvc={18,&ac[1]},atmodel={18,&profile_model},atuser={18,&pc[8]},atchat={18,&ac[2]},atcm={18,&ac[3]},atloaded={21,&ac[6]},atmessage={18,&ac[8]},atstring={14,&ac[9]},atoverlay={18,&ac[0]};
 static Object aoverlay={&ac[0],0},achatvc={&ac[1],0},achat={&ac[2],0},acm={&ac[3],0},acm_other={&ac[3],0},afield={&ac[6],0},alast={&ac[8],0},astring={&ac[9],0},aintbox={NULL,0};
+static Type atmanager={18,&ac[10]};
+static Object amanager={&ac[10],0};
+static int cohort_mode;
+API void fixture_cohort_mode(int m){cohort_mode=m;}
 static int auto_slowed;
 static int auto_opens,auto_backs,auto_sends,auto_bad,auto_actual_reads,auto_variant=-1,auto_int;
 static uint64_t auto_last_action;static int auto_timing_bad;
@@ -162,7 +166,10 @@ static Method am[]={
  {"get_AllIsLoaded",&ac[4],0,&atloaded,92},{"get_Count",&ac[5],0,&tint,93},
  {"get_Value",&ac[7],0,&tbool,94},{"get_IsInputEnabled",&ac[2],0,&tbool,95},
  {"DV.Messages.BottomBarView.IDelegate.OnSendText",&ac[1],64,&tvoid,96,1,&atstring},
- {"DV.Messages.BottomBarView.IDelegate.OnBackButton",&ac[1],0,&tvoid,97}};
+ {"DV.Messages.BottomBarView.IDelegate.OnBackButton",&ac[1],0,&tvoid,97},
+ {"get_MessagesManager",&ac[2],0,&atmanager,98},
+ {"get_CurrentUserId",&ac[10],0,&tlong,99},
+ {"get_Id",&ac[2],0,&tlong,100}};
 typedef struct AutoField {int present;} AutoField;
 static AutoField overlay_field={1};
 API AutoField *il2cpp_class_get_field_from_name(Class *k,const char *name){return mode!=508&&k==&nc[5]&&!strcmp(name,"m_OverlayView")?&overlay_field:NULL;}
@@ -176,9 +183,9 @@ API int fixture_auto_sends(void){return auto_sends;}
 API int fixture_auto_opens(void){return auto_opens;}
 API int fixture_auto_backs(void){return auto_backs;}
 API int fixture_auto_bad(void){return auto_bad;}
-static Class *auto_class(Image *im,const char *ns,const char *name){int i;for(i=0;i<10;i++){Image *want=i==0?&profile_image:i>=5&&i<=7||i==9?&images[0]:i==4?&images[3]:&messages_image;if(im==want&&!strcmp(ns,ac[i].ns)&&!strcmp(name,ac[i].name))return &ac[i];}return NULL;}
-static Method *auto_method(Class *k,const char *name,int arity){int i;for(i=0;i<18;i++)if((k==am[i].klass||(i==14&&k==&ac[6]))&&arity==am[i].arity&&!strcmp(name,am[i].name))return &am[i];return NULL;}
-static Image *auto_image(Class *k){int i;for(i=0;i<10;i++)if(k==&ac[i])return i==0?&profile_image:i>=5&&i<=7||i==9?&images[0]:i==4?&images[3]:&messages_image;return NULL;}
+static Class *auto_class(Image *im,const char *ns,const char *name){int i;for(i=0;i<11;i++){Image *want=i==0?&profile_image:i>=5&&i<=7||i==9?&images[0]:i==4?&images[3]:&messages_image;if(im==want&&!strcmp(ns,ac[i].ns)&&!strcmp(name,ac[i].name))return &ac[i];}return NULL;}
+static Method *auto_method(Class *k,const char *name,int arity){int i;for(i=0;i<21;i++)if((k==am[i].klass||(i==14&&k==&ac[6]))&&arity==am[i].arity&&!strcmp(name,am[i].name))return &am[i];return NULL;}
+static Image *auto_image(Class *k){int i;for(i=0;i<11;i++)if(k==&ac[i])return i==0?&profile_image:i>=5&&i<=7||i==9?&images[0]:i==4?&images[3]:&messages_image;return NULL;}
 static Object *auto_invoke(Method *m,void *obj,void **args,void **exc){int yes=0;
  switch(m->action){
  case 80:if(obj!=&aoverlay||phase!=1)auto_bad++;auto_action();auto_opens++;phase=3;auto_actual_reads=0;return NULL;
@@ -196,6 +203,9 @@ static Object *auto_invoke(Method *m,void *obj,void **args,void **exc){int yes=0
  case 93:auto_int=mode==502||mode==515?1:0;return &aintbox;
  case 96:if(obj!=&achatvc||phase!=3||!args||args[0]!=&astring||auto_variant<0)auto_bad++;auto_action();auto_sends++;if(mode==505)*exc=&exception;return NULL;
  case 97:if(obj!=&achatvc||phase!=3)auto_bad++;auto_action();auto_backs++;if(mode==506){*exc=&exception;return NULL;}phase=mode>=513&&mode<=517?2:1;return NULL;
+ case 98:return &amanager;
+ case 99:longnumber=cohort_mode==1?0:cohort_mode==2?stress_current_row+1:9999;return &longbox;
+ case 100:longnumber=cohort_mode==3?-1:cohort_mode==4?++id_reads:1000+stress_current_row;return &longbox;
  }
  boolbox.value=(unsigned char)yes;return &boolbox;
 }
