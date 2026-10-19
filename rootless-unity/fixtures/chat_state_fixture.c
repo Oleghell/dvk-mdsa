@@ -63,6 +63,7 @@ static int phase,opens,cancels,virtual_calls,hidden_reads;
 static void chat_init(void);
 static Class *chat_class(Image *,const char *,const char *);
 static Method *chat_method(Class *,const char *,int);
+static Method *greeting_method(Class *,const char *,int);
 static unsigned char chat_assignable(Class *,Class *);
 static void *chat_unbox(Object *);
 static Image *chat_class_image(Class *);
@@ -71,7 +72,7 @@ static Class *tree_class(Image *im,const char *ns,const char *name){int i;Class 
  Image *want=(i<2||i==10||i==12)?&images[0]:(i<4||i>=7)?&images[3]:&nav_image;
  if(i==5)want=&chat_image;
  if(im==want&&!strcmp(ns,nc[i].ns)&&!strcmp(name,nc[i].name))return &nc[i];}return NULL;}
-static Method *tree_method(Class *c,const char *name,int arity){int i;Method *extra=chat_method(c,name,arity);if(extra)return extra;
+static Method *tree_method(Class *c,const char *name,int arity){int i;Method *extra=greeting_method(c,name,arity);if(extra)return extra;extra=chat_method(c,name,arity);if(extra)return extra;
  for(i=0;i<27;i++)if(arity==nm[i].arity&&c==nm[i].klass&&!strcmp(name,nm[i].name))return &nm[i];return NULL;}
 static unsigned char tree_assignable(Class *a,Class *b){
  if(chat_assignable(a,b))return 1;
@@ -122,6 +123,17 @@ API Class *il2cpp_class_get_parent(Class *k){if(k==&cc[6]&&mode>=328&&mode<=337)
 API int fixture_state_reads(void){return state_reads;}
 API int fixture_bad_receiver(void){return bad_receiver;}
 API int fixture_sample_frames(void){return sample_frames;}
+static Class greeting_string_class={"System","String"};
+static Object greeting_string={&greeting_string_class,0};static int greeting_sends,greeting_bad;
+static Type greeting_string_type={14,&greeting_string_class};
+static Method greeting_send={"DV.Messages.BottomBarView.IDelegate.OnSendText",&nc[5],64,&tvoid,60,1,&greeting_string_type};
+static Method greeting_input={"get_IsInputEnabled",&cc[1],0,&tbool,61};
+static Method *greeting_method(Class *k,const char *name,int arity){
+ if(k==&nc[5]&&arity==1&&!strcmp(name,greeting_send.name)){if(mode==405)return NULL;greeting_send.flags=mode==407?16:64;greeting_string_type.kind=mode==406?8:14;return &greeting_send;}
+ if(k==&cc[1]&&arity==0&&!strcmp(name,greeting_input.name))return &greeting_input;return NULL;}
+API Object *il2cpp_string_new(const char *text){if(!text||strcmp(text,"\xd0\x9f\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5\xd1\x82 \xf0\x9f\x99\x82"))greeting_bad++;return mode==404?NULL:&greeting_string;}
+API int fixture_greeting_sends(void){return greeting_sends;}
+API int fixture_greeting_bad(void){return greeting_bad;}
 static int last_action;
 API int fixture_last_action(void){return last_action;}
 static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){int yes=0;last_action=m->action;(void)args;
@@ -147,6 +159,8 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){int yes=0
  case 30:case 31:case 32:yes=0;break;
  case 33:return NULL;
  case 34:return (Object *)obj;
+ case 60:greeting_sends++;if(obj!=&filters||!args||args[0]!=&greeting_string)greeting_bad++;if(mode==403)*exc=&exception;return NULL;
+ case 61:yes=mode!=402;break;
  case 40:return &user;
  case 41:binding_reads++;if(mode==313&&sample_frames>1)return &other_chat;return &chat;
  case 42:yes=1;break;
@@ -158,7 +172,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){int yes=0
  case 48:return mode==311?&last_message:mode==326&&count_reads>=3?&last_message:NULL;
  case 49:loading_reads++;yes=mode==304||mode==340||mode==343||(mode==324&&loading_reads%2==0);break;
  case 50:return mode==321?NULL:&loaded_field;
- case 51:count_reads++;if(mode==319){*exc=&exception;return NULL;}integer_value=(mode==303||mode==346)?7:mode==309?-1:mode==310&&count_reads%2==0?1:mode==325&&count_reads%3==0?1:0;return &integer_box;
+ case 51:count_reads++;if(mode==319){*exc=&exception;return NULL;}integer_value=(mode==303||mode==346||mode==401)?7:mode==309?-1:mode==310&&count_reads%2==0?1:mode==325&&count_reads%3==0?1:0;return &integer_box;
  case 52:if(obj!=((mode==302||mode==336)?(void *)&loaded_field.value:(void *)&loaded_field))bad_receiver++;yes=mode==322?2:mode!=304&&mode!=323&&mode!=345;break;
  }
  boolbox.value=(unsigned char)yes;return &boolbox;
