@@ -1,8 +1,10 @@
-"""Compact consent UI for one profile/return on the existing MuMu #4."""
+"""Compact button-start UI for one profile/return on the existing MuMu #4."""
 import os,sys,threading,queue
 from pathlib import Path
-from diagnose_device import DiagnosticAdb,diagnose,find_adb,TestError
+from diagnose_device import DiagnosticAdb,diagnose,TestError
 
+
+DEFAULT_ADB='C:/Users/XXX/Desktop/platform-tools/adb.exe'
 
 def result_status(result):
     navigation=result.get('gadget',{}).get('uikit_root',{}).get('navigation',{})
@@ -21,13 +23,13 @@ def result_status(result):
 def launch_gui(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг · 0.3.7')
-    root.geometry('640x340');root.minsize(620,340)
+    root=tk.Tk();root.title('ДругВокруг · 0.3.8')
+    root.geometry('640x300');root.minsize(620,300)
     main=ttk.Frame(root,padding=14);main.pack(fill='both',expand=True)
     ttk.Label(main,text='MuMu #4 · профиль и друзья',font=('Segoe UI',11,'bold')).pack(anchor='w')
     ttk.Label(main,text='Открой загруженный поиск на #4. Во время теста не трогай окно.').pack(anchor='w',pady=(4,10))
     base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).parent
-    binary=tk.StringVar(value=find_adb());folder=tk.StringVar(value=str(base/'test-apks'))
+    binary=tk.StringVar(value=DEFAULT_ADB);folder=tk.StringVar(value=str(base/'test-apks'))
     for label,var,picker in (
         ('ADB',binary,lambda:filedialog.askopenfilename(filetypes=[('ADB','*.exe')])),
         ('Папка test-apks',folder,lambda:filedialog.askdirectory())):
@@ -37,10 +39,7 @@ def launch_gui(self_check=False):
             p=pick()
             if p:v.set(p)
         ttk.Button(row,text='Выбрать',command=choose).pack(side='right',padx=(8,0))
-    consent=tk.BooleanVar(value=False)
-    consent_box=ttk.Checkbutton(main,text='Разрешаю один визит (виден в гостях). Без сообщений.',variable=consent)
-    consent_box.pack(anchor='w',pady=(2,6))
-    state=tk.StringVar(value='Готов. Паузы — 1 с.')
+    state=tk.StringVar(value='Один визит (виден в гостях). Без сообщений. Паузы — 1 с.')
     ttk.Label(main,textvariable=state,wraplength=590).pack(anchor='w',pady=(4,6))
     events=queue.Queue();stop=threading.Event();busy=False;report=None
     def worker(executable,directory):
@@ -53,9 +52,8 @@ def launch_gui(self_check=False):
     def start():
         nonlocal busy,report
         if busy:return
-        if not consent.get():messagebox.showinfo('Подтверждение','Отметь разрешение одного визита.');return
         busy=True;report=None;stop.clear();state.set('Проверка…')
-        button.config(state='disabled');stop_button.config(state='normal');report_button.config(state='disabled');consent_box.config(state='disabled')
+        button.config(state='disabled');stop_button.config(state='normal');report_button.config(state='disabled')
         threading.Thread(target=worker,args=(binary.get(),folder.get()),daemon=True).start()
     def request_stop():
         if busy:stop.set();state.set('Остановка и очистка…')
@@ -73,7 +71,7 @@ def launch_gui(self_check=False):
         while not events.empty():
             kind,value=events.get_nowait()
             if kind=='status':state.set(value);continue
-            busy=False;button.config(state='normal');stop_button.config(state='disabled');consent_box.config(state='normal');consent.set(False)
+            busy=False;button.config(state='normal');stop_button.config(state='disabled')
             if kind=='error':state.set(value)
             else:
                 result,report=value;state.set(result_status(result));report_button.config(state='normal')
@@ -86,7 +84,7 @@ def launch_gui(self_check=False):
     needed=main.winfo_reqheight()
     if needed>root.winfo_height():root.geometry('640x'+str(needed));root.minsize(620,needed)
     if self_check:
-        root.update();assert root.winfo_viewable() and all(w.winfo_viewable() for w in (button,stop_button,report_button,consent_box))
+        root.update();assert root.winfo_viewable() and all(w.winfo_viewable() for w in (button,stop_button,report_button))
         assert main.winfo_reqheight()<=root.winfo_height(),'Compact controls are clipped'
         import frida
         from uikit_profile_navigation import FUNCTION
