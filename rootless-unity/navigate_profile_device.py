@@ -25,7 +25,7 @@ def result_status(result):
 def launch_gui(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг · 0.3.10')
+    root=tk.Tk();root.title('ДругВокруг · 0.3.11')
     root.geometry('640x300');root.minsize(620,300)
     main=ttk.Frame(root,padding=14);main.pack(fill='both',expand=True)
     ttk.Label(main,text='MuMu #4 · профиль и друзья',font=('Segoe UI',11,'bold')).pack(anchor='w')
@@ -99,7 +99,7 @@ def launch_gui(self_check=False):
         import frida
         from uikit_profile_navigation import FUNCTION
         import friends_catalog
-        assert friends_catalog.VERSION=='0.3.10'
+        assert friends_catalog.VERSION=='0.3.11'
         assert frida.__version__=='17.24.1' and 'OnUserSelected' in FUNCTION
         root.destroy();return
     root.after(100,poll);root.mainloop()

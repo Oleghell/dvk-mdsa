@@ -72,9 +72,15 @@ static Method pm[]={
  {"get_Items",&pc[16],0,&pentries,62},
  {"get_Count",&pc[21],0,&tint,63},
  {"get_Item",&pc[21],0,&pt[4],64,1,&tint}};
+static Class profile_model={"DV.Models","Profile"};
+static Type tlong={10},tmodel={18,&profile_model},tbylong={10};
+static Method profile_getter={"get_Profile",&pc[9],0,&tmodel,66};
+static Method actual_getter={"get_IsActual",&profile_model,0,&tbool,67};
 static Method friend_getters[]={
- {"get_FriendsCount",&pc[8],0,&tint,65},
- {"get_FriendCount",&pc[8],0,&tint,65}};
+ {"get_FriendsCount",&profile_model,0,&tlong,65}};
+static Object model_obj={&profile_model,0},other_model={&profile_model,0};
+static Object longbox={NULL,0};static int64_t longnumber;
+static int model_reads,actual_reads;
 static Object ptable={&pc[2],0},pvisiblelist={&pc[17],0},prow={&pc[10],0},precord={&pc[13],0},pcell={&pc[3],0},pentryobj={&pc[4],0},pavatar={&pc[6],0},puser={&pc[8],0},potheruser={&pc[8],0},pcontent={&pc[9],0},pothercontent={&pc[9],0};
 static Object preplacementrow={&pc[10],0};
 static Object ppromocell={&pc[3],0},ppromoentry={&pc[4],0};
@@ -130,10 +136,14 @@ static int phase,opens,cancels,virtual_calls,hidden_reads;
 static void tree_init(int m){int i;iterator_allocations=pin_errors=blocked=0;stress_current_row=-1;
  for(i=0;i<24;i++){stress_rows[i].klass=&pc[10];stress_wrap[i][0].klass=stress_wrap[i][1].klass=&nc[0];stress_cells[i].klass=&pc[3];}
  for(i=0;i<21;i++)stress_parents[i].klass=&nc[0];
- started_ms=clock_ms();opened_ms=closed_ms=friend_reads=0;friend_getters[0].type= m==215?&tbool:&tint;
+ started_ms=clock_ms();opened_ms=closed_ms=friend_reads=0;model_reads=actual_reads=0;friend_getters[0].type=m==215?&tbool:m==229?&tint:m==238?&tbylong:&tlong;
+ friend_getters[0].klass=m==236?&pc[8]:&profile_model;friend_getters[0].flags=m==237?16:0;
+ profile_getter.type=m==228?&tbool:m==232?&pt[8]:&tmodel;
+ actual_getter.type=m==233?&tint:&tbool;
  entry_reads=avatar_reads=promo_reads=0;if(m>=170&&m<=197){pm[3].type=&pbyrow;pm[24].type=&pbyentry;}if(m==173)pm[3].type=&pwrongref;if(m==174)pm[1].type=&pbyrow;if(m==176)pm[3].flags=64;if(m==177)pm[3].param=&tbool;if(m==178)pm[3].flags=16;if(m==179)pm[3].arity=2;if(m==164)attached=0;row_reads=0;modal_reads=plist_reads=profile_reads=selected_wrong=pi_count=0;for(i=0;i<22;i++){pt[i].kind=18;pt[i].klass=&pc[i];}for(i=0;i<1024;i++)pi[i].klass=&pc[19];prow.klass= m==150||m==171||m==180||m==181?&pc[11]:m==151||m==172||m==186?&pc[12]:&pc[10];precord.klass=m==150||m==171||m==180||m==181?&pc[14]:m==151||m==172||m==186?&pc[15]:&pc[13];phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==145)pm[20].arity=2;if(m==146)pm[3].param=&tbool;if(m==147)pm[7].type=&tvoid;if(m==163)pm[14].type=&tbool;if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
 static Class *tree_class(Image *im,const char *ns,const char *name){int i;
  if(mode==162&&!strcmp(name,"AvatarView"))return NULL;
+ if(!strcmp(ns,"DV.Models")&&!strcmp(name,"Profile"))return mode>=210&&mode<=240&&mode!=234?&profile_model:NULL;
  if(im==&profile_image&&!strcmp(ns,"DV.Profiles")&&!strcmp(name,"ProfileViewController"))return &pc[9];
  if(im==&profile_image&&!strcmp(ns,"DV.Profiles")&&!strcmp(name,"ProfilesQueueViewController"))return &nc[5];
  for(i=0;i<22;i++){Image *want=(i<2||i>=17)?&images[0]:(i==2||i==3||i==4||i==5)?&nav_image:i==9?&profile_image:&images[3];if(im==want&&!strcmp(ns,pc[i].ns)&&!strcmp(name,pc[i].name))return &pc[i];}
@@ -141,9 +151,10 @@ static Class *tree_class(Image *im,const char *ns,const char *name){int i;
  Image *want=(i<2||i==10||i==12)?&images[0]:(i<4||i>=7)?&images[3]:&nav_image;
  if(im==want&&!strcmp(ns,nc[i].ns)&&!strcmp(name,nc[i].name))return &nc[i];}return NULL;}
 static Method *tree_method(Class *c,const char *name,int arity){int i;
- if(c==&pc[8]&&arity==0&&mode>=210&&mode<=220){
-  if(!strcmp(name,"get_FriendsCount")&&mode!=217)return &friend_getters[0];
-  if(!strcmp(name,"get_FriendCount")&&(mode==216||mode==217))return &friend_getters[1];
+ if(mode>=210&&mode<=240&&arity==0){
+  if(c==&pc[9]&&!strcmp(name,"get_Profile"))return mode==216?NULL:&profile_getter;
+  if(c==&profile_model&&!strcmp(name,"get_IsActual"))return mode==240?NULL:&actual_getter;
+  if(c==&profile_model&&!strcmp(name,"get_FriendsCount"))return mode==230?NULL:&friend_getters[0];
  }
  for(i=0;i<25;i++)if(arity==pm[i].arity&&c==pm[i].klass&&!strcmp(name,pm[i].name))return &pm[i];
  for(i=0;i<27;i++)if(arity==nm[i].arity&&c==nm[i].klass&&!strcmp(name,nm[i].name))return &nm[i];return NULL;}
@@ -162,17 +173,17 @@ static unsigned char tree_assignable(Class *a,Class *b){
  if(a==&nc[2])return b==&nc[2]||b==&nc[4];
  if(a==&nc[3])return b==&nc[3]||b==&nc[5];return 0;}
 static int modal_count;static Object countbox={NULL,0};
-static void *tree_unbox(Object *o){if(o==&pbox)return &pnumber;if(o&&o->klass==&pc[19])return ((char *)o)+sizeof(void *);return o==&countbox?&modal_count:NULL;}
+static void *tree_unbox(Object *o){if(o==&longbox)return &longnumber;if(o==&pbox)return &pnumber;if(o&&o->klass==&pc[19])return ((char *)o)+sizeof(void *);return o==&countbox?&modal_count:NULL;}
 API unsigned char il2cpp_class_is_valuetype(Class *c){return c==&pc[18]||c==&pc[19];}
 API const char *il2cpp_class_get_name(Class *c){return mode==114&&c==&modal_class?"OtherList":c->name;}
 API const char *il2cpp_class_get_namespace(Class *c){return c->ns;}
-API Image *il2cpp_class_get_image(Class *c){return c==&pc[9]||c==&nc[5]?&profile_image:&images[0];}
+API Image *il2cpp_class_get_image(Class *c){return c==&profile_model?&images[3]:c==&pc[9]||c==&nc[5]?&profile_image:&images[0];}
 API Class *il2cpp_class_get_declaring_type(Class *c){if(mode==161&&c==&pc[10])return NULL;if(c==&pc[19])return &pc[18];if(c>=&pc[10]&&c<=&pc[16])return &pc[2];return NULL;}
 API Class *il2cpp_class_get_parent(Class *c){(void)c;return NULL;}
 API Class *il2cpp_class_get_nested_types(Class *c,void **cursor){uintptr_t i=(uintptr_t)*cursor;if(c!=&pc[2]||i>=(mode==160?6:7))return NULL;*cursor=(void *)(i+1);return &pc[10+i];}
 API Type *il2cpp_method_get_param(Method *m,unsigned int n){if(m==&pm[20])return n==0?&pentry:n==1?&pbool:n==2?&presource:NULL;return n==0?m->param:NULL;}
 API Class *il2cpp_method_get_class(Method *m){return m->klass;}
-API unsigned char il2cpp_type_is_byref(Type *t){return t==&pbyrow||t==&pbyentry||t==&pwrongref;}
+API unsigned char il2cpp_type_is_byref(Type *t){if(t==&tbylong)return 1;return t==&pbyrow||t==&pbyentry||t==&pwrongref;}
 API Class *il2cpp_class_from_type(Type *t){return t->klass;}
 API Method *il2cpp_object_get_virtual_method(Object *o,Method *m){(void)o;virtual_calls++;if(mode==176&&m==&pm[3])return &pm[13];return m;}
 API int fixture_visible_reads(void){return plist_reads;}
@@ -198,9 +209,21 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  if(mode==67&&m->action==15){*exc=&exception;return NULL;}
  switch(m->action){
  case 65:
-  friend_reads++;if(obj!=&puser){selected_wrong++;*exc=&exception;return NULL;}
+  friend_reads++;if(obj!=&model_obj){selected_wrong++;*exc=&exception;return NULL;}
+  if(!pinned(obj))pin_errors++;
   if(mode==218){*exc=&exception;return NULL;}
-  pnumber=mode==211?50:mode==212?0:mode==213?-1:mode==214?1000001:mode==219?(friend_reads==1?49:50):49;return &pbox;
+  longnumber=mode==211?50:mode==212?0:mode==213?-1:mode==214?1000001:mode==219?(friend_reads==1?49:50):mode==221?INT64_C(4294967393):mode==222?INT64_MAX:mode==235?(-INT64_C(4294967296)+97):mode==210?49:97;return &longbox;
+ case 66:
+  model_reads++;
+  if(obj!=&pcontent){selected_wrong++;*exc=&exception;return NULL;}
+  if(mode==224&&model_reads==1)return NULL;
+  if(mode==226)return &potheruser;
+  return mode==223&&friend_reads?&other_model:&model_obj;
+ case 67:
+  actual_reads++;
+  if(mode==239){*exc=&exception;return NULL;}
+  if(obj!=&model_obj){selected_wrong++;*exc=&exception;return NULL;}
+  pnumber=mode==227||(mode==225&&actual_reads==1)||(mode==231&&friend_reads)?0:1;return &pbox;
  case 62:return mode==182?NULL:&pentrylist;
  case 63:pnumber=1;return &pbox;
  case 64:if(!args||!args[0]||*(int *)args[0]!=0){selected_wrong++;*exc=&exception;return NULL;}entry_reads++;return mode==153?&other:mode==188||(mode==183&&entry_reads==1)?&ppromoentry:&pentryobj;

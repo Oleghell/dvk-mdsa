@@ -37,9 +37,9 @@ class ProfileSchema(unittest.TestCase):
         for error in ('selection-limit','selection-changed'):
             x=ready_profile();x['navigation'].update(stage='navigation-stopped',error=error);p.validate(x)
     def test_source_without_sensitive_or_generic_actions(self):
-        for name in ('get_Text','get_Name','get_Id','get_Profile','set_Text','OnFriendButtonClick','OnYouSuperPressed','SendMessage','input tap','NativeCallback','Interceptor.replace','Memory.scan','OnTouchesEnded','rpc.exports'):
+        for name in ('get_Text','get_Name','get_Id','set_Text','OnFriendButtonClick','OnYouSuperPressed','SendMessage','input tap','NativeCallback','Interceptor.replace','Memory.scan','OnTouchesEnded','rpc.exports'):
             self.assertNotIn(name,p.FUNCTION)
-        for name in ('get_VisibleCells','IsPromoEntry','get_IsCurrentUser','get_CurrentProfileController','get_Subviews','get_Entry','get_AvatarView','OnUserSelected','OnCloseRequested','class_get_nested_types','selected.entry,promotion,selected.avatar'):
+        for name in ('get_Profile','get_FriendsCount','get_IsActual','readS64','get_VisibleCells','IsPromoEntry','get_IsCurrentUser','get_CurrentProfileController','get_Subviews','get_Entry','get_AvatarView','OnUserSelected','OnCloseRequested','class_get_nested_types','selected.entry,promotion,selected.avatar'):
             self.assertIn(name,p.FUNCTION)
     def test_no_guessed_offsets_and_closed_receiver_types(self):
         self.assertNotIn('.add(0x',p.FUNCTION)
@@ -115,32 +115,44 @@ class ProfileSchema(unittest.TestCase):
         self.assertEqual(p.ACTION_DELAY_MS,1000)
         self.assertIn('navState.nextActionAt=Date.now()+1000',p.FUNCTION)
         self.assertIn('if(Date.now()<navState.nextActionAt)return;',p.FUNCTION)
-        self.assertEqual(p.FUNCTION.count('state.nextActionAt=Date.now()+1000'),2)
+        self.assertEqual(p.FUNCTION.count('state.nextActionAt=Date.now()+1000'),3)
         self.assertNotIn('Thread.Sleep',p.FUNCTION)
         self.assertNotIn('while(Date.now()',p.FUNCTION)
         for delay in (True,999,1000.0,None):
             value=ready_profile();value['navigation']['action_delay_ms']=delay
             with self.assertRaises(ValueError):p.validate(value)
     def test_friends_threshold_and_unknown(self):
-        for count in (0,49,50,1000000):
-            value=ready_profile();value['navigation'].update(friends_source='get_FriendsCount',friends_status='read',friends_count=count,friends_eligible=count<50)
+        for count in (0,49,50,97,1000000):
+            value=ready_profile();value['navigation'].update(friends_source='Profile.get_FriendsCount',friends_status='read',friends_count=count,friends_eligible=count<50)
             p.validate(value)
         for updates in (
             {'friends_count':0}, {'friends_eligible':False}, {'friends_source':'private-name'},
             {'friends_source':[]}, {'friends_status':[]},
-            {'friends_source':'get_FriendsCount','friends_status':'read','friends_count':True,'friends_eligible':True},
-            {'friends_source':'get_FriendsCount','friends_status':'read','friends_count':50,'friends_eligible':True},
+            {'friends_source':'Profile.get_FriendsCount','friends_status':'read','friends_count':True,'friends_eligible':True},
+            {'friends_source':'Profile.get_FriendsCount','friends_status':'read','friends_count':50,'friends_eligible':True},
             {'friends_source':'not-found','friends_status':'read','friends_count':0,'friends_eligible':True},
             {'friends_status':'not-read'},
         ):
             value=ready_profile();value['navigation'].update(updates)
             with self.assertRaises(ValueError):p.validate(value)
 
+    def test_confirmed_profile_source_uses_signed_int64(self):
+        self.assertIn("model=checked(s.content,'get_Profile',18,s.profileModel)",p.FUNCTION)
+        self.assertIn("count=checked(s.profileModel,'get_FriendsCount',10)",p.FUNCTION)
+        self.assertIn("actual=checked(s.profileModel,'get_IsActual',2)",p.FUNCTION)
+        self.assertIn('first.compare(1000000)>0',p.FUNCTION)
+        self.assertIn('!call(s.contentProfile,content).equals(model)',p.FUNCTION)
+        self.assertNotIn("checked(s.user,'get_FriendsCount'",p.FUNCTION)
+        self.assertNotIn('get_FriendCount',p.FUNCTION)
+        for source in ('get_FriendsCount','get_FriendCount'):
+            value=ready_profile();value['navigation'].update(friends_source=source,friends_status='read',friends_count=97,friends_eligible=False)
+            with self.assertRaises(ValueError):p.validate(value)
+
 class ProfileTransport(unittest.TestCase):
     def test_fixed_profile_script_and_cleanup(self):
         f=ProfileFake();result=d.inspect_gadget(37149,'a'*64,lambda:False,frida_api=f,profile_probe=True)
         self.assertEqual(result['stage'],'navigation-ready');self.assertTrue(result['rpc_root_ok'])
-        self.assertEqual(f.script_name,'dvk-uikit-profile-navigation-0.3.10')
+        self.assertEqual(f.script_name,'dvk-uikit-profile-navigation-0.3.11')
         self.assertIn('rpc.exports.cancel',f.script_source);self.assertNotIn('rpc.exports.click',f.script_source)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
     def test_no_retry_after_possible_profile_action(self):
@@ -166,7 +178,7 @@ class ProfileTransport(unittest.TestCase):
                 folder=Path(temp)/'test-apks';folder.mkdir();old=folder.parent/'rootless-navigation-0.2.3.json';old.write_text('keep')
                 with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                     result,path=d.diagnose(Adb(),folder,inspector=lambda *a:gadget,profile_probe=True)
-                self.assertEqual(path.name,'rootless-profile-navigation-0.3.10.json');self.assertEqual(old.read_text(),'keep')
+                self.assertEqual(path.name,'rootless-profile-navigation-0.3.11.json');self.assertEqual(old.read_text(),'keep')
                 self.assertEqual(result['mode'],'uikit-search-profile-return');self.assertEqual(result['profile_may_remain_open'],not success)
                 self.assertNotIn('filters_may_remain_open',result)
                 self.assertEqual(result['target'],'127.0.0.1:5563');self.assertEqual(result['working_instance'],'127.0.0.1:5555')

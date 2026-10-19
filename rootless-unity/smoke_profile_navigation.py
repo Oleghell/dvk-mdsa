@@ -37,9 +37,11 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         if mode in (202,203,207):expected[mode]='navigation-ready'
         if mode in (204,205):expected[mode]='selection-unavailable'
         if mode==206:expected[mode]='selection-changed'
-        if mode in range(210,218) or mode==219:expected[mode]='navigation-ready'
+        if mode in range(210,218) or mode==219 or mode in (221,222,224,225,228,229,230,232,233,234,235,236,237,238,240):expected[mode]='navigation-ready'
         if mode==218:expected[mode]='managed-exception'
-        if mode==220:expected[mode]='identity-changed'
+        if mode in (220,223,231):expected[mode]='identity-changed'
+        if mode==226:expected[mode]='unexpected-object'
+        if mode==239:expected[mode]='managed-exception'
         if mode in (208,209):expected[mode]='cancelled'
         if mode in expected:assert actual==expected[mode],(mode,n,c,value['stage'])
         else:assert actual in ('frame-limit','call-limit','transition-timeout'),(mode,n,c)
@@ -73,14 +75,14 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         if c['opens']:assert c['opened_ms']>=1000,(mode,c)
         if c['closes']:assert c['closed_ms']-c['opened_ms']>=1000,(mode,c)
         if actual=='navigation-ready':assert c['elapsed_ms']-c['closed_ms']>=1000,(mode,c)
-        if mode in (210,211,212,217):
-            count={210:49,211:50,212:0,217:49}[mode]
+        if mode in (210,211,212,217,224,225):
+            count={210:49,211:50,212:0,217:97,224:97,225:97}[mode]
             assert n['friends_status']=='read' and n['friends_count']==count and n['friends_eligible']==(count<50) and c['friend_reads']==2,(mode,n,c)
-        if mode in (213,214,219):assert n['friends_status']=='invalid' and n['friends_count'] is None and n['friends_eligible'] is None,(mode,n)
-        if mode in (215,216):assert n['friends_status']=='unavailable' and c['friend_reads']==0,(mode,n,c)
+        if mode in (213,214,219,221,222,235):assert n['friends_status']=='invalid' and n['friends_count'] is None and n['friends_eligible'] is None,(mode,n)
+        if mode in (215,216,228,229,230,232,233,234,236,237,238,240):assert n['friends_status']=='unavailable' and c['friend_reads']==0,(mode,n,c)
         if mode==220:assert n['friends_status']=='not-read' and n['friends_count'] is None and n['friends_eligible'] is None,n
         if mode==215:assert n['friends_source']=='signature-unsupported',n
-        if mode==216:assert n['friends_source']=='ambiguous',n
+        if mode in (216,230,234,240):assert n['friends_source']=='not-found',n
         assert not any(s in json.dumps(value) for s in ('0x','private-text','token'))
         print('Synthetic profile',mode,actual,({'peak_temporary':n['temporary_handles_peak'],'allocated':n['handles_acquired'],'released':n['handles_released'],'calls':n['managed_calls']} if mode>=190 else ''),flush=True)
     finally:
@@ -97,5 +99,5 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         child.stdout.close();child.stderr.close()
 
 if __name__=='__main__':
-    for mode in list(range(130,160))+list(range(170,210))+list(range(210,221)):one(Path(sys.argv[1]).resolve(strict=True),mode)
+    for mode in list(range(130,160))+list(range(170,210))+list(range(210,241)):one(Path(sys.argv[1]).resolve(strict=True),mode)
     print('Synthetic profile ABI passed; live MuMu profile workflow NOT yet tested.')

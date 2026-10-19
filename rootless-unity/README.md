@@ -1,5 +1,9 @@
 # Current test: semantic navigation 0.2.2
 
+## 0.3.11 — настоящий счётчик Profile.get_FriendsCount
+
+[Запуск](PROFILE-NAVIGATION-0.3.11.md). Исправлена модель и тип: ProfileViewController.get_Profile() → DV.Models.Profile.get_FriendsCount(): System.Int64. Для теста нажми «Проверить профиль» из загруженного поиска #4, а не «Найти счётчик». Без сообщений; паузы 1 с сохранены. Проверка на твоём Android ещё требуется.
+
 ## 0.3.10 — модель профиля без прежней обрезки
 
 [Запуск](PROFILE-NAVIGATION-0.3.10.md). «Найти счётчик» теперь раскрывает объявленные типы get_Profile / m_Profile / m_StatsMarker и их count/stat/friend-связи. Общие группы расширены до 1024 записей: найденные в 0.3.9 639 методов и 323 поля помещаются полностью. Сам счётчик в приложении ещё не исправлен.
