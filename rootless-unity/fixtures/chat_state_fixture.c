@@ -124,15 +124,18 @@ API int fixture_state_reads(void){return state_reads;}
 API int fixture_bad_receiver(void){return bad_receiver;}
 API int fixture_sample_frames(void){return sample_frames;}
 static Class greeting_string_class={"System","String"};
-static Object greeting_string={&greeting_string_class,0};static int greeting_sends,greeting_bad;
+static Object greeting_string={&greeting_string_class,0};static int greeting_sends,greeting_bad,greeting_variant=-1;
 static Type greeting_string_type={14,&greeting_string_class};
 static Method greeting_send={"DV.Messages.BottomBarView.IDelegate.OnSendText",&nc[5],64,&tvoid,60,1,&greeting_string_type};
 static Method greeting_input={"get_IsInputEnabled",&cc[1],0,&tbool,61};
 static Method *greeting_method(Class *k,const char *name,int arity){
  if(k==&nc[5]&&arity==1&&!strcmp(name,greeting_send.name)){if(mode==405)return NULL;greeting_send.flags=mode==407?16:64;greeting_string_type.kind=mode==406?8:14;return &greeting_send;}
  if(k==&cc[1]&&arity==0&&!strcmp(name,greeting_input.name))return &greeting_input;return NULL;}
-API Object *il2cpp_string_new(const char *text){if(!text||strcmp(text,"\xd0\x9f\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5\xd1\x82 \xf0\x9f\x99\x82"))greeting_bad++;return mode==404?NULL:&greeting_string;}
+#include "greetings_fixture.h"
+API Object *il2cpp_string_new(const char *text){int i,found=0;for(i=0;i<30;i++)if(text&&!strcmp(text,fixture_greetings[i])){found=1;greeting_variant=i;}if(!found)greeting_bad++;return mode==404?NULL:&greeting_string;}
+
 API int fixture_greeting_sends(void){return greeting_sends;}
+API int fixture_greeting_variant(void){return greeting_variant;}
 API int fixture_greeting_bad(void){return greeting_bad;}
 static int last_action;
 API int fixture_last_action(void){return last_action;}

@@ -1,9 +1,10 @@
 """One fixed greeting in the currently visible, twice-verified empty dialog."""
 import copy,json
 import chat_state_probe as state
+from greetings import GREETINGS,get_greeting,choose_index
 from uikit_profile_navigation import replace_once
-VERSION='0.3.20'
-GREETING='Привет 🙂'
+VERSION='0.3.21'
+GREETING=GREETINGS[0]
 ERRORS=state.ERRORS|{'chat-not-empty','input-disabled','send-already-attempted'}
 SEND_SETUP=r"""
   const send=f.method(s.filters,Memory.allocUtf8String('DV.Messages.BottomBarView.IDelegate.OnSendText'),1),bits=Memory.alloc(4);bits.writeU32(0);
@@ -25,22 +26,27 @@ SEND=r"""
    greetingAttempted=true;n.send_attempted=true;n.app_actions_attempted=true;n.messages_sent=null;
    call(s.send,current,args);n.send_handler_returned=true;
 """
-def build():
+def build(greeting_index=0):
+    greeting=get_greeting(greeting_index)
     s=state.FUNCTION
     s=replace_once(s,"  n.metadata_checkpoint='ready';return s;",SEND_SETUP+"  n.metadata_checkpoint='ready';return s;")
-    s=replace_once(s,'app_actions_attempted:false,messages_sent:0','app_actions_attempted:false,messages_sent:0,send_attempted:false,send_handler_returned:false')
+    s=replace_once(s,'app_actions_attempted:false,messages_sent:0','app_actions_attempted:false,messages_sent:0,send_attempted:false,send_handler_returned:false,greeting_variant:'+str(greeting_index))
     s=replace_once(s,"action_backend:'read-only-chat-state'","action_backend:'one-greeting-handler'")
     s=replace_once(s,'if(entry.arity===1){',"if(entry.arity===1&&entry.kind!==1){")
     s=replace_once(s,'   const flags2=Memory.alloc(4);',"   if(entry.arity===1&&entry.kind===1){const p=f.param(m,0);if(p.isNull()||f.typeKind(p)!==14||f.byref(p))fail('signature-mismatch');}\n   const flags2=Memory.alloc(4);")
-    s=replace_once(s,"   n.read_checkpoint='complete';n.samples=2;",SEND.replace('__GREETING__',json.dumps(GREETING))+"   n.read_checkpoint='complete';n.samples=2;")
+    s=replace_once(s,"   n.read_checkpoint='complete';n.samples=2;",SEND.replace('__GREETING__',json.dumps(greeting))+"   n.read_checkpoint='complete';n.samples=2;")
     s=replace_once(s,"classParent:bind('class_get_parent','pointer',['pointer'])","classParent:bind('class_get_parent','pointer',['pointer']),newString:bind('string_new','pointer',['pointer'])")
     # Extend the checked export inventory; do not introduce a generic execution RPC.
     s=replace_once(s,'"il2cpp_class_get_parent"]','"il2cpp_class_get_parent", "il2cpp_string_new"]')
     s=replace_once(s,json.dumps(sorted(state.ERRORS)),json.dumps(sorted(ERRORS)))
     return 'let greetingAttempted=false;\n'+s
+def build_random():
+    return build(choose_index())
+
 FUNCTION=build()
 def validate(value):
     v=copy.deepcopy(value);n=v.get('navigation',{})
+    get_greeting(n.pop('greeting_variant',None))
     attempted=n.pop('send_attempted',None);returned=n.pop('send_handler_returned',None)
     if type(attempted) is not bool or type(returned) is not bool or (returned and not attempted):raise ValueError('Invalid send state')
     if n.get('action_backend')!='one-greeting-handler' or n.get('app_actions_attempted') is not attempted:raise ValueError('Invalid send backend')

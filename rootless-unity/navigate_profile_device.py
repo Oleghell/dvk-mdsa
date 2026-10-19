@@ -52,7 +52,7 @@ def result_status(result):
 def launch_gui(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг · 0.3.20')
+    root=tk.Tk();root.title('ДругВокруг · 0.3.21')
     root.geometry('640x300');root.minsize(620,300)
     main=ttk.Frame(root,padding=14);main.pack(fill='both',expand=True)
     ttk.Label(main,text='MuMu #4 · профиль и друзья',font=('Segoe UI',11,'bold')).pack(anchor='w')
@@ -107,7 +107,7 @@ def launch_gui(self_check=False):
         try:os.startfile(str(report))
         except (AttributeError,OSError):messagebox.showinfo('Отчёт',str(report))
     send_row=ttk.Frame(main);send_row.pack(fill='x',pady=(2,6))
-    send_button=ttk.Button(send_row,text='Отправить «Привет 🙂» — один раз',command=lambda:start('chat-send'));send_button.pack(side='left')
+    send_button=ttk.Button(send_row,text='Случайное приветствие — один раз',command=lambda:start('chat-send'));send_button.pack(side='left')
     diagnostics_row=ttk.Frame(main);diagnostics_row.pack(fill='x',pady=(2,6))
     chat_button=ttk.Button(diagnostics_row,text='Проверить чат',command=lambda:start('chat-state'));chat_button.pack(side='left',padx=(0,8))
     runtime_button=ttk.Button(diagnostics_row,text='Типы чата',command=lambda:start('chat-runtime'));runtime_button.pack(side='left',padx=(0,8))
@@ -143,10 +143,10 @@ def launch_gui(self_check=False):
         import frida
         from profile_batch import FUNCTION
         import friends_catalog,chat_catalog,chat_runtime_metadata,chat_state_probe,chat_send_probe
-        assert chat_state_probe.VERSION=='0.3.20'
-        assert chat_runtime_metadata.VERSION=='0.3.20'
-        assert chat_catalog.VERSION=='0.3.20'
-        assert friends_catalog.VERSION=='0.3.20'
+        assert chat_state_probe.VERSION=='0.3.21'
+        assert chat_runtime_metadata.VERSION=='0.3.21'
+        assert chat_catalog.VERSION=='0.3.21'
+        assert friends_catalog.VERSION=='0.3.21'
         assert frida.__version__=='17.24.1' and 'OnUserSelected' in FUNCTION
         root.destroy();return
     root.after(100,poll);root.mainloop()

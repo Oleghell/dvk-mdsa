@@ -6,12 +6,12 @@ import diagnose_device as d
 from test_chat_state_probe import ready,ChatFake
 
 def result(attempted=True,returned=True):
-    r=ready();n=r['navigation'];n.update(action_backend='one-greeting-handler',send_attempted=attempted,send_handler_returned=returned,app_actions_attempted=attempted,messages_sent=None if attempted else 0)
+    r=ready();n=r['navigation'];n.update(greeting_variant=0,action_backend='one-greeting-handler',send_attempted=attempted,send_handler_returned=returned,app_actions_attempted=attempted,messages_sent=None if attempted else 0)
     return r
 class GreetingTests(unittest.TestCase):
     def test_submission_is_not_delivery(self):p.validate(result())
     def test_invalid_submission_flags(self):
-        for key,value in [('messages_sent',1),('messages_sent',0),('send_attempted',False),('send_handler_returned',False),('app_actions_attempted',False),('history_status','not-empty')]:
+        for key,value in [('greeting_variant',30),('greeting_variant',True),('greeting_variant',None),('messages_sent',1),('messages_sent',0),('send_attempted',False),('send_handler_returned',False),('app_actions_attempted',False),('history_status','not-empty')]:
             r=result();r['navigation'][key]=value
             with self.assertRaises(ValueError,msg=key):p.validate(r)
     def test_no_attempt_unknown_is_accepted(self):
