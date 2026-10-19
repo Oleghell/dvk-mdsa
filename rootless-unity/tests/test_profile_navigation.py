@@ -12,7 +12,7 @@ from test_uikit_root import ready_uikit
 def ready_profile():
     value=ready_navigation();n=value['navigation']
     for old,new in [('filters_verified','profile_verified'),('cancel_attempted','close_attempted'),('cancel_completed','close_completed')]:n[new]=n.pop(old)
-    n.update(selection_check='selected',selection_retries=0,metadata_checkpoint='ready',selection_status='selected',target_user_verified=True,profile_content_verified=True)
+    n.update(temporary_handles_peak=20,selection_check='selected',selection_retries=0,metadata_checkpoint='ready',selection_status='selected',target_user_verified=True,profile_content_verified=True)
     return value
 
 class ProfileFake(FakeFrida):
@@ -65,19 +65,27 @@ class ProfileSchema(unittest.TestCase):
 
     def test_promotion_checked_before_membership_and_again_before_open(self):
         source=p.TICK
-        self.assertLess(source.index("if(promoted(record,entry))continue"),source.index('call(s.recordEntries,record)'))
+        self.assertLess(source.index("if(promoted(record,entry))return null"),source.index('call(s.recordEntries,record)'))
         self.assertIn("promotion-stability';if(promoted(record,entry))",source)
         self.assertIn("n.phase==='search'&&!n.open_attempted&&n.selection_retries<2",p.FUNCTION)
     def test_selection_report_is_closed_and_bounded(self):
-        for k,v in [('selection_check','private-user'),('selection_retries',True),('selection_retries',3),('selection_retries',-1)]:
+        for k,v in [('selection_check','private-user'),('selection_retries',True),('selection_retries',3),('selection_retries',-1),('temporary_handles_peak',65),('temporary_handles_peak',True),('temporary_handles_peak',-1),('handles_acquired',None),('handles_acquired',0)]:
             x=ready_profile();x['navigation'][k]=v
             with self.assertRaises(ValueError):p.validate(x)
+
+    def test_scopes_transfer_pinned_handles_and_keep_limit(self):
+        for fragment in ('scopes[scopes.length-1].push({key,h})','held.length>=64||n.handles_acquired>=180*64',
+                         "heldByObject.delete(key)","if(broken)fail('cleanup-failed')",'return escaping({entry,user,avatar})',
+                         'const attached=(view,required)=>scoped','const childViews=view=>scoped',
+                         'const selected=scoped','const candidate=scoped','visited+queue.length+children.length>16'):
+            self.assertIn(fragment,p.FUNCTION)
+        self.assertNotIn('held.length>=128',p.FUNCTION)
 
 class ProfileTransport(unittest.TestCase):
     def test_fixed_profile_script_and_cleanup(self):
         f=ProfileFake();result=d.inspect_gadget(37149,'a'*64,lambda:False,frida_api=f,profile_probe=True)
         self.assertEqual(result['stage'],'navigation-ready');self.assertTrue(result['rpc_root_ok'])
-        self.assertEqual(f.script_name,'dvk-uikit-profile-navigation-0.3.3')
+        self.assertEqual(f.script_name,'dvk-uikit-profile-navigation-0.3.4')
         self.assertIn('rpc.exports.cancel',f.script_source);self.assertNotIn('rpc.exports.click',f.script_source)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
     def test_no_retry_after_possible_profile_action(self):
@@ -103,7 +111,7 @@ class ProfileTransport(unittest.TestCase):
                 folder=Path(temp)/'test-apks';folder.mkdir();old=folder.parent/'rootless-navigation-0.2.3.json';old.write_text('keep')
                 with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                     result,path=d.diagnose(Adb(),folder,inspector=lambda *a:gadget,profile_probe=True)
-                self.assertEqual(path.name,'rootless-profile-navigation-0.3.3.json');self.assertEqual(old.read_text(),'keep')
+                self.assertEqual(path.name,'rootless-profile-navigation-0.3.4.json');self.assertEqual(old.read_text(),'keep')
                 self.assertEqual(result['mode'],'uikit-search-profile-return');self.assertEqual(result['profile_may_remain_open'],not success)
                 self.assertNotIn('filters_may_remain_open',result)
                 self.assertEqual(result['target'],'127.0.0.1:5563');self.assertEqual(result['working_instance'],'127.0.0.1:5555')

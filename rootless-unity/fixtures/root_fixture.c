@@ -53,13 +53,14 @@ static void *tree_unbox(Object *);
 #define HANDLE_COUNT 2
 #endif
 static Handle handles[HANDLE_COUNT];
-static int domain,thread,exception,mode,attached,managed_calls,off_thread_calls,live_handles,bad_frees;
-API void fixture_init(int m) { mode=m;main_id=TID();attached=1;managed_calls=off_thread_calls=live_handles=bad_frees=0;{int i;for(i=0;i<HANDLE_COUNT;i++)handles[i].live=0;}
+static int domain,thread,exception,mode,attached,managed_calls,off_thread_calls,live_handles,bad_frees,peak_handles;
+API void fixture_init(int m) { mode=m;main_id=TID();attached=1;managed_calls=off_thread_calls=live_handles=bad_frees=peak_handles=0;{int i;for(i=0;i<HANDLE_COUNT;i++)handles[i].live=0;}
 #ifdef TREE_FIXTURE
  tree_init(m);
 #endif
 if(m==6)methods[0].type=&tclass;if(m==8)runtime.klass=&classes[1]; }
 API int fixture_handles(void) {return live_handles;}
+API int fixture_peak_handles(void) {return peak_handles;}
 API int fixture_bad_frees(void) {return bad_frees;}
 API int fixture_high_handles(void) {return ((uintptr_t)&handles[0]>>32)!=0;}
 API int fixture_calls(void) {return managed_calls;}
@@ -104,7 +105,7 @@ API unsigned char il2cpp_class_is_assignable_from(Class *a,Class *b) {
  return a==b;}
 /* Unity 6 API: typedef void* Il2CppGCHandle. Preserve all pointer bits. */
 API void *il2cpp_gchandle_new(Object *o,unsigned char pin) {
- int i;(void)pin;for(i=0;i<HANDLE_COUNT;i++)if(!handles[i].live){handles[i].live=1;handles[i].target=o;live_handles++;return &handles[i];}return NULL;
+ int i;(void)pin;for(i=0;i<HANDLE_COUNT;i++)if(!handles[i].live){handles[i].live=1;handles[i].target=o;live_handles++;if(live_handles>peak_handles)peak_handles=live_handles;return &handles[i];}return NULL;
 }
 API Object *il2cpp_gchandle_get_target(Handle *h) {return h&&h->live?h->target:NULL;}
 API void il2cpp_gchandle_free(void *h) {
