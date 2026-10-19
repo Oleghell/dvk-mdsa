@@ -4,7 +4,8 @@ import queue
 import sys
 import threading
 
-from diagnose_device import DiagnosticAdb, diagnose
+from diagnose_device import diagnose
+from target_only import TargetOnlyAdb
 from reply_contract import VERSION
 
 DEFAULT_ADB = 'C:/Users/XXX/Desktop/platform-tools/adb.exe'
@@ -22,8 +23,8 @@ def result_status(result):
 
 def start(executable, folder, progress=lambda text: None, cancelled=lambda: False):
     folder = Path(folder).resolve(strict=True)
-    return diagnose(DiagnosticAdb(executable, folder), folder, progress, cancelled,
-                    reply_contract_probe=True)
+    return diagnose(TargetOnlyAdb(executable, folder), folder, progress, cancelled,
+                    reply_contract_probe=True, test_only=True)
 
 
 def launch_gui(self_check=False):
@@ -36,7 +37,7 @@ def launch_gui(self_check=False):
     main = ttk.Frame(root, padding=14)
     main.pack(fill='both', expand=True)
     ttk.Label(main, text='Только определения · MuMu #4', font=('Segoe UI', 12, 'bold')).pack(anchor='w')
-    ttk.Label(main, text='Оба MuMu включены; тестовое приложение на #4 уже запущено.\n'
+    ttk.Label(main, text='Нужен только тестовый MuMu #4; приложение в нём уже запущено.\n'
               'Нет чтения переписки, нажатий, отправок, переустановки или изменений журнала.',
               wraplength=620).pack(anchor='w', pady=(6, 12))
     base = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
@@ -111,7 +112,7 @@ def launch_gui(self_check=False):
     stop_button.pack(side='left', padx=8)
     report_button = ttk.Button(row, text='Отчёт', command=open_report, state='disabled')
     report_button.pack(side='left')
-    ttk.Label(main, text='Отчёт: rootless-reply-contract-0.3.28.json рядом с папкой test-apks.',
+    ttk.Label(main, text='Отчёт: rootless-reply-contract-0.3.29.json рядом с папкой test-apks.',
               wraplength=620).pack(anchor='w')
 
     def poll():

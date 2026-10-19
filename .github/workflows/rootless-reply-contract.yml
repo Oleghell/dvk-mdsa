@@ -1,15 +1,16 @@
-name: Build read-only reply contract checker 0.3.28
+name: Build test-only reply contract checker 0.3.29
 "on":
   push:
     branches: [feature/android-ui-hierarchy]
     paths:
       - 'rootless-unity/reply_contract.py'
+      - 'rootless-unity/target_only.py'
       - 'rootless-unity/diagnose_reply_contract.py'
       - 'rootless-unity/diagnose_device.py'
       - 'rootless-unity/fixtures/reply_contract_fixture.c'
       - 'rootless-unity/smoke_reply_contract.py'
       - 'rootless-unity/tests/**'
-      - 'rootless-unity/REPLY-CONTRACT-0.3.28.md'
+      - 'rootless-unity/REPLY-CONTRACT-0.3.29.md'
       - '.github/workflows/rootless-reply-contract.yml'
   workflow_dispatch:
 permissions:
@@ -62,31 +63,31 @@ jobs:
       - name: Install pinned packaging dependencies
         run: python -m pip install frida==17.24.1 pyinstaller==6.16.0
       - name: Build separate definition-only executable
-        run: python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-reply-contract --distpath out/Dvk-reply-contract-0.3.28-windows-x64 rootless-unity/diagnose_reply_contract.py
+        run: python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-reply-contract --distpath out/Dvk-reply-contract-0.3.29-windows-x64 rootless-unity/diagnose_reply_contract.py
       - name: Verify packaged GUI starts and exits without ADB or accounts
         shell: powershell
         run: |
-          $app=Start-Process -FilePath out/Dvk-reply-contract-0.3.28-windows-x64/Dvk-reply-contract.exe -ArgumentList '--self-check' -PassThru
+          $app=Start-Process -FilePath out/Dvk-reply-contract-0.3.29-windows-x64/Dvk-reply-contract.exe -ArgumentList '--self-check' -PassThru
           if (-not $app.WaitForExit(45000)) {$app.Kill(); throw 'Packaged GUI self-check timed out'}
           if ($app.ExitCode -ne 0) {throw "Packaged GUI self-check failed: $($app.ExitCode)"}
       - name: Package only tool, instructions and checksum manifest
         shell: powershell
         run: |
-          $root='out/Dvk-reply-contract-0.3.28-windows-x64'
-          Copy-Item rootless-unity/REPLY-CONTRACT-0.3.28.md "$root/README.md"
+          $root='out/Dvk-reply-contract-0.3.29-windows-x64'
+          Copy-Item rootless-unity/REPLY-CONTRACT-0.3.29.md "$root/README.md"
           $exe=Get-Item "$root/Dvk-reply-contract.exe"
-          @{source_commit=$env:GITHUB_SHA;definition_only=$true;live_replies_available=$false;frida='17.24.1';pyinstaller='6.16.0';sha256=(Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
+          @{source_commit=$env:GITHUB_SHA;definition_only=$true;device_scope='test-only';live_replies_available=$false;frida='17.24.1';pyinstaller='6.16.0';sha256=(Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
           $files=@(Get-ChildItem $root -File | Select-Object -ExpandProperty Name | Sort-Object)
           if (($files -join ',') -ne 'build-manifest.json,Dvk-reply-contract.exe,README.md') {throw 'Unexpected package files'}
       - uses: actions/upload-artifact@v4
         with:
-          name: Dvk-reply-contract-0.3.28-windows-x64
-          path: out/Dvk-reply-contract-0.3.28-windows-x64/
+          name: Dvk-reply-contract-0.3.29-windows-x64
+          path: out/Dvk-reply-contract-0.3.29-windows-x64/
           if-no-files-found: error
           retention-days: 14
   publish:
     needs: [test, windows]
-    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release rootless reply contract 0.3.28') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release rootless reply contract 0.3.29') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -97,13 +98,13 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: Dvk-reply-contract-0.3.28-windows-x64
-          path: release/Dvk-reply-contract-0.3.28-windows-x64
+          name: Dvk-reply-contract-0.3.29-windows-x64
+          path: release/Dvk-reply-contract-0.3.29-windows-x64
       - name: Publish separate diagnostic prerelease without APKs, journals or credentials
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd release
-          zip -r Dvk-reply-contract-0.3.28-windows-x64.zip Dvk-reply-contract-0.3.28-windows-x64
-          sha256sum Dvk-reply-contract-0.3.28-windows-x64.zip > SHA256SUMS.txt
-          gh release create rootless-reply-contract-v0.3.28 Dvk-reply-contract-0.3.28-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Read-only reply contract check 0.3.28 — definitions only" --notes-file ../rootless-unity/REPLY-CONTRACT-0.3.28.md
+          zip -r Dvk-reply-contract-0.3.29-windows-x64.zip Dvk-reply-contract-0.3.29-windows-x64
+          sha256sum Dvk-reply-contract-0.3.29-windows-x64.zip > SHA256SUMS.txt
+          gh release create rootless-reply-contract-v0.3.29 Dvk-reply-contract-0.3.29-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Test-only reply contract check 0.3.29 — no working MuMu required" --notes-file ../rootless-unity/REPLY-CONTRACT-0.3.29.md

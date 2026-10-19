@@ -5,7 +5,7 @@ inventory. A ready result proves signatures only, never history order or deliver
 """
 import json
 
-VERSION = '0.3.28'
+VERSION = '0.3.29'
 ROOTS = [
     ('controller', 'DV.Messages.dll', 'DV.Messages', 'MessagesViewController'),
     ('chat', 'DV.Messages.dll', 'DV.Messages', 'Chat'),

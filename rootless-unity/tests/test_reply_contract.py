@@ -124,7 +124,7 @@ class Contract(unittest.TestCase):
         fake = Fake()
         report = d.inspect_gadget(37149, 'a'*64, lambda: False, frida_api=fake, reply_contract_probe=True)
         self.assertEqual(report['stage'], 'contract-ready')
-        self.assertEqual(fake.script_name, 'dvk-reply-contract-0.3.28')
+        self.assertEqual(fake.script_name, 'dvk-reply-contract-0.3.29')
         self.assertNotIn('rpc.exports.root', fake.script_source)
         self.assertNotIn('rpc.exports.cancel', fake.script_source)
         self.assertNotIn('Interceptor', fake.script_source)
@@ -154,8 +154,8 @@ class Contract(unittest.TestCase):
                  patch.object(d, 'preflight', return_value=('PRIVATE1', 'PRIVATE2')), patch.object(d, 'recheck'):
                 report, path = d.diagnose(Adb(), folder, reply_contract_probe=True,
                     inspector=lambda *args: dict(stage='contract-ready', native_metadata=ready()))
-            self.assertEqual(path.name, 'rootless-reply-contract-0.3.28.json')
-            self.assertEqual(report['tool_version'], '0.3.28')
+            self.assertEqual(path.name, 'rootless-reply-contract-0.3.29.json')
+            self.assertEqual(report['tool_version'], '0.3.29')
             self.assertEqual(report['mode'], 'targeted-reply-contract-definitions')
             for k in ('method_values_read', 'history_read', 'chat_opened', 'ui_actions_attempted',
                       'ui_actions_performed', 'app_installation_modified', 'working_device_modified'):
@@ -196,10 +196,10 @@ class Contract(unittest.TestCase):
         ttk.Checkbutton.assert_not_called()
 
     def test_gui_worker_only_passes_targeted_mode(self):
-        with tempfile.TemporaryDirectory() as temp, patch.object(gui, 'DiagnosticAdb') as adb, \
+        with tempfile.TemporaryDirectory() as temp, patch.object(gui, 'TargetOnlyAdb') as adb, \
              patch.object(gui, 'diagnose', return_value=('result', 'path')) as run:
             self.assertEqual(gui.start('adb.exe', temp), ('result', 'path'))
-            self.assertEqual(run.call_args.kwargs, {'reply_contract_probe': True})
+            self.assertEqual(run.call_args.kwargs, {'reply_contract_probe': True, 'test_only': True})
 
 
 if __name__ == '__main__':
