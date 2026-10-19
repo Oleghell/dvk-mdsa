@@ -7,9 +7,9 @@ import json
 import uikit_navigation as base
 from uikit_root import APIS as ROOT_APIS
 
-VERSION='0.3.5'
+VERSION='0.3.6'
 MAX_SELECTION_PASSES=3
-SELECTION_COUNTERS={'passes':3,'rows':72,'cells':1152,'cell_unready':1152,'table_missing':3,'table_unready':3,'row_unready':72,'binding_missing':72,'entry_missing':1152,'promoted':1152,'user_missing':1152,'self_user':1152,'avatar_missing':1152,'avatar_unready':1152}
+SELECTION_COUNTERS={'passes':3,'rows':74,'cells':1184,'cell_unready':1184,'table_missing':3,'table_unready':3,'row_unready':74,'binding_missing':74,'entry_missing':1184,'promoted':1184,'user_missing':1184,'self_user':1184,'avatar_missing':1184,'avatar_unready':1184,'avatar_hidden':1184,'avatar_noninteractive':1184}
 METADATA_CHECKPOINTS=('base', 'classes', 'method:avatarUser', 'method:cellAvatar', 'method:cellEntry', 'method:child', 'method:childCount', 'method:children', 'method:contentUser', 'method:currentContent', 'method:entryCount', 'method:entryItem', 'method:entryUser', 'method:enumerator', 'method:next', 'method:open', 'method:profileChecked', 'method:promo', 'method:recordEntries', 'method:rowItems', 'method:scroll', 'method:selfUser', 'method:visible', 'method:visibleCount', 'method:visibleItem', 'nested', 'ready')
 SELECTION_CHECKS={'not-checked','visible-list','row-binding','row-children','cell-entry','promotion','record-items','entry-membership','entry-user','avatar-user','visible-stability','row-stability','cell-stability','items-stability','promotion-stability','selected'}
 EXTRA_APIS=['il2cpp_class_get_nested_types','il2cpp_class_get_declaring_type']
@@ -101,9 +101,10 @@ TICK=r'''
    }
    return result;
   };
-  const attached=(view,required)=>scoped(()=>{
+  const attached=(view,required,needsInteraction=true)=>scoped(()=>{
    if(view.isNull()||!f.assignable(s.view,f.objectClass(view)))fail('unexpected-object');
-   if(bool(s.hidden,view)||!bool(s.interactive,view))return false;
+   if(bool(s.hidden,view)){if(!needsInteraction)n.selection_counts.avatar_hidden++;return false;}
+   const interactive=bool(s.interactive,view);if(!interactive){if(needsInteraction)return false;n.selection_counts.avatar_noninteractive++;}
    let seenRequired=false,cursor=view;const seen=new Set();
    for(let i=0;i<32;i++){
     if(cursor.isNull())return false;own(cursor);const key=cursor.toString();if(seen.has(key))fail('view-parent-cycle');seen.add(key);
@@ -132,16 +133,17 @@ TICK=r'''
    if(result!==0&&result!==1)fail('signature-mismatch');return result===1;
   };
   const chooseVisibleCandidate=search=>scoped(()=>{
-   if(n.selection_counts.passes>=3)fail('selection-unavailable');n.selection_counts.passes++;
+   if(state.selectionRow===0){if(n.selection_counts.passes>=3)fail('selection-unavailable');n.selection_counts.passes++;}
    n.selection_check='visible-list';n.selection_status='no-visible-row';
-   const table=call(s.scroll,search);if(table.isNull()){n.selection_counts.table_missing++;return null;}own(table);
+   const table=call(s.scroll,search);if(table.isNull()){n.selection_counts.table_missing++;state.selectionRow=0;return null;}own(table);
    if(!f.objectClass(table).equals(s.searchTable))fail('unexpected-object');
-   if(!attached(table,table)){n.selection_counts.table_unready++;return null;}
-   const visible=call(s.visible,table);if(visible.isNull())return null;own(visible);
+   if(!attached(table,table)){n.selection_counts.table_unready++;state.selectionRow=0;return null;}
+   const visible=call(s.visible,table);if(visible.isNull()){state.selectionRow=0;return null;}own(visible);
    if(!f.objectClass(visible).equals(s.visibleClass))fail('unexpected-object');
    const count=integer(s.visibleCount,visible);if(count<0||count>24)fail('selection-limit');
    // Only actual TableView.VisibleCells, never cached users or the whole scene.
-   for(let i=0;i<count;i++){
+   const rowIndex=state.selectionRow;
+   for(let i=rowIndex;i<Math.min(count,rowIndex+1);i++){
     const selected=scoped(()=>{
      n.selection_counts.rows++;const row=indexed(s.visibleItem,visible,i);if(row.isNull())fail('unexpected-object');own(row);
      const ri=s.rows.findIndex(k=>f.objectClass(row).equals(k));if(ri<0)return null;
@@ -164,7 +166,7 @@ TICK=r'''
         if(bool(s.selfUser,user)){n.selection_counts.self_user++;return null;}
         const avatar=call(s.cellAvatar,cell);if(avatar.isNull()){n.selection_counts.avatar_missing++;return null;}own(avatar);
         n.selection_check='avatar-user';if(!call(s.avatarUser,avatar).equals(user))fail('selection-changed');
-        if(!attached(avatar,cell)){n.selection_counts.avatar_unready++;return null;}
+        if(!attached(avatar,cell,false)){n.selection_counts.avatar_unready++;return null;}
         n.selection_check='visible-stability';if(integer(s.visibleCount,visible)!==count||!indexed(s.visibleItem,visible,i).equals(row))fail('selection-changed');
         n.selection_check='row-stability';if(!call(s.rowItems[ri],row).equals(record))fail('selection-changed');
         n.selection_check='cell-stability';if(!call(s.cellEntry,cell).equals(entry)||!call(s.cellAvatar,cell).equals(avatar)||!call(s.entryUser,entry).equals(user))fail('selection-changed');
@@ -181,7 +183,9 @@ TICK=r'''
      return null;
     });
     if(selected!==null)return escaping(selected);
+    state.selectionRow=i+1;
    }
+   if(state.selectionRow>=count)state.selectionRow=0;
    return null;
   });
   const verifyProfile=queue=>{
@@ -213,7 +217,7 @@ def build():
     helpers=replace_once(helpers,"['canClose','card','get_CanBeClosedByUser',2],",'')
     helpers=replace_once(helpers,"['open','search','ShowSearchSettings',1],['cancel','card','DismissWithCancel',1]", "['cancel','profile','DV.Profiles.ProfileViewController.IDelegate.OnCloseRequested',1]")
     helpers=replace_once(helpers,'  return s;\n }','  return prepareProfile(f,s,getClass,get,signature);\n }')
-    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "selection_counts:{passes: 0, rows: 0, cells: 0, cell_unready: 0, table_missing: 0, table_unready: 0, row_unready: 0, binding_missing: 0, entry_missing: 0, promoted: 0, user_missing: 0, self_user: 0, avatar_missing: 0, avatar_unready: 0},temporary_handles_peak:0,metadata_checkpoint:'base',selection_check:'not-checked',selection_retries:0,selection_status:'not-checked',target_user_verified:false,profile_content_verified:false,action_backend:'semantic-controller-handlers',ui_text_read:false")
+    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "selection_counts:{passes: 0, rows: 0, cells: 0, cell_unready: 0, table_missing: 0, table_unready: 0, row_unready: 0, binding_missing: 0, entry_missing: 0, promoted: 0, user_missing: 0, self_user: 0, avatar_missing: 0, avatar_unready: 0, avatar_hidden: 0, avatar_noninteractive: 0},temporary_handles_peak:0,metadata_checkpoint:'base',selection_check:'not-checked',selection_retries:0,selection_status:'not-checked',target_user_verified:false,profile_content_verified:false,action_backend:'semantic-controller-handlers',ui_text_read:false")
     helpers=replace_once(helpers,"if(entry.arity===1){if(!f.classFromType", "if(entry.params){for(let i=0;i<entry.params.length;i++){const t=f.param(m,i),a=entry.params[i];if(t.isNull()||f.byref(t)||f.typeKind(t)!==a.kind||(a.klass&&!f.classFromType(t).equals(a.klass)))fail('signature-mismatch');}if(entry.result&&!f.classFromType(f.returnType(m)).equals(entry.result))fail('signature-mismatch');}\n   else if(entry.arity===1){if(!f.classFromType")
     helpers=replace_once(helpers,"||f.byref(f.returnType(m)))fail('signature-mismatch');","||!!f.byref(f.returnType(m))!==!!entry.byref)fail('signature-mismatch');")
     helpers=replace_once(helpers,'const out=f.invoke(m,obj,params,ex);',"let receiver=obj;if(entry.unboxed){receiver=f.unbox(obj);if(receiver.isNull())fail('signature-mismatch');}\n   const out=f.invoke(m,receiver,params,ex);")
@@ -223,7 +227,7 @@ def build():
     helpers=replace_once(helpers,"if(obj.isNull())fail('unexpected-object');if(held.length>=64)", "if(obj.isNull())fail('unexpected-object');const key=obj.toString();if(heldByObject.has(key))return heldByObject.get(key);if(held.length>=64||n.handles_acquired>=180*64)")
     helpers=replace_once(helpers,'held.push(h);return h;', 'held.push(h);heldByObject.set(key,h);scopes[scopes.length-1].push({key,h});n.temporary_handles_peak=Math.max(n.temporary_handles_peak,held.length);return h;')
     helpers=replace_once(helpers,'  try {\n   const root=',TICK+'\n  try {\n   const root=')
-    helpers=replace_once(helpers,"n.search_verified=true;state.origin=own(current);", "n.search_verified=true;const selected=chooseVisibleCandidate(current);if(selected===null){if(n.selection_counts.passes>=3)fail('selection-unavailable');return;}\n    state.targetUser=own(selected.user);held.splice(held.indexOf(state.targetUser),1);\n    state.origin=own(current);")
+    helpers=replace_once(helpers,"n.search_verified=true;state.origin=own(current);", "n.search_verified=true;const selected=chooseVisibleCandidate(current);if(selected===null){if(n.selection_counts.passes>=3&&state.selectionRow===0)fail('selection-unavailable');return;}\n    state.targetUser=own(selected.user);held.splice(held.indexOf(state.targetUser),1);\n    state.origin=own(current);")
     helpers=replace_once(helpers,'n.open_attempted=true;call(s.open,current);',"const promotion=Memory.alloc(1);promotion.writeU8(0);\n    n.open_attempted=true;call(s.open,current,args([selected.entry,promotion,selected.avatar]));")
     helpers=replace_once(helpers,'n.profile_verified=true;state.card=own(current);','if(!verifyProfile(current))return;\n    n.profile_verified=true;state.card=own(current);')
     helpers=replace_once(helpers,"if(!bool(s.canClose,current))fail('screen-not-ready');",'if(!verifyProfile(current))return;')
@@ -234,7 +238,7 @@ def build():
     result=replace_once(result,json.dumps(ROOT_APIS+base.APIS),json.dumps(ROOT_APIS+base.APIS+EXTRA_APIS))
     result=replace_once(result,"['Core.dll','DV.dll','DV.Search.dll','UIKit.Unity.dll','UnityEngine.CoreModule.dll']", "['Core.dll','DV.dll','DV.Search.dll','DV.Profile.dll','UIKit.Unity.dll','UnityEngine.CoreModule.dll']")
     result=replace_once(result,base.BINDINGS,base.BINDINGS+"\nObject.assign(f,{nested:bind('class_get_nested_types','pointer',['pointer','pointer']),declaring:bind('class_get_declaring_type','pointer',['pointer'])});")
-    result=replace_once(result,'const navState={origin:ptr(0),card:ptr(0),stop:null}', 'const navState={origin:ptr(0),card:ptr(0),content:ptr(0),targetUser:ptr(0),stop:null}')
+    result=replace_once(result,'const navState={origin:ptr(0),card:ptr(0),stop:null}', 'const navState={origin:ptr(0),card:ptr(0),content:ptr(0),targetUser:ptr(0),selectionRow:0,stop:null}')
     return result
 
 FUNCTION=build()
@@ -247,13 +251,16 @@ def validate(value):
     flags={'cleanup_failed','search_verified','profile_verified','return_verified','open_attempted','open_completed','close_attempted','close_completed','ui_text_read'}
     fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','selection_status','target_user_verified','profile_content_verified','metadata_checkpoint','selection_check','selection_retries','temporary_handles_peak','selection_counts'}
     if set(n)!=fields:raise ValueError('Unexpected profile fields')
+    retries=n.get('selection_retries')
+    if type(retries) is not int or not 0<=retries<=2:raise ValueError('Invalid selection retry count')
     counts=n.pop('selection_counts',None)
     if not isinstance(counts,dict) or set(counts)!=set(SELECTION_COUNTERS):raise ValueError('Unexpected selection counters')
     for key,limit in SELECTION_COUNTERS.items():
         if type(counts[key]) is not int or not 0<=counts[key]<=limit:raise ValueError('Invalid selection counter')
-    if counts['rows']>counts['passes']*24 or counts['cells']>counts['rows']*16:raise ValueError('Inconsistent selection counts')
+    if counts['rows']>counts['passes']*24+retries or counts['cells']>counts['rows']*16:raise ValueError('Inconsistent selection counts')
     cell_skips=sum(counts[k] for k in ('cell_unready','entry_missing','promoted','user_missing','self_user','avatar_missing','avatar_unready'))
     if cell_skips>counts['cells']:raise ValueError('Inconsistent selection skips')
+    if counts['avatar_hidden']>counts['cells'] or counts['avatar_noninteractive']>counts['cells']:raise ValueError('Inconsistent avatar counts')
     if counts['table_missing']+counts['table_unready']>counts['passes']:raise ValueError('Inconsistent table counts')
     if counts['row_unready']+counts['binding_missing']>counts['rows']:raise ValueError('Inconsistent row counts')
     if n.get('open_attempted') and counts['passes']==0:raise ValueError('Selection action without scan')

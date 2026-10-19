@@ -68,7 +68,7 @@ static int entry_reads,avatar_reads,promo_reads;
    retention across completed rows. Objects are fixture-owned, no app values. */
 static Object stress_rows[24],stress_wrap[24][2],stress_cells[24],stress_parents[21];
 static int iterator_allocations,pin_errors,blocked,stress_current_row;
-static int stress_mode(void){return mode>=190&&mode<=197;}
+static int stress_mode(void){return (mode>=190&&mode<=197)||mode==207;}
 static int stress_count(void){return mode==191||mode==192?24:8;}
 static int stress_index(void *obj,Object *array,int length){int i;for(i=0;i<length;i++)if(obj==&array[i])return i;return -1;}
 static int pinned(void *obj){int i;for(i=0;i<HANDLE_COUNT;i++)if(handles[i].live&&handles[i].target==obj)return 1;return 0;}
@@ -184,6 +184,13 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 41:return &pvisiblelist;
  case 42:plist_reads++;if(mode==149)slow();pnumber=stress_mode()?stress_count():mode==154?25:mode==132?0:1;return &pbox;
  case 43:
+  if(mode==207){
+#ifdef _WIN32
+   Sleep(20);
+#else
+   struct timespec delay={0,20000000};nanosleep(&delay,NULL);
+#endif
+  }
   if(stress_mode()){int index=args&&args[0]?*(int *)args[0]:-1;if(index<0||index>=stress_count()){selected_wrong++;*exc=&exception;return NULL;}return &stress_rows[index];}
   if(mode==175)return &potheruser;row_reads++;if(mode==157&&row_reads%2==0)return &other;if(mode==185&&row_reads==2)return &preplacementrow;if(!args||!args[0]||*(int *)args[0]!=0){selected_wrong++;*exc=&exception;return NULL;}return &prow;
  case 44:
@@ -213,7 +220,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
   if(obj==&ppromocell)return &ppromoentry;return mode==134?NULL:&pentryobj;
  case 54:return mode==199?NULL:&pavatar;
  case 55:if(mode==198||(mode==202&&entry_reads==1))return NULL;return &puser;
- case 56:avatar_reads++;return mode==135||(mode==184&&avatar_reads==1)?&potheruser:&puser;
+ case 56:avatar_reads++;return mode==135||mode==206||(mode==184&&avatar_reads==1)?&potheruser:&puser;
  case 57:yes=mode==136||(mode==193&&stress_current_row!=stress_count()-1);break;
  case 58:profile_reads++;if(mode==156)return &other;if(mode==137)return NULL;return mode==140&&profile_reads>2?&pothercontent:&pcontent;
  case 59:return mode==138||mode==189?&potheruser:&puser;
@@ -240,13 +247,13 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
    for(j=0;j<24;j++){if(obj==&stress_wrap[j][1])return &stress_wrap[j][0];if(obj==&stress_wrap[j][0])return &stress_rows[j];}
    i=stress_index(obj,stress_parents,21);if(i>=0)return i==20?&ptable:&stress_parents[i+1];
   }
-  if(obj==&ppromocell)return &prow;if(obj==&pavatar)return &pcell;if(obj==&pcell)return &prow;if(obj==&prow)return &ptable;
+  if(obj==&ppromocell)return &prow;if(obj==&pavatar)return mode==205?NULL:&pcell;if(obj==&pcell)return &prow;if(obj==&prow)return &ptable;
   if(obj==&ptable)return &window;
   if(mode==94){if(obj==&view)return &view_chain[0];if((uintptr_t)obj>=(uintptr_t)&view_chain[0]&&(uintptr_t)obj<(uintptr_t)&view_chain[34])return ((Object *)obj)+1;}
   if(mode==95)return obj==&other_window?NULL:&other_window;
   if(mode==68||mode==93)return NULL;if(mode==91)return &view;return &window;
- case 19:hidden_reads++;if(mode==131&&obj==&prow){yes=1;break;}yes=mode==63||(mode==97&&hidden_reads<4);break;
- case 20:yes=mode!=64;break;
+ case 19:if(mode==204&&obj==&pavatar){yes=1;break;}hidden_reads++;if(mode==131&&obj==&prow){yes=1;break;}yes=mode==63||(mode==97&&hidden_reads<4);break;
+ case 20:yes=mode!=64&&!(mode==203&&obj==&pavatar);break;
  case 21:yes=mode!=65;break;
  case 22:opens++;if(mode==79)slow();if(mode==66){*exc=&exception;return NULL;}if(mode!=69&&mode!=76)phase=1;return NULL;
  case 24:yes=mode!=92&&phase==1;break;

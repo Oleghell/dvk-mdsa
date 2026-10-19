@@ -77,7 +77,7 @@ class ProfileSchema(unittest.TestCase):
     def test_scopes_transfer_pinned_handles_and_keep_limit(self):
         for fragment in ('scopes[scopes.length-1].push({key,h})','held.length>=64||n.handles_acquired>=180*64',
                          "heldByObject.delete(key)","if(broken)fail('cleanup-failed')",'return escaping({entry,user,avatar})',
-                         'const attached=(view,required)=>scoped','const childViews=view=>scoped',
+                         'const attached=(view,required,needsInteraction=true)=>scoped','const childViews=view=>scoped',
                          'const selected=scoped','const candidate=scoped','visited+queue.length+children.length>16'):
             self.assertIn(fragment,p.FUNCTION)
         self.assertNotIn('held.length>=128',p.FUNCTION)
@@ -95,6 +95,16 @@ class ProfileSchema(unittest.TestCase):
             elif mutation=='skips':c.update(user_missing=1,self_user=1)
             else:n['error']='selection-unavailable';c['passes']=3
             with self.assertRaises(ValueError):p.validate(value)
+    def test_avatar_anchor_need_not_receive_clicks(self):
+        self.assertIn('attached(avatar,cell,false)',p.FUNCTION)
+        self.assertIn('if(needsInteraction)return false',p.FUNCTION)
+        self.assertIn('avatar_hidden++',p.FUNCTION)
+        self.assertIn("if(!call(s.avatarUser,avatar).equals(user))fail('selection-changed')",p.FUNCTION)
+    def test_one_row_per_frame_and_no_cross_frame_object_pointer(self):
+        self.assertIn('Math.min(count,rowIndex+1)',p.FUNCTION)
+        self.assertIn('selectionRow:0',p.FUNCTION)
+        self.assertIn('state.selectionRow=i+1',p.FUNCTION)
+
     def test_selection_pass_budget_is_separate_from_call_limit(self):
         self.assertIn("if(n.selection_counts.passes>=3)fail('selection-unavailable')",p.FUNCTION)
         self.assertIn("n.managed_calls>=6000",p.FUNCTION)
@@ -104,7 +114,7 @@ class ProfileTransport(unittest.TestCase):
     def test_fixed_profile_script_and_cleanup(self):
         f=ProfileFake();result=d.inspect_gadget(37149,'a'*64,lambda:False,frida_api=f,profile_probe=True)
         self.assertEqual(result['stage'],'navigation-ready');self.assertTrue(result['rpc_root_ok'])
-        self.assertEqual(f.script_name,'dvk-uikit-profile-navigation-0.3.5')
+        self.assertEqual(f.script_name,'dvk-uikit-profile-navigation-0.3.6')
         self.assertIn('rpc.exports.cancel',f.script_source);self.assertNotIn('rpc.exports.click',f.script_source)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
     def test_no_retry_after_possible_profile_action(self):
@@ -130,7 +140,7 @@ class ProfileTransport(unittest.TestCase):
                 folder=Path(temp)/'test-apks';folder.mkdir();old=folder.parent/'rootless-navigation-0.2.3.json';old.write_text('keep')
                 with patch.object(d,'bundle_token',return_value='a'*64),patch.object(d,'preflight',return_value=('PRIVATE1','PRIVATE2')),patch.object(d,'recheck'):
                     result,path=d.diagnose(Adb(),folder,inspector=lambda *a:gadget,profile_probe=True)
-                self.assertEqual(path.name,'rootless-profile-navigation-0.3.5.json');self.assertEqual(old.read_text(),'keep')
+                self.assertEqual(path.name,'rootless-profile-navigation-0.3.6.json');self.assertEqual(old.read_text(),'keep')
                 self.assertEqual(result['mode'],'uikit-search-profile-return');self.assertEqual(result['profile_may_remain_open'],not success)
                 self.assertNotIn('filters_may_remain_open',result)
                 self.assertEqual(result['target'],'127.0.0.1:5563');self.assertEqual(result['working_instance'],'127.0.0.1:5555')
