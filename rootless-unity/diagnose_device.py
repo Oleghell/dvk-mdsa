@@ -107,10 +107,14 @@ def cleanup_frida(frida, manager, address, script, session, device):
     finally:timer.cancel()
 
 
-def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False, batch_probe=False, chat_runtime_probe=False, chat_state_probe=False, chat_send_probe=False, automatic_probe=False, replies_probe=False, cohort_store=None, progress=lambda text:None):
+def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False, batch_probe=False, chat_runtime_probe=False, chat_state_probe=False, chat_send_probe=False, automatic_probe=False, replies_probe=False, reply_contract_probe=False, cohort_store=None, progress=lambda text:None):
     if frida_api is None:
         import frida as frida_api
     frida=frida_api
+    if reply_contract_probe:
+        if cohort_store is not None or any((uikit_root_probe,uikit_tree_probe,navigation_probe,profile_probe,profile_metadata_probe,batch_probe,chat_runtime_probe,chat_state_probe,chat_send_probe,automatic_probe,replies_probe)):
+            raise TestError('Точечная проверка сигнатур — отдельный режим без действий.')
+        chat_runtime_probe=True
     if cohort_store is not None:
         from cohort_pass import Store
         if type(cohort_store) is not Store or not automatic_probe or any((replies_probe,chat_send_probe,chat_state_probe,chat_runtime_probe,batch_probe,profile_probe,navigation_probe,uikit_tree_probe,uikit_root_probe,profile_metadata_probe)):
@@ -132,7 +136,9 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
     source=SCRIPT
     native_validator=validate_metadata
     if chat_runtime_probe:
-        if replies_probe:
+        if reply_contract_probe:
+            import reply_contract as probe_module
+        elif replies_probe:
             import reply_metadata as probe_module
         else:
             import chat_runtime_metadata as probe_module
@@ -198,7 +204,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
                     session=device.attach(process.pid)
                     report['attached']=True
                     report['stage']='create-fixed-script'
-                    script=session.create_script(source,name='dvk-reply-metadata-0.3.27' if replies_probe else 'dvk-automatic-pass-0.3.27' if automatic_probe else 'dvk-one-greeting-0.3.27' if chat_send_probe else 'dvk-open-chat-state-0.3.27' if chat_state_probe else 'dvk-chat-runtime-metadata-0.3.27' if chat_runtime_probe else 'dvk-profile-batch-0.3.27' if batch_probe else 'dvk-profile-metadata-0.3.1' if profile_metadata_probe else 'dvk-uikit-profile-navigation-0.3.27' if profile_probe else 'dvk-uikit-navigation-0.2.3' if navigation_probe else 'dvk-uikit-tree-0.1.8' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
+                    script=session.create_script(source,name='dvk-reply-contract-0.3.28' if reply_contract_probe else 'dvk-reply-metadata-0.3.27' if replies_probe else 'dvk-automatic-pass-0.3.27' if automatic_probe else 'dvk-one-greeting-0.3.27' if chat_send_probe else 'dvk-open-chat-state-0.3.27' if chat_state_probe else 'dvk-chat-runtime-metadata-0.3.27' if chat_runtime_probe else 'dvk-profile-batch-0.3.27' if batch_probe else 'dvk-profile-metadata-0.3.1' if profile_metadata_probe else 'dvk-uikit-profile-navigation-0.3.27' if profile_probe else 'dvk-uikit-navigation-0.2.3' if navigation_probe else 'dvk-uikit-tree-0.1.8' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
                     report['stage']='load-fixed-script';script.load()
                     report['stage']='runtime-rpc'
                     report['runtime']=validate_runtime(script.exports_sync.runtime())
@@ -284,7 +290,11 @@ def listening_port(text):
     return any(re.fullmatch(r'[0-9a-fA-F.:\[\]*]+:27042', part) for line in text.splitlines() for part in line.split())
 
 
-def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False, batch_probe=False, chat_runtime_probe=False, chat_state_probe=False, chat_send_probe=False, automatic_probe=False, replies_probe=False, cohort_store=None):
+def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False, batch_probe=False, chat_runtime_probe=False, chat_state_probe=False, chat_send_probe=False, automatic_probe=False, replies_probe=False, reply_contract_probe=False, cohort_store=None):
+    if reply_contract_probe:
+        if cohort_store is not None or any((uikit_root_probe,uikit_tree_probe,navigation_probe,profile_probe,profile_metadata_probe,batch_probe,chat_runtime_probe,chat_state_probe,chat_send_probe,automatic_probe,replies_probe)):
+            raise TestError('Точечная проверка сигнатур — отдельный режим без действий.')
+        chat_runtime_probe=True
     if cohort_store is not None:
         from cohort_pass import Store
         if type(cohort_store) is not Store or not automatic_probe or any((replies_probe,chat_send_probe,chat_state_probe,chat_runtime_probe,batch_probe,profile_probe,navigation_probe,uikit_tree_probe,uikit_root_probe,profile_metadata_probe)):
@@ -303,12 +313,12 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
     profile_probe=profile_probe or batch_probe
     navigation_probe=navigation_probe or profile_probe
     uikit_root_probe=uikit_root_probe or uikit_tree_probe or navigation_probe or profile_metadata_probe or chat_state_probe
-    version='0.3.27' if chat_state_probe else '0.3.27' if chat_runtime_probe else '0.3.1' if profile_metadata_probe else '0.3.27' if profile_probe else '0.2.3' if navigation_probe else '0.1.8' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
+    version='0.3.28' if reply_contract_probe else '0.3.27' if chat_state_probe else '0.3.27' if chat_runtime_probe else '0.3.1' if profile_metadata_probe else '0.3.27' if profile_probe else '0.2.3' if navigation_probe else '0.1.8' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
     if cohort_store is not None and inspector is inspect_gadget:
         inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,automatic_probe=True,cohort_store=cohort_store,progress=progress)
     elif (uikit_root_probe or chat_runtime_probe) and inspector is inspect_gadget:
-        inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,uikit_root_probe=uikit_root_probe,uikit_tree_probe=uikit_tree_probe,navigation_probe=navigation_probe,profile_probe=profile_probe,profile_metadata_probe=profile_metadata_probe,batch_probe=batch_probe,chat_runtime_probe=chat_runtime_probe and not replies_probe,replies_probe=replies_probe,chat_state_probe=chat_state_probe and not chat_send_probe,chat_send_probe=chat_send_probe,automatic_probe=automatic_probe,progress=progress)
-    report={'tool_version':version,'mode':('new-ten-durable-enrollment' if cohort_store is not None else 'reply-runtime-metadata-only' if replies_probe else 'automatic-profile-chat-pass' if automatic_probe else 'one-greeting-current-chat' if chat_send_probe else 'open-chat-state-read-only' if chat_state_probe else 'chat-runtime-metadata-only' if chat_runtime_probe else 'profile-metadata-only' if profile_metadata_probe else 'uikit-search-ten-profiles' if batch_probe else 'uikit-search-profile-return' if profile_probe else 'uikit-search-filter-cancel' if navigation_probe else 'uikit-structure-only' if uikit_tree_probe else 'uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
+        inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,uikit_root_probe=uikit_root_probe,uikit_tree_probe=uikit_tree_probe,navigation_probe=navigation_probe,profile_probe=profile_probe,profile_metadata_probe=profile_metadata_probe,batch_probe=batch_probe,chat_runtime_probe=chat_runtime_probe and not (replies_probe or reply_contract_probe),replies_probe=replies_probe,reply_contract_probe=reply_contract_probe,chat_state_probe=chat_state_probe and not chat_send_probe,chat_send_probe=chat_send_probe,automatic_probe=automatic_probe,progress=progress)
+    report={'tool_version':version,'mode':('targeted-reply-contract-definitions' if reply_contract_probe else 'new-ten-durable-enrollment' if cohort_store is not None else 'reply-runtime-metadata-only' if replies_probe else 'automatic-profile-chat-pass' if automatic_probe else 'one-greeting-current-chat' if chat_send_probe else 'open-chat-state-read-only' if chat_state_probe else 'chat-runtime-metadata-only' if chat_runtime_probe else 'profile-metadata-only' if profile_metadata_probe else 'uikit-search-ten-profiles' if batch_probe else 'uikit-search-profile-return' if profile_probe else 'uikit-search-filter-cancel' if navigation_probe else 'uikit-structure-only' if uikit_tree_probe else 'uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
             'instances_verified_distinct':False,'install_requested':False,'app_installation_modified':False,
             'working_device_modified':False,'root_used':False,'ocr_used':False,'messages_sent':0,
             'unity_object_access':'not-tested','status':'not-run'}
@@ -347,7 +357,7 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
                 else:
                     report[field]={'':'none-reported','0':'none-reported','libnb.so':'libnb','libhoudini.so':'houdini','libndk_translation.so':'ndk-translation'}.get(raw,'other-not-recorded')
             except TestError:report[field]='query-unavailable'
-        progress('Проверяю типы личных сообщений и маршруты — без чтения переписки и отправки…' if replies_probe else 'Автопроход: до 10 анкет, проверка чата и одно приветствие…' if automatic_probe else 'Проверяю открытый чат и отправляю одно приветствие…' if chat_send_probe else 'Проверяю уже открытый чат — ничего не нажимаю и не отправляю…' if chat_state_probe else 'Проверяю runtime-типы чата — без нажатий и чтения сообщений…' if chat_runtime_probe else 'Проверяю только типы и сигнатуры профиля. Нет UI-наблюдателя, открытий и нажатий…' if profile_metadata_probe else 'Проверяю до 10 видимых анкет без сообщений…' if batch_probe else 'Проверяю профиль и возврат…' if profile_probe else 'Проверяю экран поиска → открываю фильтры → отменяю без сохранения…' if navigation_probe else 'Читаю ограниченную структуру UIKit, без текста и действий…' if uikit_tree_probe else 'Проверяю главный поток и наличие окна, без UI-действий…' if uikit_root_probe else 'Проверяю IL2CPP API и метаданные классов UI. Сам UI не меняется…')
+        progress('Проверяю только сигнатуры текста и истории — без переписки, UI и отправок…' if reply_contract_probe else 'Проверяю типы личных сообщений и маршруты — без чтения переписки и отправки…' if replies_probe else 'Автопроход: до 10 анкет, проверка чата и одно приветствие…' if automatic_probe else 'Проверяю открытый чат и отправляю одно приветствие…' if chat_send_probe else 'Проверяю уже открытый чат — ничего не нажимаю и не отправляю…' if chat_state_probe else 'Проверяю runtime-типы чата — без нажатий и чтения сообщений…' if chat_runtime_probe else 'Проверяю только типы и сигнатуры профиля. Нет UI-наблюдателя, открытий и нажатий…' if profile_metadata_probe else 'Проверяю до 10 видимых анкет без сообщений…' if batch_probe else 'Проверяю профиль и возврат…' if profile_probe else 'Проверяю экран поиска → открываю фильтры → отменяю без сохранения…' if navigation_probe else 'Читаю ограниченную структуру UIKit, без текста и действий…' if uikit_tree_probe else 'Проверяю главный поток и наличие окна, без UI-действий…' if uikit_root_probe else 'Проверяю IL2CPP API и метаданные классов UI. Сам UI не меняется…')
         stage='forward-and-gadget'
         value=adb.run(['-s',TARGET,'forward','tcp:0','tcp:27042'])
         if not value.isdecimal() or not 1024 <= int(value) <= 65535:raise TestError('Некорректный порт ADB.')
@@ -410,7 +420,7 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
             if stage=='device-preflight':
                 failed=[e for e in events if e['status']=='failed']
                 if failed:report['adb_failure']=failed[0].copy()
-    target=folder.parent/f"{'rootless-new-ten' if cohort_store is not None else 'rootless-reply-metadata' if replies_probe else 'rootless-automatic-pass' if automatic_probe else 'rootless-one-greeting' if chat_send_probe else 'rootless-open-chat-state' if chat_state_probe else 'rootless-chat-runtime-metadata' if chat_runtime_probe else 'rootless-profile-metadata' if profile_metadata_probe else 'rootless-profile-batch' if batch_probe else 'rootless-profile-navigation' if profile_probe else 'rootless-navigation' if navigation_probe else 'rootless-diagnostics'}-{version}.json"
+    target=folder.parent/f"{'rootless-reply-contract' if reply_contract_probe else 'rootless-new-ten' if cohort_store is not None else 'rootless-reply-metadata' if replies_probe else 'rootless-automatic-pass' if automatic_probe else 'rootless-one-greeting' if chat_send_probe else 'rootless-open-chat-state' if chat_state_probe else 'rootless-chat-runtime-metadata' if chat_runtime_probe else 'rootless-profile-metadata' if profile_metadata_probe else 'rootless-profile-batch' if batch_probe else 'rootless-profile-navigation' if profile_probe else 'rootless-navigation' if navigation_probe else 'rootless-diagnostics'}-{version}.json"
     target.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     return report,target
 
