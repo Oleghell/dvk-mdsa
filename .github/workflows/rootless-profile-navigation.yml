@@ -1,8 +1,8 @@
-name: Build guarded single-profile return 0.3.6
+name: Build guarded single-profile return 0.3.7
 "on":
   push:
     branches: [feature/android-ui-hierarchy]
-    paths: ['rootless-unity/profile_metadata.py', 'rootless-unity/smoke_profile_metadata.py', 'rootless-unity/uikit_profile_navigation.py', 'rootless-unity/smoke_profile_navigation.py', 'rootless-unity/uikit_navigation.py', 'rootless-unity/navigate_profile_device.py', 'rootless-unity/smoke_uikit_navigation.py', 'rootless-unity/PROFILE-NAVIGATION-0.3.6.md', 'rootless-unity/SUBVIEWS-OFFLINE-EVIDENCE.json', 'rootless-unity/adb_evidence.py', 'rootless-unity/uikit_tree.py', 'rootless-unity/diagnose_tree.py', 'rootless-unity/smoke_uikit_tree.py', 'rootless-unity/uikit_root.py', 'rootless-unity/uikit_profile.py', 'rootless-unity/diagnose_uikit.py', 'rootless-unity/smoke_uikit_root.py', 'rootless-unity/native_metadata.py', 'rootless-unity/smoke_native_metadata.py', 'rootless-unity/fixtures/**', 'rootless-unity/module_evidence.py', 'rootless-unity/diagnose_device.py', 'rootless-unity/test_device.py', 'rootless-unity/smoke_diagnostics.py', 'rootless-unity/tests/**', 'rootless-unity/apk_export.py', 'rootless-unity/README.md', '.github/workflows/rootless-profile-navigation.yml']
+    paths: ['rootless-unity/profile_metadata.py', 'rootless-unity/smoke_profile_metadata.py', 'rootless-unity/uikit_profile_navigation.py', 'rootless-unity/smoke_profile_navigation.py', 'rootless-unity/uikit_navigation.py', 'rootless-unity/navigate_profile_device.py', 'rootless-unity/smoke_uikit_navigation.py', 'rootless-unity/PROFILE-NAVIGATION-0.3.7.md', 'rootless-unity/SUBVIEWS-OFFLINE-EVIDENCE.json', 'rootless-unity/adb_evidence.py', 'rootless-unity/uikit_tree.py', 'rootless-unity/diagnose_tree.py', 'rootless-unity/smoke_uikit_tree.py', 'rootless-unity/uikit_root.py', 'rootless-unity/uikit_profile.py', 'rootless-unity/diagnose_uikit.py', 'rootless-unity/smoke_uikit_root.py', 'rootless-unity/native_metadata.py', 'rootless-unity/smoke_native_metadata.py', 'rootless-unity/fixtures/**', 'rootless-unity/module_evidence.py', 'rootless-unity/diagnose_device.py', 'rootless-unity/test_device.py', 'rootless-unity/smoke_diagnostics.py', 'rootless-unity/tests/**', 'rootless-unity/apk_export.py', 'rootless-unity/README.md', '.github/workflows/rootless-profile-navigation.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -113,27 +113,27 @@ jobs:
           $ErrorActionPreference='Stop'
           python -m pip install pyinstaller==6.16.0 frida==17.24.1
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-          python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-rootless-profile-navigation --distpath out/Dvk-rootless-profile-navigation-0.3.6-windows-x64 rootless-unity/navigate_profile_device.py
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-rootless-profile-navigation --distpath out/Dvk-rootless-profile-navigation-0.3.7-windows-x64 rootless-unity/navigate_profile_device.py
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-          $app=Start-Process -FilePath out/Dvk-rootless-profile-navigation-0.3.6-windows-x64/Dvk-rootless-profile-navigation.exe -ArgumentList '--self-check' -PassThru
+          $app=Start-Process -FilePath out/Dvk-rootless-profile-navigation-0.3.7-windows-x64/Dvk-rootless-profile-navigation.exe -ArgumentList '--self-check' -PassThru
           if (-not $app.WaitForExit(45000)) {$app.Kill();throw 'Packaged GUI self-check timed out'}
           if ($app.ExitCode -ne 0) {throw 'Packaged GUI/Frida self-check failed'}
-          $root='out/Dvk-rootless-profile-navigation-0.3.6-windows-x64'
-          Copy-Item rootless-unity/PROFILE-NAVIGATION-0.3.6.md "$root/README.md"
+          $root='out/Dvk-rootless-profile-navigation-0.3.7-windows-x64'
+          Copy-Item rootless-unity/PROFILE-NAVIGATION-0.3.7.md "$root/README.md"
           $license=python -c "import importlib.metadata; d=importlib.metadata.distribution('frida'); print(d.locate_file(next(p for p in d.files if str(p).endswith('licenses/COPYING'))))"
           if ($LASTEXITCODE -ne 0) {throw 'Frida license lookup failed'}
           Copy-Item -LiteralPath $license -Destination "$root/FRIDA-COPYING.txt"
-          @{version='0.3.6';source_commit=$env:GITHUB_SHA;target='127.0.0.1:5563';protected_working_instance='127.0.0.1:5555';frida='17.24.1';root=$false;ocr=$false;mode='uikit-search-profile-return';max_frames=180;max_navigation_calls=6000;frame_budget_ms=100;ui_actions_available=$true;max_open_attempts=1;max_close_attempts=1;max_pre_action_selection_retries=2;max_selection_passes=3;max_rows_per_frame=1;max_temporary_handles=64;max_total_handle_acquisitions=11520;action_backend='semantic-controller-handlers';ui_text_read=$false;observer_max_seconds=16;visits_may_be_visible=$true;installation_available=$false;android_runtime_tested=$false;adb_raw_output_recorded=$false;adb_max_checks=40;unity_object_access='not-tested'} | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
+          @{version='0.3.7';source_commit=$env:GITHUB_SHA;target='127.0.0.1:5563';protected_working_instance='127.0.0.1:5555';frida='17.24.1';root=$false;ocr=$false;mode='uikit-search-profile-return';max_frames=180;max_navigation_calls=6000;frame_budget_ms=100;ui_actions_available=$true;max_open_attempts=1;max_close_attempts=1;max_pre_action_selection_retries=2;max_selection_passes=3;max_rows_per_frame=1;action_delay_ms=1000;friends_threshold=50;friends_count_android_tested=$false;max_temporary_handles=64;max_total_handle_acquisitions=11520;action_backend='semantic-controller-handlers';ui_text_read=$false;observer_max_seconds=16;visits_may_be_visible=$true;installation_available=$false;android_runtime_tested=$false;adb_raw_output_recorded=$false;adb_max_checks=40;unity_object_access='not-tested'} | ConvertTo-Json | Set-Content "$root/BUILD_INFO.json" -Encoding UTF8
           Get-ChildItem $root -File | Sort-Object Name | ForEach-Object {'{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(),$_.Name} | Set-Content "$root/SHA256SUMS.txt" -Encoding ASCII
       - uses: actions/upload-artifact@v4
         with:
-          name: Dvk-rootless-profile-navigation-0.3.6-windows-x64
-          path: out/Dvk-rootless-profile-navigation-0.3.6-windows-x64/
+          name: Dvk-rootless-profile-navigation-0.3.7-windows-x64
+          path: out/Dvk-rootless-profile-navigation-0.3.7-windows-x64/
           if-no-files-found: error
           retention-days: 14
   publish:
     needs: [test, windows]
-    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release rootless profile navigation 0.3.6') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release rootless profile navigation 0.3.7') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -144,13 +144,13 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: Dvk-rootless-profile-navigation-0.3.6-windows-x64
-          path: release/Dvk-rootless-profile-navigation-0.3.6-windows-x64
+          name: Dvk-rootless-profile-navigation-0.3.7-windows-x64
+          path: release/Dvk-rootless-profile-navigation-0.3.7-windows-x64
       - name: Publish tool only; private test APKs are never uploaded to GitHub
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd release
-          zip -r Dvk-rootless-profile-navigation-0.3.6-windows-x64.zip Dvk-rootless-profile-navigation-0.3.6-windows-x64
-          sha256sum Dvk-rootless-profile-navigation-0.3.6-windows-x64.zip > SHA256SUMS.txt
-          gh release create rootless-profile-navigation-v0.3.6 Dvk-rootless-profile-navigation-0.3.6-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Rootless profile navigation 0.3.6 — one profile and return on MuMu number 4" --notes-file ../rootless-unity/PROFILE-NAVIGATION-0.3.6.md
+          zip -r Dvk-rootless-profile-navigation-0.3.7-windows-x64.zip Dvk-rootless-profile-navigation-0.3.7-windows-x64
+          sha256sum Dvk-rootless-profile-navigation-0.3.7-windows-x64.zip > SHA256SUMS.txt
+          gh release create rootless-profile-navigation-v0.3.7 Dvk-rootless-profile-navigation-0.3.7-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "Rootless profile navigation 0.3.7 — one profile and return on MuMu number 4" --notes-file ../rootless-unity/PROFILE-NAVIGATION-0.3.7.md

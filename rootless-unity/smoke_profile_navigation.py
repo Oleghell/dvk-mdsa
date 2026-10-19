@@ -18,14 +18,15 @@ def one(library,mode):
 rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},counts(){
  const read=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
  return {handles:read('fixture_handles'),bad:read('fixture_bad_frees'),off:read('fixture_off_thread_calls'),
- calls:read('fixture_calls'),opens:read('fixture_opens'),closes:read('fixture_cancels'),wrong:read('fixture_wrong_selection'),peak:read('fixture_peak_handles'),pins:read('fixture_pin_errors'),blocked:read('fixture_blocked'),iterators:read('fixture_iterator_allocations'),visible:read('fixture_visible_reads')};}};''')
+ calls:read('fixture_calls'),opens:read('fixture_opens'),closes:read('fixture_cancels'),wrong:read('fixture_wrong_selection'),peak:read('fixture_peak_handles'),pins:read('fixture_pin_errors'),blocked:read('fixture_blocked'),iterators:read('fixture_iterator_allocations'),visible:read('fixture_visible_reads'),opened_ms:read('fixture_opened_ms'),closed_ms:read('fixture_closed_ms'),elapsed_ms:read('fixture_elapsed_ms'),friend_reads:read('fixture_friend_reads')};}};''')
         script.load()
         if mode==152:script.exports_sync.cancel()
-        if mode in (148,149,194):
+        if mode==208:timer=threading.Timer(.05,script.exports_sync.cancel);timer.start()
+        if mode in (148,149,194,209):
             def cancel():
                 deadline=time.monotonic()+5
                 while time.monotonic()<deadline:
-                    if script.exports_sync.counts()['opens' if mode==148 else 'blocked' if mode==194 else 'visible']:break
+                    if script.exports_sync.counts()['opens' if mode in (148,209) else 'blocked' if mode==194 else 'visible']:break
                     time.sleep(.005)
                 script.exports_sync.cancel()
             timer=threading.Timer(.01,cancel);timer.start()
@@ -36,18 +37,22 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         if mode in (202,203,207):expected[mode]='navigation-ready'
         if mode in (204,205):expected[mode]='selection-unavailable'
         if mode==206:expected[mode]='selection-changed'
+        if mode in range(210,218) or mode==219:expected[mode]='navigation-ready'
+        if mode==218:expected[mode]='managed-exception'
+        if mode==220:expected[mode]='identity-changed'
+        if mode in (208,209):expected[mode]='cancelled'
         if mode in expected:assert actual==expected[mode],(mode,n,c,value['stage'])
         else:assert actual in ('frame-limit','call-limit','transition-timeout'),(mode,n,c)
         assert c['handles']==c['bad']==c['off']==c['wrong']==c['pins']==0,(mode,n,c)
         assert c['calls']==value['managed_calls']+n['managed_calls'],(mode,n,c)
         assert n['handles_acquired']==n['handles_released'],(mode,n,c)
         assert c['opens']<=1 and c['closes']<=1,(mode,c)
-        if mode in (130,150,151,170,171,172,180,183,184,185,186,190,191,193,202,203,207):
+        if mode in (130,150,151,170,171,172,180,183,184,185,186,190,191,193,202,203,207,210,211,212,213,214,215,216,217,219):
             assert c['opens']==c['closes']==1,(mode,c)
             assert n['profile_verified'] and n['profile_content_verified'] and n['target_user_verified'] and n['return_verified'],n
             assert n['selection_status']=='selected',n
-        if mode in (131,132,133,134,135,136,145,146,147,149,152,153,154,155,157,158,173,174,175,176,177,178,179,181,182,187,188,192,194,195,196,197,198,199,200,201,204,205,206):assert c['opens']==c['closes']==0,(mode,c)
-        if mode in (137,138,139,140,141,142,148,189):assert c['opens']==1 and c['closes']==0,(mode,c)
+        if mode in (131,132,133,134,135,136,145,146,147,149,152,153,154,155,157,158,173,174,175,176,177,178,179,181,182,187,188,192,194,195,196,197,198,199,200,201,204,205,206,208):assert c['opens']==c['closes']==0,(mode,c)
+        if mode in (137,138,139,140,141,142,148,189,209,218,220):assert c['opens']==1 and c['closes']==0,(mode,c)
         if mode in (135,153,157,182,187,188,206):assert n['selection_retries']==2,n
         if mode in (183,184,185,186):assert n['selection_retries']==1,n
         if mode in (180,189):assert n['selection_retries']==0,n
@@ -65,6 +70,17 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         if mode==205:assert n['selection_counts']['avatar_hidden']==0 and n['selection_counts']['avatar_unready']==3,(mode,n)
         if mode in (190,191,192,193,207):assert n['frames']>=n['selection_counts']['rows'],(mode,n)
         if mode==202:assert n['selection_counts']['passes']==2 and n['selection_counts']['user_missing']==1,(mode,n)
+        if c['opens']:assert c['opened_ms']>=1000,(mode,c)
+        if c['closes']:assert c['closed_ms']-c['opened_ms']>=1000,(mode,c)
+        if actual=='navigation-ready':assert c['elapsed_ms']-c['closed_ms']>=1000,(mode,c)
+        if mode in (210,211,212,217):
+            count={210:49,211:50,212:0,217:49}[mode]
+            assert n['friends_status']=='read' and n['friends_count']==count and n['friends_eligible']==(count<50) and c['friend_reads']==2,(mode,n,c)
+        if mode in (213,214,219):assert n['friends_status']=='invalid' and n['friends_count'] is None and n['friends_eligible'] is None,(mode,n)
+        if mode in (215,216):assert n['friends_status']=='unavailable' and c['friend_reads']==0,(mode,n,c)
+        if mode==220:assert n['friends_status']=='not-read' and n['friends_count'] is None and n['friends_eligible'] is None,n
+        if mode==215:assert n['friends_source']=='signature-unsupported',n
+        if mode==216:assert n['friends_source']=='ambiguous',n
         assert not any(s in json.dumps(value) for s in ('0x','private-text','token'))
         print('Synthetic profile',mode,actual,({'peak_temporary':n['temporary_handles_peak'],'allocated':n['handles_acquired'],'released':n['handles_released'],'calls':n['managed_calls']} if mode>=190 else ''),flush=True)
     finally:
@@ -81,5 +97,5 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         child.stdout.close();child.stderr.close()
 
 if __name__=='__main__':
-    for mode in list(range(130,160))+list(range(170,208)):one(Path(sys.argv[1]).resolve(strict=True),mode)
+    for mode in list(range(130,160))+list(range(170,210))+list(range(210,221)):one(Path(sys.argv[1]).resolve(strict=True),mode)
     print('Synthetic profile ABI passed; live MuMu profile workflow NOT yet tested.')

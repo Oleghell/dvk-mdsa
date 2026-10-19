@@ -13,6 +13,10 @@ class CompactProfileGUI(unittest.TestCase):
     def test_success_and_preflight_failure(self):
         self.assertIn('подтверждён',gui.result_status({'status':'navigation-ready'}))
         self.assertEqual(gui.result_status({'status':'preflight-failed'}),'Остановлен: preflight-failed')
+    def test_friends_count_is_short_and_unknown_is_not_zero(self):
+        value={'status':'navigation-ready','gadget':{'uikit_root':{'navigation':{'friends_status':'read','friends_count':49,'friends_eligible':True}}}}
+        self.assertIn('49 (меньше 50)',gui.result_status(value))
+        self.assertIn('неизвестно',gui.result_status({'status':'navigation-ready'}))
     def test_compact_controls_can_be_constructed_without_device(self):
         tk=MagicMock();ttk=MagicMock();tk.ttk=ttk
         # Headless construction is not a native Windows rendering test.

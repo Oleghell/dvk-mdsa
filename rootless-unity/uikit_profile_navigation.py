@@ -7,7 +7,9 @@ import json
 import uikit_navigation as base
 from uikit_root import APIS as ROOT_APIS
 
-VERSION='0.3.6'
+VERSION='0.3.7'
+ACTION_DELAY_MS=1000
+FRIEND_SOURCES={'not-found','ambiguous','signature-unsupported','get_FriendsCount','get_FriendCount'}
 MAX_SELECTION_PASSES=3
 SELECTION_COUNTERS={'passes':3,'rows':74,'cells':1184,'cell_unready':1184,'table_missing':3,'table_unready':3,'row_unready':74,'binding_missing':74,'entry_missing':1184,'promoted':1184,'user_missing':1184,'self_user':1184,'avatar_missing':1184,'avatar_unready':1184,'avatar_hidden':1184,'avatar_noninteractive':1184}
 METADATA_CHECKPOINTS=('base', 'classes', 'method:avatarUser', 'method:cellAvatar', 'method:cellEntry', 'method:child', 'method:childCount', 'method:children', 'method:contentUser', 'method:currentContent', 'method:entryCount', 'method:entryItem', 'method:entryUser', 'method:enumerator', 'method:next', 'method:open', 'method:profileChecked', 'method:promo', 'method:recordEntries', 'method:rowItems', 'method:scroll', 'method:selfUser', 'method:visible', 'method:visibleCount', 'method:visibleItem', 'nested', 'ready')
@@ -70,6 +72,16 @@ PREPARE=r'''
   r.navigation.metadata_checkpoint='method:contentUser';s.contentUser=checked(s.content,'get_User',18,s.user);
   r.navigation.metadata_checkpoint='method:open';s.open=checked(s.search,'DV.Search.SearchTableView.IDelegate.OnUserSelected',1,null,
    [{kind:18,klass:s.entry},{kind:2},{kind:18,klass:s.resource}]);
+  // Optional, exact zero-argument Int32 getter on the already verified User.
+  // Missing/ambiguous/unsupported metadata never becomes a count of zero.
+  s.friendCount=null;r.navigation.friends_source='not-found';
+  const countNames=['get_FriendsCount','get_FriendCount'];
+  const countFound=countNames.filter(label=>!f.method(s.user,Memory.allocUtf8String(label),0).isNull());
+  if(countFound.length>1)r.navigation.friends_source='ambiguous';
+  else if(countFound.length===1){
+   try{s.friendCount=checked(s.user,countFound[0],8);r.navigation.friends_source=countFound[0];}
+   catch(_){r.navigation.friends_source='signature-unsupported';}
+  }
   r.navigation.metadata_checkpoint='ready';return s;
  }
 '''
@@ -217,7 +229,7 @@ def build():
     helpers=replace_once(helpers,"['canClose','card','get_CanBeClosedByUser',2],",'')
     helpers=replace_once(helpers,"['open','search','ShowSearchSettings',1],['cancel','card','DismissWithCancel',1]", "['cancel','profile','DV.Profiles.ProfileViewController.IDelegate.OnCloseRequested',1]")
     helpers=replace_once(helpers,'  return s;\n }','  return prepareProfile(f,s,getClass,get,signature);\n }')
-    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "selection_counts:{passes: 0, rows: 0, cells: 0, cell_unready: 0, table_missing: 0, table_unready: 0, row_unready: 0, binding_missing: 0, entry_missing: 0, promoted: 0, user_missing: 0, self_user: 0, avatar_missing: 0, avatar_unready: 0, avatar_hidden: 0, avatar_noninteractive: 0},temporary_handles_peak:0,metadata_checkpoint:'base',selection_check:'not-checked',selection_retries:0,selection_status:'not-checked',target_user_verified:false,profile_content_verified:false,action_backend:'semantic-controller-handlers',ui_text_read:false")
+    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "action_delay_ms:1000,friends_source:'not-found',friends_status:'not-read',friends_count:null,friends_eligible:null,selection_counts:{passes: 0, rows: 0, cells: 0, cell_unready: 0, table_missing: 0, table_unready: 0, row_unready: 0, binding_missing: 0, entry_missing: 0, promoted: 0, user_missing: 0, self_user: 0, avatar_missing: 0, avatar_unready: 0, avatar_hidden: 0, avatar_noninteractive: 0},temporary_handles_peak:0,metadata_checkpoint:'base',selection_check:'not-checked',selection_retries:0,selection_status:'not-checked',target_user_verified:false,profile_content_verified:false,action_backend:'semantic-controller-handlers',ui_text_read:false")
     helpers=replace_once(helpers,"if(entry.arity===1){if(!f.classFromType", "if(entry.params){for(let i=0;i<entry.params.length;i++){const t=f.param(m,i),a=entry.params[i];if(t.isNull()||f.byref(t)||f.typeKind(t)!==a.kind||(a.klass&&!f.classFromType(t).equals(a.klass)))fail('signature-mismatch');}if(entry.result&&!f.classFromType(f.returnType(m)).equals(entry.result))fail('signature-mismatch');}\n   else if(entry.arity===1){if(!f.classFromType")
     helpers=replace_once(helpers,"||f.byref(f.returnType(m)))fail('signature-mismatch');","||!!f.byref(f.returnType(m))!==!!entry.byref)fail('signature-mismatch');")
     helpers=replace_once(helpers,'const out=f.invoke(m,obj,params,ex);',"let receiver=obj;if(entry.unboxed){receiver=f.unbox(obj);if(receiver.isNull())fail('signature-mismatch');}\n   const out=f.invoke(m,receiver,params,ex);")
@@ -232,13 +244,20 @@ def build():
     helpers=replace_once(helpers,'n.profile_verified=true;state.card=own(current);','if(!verifyProfile(current))return;\n    n.profile_verified=true;state.card=own(current);')
     helpers=replace_once(helpers,"if(!bool(s.canClose,current))fail('screen-not-ready');",'if(!verifyProfile(current))return;')
     helpers=replace_once(helpers,"['card','origin']","['content','targetUser','card','origin']")
+    helpers=replace_once(helpers,"n.open_completed=true;n.phase='wait-profile'", "n.open_completed=true;state.nextActionAt=Date.now()+1000;n.phase='wait-profile'")
+    helpers=replace_once(helpers,"n.close_completed=true;n.phase='wait-return'", "n.close_completed=true;state.nextActionAt=Date.now()+1000;n.phase='wait-return'")
+    helpers=replace_once(helpers,"if(!verifyProfile(current))return;\n    n.close_attempted", "if(!verifyProfile(current))return;\n    if(n.friends_status==='not-read'){\n     const result={friends_status:'unavailable',friends_count:null,friends_eligible:null};\n     if(s.friendCount!==null){\n      const user=target(state.targetUser),first=integer(s.friendCount,user),second=integer(s.friendCount,user);\n      if(first!==second||first<0||first>1000000)result.friends_status='invalid';\n      else {result.friends_count=first;result.friends_eligible=first<50;result.friends_status='read';}\n     }\n     if(!verifyProfile(current))fail('identity-changed');\n     Object.assign(n,result);\n    }\n    n.close_attempted")
+
     # Keep the proven cancellation, lifetime, main-thread and frame guards byte-for-byte.
     old=base.HELPERS.replace('__NAV_ERRORS__',json.dumps(sorted(base.ERRORS)))
     result=replace_once(base.FUNCTION,old,PREPARE+helpers)
     result=replace_once(result,json.dumps(ROOT_APIS+base.APIS),json.dumps(ROOT_APIS+base.APIS+EXTRA_APIS))
     result=replace_once(result,"['Core.dll','DV.dll','DV.Search.dll','UIKit.Unity.dll','UnityEngine.CoreModule.dll']", "['Core.dll','DV.dll','DV.Search.dll','DV.Profile.dll','UIKit.Unity.dll','UnityEngine.CoreModule.dll']")
     result=replace_once(result,base.BINDINGS,base.BINDINGS+"\nObject.assign(f,{nested:bind('class_get_nested_types','pointer',['pointer','pointer']),declaring:bind('class_get_declaring_type','pointer',['pointer'])});")
-    result=replace_once(result,'const navState={origin:ptr(0),card:ptr(0),stop:null}', 'const navState={origin:ptr(0),card:ptr(0),content:ptr(0),targetUser:ptr(0),selectionRow:0,stop:null}')
+    result=replace_once(result,'const navState={origin:ptr(0),card:ptr(0),stop:null}', 'const navState={origin:ptr(0),card:ptr(0),content:ptr(0),targetUser:ptr(0),selectionRow:0,nextActionAt:0,stop:null}')
+    # Idle callbacks do not consume active-frame/call budgets or hold per-frame handles.
+    result=replace_once(result,"   r.step='prepare-observer';", "   navState.nextActionAt=Date.now()+1000;\n   r.step='prepare-observer';")
+    result=replace_once(result,"if(!active)return;\n     r.observed_calls++;", "if(!active)return;\n     if(Date.now()<navState.nextActionAt)return;\n     r.observed_calls++;")
     return result
 
 FUNCTION=build()
@@ -249,8 +268,19 @@ def validate(value):
     import copy
     out=copy.deepcopy(value);n=out['navigation']
     flags={'cleanup_failed','search_verified','profile_verified','return_verified','open_attempted','open_completed','close_attempted','close_completed','ui_text_read'}
-    fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','selection_status','target_user_verified','profile_content_verified','metadata_checkpoint','selection_check','selection_retries','temporary_handles_peak','selection_counts'}
+    fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','selection_status','target_user_verified','profile_content_verified','metadata_checkpoint','selection_check','selection_retries','temporary_handles_peak','selection_counts','action_delay_ms','friends_source','friends_status','friends_count','friends_eligible'}
     if set(n)!=fields:raise ValueError('Unexpected profile fields')
+    if type(n.pop('action_delay_ms',None)) is not int or value['navigation']['action_delay_ms']!=ACTION_DELAY_MS:raise ValueError('Invalid action delay')
+    source=n.pop('friends_source',None);status=n.pop('friends_status',None)
+    count=n.pop('friends_count',None);eligible=n.pop('friends_eligible',None)
+    if not isinstance(source,str) or not isinstance(status,str) or source not in FRIEND_SOURCES or status not in {'not-read','unavailable','invalid','read'}:raise ValueError('Unexpected friends state')
+    if status=='read':
+        if source not in {'get_FriendsCount','get_FriendCount'} or type(count) is not int or not 0<=count<=1000000 or type(eligible) is not bool or eligible!=(count<50) or not n.get('profile_verified'):raise ValueError('Invalid friends count')
+    elif count is not None or eligible is not None:raise ValueError('Unknown friends must remain unknown')
+    if n.get('close_completed') and status=='not-read':raise ValueError('Friends stage skipped')
+    if status in {'unavailable','invalid'} and not n.get('profile_verified'):raise ValueError('Friends without profile')
+    if status=='unavailable' and source in {'get_FriendsCount','get_FriendCount'}:raise ValueError('Inconsistent missing friends source')
+    if status=='invalid' and source not in {'get_FriendsCount','get_FriendCount'}:raise ValueError('Inconsistent invalid friends source')
     retries=n.get('selection_retries')
     if type(retries) is not int or not 0<=retries<=2:raise ValueError('Invalid selection retry count')
     counts=n.pop('selection_counts',None)

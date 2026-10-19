@@ -13,6 +13,18 @@ static void slow(void){
  struct timespec ts={0,200000000};nanosleep(&ts,NULL);
 #endif
 }
+static uint64_t clock_ms(void){
+#ifdef _WIN32
+ return GetTickCount64();
+#else
+ struct timespec ts;clock_gettime(CLOCK_MONOTONIC,&ts);return (uint64_t)ts.tv_sec*1000+ts.tv_nsec/1000000;
+#endif
+}
+static uint64_t started_ms;static int opened_ms,closed_ms,friend_reads;
+API int fixture_opened_ms(void){return opened_ms;}
+API int fixture_closed_ms(void){return closed_ms;}
+API int fixture_elapsed_ms(void){return (int)(clock_ms()-started_ms);}
+API int fixture_friend_reads(void){return friend_reads;}
 static Class nc[]={
  {"UIKit","UIView"},{"UIKit","UIViewController"},{"DV.Common","DVViewController"},
  {"DV","CardViewController"},{"DV.Search","SearchTabController"},
@@ -60,6 +72,9 @@ static Method pm[]={
  {"get_Items",&pc[16],0,&pentries,62},
  {"get_Count",&pc[21],0,&tint,63},
  {"get_Item",&pc[21],0,&pt[4],64,1,&tint}};
+static Method friend_getters[]={
+ {"get_FriendsCount",&pc[8],0,&tint,65},
+ {"get_FriendCount",&pc[8],0,&tint,65}};
 static Object ptable={&pc[2],0},pvisiblelist={&pc[17],0},prow={&pc[10],0},precord={&pc[13],0},pcell={&pc[3],0},pentryobj={&pc[4],0},pavatar={&pc[6],0},puser={&pc[8],0},potheruser={&pc[8],0},pcontent={&pc[9],0},pothercontent={&pc[9],0};
 static Object preplacementrow={&pc[10],0};
 static Object ppromocell={&pc[3],0},ppromoentry={&pc[4],0};
@@ -115,6 +130,7 @@ static int phase,opens,cancels,virtual_calls,hidden_reads;
 static void tree_init(int m){int i;iterator_allocations=pin_errors=blocked=0;stress_current_row=-1;
  for(i=0;i<24;i++){stress_rows[i].klass=&pc[10];stress_wrap[i][0].klass=stress_wrap[i][1].klass=&nc[0];stress_cells[i].klass=&pc[3];}
  for(i=0;i<21;i++)stress_parents[i].klass=&nc[0];
+ started_ms=clock_ms();opened_ms=closed_ms=friend_reads=0;friend_getters[0].type= m==215?&tbool:&tint;
  entry_reads=avatar_reads=promo_reads=0;if(m>=170&&m<=197){pm[3].type=&pbyrow;pm[24].type=&pbyentry;}if(m==173)pm[3].type=&pwrongref;if(m==174)pm[1].type=&pbyrow;if(m==176)pm[3].flags=64;if(m==177)pm[3].param=&tbool;if(m==178)pm[3].flags=16;if(m==179)pm[3].arity=2;if(m==164)attached=0;row_reads=0;modal_reads=plist_reads=profile_reads=selected_wrong=pi_count=0;for(i=0;i<22;i++){pt[i].kind=18;pt[i].klass=&pc[i];}for(i=0;i<1024;i++)pi[i].klass=&pc[19];prow.klass= m==150||m==171||m==180||m==181?&pc[11]:m==151||m==172||m==186?&pc[12]:&pc[10];precord.klass=m==150||m==171||m==180||m==181?&pc[14]:m==151||m==172||m==186?&pc[15]:&pc[13];phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==145)pm[20].arity=2;if(m==146)pm[3].param=&tbool;if(m==147)pm[7].type=&tvoid;if(m==163)pm[14].type=&tbool;if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
 static Class *tree_class(Image *im,const char *ns,const char *name){int i;
  if(mode==162&&!strcmp(name,"AvatarView"))return NULL;
@@ -125,6 +141,10 @@ static Class *tree_class(Image *im,const char *ns,const char *name){int i;
  Image *want=(i<2||i==10||i==12)?&images[0]:(i<4||i>=7)?&images[3]:&nav_image;
  if(im==want&&!strcmp(ns,nc[i].ns)&&!strcmp(name,nc[i].name))return &nc[i];}return NULL;}
 static Method *tree_method(Class *c,const char *name,int arity){int i;
+ if(c==&pc[8]&&arity==0&&mode>=210&&mode<=220){
+  if(!strcmp(name,"get_FriendsCount")&&mode!=217)return &friend_getters[0];
+  if(!strcmp(name,"get_FriendCount")&&(mode==216||mode==217))return &friend_getters[1];
+ }
  for(i=0;i<25;i++)if(arity==pm[i].arity&&c==pm[i].klass&&!strcmp(name,pm[i].name))return &pm[i];
  for(i=0;i<27;i++)if(arity==nm[i].arity&&c==nm[i].klass&&!strcmp(name,nm[i].name))return &nm[i];return NULL;}
 static unsigned char tree_assignable(Class *a,Class *b){
@@ -177,6 +197,10 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  }
  if(mode==67&&m->action==15){*exc=&exception;return NULL;}
  switch(m->action){
+ case 65:
+  friend_reads++;if(obj!=&puser){selected_wrong++;*exc=&exception;return NULL;}
+  if(mode==218){*exc=&exception;return NULL;}
+  pnumber=mode==211?50:mode==212?0:mode==213?-1:mode==214?1000001:mode==219?(friend_reads==1?49:50):49;return &pbox;
  case 62:return mode==182?NULL:&pentrylist;
  case 63:pnumber=1;return &pbox;
  case 64:if(!args||!args[0]||*(int *)args[0]!=0){selected_wrong++;*exc=&exception;return NULL;}entry_reads++;return mode==153?&other:mode==188||(mode==183&&entry_reads==1)?&ppromoentry:&pentryobj;
@@ -223,12 +247,12 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 56:avatar_reads++;return mode==135||mode==206||(mode==184&&avatar_reads==1)?&potheruser:&puser;
  case 57:yes=mode==136||(mode==193&&stress_current_row!=stress_count()-1);break;
  case 58:profile_reads++;if(mode==156)return &other;if(mode==137)return NULL;return mode==140&&profile_reads>2?&pothercontent:&pcontent;
- case 59:return mode==138||mode==189?&potheruser:&puser;
+ case 59:return mode==138||mode==189||(mode==220&&friend_reads>0)?&potheruser:&puser;
  case 60:
   if(stress_mode()&&(!pinned(&pentryobj)||!pinned(&pavatar)||!pinned(&puser)))pin_errors++;
   if(!args||args[0]!=&pentryobj||!args[1]||*(unsigned char *)args[1]!=0||args[2]!=&pavatar){selected_wrong++;*exc=&exception;return NULL;}
-  opens++;if(mode==148)slow();if(mode==141){*exc=&exception;return NULL;}if(mode!=142)phase=1;return NULL;
- case 61:cancels++;if(mode==143){*exc=&exception;return NULL;}if(mode!=144)phase=2;return NULL;
+  opened_ms=(int)(clock_ms()-started_ms);opens++;if(mode==148)slow();if(mode==141){*exc=&exception;return NULL;}if(mode!=142)phase=1;return NULL;
+ case 61:closed_ms=(int)(clock_ms()-started_ms);cancels++;if(mode==143){*exc=&exception;return NULL;}if(mode!=144)phase=2;return NULL;
 
  case 10:if(mode==77)slow();return mode>=80?&app_root:active();
  case 11:if(mode>=98)return NULL;if(mode==88)return &view;return (mode==72||phase!=1||mode==87)?NULL:&view;

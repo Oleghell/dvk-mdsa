@@ -5,8 +5,12 @@ from diagnose_device import DiagnosticAdb,diagnose,find_adb,TestError
 
 
 def result_status(result):
-    if result.get('status')=='navigation-ready':return 'Готово: возврат в поиск подтверждён.'
     navigation=result.get('gadget',{}).get('uikit_root',{}).get('navigation',{})
+    if result.get('status')=='navigation-ready':
+        if navigation.get('friends_status')=='read':
+            suffix='меньше 50' if navigation['friends_eligible'] else '50 и больше'
+            return 'Возврат подтверждён. Друзей: '+str(navigation['friends_count'])+' ('+suffix+').'
+        return 'Возврат подтверждён. Число друзей: неизвестно.'
     reason=navigation.get('error')
     if reason in (None,'none'):reason=result.get('status','unknown')
     text='Остановлен: '+reason
@@ -17,10 +21,10 @@ def result_status(result):
 def launch_gui(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг · 0.3.6')
+    root=tk.Tk();root.title('ДругВокруг · 0.3.7')
     root.geometry('640x340');root.minsize(620,340)
     main=ttk.Frame(root,padding=14);main.pack(fill='both',expand=True)
-    ttk.Label(main,text='MuMu #4 · профиль → назад',font=('Segoe UI',11,'bold')).pack(anchor='w')
+    ttk.Label(main,text='MuMu #4 · профиль и друзья',font=('Segoe UI',11,'bold')).pack(anchor='w')
     ttk.Label(main,text='Открой загруженный поиск на #4. Во время теста не трогай окно.').pack(anchor='w',pady=(4,10))
     base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).parent
     binary=tk.StringVar(value=find_adb());folder=tk.StringVar(value=str(base/'test-apks'))
@@ -36,7 +40,7 @@ def launch_gui(self_check=False):
     consent=tk.BooleanVar(value=False)
     consent_box=ttk.Checkbutton(main,text='Разрешаю один визит (виден в гостях). Без сообщений.',variable=consent)
     consent_box.pack(anchor='w',pady=(2,6))
-    state=tk.StringVar(value='Готов к проверке.')
+    state=tk.StringVar(value='Готов. Паузы — 1 с.')
     ttk.Label(main,textvariable=state,wraplength=590).pack(anchor='w',pady=(4,6))
     events=queue.Queue();stop=threading.Event();busy=False;report=None
     def worker(executable,directory):
