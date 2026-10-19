@@ -80,7 +80,9 @@ static Method friend_getters[]={
  {"get_FriendsCount",&profile_model,0,&tlong,65}};
 static Object model_obj={&profile_model,0},other_model={&profile_model,0};
 static Object longbox={NULL,0};static int64_t longnumber;
-static int model_reads,actual_reads;
+static int model_reads,actual_reads,id_reads;
+static Method identity_getter={"get_Id",&pc[8],0,&tlong,68};
+static int batch_mode(void){return mode>=250&&mode<=257;}
 static Object ptable={&pc[2],0},pvisiblelist={&pc[17],0},prow={&pc[10],0},precord={&pc[13],0},pcell={&pc[3],0},pentryobj={&pc[4],0},pavatar={&pc[6],0},puser={&pc[8],0},potheruser={&pc[8],0},pcontent={&pc[9],0},pothercontent={&pc[9],0};
 static Object preplacementrow={&pc[10],0};
 static Object ppromocell={&pc[3],0},ppromoentry={&pc[4],0};
@@ -89,8 +91,8 @@ static int entry_reads,avatar_reads,promo_reads;
    retention across completed rows. Objects are fixture-owned, no app values. */
 static Object stress_rows[24],stress_wrap[24][2],stress_cells[24],stress_parents[21];
 static int iterator_allocations,pin_errors,blocked,stress_current_row;
-static int stress_mode(void){return (mode>=190&&mode<=197)||mode==207;}
-static int stress_count(void){return mode==191||mode==192?24:8;}
+static int stress_mode(void){return batch_mode()||(mode>=190&&mode<=197)||mode==207;}
+static int stress_count(void){if(batch_mode())return mode==252?5:12;return mode==191||mode==192?24:8;}
 static int stress_index(void *obj,Object *array,int length){int i;for(i=0;i<length;i++)if(obj==&array[i])return i;return -1;}
 static int pinned(void *obj){int i;for(i=0;i<HANDLE_COUNT;i++)if(handles[i].live&&handles[i].target==obj)return 1;return 0;}
 API int fixture_pin_errors(void){return pin_errors;}
@@ -136,14 +138,14 @@ static int phase,opens,cancels,virtual_calls,hidden_reads;
 static void tree_init(int m){int i;iterator_allocations=pin_errors=blocked=0;stress_current_row=-1;
  for(i=0;i<24;i++){stress_rows[i].klass=&pc[10];stress_wrap[i][0].klass=stress_wrap[i][1].klass=&nc[0];stress_cells[i].klass=&pc[3];}
  for(i=0;i<21;i++)stress_parents[i].klass=&nc[0];
- started_ms=clock_ms();opened_ms=closed_ms=friend_reads=0;model_reads=actual_reads=0;friend_getters[0].type=m==215?&tbool:m==229?&tint:m==238?&tbylong:&tlong;
+ started_ms=clock_ms();opened_ms=closed_ms=friend_reads=0;model_reads=actual_reads=id_reads=0;identity_getter.type=m==253?&tint:&tlong;friend_getters[0].type=m==215?&tbool:m==229?&tint:m==238?&tbylong:&tlong;
  friend_getters[0].klass=m==236?&pc[8]:&profile_model;friend_getters[0].flags=m==237?16:0;
  profile_getter.type=m==228?&tbool:m==232?&pt[8]:&tmodel;
  actual_getter.type=m==233?&tint:&tbool;
  entry_reads=avatar_reads=promo_reads=0;if(m>=170&&m<=197){pm[3].type=&pbyrow;pm[24].type=&pbyentry;}if(m==173)pm[3].type=&pwrongref;if(m==174)pm[1].type=&pbyrow;if(m==176)pm[3].flags=64;if(m==177)pm[3].param=&tbool;if(m==178)pm[3].flags=16;if(m==179)pm[3].arity=2;if(m==164)attached=0;row_reads=0;modal_reads=plist_reads=profile_reads=selected_wrong=pi_count=0;for(i=0;i<22;i++){pt[i].kind=18;pt[i].klass=&pc[i];}for(i=0;i<1024;i++)pi[i].klass=&pc[19];prow.klass= m==150||m==171||m==180||m==181?&pc[11]:m==151||m==172||m==186?&pc[12]:&pc[10];precord.klass=m==150||m==171||m==180||m==181?&pc[14]:m==151||m==172||m==186?&pc[15]:&pc[13];phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==145)pm[20].arity=2;if(m==146)pm[3].param=&tbool;if(m==147)pm[7].type=&tvoid;if(m==163)pm[14].type=&tbool;if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
 static Class *tree_class(Image *im,const char *ns,const char *name){int i;
  if(mode==162&&!strcmp(name,"AvatarView"))return NULL;
- if(!strcmp(ns,"DV.Models")&&!strcmp(name,"Profile"))return mode>=210&&mode<=240&&mode!=234?&profile_model:NULL;
+ if(!strcmp(ns,"DV.Models")&&!strcmp(name,"Profile"))return ((mode>=210&&mode<=240)||batch_mode())&&mode!=234?&profile_model:NULL;
  if(im==&profile_image&&!strcmp(ns,"DV.Profiles")&&!strcmp(name,"ProfileViewController"))return &pc[9];
  if(im==&profile_image&&!strcmp(ns,"DV.Profiles")&&!strcmp(name,"ProfilesQueueViewController"))return &nc[5];
  for(i=0;i<22;i++){Image *want=(i<2||i>=17)?&images[0]:(i==2||i==3||i==4||i==5)?&nav_image:i==9?&profile_image:&images[3];if(im==want&&!strcmp(ns,pc[i].ns)&&!strcmp(name,pc[i].name))return &pc[i];}
@@ -151,7 +153,8 @@ static Class *tree_class(Image *im,const char *ns,const char *name){int i;
  Image *want=(i<2||i==10||i==12)?&images[0]:(i<4||i>=7)?&images[3]:&nav_image;
  if(im==want&&!strcmp(ns,nc[i].ns)&&!strcmp(name,nc[i].name))return &nc[i];}return NULL;}
 static Method *tree_method(Class *c,const char *name,int arity){int i;
- if(mode>=210&&mode<=240&&arity==0){
+ if(batch_mode()&&c==&pc[8]&&arity==0&&!strcmp(name,"get_Id"))return &identity_getter;
+ if(((mode>=210&&mode<=240)||batch_mode())&&arity==0){
   if(c==&pc[9]&&!strcmp(name,"get_Profile"))return mode==216?NULL:&profile_getter;
   if(c==&profile_model&&!strcmp(name,"get_IsActual"))return mode==240?NULL:&actual_getter;
   if(c==&profile_model&&!strcmp(name,"get_FriendsCount"))return mode==230?NULL:&friend_getters[0];
@@ -208,10 +211,14 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  }
  if(mode==67&&m->action==15){*exc=&exception;return NULL;}
  switch(m->action){
+ case 68:
+  if(obj!=&puser){selected_wrong++;*exc=&exception;return NULL;}
+  id_reads++;longnumber=mode==254?0:mode==251?1:mode==256?id_reads:stress_current_row+1;return &longbox;
  case 65:
   friend_reads++;if(obj!=&model_obj){selected_wrong++;*exc=&exception;return NULL;}
   if(!pinned(obj))pin_errors++;
-  if(mode==218){*exc=&exception;return NULL;}
+  if(mode==218||(mode==255&&opens==3)){*exc=&exception;return NULL;}
+  if(batch_mode()){longnumber=stress_current_row%4==0?0:stress_current_row%4==1?49:stress_current_row%4==2?50:97;return &longbox;}
   longnumber=mode==211?50:mode==212?0:mode==213?-1:mode==214?1000001:mode==219?(friend_reads==1?49:50):mode==221?INT64_C(4294967393):mode==222?INT64_MAX:mode==235?(-INT64_C(4294967296)+97):mode==210?49:97;return &longbox;
  case 66:
   model_reads++;
@@ -263,7 +270,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 49:case 50:case 51:return mode==201?NULL:&precord;
  case 52:if(!args||(args[0]!=&pentryobj&&args[0]!=&ppromoentry)){selected_wrong++;*exc=&exception;return NULL;}promo_reads++;yes=mode==192||mode==133||args[0]==&ppromoentry||(mode==186&&promo_reads==2)||(mode==187&&promo_reads%2==0);break;
  case 53:
-  if(stress_mode()){int i=stress_index(obj,stress_cells,24);stress_current_row=i;return mode==193||i==stress_count()-1?&pentryobj:&ppromoentry;}
+  if(stress_mode()){int i=stress_index(obj,stress_cells,24);stress_current_row=i;return batch_mode()||mode==193||i==stress_count()-1?&pentryobj:&ppromoentry;}
   if(obj==&ppromocell)return &ppromoentry;return mode==134?NULL:&pentryobj;
  case 54:return mode==199?NULL:&pavatar;
  case 55:if(mode==198||(mode==202&&entry_reads==1))return NULL;return &puser;
@@ -288,7 +295,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 18:
   if(stress_mode()){
    int i=stress_index(obj,stress_rows,24),j;
-   if(obj==&pavatar)return &stress_cells[stress_count()-1];
+   if(obj==&pavatar)return &stress_cells[batch_mode()?stress_current_row:stress_count()-1];
    if(i>=0)return mode==197?&stress_rows[i]:mode==191?&stress_parents[0]:&ptable;
    i=stress_index(obj,stress_cells,24);if(i>=0)return &stress_wrap[i][1];
    for(j=0;j<24;j++){if(obj==&stress_wrap[j][1])return &stress_wrap[j][0];if(obj==&stress_wrap[j][0])return &stress_rows[j];}

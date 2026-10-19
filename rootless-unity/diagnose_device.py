@@ -107,11 +107,12 @@ def cleanup_frida(frida, manager, address, script, session, device):
     finally:timer.cancel()
 
 
-def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False):
+def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False, batch_probe=False, progress=lambda text:None):
     if frida_api is None:
         import frida as frida_api
     frida=frida_api
-    if profile_metadata_probe and (profile_probe or navigation_probe or uikit_tree_probe):raise TestError('Режим только метаданных несовместим с UI-проверками.')
+    if profile_metadata_probe and (batch_probe or profile_probe or navigation_probe or uikit_tree_probe):raise TestError('Режим только метаданных несовместим с UI-проверками.')
+    profile_probe=profile_probe or batch_probe
     navigation_probe=navigation_probe or profile_probe
     uikit_root_probe=uikit_root_probe or uikit_tree_probe or navigation_probe or profile_metadata_probe
     source=SCRIPT
@@ -121,6 +122,8 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
         import uikit_root
         if profile_metadata_probe:
             import profile_metadata as probe_module
+        elif batch_probe:
+            import profile_batch as probe_module
         elif profile_probe:
             import uikit_profile_navigation as probe_module
         elif navigation_probe:
@@ -129,6 +132,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
             import uikit_tree as probe_module
         else:probe_module=uikit_root
         source=SCRIPT.replace(NATIVE_FUNCTION,uikit_profile.SCRIPT,1)+probe_module.FUNCTION+'\nrpc.exports.root = () => probeUIKitRoot();'
+        if batch_probe:source=source.replace('rpc.exports.root = () => probeUIKitRoot();','rpc.exports.root = () => probeBatchProfile();')
         if navigation_probe:source+='\nrpc.exports.cancel = () => cancelNavigation();'
         native_validator=uikit_profile.validate
     if frida.__version__ != '17.24.1':raise TestError('Нужен клиент Frida 17.24.1.')
@@ -137,7 +141,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
             'process_count':None,'process_selection':'single-authenticated-process-by-pid'}
     manager=frida.get_device_manager();address='127.0.0.1:'+str(port)
     guard=frida.Cancellable()
-    timer=threading.Timer(20,guard.cancel);timer.daemon=True;timer.start()
+    timer=threading.Timer(200 if batch_probe else 20,guard.cancel);timer.daemon=True;timer.start()
     device=session=script=None
     monitor_stop=threading.Event()
     try:
@@ -164,7 +168,7 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
                     session=device.attach(process.pid)
                     report['attached']=True
                     report['stage']='create-fixed-script'
-                    script=session.create_script(source,name='dvk-profile-metadata-0.3.1' if profile_metadata_probe else 'dvk-uikit-profile-navigation-0.3.11' if profile_probe else 'dvk-uikit-navigation-0.2.3' if navigation_probe else 'dvk-uikit-tree-0.1.8' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
+                    script=session.create_script(source,name='dvk-profile-batch-0.3.12' if batch_probe else 'dvk-profile-metadata-0.3.1' if profile_metadata_probe else 'dvk-uikit-profile-navigation-0.3.12' if profile_probe else 'dvk-uikit-navigation-0.2.3' if navigation_probe else 'dvk-uikit-tree-0.1.8' if uikit_tree_probe else 'dvk-uikit-root-0.1.5' if uikit_root_probe else 'dvk-fixed-diagnostics-0.1.3')
                     report['stage']='load-fixed-script';script.load()
                     report['stage']='runtime-rpc'
                     report['runtime']=validate_runtime(script.exports_sync.runtime())
@@ -195,13 +199,24 @@ def inspect_gadget(port, token, cancelled, *, frida_api=None, uikit_root_probe=F
                                                 except Exception:pass
                                                 return
                                     threading.Thread(target=monitor_cancel,daemon=True).start()
-                                report['uikit_root']=probe_module.validate(script.exports_sync.root())
+                                if batch_probe:
+                                    def batch_root():
+                                        report['uikit_root']={}
+                                        report['stage']='uikit-root-rpc'
+                                        value=probe_module.validate(script.exports_sync.root())
+                                        report['uikit_root']=value
+                                        return value
+                                    report['batch']=probe_module.run(batch_root,cancelled,progress)
+                                    report['stage']=report['batch']['status']
+                                    report['rpc_root_ok']=bool(report.get('uikit_root'))
+                                else:
+                                    report['uikit_root']=probe_module.validate(script.exports_sync.root())
+                                    report['rpc_root_ok']=True
+                                    report['stage']=report['uikit_root']['stage']
+                                    if navigation_probe:
+                                        nav=report['uikit_root']['navigation']
+                                        if nav['stage']!='not-attempted':report['stage']=nav['stage']
                                 monitor_stop.set()
-                                report['rpc_root_ok']=True
-                                report['stage']=report['uikit_root']['stage']
-                                if navigation_probe:
-                                    nav=report['uikit_root']['navigation']
-                                    if nav['stage']!='not-attempted':report['stage']=nav['stage']
                                 if uikit_tree_probe and report['stage']=='root-ready':
                                     report['stage']=report['uikit_root']['tree']['stage']
                     else:
@@ -227,14 +242,15 @@ def listening_port(text):
     return any(re.fullmatch(r'[0-9a-fA-F.:\[\]*]+:27042', part) for line in text.splitlines() for part in line.split())
 
 
-def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False):
-    if profile_metadata_probe and (profile_probe or navigation_probe or uikit_tree_probe):raise TestError('Режим только метаданных несовместим с UI-проверками.')
+def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspector=inspect_gadget,*,uikit_root_probe=False, uikit_tree_probe=False, navigation_probe=False, profile_probe=False, profile_metadata_probe=False, batch_probe=False):
+    if profile_metadata_probe and (batch_probe or profile_probe or navigation_probe or uikit_tree_probe):raise TestError('Режим только метаданных несовместим с UI-проверками.')
+    profile_probe=profile_probe or batch_probe
     navigation_probe=navigation_probe or profile_probe
     uikit_root_probe=uikit_root_probe or uikit_tree_probe or navigation_probe or profile_metadata_probe
-    version='0.3.1' if profile_metadata_probe else '0.3.11' if profile_probe else '0.2.3' if navigation_probe else '0.1.8' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
+    version='0.3.1' if profile_metadata_probe else '0.3.12' if profile_probe else '0.2.3' if navigation_probe else '0.1.8' if uikit_tree_probe else '0.1.5' if uikit_root_probe else VERSION
     if uikit_root_probe and inspector is inspect_gadget:
-        inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,uikit_root_probe=True,uikit_tree_probe=uikit_tree_probe,navigation_probe=navigation_probe,profile_probe=profile_probe,profile_metadata_probe=profile_metadata_probe)
-    report={'tool_version':version,'mode':('profile-metadata-only' if profile_metadata_probe else 'uikit-search-profile-return' if profile_probe else 'uikit-search-filter-cancel' if navigation_probe else 'uikit-structure-only' if uikit_tree_probe else 'uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
+        inspector=lambda port,token,cancel:inspect_gadget(port,token,cancel,uikit_root_probe=True,uikit_tree_probe=uikit_tree_probe,navigation_probe=navigation_probe,profile_probe=profile_probe,profile_metadata_probe=profile_metadata_probe,batch_probe=batch_probe,progress=progress)
+    report={'tool_version':version,'mode':('profile-metadata-only' if profile_metadata_probe else 'uikit-search-ten-profiles' if batch_probe else 'uikit-search-profile-return' if profile_probe else 'uikit-search-filter-cancel' if navigation_probe else 'uikit-structure-only' if uikit_tree_probe else 'uikit-root-presence-only' if uikit_root_probe else 'native-metadata-only-existing-test-app'),'target':TARGET,'working_instance':WORKING,
             'instances_verified_distinct':False,'install_requested':False,'app_installation_modified':False,
             'working_device_modified':False,'root_used':False,'ocr_used':False,'messages_sent':0,
             'unity_object_access':'not-tested','status':'not-run'}
@@ -269,7 +285,7 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
                 else:
                     report[field]={'':'none-reported','0':'none-reported','libnb.so':'libnb','libhoudini.so':'houdini','libndk_translation.so':'ndk-translation'}.get(raw,'other-not-recorded')
             except TestError:report[field]='query-unavailable'
-        progress('Проверяю только типы и сигнатуры профиля. Нет UI-наблюдателя, открытий и нажатий…' if profile_metadata_probe else 'Проверяю профиль и возврат…' if profile_probe else 'Проверяю экран поиска → открываю фильтры → отменяю без сохранения…' if navigation_probe else 'Читаю ограниченную структуру UIKit, без текста и действий…' if uikit_tree_probe else 'Проверяю главный поток и наличие окна, без UI-действий…' if uikit_root_probe else 'Проверяю IL2CPP API и метаданные классов UI. Сам UI не меняется…')
+        progress('Проверяю только типы и сигнатуры профиля. Нет UI-наблюдателя, открытий и нажатий…' if profile_metadata_probe else 'Проверяю до 10 видимых анкет без сообщений…' if batch_probe else 'Проверяю профиль и возврат…' if profile_probe else 'Проверяю экран поиска → открываю фильтры → отменяю без сохранения…' if navigation_probe else 'Читаю ограниченную структуру UIKit, без текста и действий…' if uikit_tree_probe else 'Проверяю главный поток и наличие окна, без UI-действий…' if uikit_root_probe else 'Проверяю IL2CPP API и метаданные классов UI. Сам UI не меняется…')
         stage='forward-and-gadget'
         value=adb.run(['-s',TARGET,'forward','tcp:0','tcp:27042'])
         if not value.isdecimal() or not 1024 <= int(value) <= 65535:raise TestError('Некорректный порт ADB.')
@@ -297,6 +313,12 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
                 report['action_backend']='semantic-controller-handlers'
                 report['unity_object_access']='navigation-confirmed' if report['status']=='navigation-ready' else 'not-confirmed'
                 report['profile_may_remain_open' if profile_probe else 'filters_may_remain_open']=unknown or bool(nav.get('open_attempted') and not nav.get('return_verified'))
+                if batch_probe:
+                    batch=report['gadget'].get('batch',{})
+                    report['profile_may_remain_open']=batch.get('profile_may_remain_open',report['profile_may_remain_open'])
+                    if batch.get('attempts') and not batch.get('items'):report['ui_actions_attempted']=None
+                    elif batch.get('items'):report['ui_actions_attempted']=any(item['opened'] for item in batch['items'])
+                    report['ui_actions_performed']=None if batch.get('profile_may_remain_open') and not nav else bool(batch.get('visited') or nav.get('open_completed'))
     except Exception as error:
         report['status']='stopped';report['failure_stage']=stage
         report['error_type']=safe_error_type(error)
@@ -313,7 +335,7 @@ def diagnose(adb,folder,progress=lambda text:None,cancelled=lambda:False,inspect
             if stage=='device-preflight':
                 failed=[e for e in events if e['status']=='failed']
                 if failed:report['adb_failure']=failed[0].copy()
-    target=folder.parent/f"{'rootless-profile-metadata' if profile_metadata_probe else 'rootless-profile-navigation' if profile_probe else 'rootless-navigation' if navigation_probe else 'rootless-diagnostics'}-{version}.json"
+    target=folder.parent/f"{'rootless-profile-metadata' if profile_metadata_probe else 'rootless-profile-batch' if batch_probe else 'rootless-profile-navigation' if profile_probe else 'rootless-navigation' if navigation_probe else 'rootless-diagnostics'}-{version}.json"
     target.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     return report,target
 

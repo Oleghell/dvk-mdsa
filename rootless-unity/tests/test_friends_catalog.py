@@ -97,7 +97,7 @@ class FriendsCatalog(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             folder=Path(td)/'test-apks';folder.mkdir();hashes=bundle(folder)
             with patch.object(c,'HASHES',hashes):report,path=c.write_report(folder)
-            self.assertEqual(path.name,'rootless-friends-metadata-0.3.11.json');self.assertEqual(json.loads(path.read_text()),report)
+            self.assertEqual(path.name,'rootless-friends-metadata-0.3.12.json');self.assertEqual(json.loads(path.read_text()),report)
             self.assertNotIn(td,json.dumps(report))
         self.assertEqual(c.inspect_bundle('/missing/PRIVATE/PATH',expected_hashes={'base.apk':'0'*64})['reason'],'apk-missing-or-too-large')
 

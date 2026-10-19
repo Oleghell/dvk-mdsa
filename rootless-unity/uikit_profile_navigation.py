@@ -7,7 +7,7 @@ import json
 import uikit_navigation as base
 from uikit_root import APIS as ROOT_APIS
 
-VERSION='0.3.11'
+VERSION='0.3.12'
 ACTION_DELAY_MS=1000
 FRIEND_SOURCES={'not-found','signature-unsupported','Profile.get_FriendsCount'}
 MAX_SELECTION_PASSES=3
@@ -72,7 +72,7 @@ PREPARE=r'''
   r.navigation.metadata_checkpoint='method:contentUser';s.contentUser=checked(s.content,'get_User',18,s.user);
   r.navigation.metadata_checkpoint='method:open';s.open=checked(s.search,'DV.Search.SearchTableView.IDelegate.OnUserSelected',1,null,
    [{kind:18,klass:s.entry},{kind:2},{kind:18,klass:s.resource}]);
-  // Confirmed by the user's 0.3.11 APK-definition report. Never fall back to
+  // Confirmed by the user's 0.3.10 APK-definition report. Never fall back to
   // guessed getters on User or reinterpret Int64 as a truncated Int32.
   s.friendCount=null;s.contentProfile=null;s.friendActual=null;
   r.navigation.friends_source='not-found';

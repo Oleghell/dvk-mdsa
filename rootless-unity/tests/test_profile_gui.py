@@ -21,6 +21,8 @@ class CompactProfileGUI(unittest.TestCase):
         tk=MagicMock();ttk=MagicMock();tk.ttk=ttk
         # Headless construction is not a native Windows rendering test.
         tk.Tk.return_value.winfo_height.return_value=300
+        tk.Tk.return_value.winfo_width.return_value=640
+        ttk.Frame.return_value.winfo_reqwidth.return_value=560
         ttk.Frame.return_value.winfo_reqheight.return_value=260
         frida=MagicMock();frida.__version__='17.24.1'
         with patch.dict(sys.modules,{'tkinter':tk,'tkinter.ttk':ttk,'tkinter.filedialog':tk.filedialog,'tkinter.messagebox':tk.messagebox,'frida':frida}):
