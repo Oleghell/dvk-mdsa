@@ -7,6 +7,14 @@ from diagnose_device import DiagnosticAdb,diagnose,TestError
 DEFAULT_ADB='C:/Users/XXX/Desktop/platform-tools/adb.exe'
 
 def result_status(result):
+    if result.get('mode')=='automatic-profile-chat-pass':
+        b=result.get('gadget',{}).get('batch',{})
+        text=f"Анкет: {b.get('checked',0)}. Чатов: {b.get('chats_checked',0)}. Команд отправки: {b.get('handlers_returned') if b.get('handlers_returned') is not None else 'неизвестно'}."
+        if b.get('status')=='batch-exhausted':text+=' Видимые анкеты закончились.'
+        elif b.get('status')!='batch-completed':text+=' Стоп: '+str(b.get('reason',result.get('status')))+'.'
+        if b.get('profile_may_remain_open'):text+=' Проверь экран вручную.'
+        return text
+
     if result.get('mode')=='one-greeting-current-chat':
         n=result.get('gadget',{}).get('uikit_root',{}).get('navigation',{})
         if n.get('send_handler_returned'):return 'Команда отправки выполнена. Проверь чат. Повтор заблокирован.'
@@ -52,11 +60,11 @@ def result_status(result):
 def launch_gui(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
-    root=tk.Tk();root.title('ДругВокруг · 0.3.21')
+    root=tk.Tk();root.title('ДругВокруг · 0.3.22')
     root.geometry('640x300');root.minsize(620,300)
     main=ttk.Frame(root,padding=14);main.pack(fill='both',expand=True)
     ttk.Label(main,text='MuMu #4 · профиль и друзья',font=('Segoe UI',11,'bold')).pack(anchor='w')
-    ttk.Label(main,text='На #4 вручную открой личный чат → «Проверить чат».').pack(anchor='w',pady=(4,10))
+    ttk.Label(main,text='Для автопрохода открой на #4 поиск людей (сетку анкет).').pack(anchor='w',pady=(4,10))
     base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).parent
     binary=tk.StringVar(value=DEFAULT_ADB);folder=tk.StringVar(value=str(base/'test-apks'))
     for label,var,picker in (
@@ -68,13 +76,16 @@ def launch_gui(self_check=False):
             p=pick()
             if p:v.set(p)
         ttk.Button(row,text='Выбрать',command=choose).pack(side='right',padx=(8,0))
-    state=tk.StringVar(value='Проверка чата — без текста и отправки. Между замерами — 1 с.')
+    state=tk.StringVar(value='Автопроход: друзья <50, пустой чат → приветствие. Паузы — 1 с.')
     ttk.Label(main,textvariable=state,wraplength=590).pack(anchor='w',pady=(4,6))
     events=queue.Queue();stop=threading.Event();busy=False;report=None
-    def worker(executable,directory,batch=False,chat_runtime=False,chat_state=False,chat_send=False):
+    def worker(executable,directory,batch=False,chat_runtime=False,chat_state=False,chat_send=False,automatic=False):
         try:
             p=Path(directory).resolve(strict=True)
-            if chat_send:
+            if automatic:
+                from chat_batch import start as automatic_start
+                result,path=automatic_start(DiagnosticAdb(executable,p),p,lambda s:events.put(('status',s)),stop.is_set)
+            elif chat_send:
                 from chat_send_probe import send_once
                 result,path=send_once(DiagnosticAdb(executable,p),p,lambda s:events.put(('status',s)),stop.is_set)
             else:result,path=diagnose(DiagnosticAdb(executable,p),p,lambda s:events.put(('status',s)),stop.is_set,profile_probe=not (chat_runtime or chat_state),batch_probe=batch,chat_runtime_probe=chat_runtime,chat_state_probe=chat_state)
@@ -92,9 +103,10 @@ def launch_gui(self_check=False):
         nonlocal busy,report
         if busy:return
         busy=True;report=None;stop.clear();state.set('Читаю метаданные APK…' if mode in ('catalog','chat-catalog') else 'Проверка…')
-        send_button.config(state='disabled');chat_button.config(state='disabled');runtime_button.config(state='disabled');chat_metadata_button.config(state='disabled');batch_button.config(state='disabled');button.config(state='disabled');metadata_button.config(state='disabled');stop_button.config(state='normal');report_button.config(state='disabled')
+        automatic_button.config(state='disabled');send_button.config(state='disabled');chat_button.config(state='disabled');runtime_button.config(state='disabled');chat_metadata_button.config(state='disabled');batch_button.config(state='disabled');button.config(state='disabled');metadata_button.config(state='disabled');stop_button.config(state='normal');report_button.config(state='disabled')
         if mode=='chat-catalog':threading.Thread(target=catalog_worker,args=(folder.get(),True),daemon=True).start()
         elif mode=='catalog':threading.Thread(target=catalog_worker,args=(folder.get(),),daemon=True).start()
+        elif mode=='automatic':threading.Thread(target=worker,args=(binary.get(),folder.get(),False,False,False,False,True),daemon=True).start()
         elif mode=='chat-send':threading.Thread(target=worker,args=(binary.get(),folder.get(),False,False,False,True),daemon=True).start()
         elif mode=='chat-state':threading.Thread(target=worker,args=(binary.get(),folder.get(),False,False,True),daemon=True).start()
         elif mode=='chat-runtime':threading.Thread(target=worker,args=(binary.get(),folder.get(),False,True),daemon=True).start()
@@ -108,6 +120,7 @@ def launch_gui(self_check=False):
         except (AttributeError,OSError):messagebox.showinfo('Отчёт',str(report))
     send_row=ttk.Frame(main);send_row.pack(fill='x',pady=(2,6))
     send_button=ttk.Button(send_row,text='Случайное приветствие — один раз',command=lambda:start('chat-send'));send_button.pack(side='left')
+    automatic_button=ttk.Button(send_row,text='Автопроход · до 10 анкет',command=lambda:start('automatic'));automatic_button.pack(side='left',padx=(8,0))
     diagnostics_row=ttk.Frame(main);diagnostics_row.pack(fill='x',pady=(2,6))
     chat_button=ttk.Button(diagnostics_row,text='Проверить чат',command=lambda:start('chat-state'));chat_button.pack(side='left',padx=(0,8))
     runtime_button=ttk.Button(diagnostics_row,text='Типы чата',command=lambda:start('chat-runtime'));runtime_button.pack(side='left',padx=(0,8))
@@ -124,7 +137,7 @@ def launch_gui(self_check=False):
         while not events.empty():
             kind,value=events.get_nowait()
             if kind=='status':state.set(value);continue
-            busy=False;send_button.config(state='normal');chat_button.config(state='normal');runtime_button.config(state='normal');chat_metadata_button.config(state='normal');batch_button.config(state='normal');button.config(state='normal');metadata_button.config(state='normal');stop_button.config(state='disabled')
+            busy=False;automatic_button.config(state='normal');send_button.config(state='normal');chat_button.config(state='normal');runtime_button.config(state='normal');chat_metadata_button.config(state='normal');batch_button.config(state='normal');button.config(state='normal');metadata_button.config(state='normal');stop_button.config(state='disabled')
             if kind=='error':state.set(value)
             else:
                 result,report=value;state.set(result_status(result));report_button.config(state='normal')
@@ -137,16 +150,16 @@ def launch_gui(self_check=False):
     needed=main.winfo_reqheight()
     if needed>root.winfo_height():root.geometry('640x'+str(needed));root.minsize(620,needed)
     if self_check:
-        root.update();assert root.winfo_viewable() and all(w.winfo_viewable() for w in (chat_button,runtime_button,chat_metadata_button,metadata_button,batch_button,button,stop_button,report_button))
+        root.update();assert root.winfo_viewable() and all(w.winfo_viewable() for w in (automatic_button,send_button,chat_button,runtime_button,chat_metadata_button,metadata_button,batch_button,button,stop_button,report_button))
         assert main.winfo_reqheight()<=root.winfo_height(),'Compact controls are clipped'
-        assert max(row.winfo_reqwidth(),diagnostics_row.winfo_reqwidth())+28<=root.winfo_width(),'Compact buttons are clipped'
+        assert max(row.winfo_reqwidth(),diagnostics_row.winfo_reqwidth(),send_row.winfo_reqwidth())+28<=root.winfo_width(),'Compact buttons are clipped'
         import frida
         from profile_batch import FUNCTION
-        import friends_catalog,chat_catalog,chat_runtime_metadata,chat_state_probe,chat_send_probe
-        assert chat_state_probe.VERSION=='0.3.21'
-        assert chat_runtime_metadata.VERSION=='0.3.21'
-        assert chat_catalog.VERSION=='0.3.21'
-        assert friends_catalog.VERSION=='0.3.21'
+        import friends_catalog,chat_catalog,chat_runtime_metadata,chat_state_probe,chat_send_probe,chat_batch
+        assert chat_state_probe.VERSION=='0.3.22'
+        assert chat_runtime_metadata.VERSION=='0.3.22'
+        assert chat_catalog.VERSION=='0.3.22'
+        assert friends_catalog.VERSION=='0.3.22'
         assert frida.__version__=='17.24.1' and 'OnUserSelected' in FUNCTION
         root.destroy();return
     root.after(100,poll);root.mainloop()

@@ -7,7 +7,7 @@ import json
 import uikit_navigation as base
 from uikit_root import APIS as ROOT_APIS
 
-VERSION='0.3.21'
+VERSION='0.3.22'
 ACTION_DELAY_MS=1000
 FRIEND_SOURCES={'not-found','signature-unsupported','Profile.get_FriendsCount'}
 MAX_SELECTION_PASSES=3
