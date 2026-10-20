@@ -37,13 +37,23 @@ jobs:
         run: |
           cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/automatic_fixture.c -o assistant_fixture.so
           python rootless-unity/smoke_assistant_pass.py ./assistant_fixture.so
-      - name: Native manual-approval integration on Windows
+          cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/search_online_fixture.c -o search_online_fixture.so
+          python rootless-unity/smoke_search_online.py ./search_online_fixture.so
+      - name: Native manual-approval and online-filter integration on Windows
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/automatic_fixture.c /Fe:assistant_fixture.dll
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
           python rootless-unity/smoke_assistant_pass.py ./assistant_fixture.dll
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+      - name: Native online-only integration on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/search_online_fixture.c /Fe:search_online_fixture.dll
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          python rootless-unity/smoke_search_online.py ./search_online_fixture.dll
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
   package:
     needs: verify
@@ -75,7 +85,7 @@ jobs:
           $root='out/DvkAssistant-windows-x64'
           Copy-Item rootless-unity/ASSISTANT.md "$root/README.md"
           Copy-Item START_ASSISTANT.bat "$root/START_ASSISTANT.bat"
-          @{source_commit=$env:GITHUB_SHA;live_android_verified=$false;automatic_send=$false;manual_confirmation_required=$true;offline_search_definitions_available=$true;automatic_search_settings_available=$false;device_endpoint='127.0.0.1:5563';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
+          @{source_commit=$env:GITHUB_SHA;live_android_verified=$false;automatic_send=$false;manual_confirmation_required=$true;offline_search_definitions_available=$true;automatic_search_settings_available=$false;online_only_action_available=$true;online_only_live_verified=$false;automatic_city_selection_available=$false;device_endpoint='127.0.0.1:5563';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
       - uses: actions/upload-artifact@v4
         with:
           name: DvkAssistant-windows-x64

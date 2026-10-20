@@ -10,6 +10,7 @@ from assistant_config import ConfigError, load
 from assistant_pass import APPROVAL_SECONDS, run
 from assistant_store import StateError, data_directory
 from search_catalog import write_report as prepare_search_report
+from search_online import run as enable_online
 
 # User-confirmed working paths on MuMu #4. Saved local choices take priority.
 DEFAULT_ADB = 'C:/Users/XXX/Desktop/platform-tools/adb.exe'
@@ -60,10 +61,10 @@ def launch(self_check=False):
         button = ttk.Button(row, text='Выбрать', command=choose)
         button.pack(side='right', padx=(8, 0))
         controls.extend((entry, button))
-    ttk.Label(pane, text='Перед запуском: открой поиск анкет в №4. Пока выставь город и «Только онлайн» вручную. '
+    ttk.Label(pane, text='Перед запуском: открой поиск анкет в №4. Город пока выбери вручную. «Только онлайн» можно включить кнопкой ниже. '
               'Не переключай экран во время работы. Закрой другие инструменты управления MuMu.',
               wraplength=660).pack(anchor='w', pady=(8, 12))
-    check = ttk.Checkbutton(pane, variable=consent, text='Разрешаю проверку анкет и состояния чатов на №4')
+    check = ttk.Checkbutton(pane, variable=consent, text='Разрешаю работу с поиском, анкетами и состоянием чатов на №4')
     check.pack(anchor='w')
     controls.append(check)
     ttk.Label(pane, textvariable=status, wraplength=660, font=('Segoe UI', 12)).pack(anchor='w', pady=18)
@@ -108,6 +109,7 @@ def launch(self_check=False):
         start.configure(state='disabled' if busy else 'normal')
         stop.configure(state='normal' if busy else 'disabled')
         search_button.configure(state='disabled' if busy else 'normal')
+        online_button.configure(state='disabled' if busy else 'normal')
         search_report_button.configure(state='normal' if search_report_path is not None and not busy else 'disabled')
 
     def begin():
@@ -129,6 +131,31 @@ def launch(self_check=False):
         status.set('Проверяю анкету и чат. Сообщения без отдельного подтверждения не отправляются.')
         refresh()
         threading.Thread(target=worker, args=(adb.get(), folder.get(), greeting), daemon=True).start()
+
+    def online_worker(executable, directory):
+        try:
+            result = enable_online(executable, directory, stopped.is_set)
+            events.put(('online-result', result))
+        except Exception:
+            events.put(('error', 'Онлайн-фильтр не подтверждён. Проверь экран и настройки вручную: изменения могли успеть примениться. Анкеты и сообщения не запускались.'))
+
+    def begin_online():
+        nonlocal busy
+        if busy:
+            return
+        if not consent.get():
+            messagebox.showinfo('Разрешение', 'Подтверди доступ к MuMu №4. Эта кнопка изменит только онлайн-фильтр поиска.')
+            return
+        try:
+            save_paths()
+        except Exception:
+            status.set('Не удалось сохранить пути. Онлайн-фильтр не запущен.')
+            return
+        stopped.clear()
+        busy = True
+        status.set('Включаю «Только онлайн» в №4. Проверяю результат и сохранение прежнего города. Сообщения не отправляются.')
+        refresh()
+        threading.Thread(target=online_worker, args=(adb.get(), folder.get()), daemon=True).start()
 
     def search_worker(directory):
         try:
@@ -174,6 +201,8 @@ def launch(self_check=False):
     start.pack(side='left')
     stop = ttk.Button(row, text='Стоп', command=cancel, state='disabled')
     stop.pack(side='left', padx=10)
+    online_button = ttk.Button(pane, text='Включить только онлайн', command=begin_online)
+    online_button.pack(anchor='w', pady=(4, 6))
     search_row = ttk.Frame(pane)
     search_row.pack(fill='x', pady=(6, 4))
     search_button = ttk.Button(search_row, text='Подготовить настройки поиска', command=begin_search)
@@ -240,9 +269,26 @@ def launch(self_check=False):
             elif kind == 'search-ready':
                 result, search_report_path = value
                 if result['status'] == 'catalog-ready':
-                    status.set('Сведения о поиске сохранены. Пришли search-settings-definitions.json через «Открыть сведения». Город и фильтры ещё не изменены.')
+                    status.set('Сведения о поиске сохранены. Пришли search-settings-definitions.json через «Открыть сведения». Эта подготовка не изменяет город и фильтры.')
                 else:
                     status.set('Подготовка поиска остановлена: ' + result['reason'] + '. Подробности — в «Открыть сведения».')
+            elif kind == 'online-result':
+                n = value['navigation']
+                if n['online_verified'] and n['location_preserved'] and n['stage'] == 'navigation-ready':
+                    status.set('«Только онлайн» включён и проверен в модели поиска. Прежний город не изменён. Можно проверить одну анкету.')
+                else:
+                    status.set('Онлайн-фильтр не подтверждён: ' + n['error'] + '. Проверь настройки вручную: часть изменений могла выполниться. Анкеты и сообщения не запускались.')
+                try:
+                    report = {k: n[k] for k in ('stage', 'phase', 'error', 'settings_checkpoint', 'online_before',
+                              'online_set_attempted', 'online_set_completed', 'form_refreshed', 'apply_attempted',
+                              'apply_completed', 'return_verified', 'online_verified', 'location_preserved')}
+                    report.update(device='MuMu #4', city_selected=False, chat_content_read=False, messages_sent=0)
+                    path = data_directory() / 'last-search-settings.json'
+                    temp = path.with_suffix('.tmp')
+                    temp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+                    temp.replace(path)
+                except Exception:
+                    status.set('Операция с фильтром завершилась, но отчёт не сохранён. Проверь настройки в MuMu вручную.')
             else:
                 n = value['navigation']
                 if n['send_handler_returned']:
@@ -284,7 +330,7 @@ def launch(self_check=False):
     if self_check:
         fit_window()
         root.update()
-        assert root.winfo_viewable() and start.winfo_viewable() and search_button.winfo_viewable()
+        assert root.winfo_viewable() and start.winfo_viewable() and search_button.winfo_viewable() and online_button.winfo_viewable()
         assert not busy and not consent.get() and not stopped.is_set()
         assert str(stop.cget('state')) == 'disabled'
         assert events.empty()

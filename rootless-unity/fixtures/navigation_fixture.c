@@ -12,6 +12,14 @@ static void slow(void){
  struct timespec ts={0,200000000};nanosleep(&ts,NULL);
 #endif
 }
+#ifdef SEARCH_SETTINGS_FIXTURE
+static void online_init(int);
+static Class *online_class(Image *,const char *,const char *);
+static Method *online_method(Class *,const char *,int);
+static Object *online_invoke(Method *,void *,void **,void **);
+static int online_assignable(Class *,Class *);
+static Method *online_virtual(Object *,Method *);
+#endif
 static Class nc[]={
  {"UIKit","UIView"},{"UIKit","UIViewController"},{"DV.Common","DVViewController"},
  {"DV","CardViewController"},{"DV.Search","SearchTabController"},
@@ -56,13 +64,29 @@ static Object app_root={&nc[7],0},tabs={&nc[8],0},dv_container={&nc[9],0},ui_con
 static Object other_filters={&nc[5],0};
 static Object view_chain[35],other_window={&classes[1],0};
 static int phase,opens,cancels,virtual_calls,hidden_reads;
-static void tree_init(int m){int i;modal_reads=0;phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
-static Class *tree_class(Image *im,const char *ns,const char *name){int i;for(i=0;i<13;i++){
+static void tree_init(int m){int i;
+#ifdef SEARCH_SETTINGS_FIXTURE
+online_init(m);
+#endif
+modal_reads=0;phase=opens=cancels=virtual_calls=hidden_reads=0;for(i=0;i<35;i++)view_chain[i].klass=&nc[0];for(i=0;i<14;i++)deep[i].klass=&nc[10];if(m==109)nm[26].param=&tbool;if(m==110)nm[25].type=&tbool;if(m==111)nm[26].type=&tbool;if(m==112)nm[26].flags=16;if(m==90)nm[17].type=&tbool;if(m==62)nm[12].flags=16;}
+static Class *tree_class(Image *im,const char *ns,const char *name){int i;
+#ifdef SEARCH_SETTINGS_FIXTURE
+Class *extra=online_class(im,ns,name);if(extra)return extra;
+#endif
+for(i=0;i<13;i++){
  Image *want=(i<2||i==10||i==12)?&images[0]:(i<4||i>=7)?&images[3]:&nav_image;
  if(im==want&&!strcmp(ns,nc[i].ns)&&!strcmp(name,nc[i].name))return &nc[i];}return NULL;}
 static Method *tree_method(Class *c,const char *name,int arity){int i;
+#ifdef SEARCH_SETTINGS_FIXTURE
+Method *extra=online_method(c,name,arity);if(extra)return extra;
+#endif
+
  for(i=0;i<27;i++)if(arity==nm[i].arity&&c==nm[i].klass&&!strcmp(name,nm[i].name))return &nm[i];return NULL;}
 static unsigned char tree_assignable(Class *a,Class *b){
+#ifdef SEARCH_SETTINGS_FIXTURE
+if(online_assignable(a,b))return 1;
+#endif
+
  if(a==&nc[0])return b==&nc[0]||b==&classes[1];
  if(a==&nc[1])return (uintptr_t)b>=(uintptr_t)&nc[1]&&(uintptr_t)b<=(uintptr_t)&nc[12];
  if(a==&nc[10])return b==&nc[8]||b==&nc[10]||b==&nc[11]||b==&nc[12];
@@ -79,7 +103,13 @@ API Type *il2cpp_method_get_param(Method *m,unsigned int n){return n==0?m->param
 API Class *il2cpp_method_get_class(Method *m){return m->klass;}
 API unsigned char il2cpp_type_is_byref(Type *t){(void)t;return 0;}
 API Class *il2cpp_class_from_type(Type *t){return t->klass;}
-API Method *il2cpp_object_get_virtual_method(Object *o,Method *m){(void)o;virtual_calls++;return m;}
+API Method *il2cpp_object_get_virtual_method(Object *o,Method *m){(void)o;virtual_calls++;
+#ifdef SEARCH_SETTINGS_FIXTURE
+return online_virtual(o,m);
+#else
+return m;
+#endif
+}
 API int fixture_modal_reads(void){return modal_reads;}
 API int fixture_opens(void){return opens;}
 API int fixture_cancels(void){return cancels;}
@@ -92,6 +122,10 @@ static Object *active(void){
 }
 static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  (void)obj;(void)args;int yes=0;
+#ifdef SEARCH_SETTINGS_FIXTURE
+if(m->action>=200)return online_invoke(m,obj,args,exc);
+#endif
+
  if(mode==67&&m->action==15){*exc=&exception;return NULL;}
  switch(m->action){
  case 10:if(mode==77)slow();return mode>=80?&app_root:active();

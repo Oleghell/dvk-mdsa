@@ -204,7 +204,7 @@ class SearchButton(unittest.TestCase):
             poll = next(c.args[1] for c in tk.Tk.return_value.after.call_args_list
                         if len(c.args) == 2 and getattr(c.args[1], '__name__', '') == 'poll')
             poll()
-            self.assertTrue(any('Город и фильтры ещё не изменены' in str(c)
+            self.assertTrue(any('Эта подготовка не изменяет город и фильтры' in str(c)
                                 for c in tk.StringVar.return_value.set.call_args_list))
             native.assert_not_called()
             commands['Открыть сведения']()

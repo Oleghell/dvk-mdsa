@@ -299,3 +299,15 @@ py -3 diagnose.py
 - [Open API — авторизация](https://guide.morelogin.com/api-reference/cloud-phone/open-api/authorization)
 - [Open API — Batch Query ADB Info](https://guide.morelogin.com/api-reference/cloud-phone/open-api/adb/batchadbinfoopenapi.md)
 - [ADB Connection Guide — прямое подключение и SSH](https://guide.morelogin.com/api-reference/cloud-phone/adb)
+
+
+### Онлайн-фильтр в DvkAssistant
+
+В том же окне добавлена кнопка **Включить только онлайн**: открывает настройки
+поиска людей, включает флаг через проверенные методы и после применения
+проверяет модель поиска и неизменность прежнего местоположения. Анкеты/чаты
+эта кнопка не запускает, сообщений не отправляет. Город пока выбирается вручную.
+При остановке возможны частичные изменения — проверь настройки вручную.
+Собственный native-стенд проверяет этот новый путь отдельно; реальное
+применение на MuMu пользователя ещё не подтверждено. Подробности и ограничения:
+[`rootless-unity/ASSISTANT.md`](rootless-unity/ASSISTANT.md).
