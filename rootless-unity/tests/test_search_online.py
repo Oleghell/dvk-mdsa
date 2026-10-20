@@ -126,7 +126,7 @@ class OnlineTransport(unittest.TestCase):
 
 @contextmanager
 def gui(consent=True):
-    import assistant_app as app
+    import assistant_legacy as app
     tk, ttk = MagicMock(), MagicMock()
     tk.ttk = ttk
     tk.StringVar.return_value.get.return_value = 'C:/private/test-apks'

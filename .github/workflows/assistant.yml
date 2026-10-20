@@ -48,6 +48,7 @@ jobs:
         run: |
           cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/one_chat_fixture.c -o one_chat_fixture.so
           python rootless-unity/smoke_one_chat_send.py ./one_chat_fixture.so
+          python rootless-unity/smoke_one_chat_name.py ./one_chat_fixture.so
       - name: Native manual-approval and online-filter integration on Windows
         if: runner.os == 'Windows'
         shell: powershell
@@ -88,6 +89,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
           python rootless-unity/smoke_one_chat_send.py ./one_chat_fixture.dll
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          python rootless-unity/smoke_one_chat_name.py ./one_chat_fixture.dll
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
   package:
     needs: verify
     runs-on: windows-2022
@@ -118,7 +121,7 @@ jobs:
           $root='out/DvkAssistant-windows-x64'
           Copy-Item rootless-unity/ASSISTANT.md "$root/README.md"
           Copy-Item START_ASSISTANT.bat "$root/START_ASSISTANT.bat"
-          @{source_commit=$env:GITHUB_SHA;live_android_verified=$false;automatic_send=$true;automatic_mode_requires_explicit_start=$true;automatic_greeting_limit=1;automatic_reply_scope='one-already-open-journal-authorized-chat';automatic_chain_live_verified=$false;multi_chat_navigation_available=$false;manual_mode_available=$true;automatic_mode_per_message_confirmation=$false;offline_search_definitions_available=$true;automatic_search_settings_available=$false;online_only_action_available=$true;online_only_live_verified=$false;automatic_city_selection_available=$true;city_selection_live_verified=$false;online_live_confirmed_source='5081e33312853e96004cc8028be9934fc2018c66';device_endpoint='127.0.0.1:5563';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
+          @{source_commit=$env:GITHUB_SHA;entry_mode='compact-navigation-readiness';readiness_only=$true;live_cycle_available=$false;automatic_send=$false;dialog_navigation_available=$false;contact_forwarding_library_available=$true;contact_forwarding_live_verified=$false;device_scope='MuMu-4-only';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
       - uses: actions/upload-artifact@v4
         with:
           name: DvkAssistant-windows-x64

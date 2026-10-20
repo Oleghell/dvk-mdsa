@@ -2,7 +2,7 @@
 
 No navigation or chronology inferred from collection positions/IDs. Only set
 changes observed AFTER our previous outgoing was observed may advance a stage.
-Incoming bodies and contact details never enter SQLite or Telegram.
+Incoming bodies never enter SQLite; self-shared contacts use a separate DPAPI outbox.
 """
 import hashlib
 import hmac
@@ -14,6 +14,8 @@ from assistant_store import StateError, Store
 from conversation_engine import QUESTIONS, CONTACT_TEXT, REFUSAL, NEGATIVE, normalized
 from one_chat_probe import identity
 from one_chat_send import checked
+from shared_contact import self_shared, payload as contact_payload
+from telegram_notify import protect
 
 TERMINAL = {'done', 'declined', 'manual-review'}
 REPLIES = QUESTIONS + (CONTACT_TEXT,)
@@ -31,11 +33,15 @@ def text_hash(text):
 
 
 class Chain:
-    def __init__(self, store, choose=lambda: secrets.randbelow(2)):
+    def __init__(self, store, choose=lambda: secrets.randbelow(2), *, contact_notifications=False,
+                 seal=protect, unseal=lambda data: protect(data, decrypt=True)):
         self.store, self.choose = store, choose
+        self.contact_notifications = contact_notifications is True
+        self.seal, self.unseal = seal, unseal
         with store.connection() as db:
             # Do not use executescript: it would commit the surrounding tx.
             for sql in (
+                'CREATE TABLE IF NOT EXISTS chain_contact_outbox(chat TEXT PRIMARY KEY,message TEXT,payload BLOB NOT NULL,status TEXT NOT NULL)',
                 'CREATE TABLE IF NOT EXISTS chain_dialogs(account TEXT,peer TEXT,chat TEXT UNIQUE,greeting TEXT,stage TEXT,salt TEXT,PRIMARY KEY(account,peer))',
                 'CREATE TABLE IF NOT EXISTS chain_seen(chat TEXT,message TEXT,fingerprint TEXT,PRIMARY KEY(chat,message))',
                 'CREATE TABLE IF NOT EXISTS chain_actions(chat TEXT,kind TEXT,trigger TEXT,text_hash TEXT,status TEXT,PRIMARY KEY(chat,kind))',
@@ -56,7 +62,9 @@ class Chain:
         return row[1]
 
     def consume(self, snapshot):
-        s = checked(snapshot)
+        if not isinstance(snapshot, dict) or set(snapshot) not in ({'identity', 'messages'}, {'identity', 'messages', 'peer_name'}):
+            raise ValueError('Invalid private snapshot fields')
+        s = checked({k: snapshot[k] for k in ('identity', 'messages')})
         who, messages = s['identity'], s['messages']
         greeting_hash = self.authorized(who)
         chat = who['chat']
@@ -87,10 +95,26 @@ class Chain:
             new = [m for m in messages if m['id'] not in old]
             incoming = [m for m in new if m['sender'] == who['peer']]
             outgoing = [m for m in new if m['sender'] == who['account']]
-            for m in incoming:
-                db.execute("INSERT OR IGNORE INTO chain_notifications VALUES(?,?,'pending')", (chat, m['id']))
+            shared = [(m, self_shared(m['text'], requested=stage == 'wait-contact')) for m in incoming]
+            shared = [(m, items) for m, items in shared if items]
             if any(m['text'] and REFUSAL.search(normalized(m['text'])) for m in incoming):
                 stage = 'declined'
+            elif shared:
+                if len(shared) != 1 or len(incoming) != 1 or outgoing:
+                    stage = 'manual-review'
+                else:
+                    message, items = shared[0]
+                    if self.contact_notifications:
+                        try:
+                            data = contact_payload(snapshot.get('peer_name'), items)
+                            protected = self.seal(json.dumps(data, ensure_ascii=False).encode('utf-8'))
+                            if not isinstance(protected, bytes) or not protected:
+                                raise ValueError('Encryption failed')
+                            db.execute("INSERT OR IGNORE INTO chain_contact_outbox VALUES(?,?,?,'pending')",
+                                       (chat, message['id'], protected))
+                        except Exception:
+                            raise StateError('Имя или защита контакта не подтверждены. Передачи в Telegram нет.') from None
+                    stage = 'done'
             elif stage.startswith('pending-'):
                 kind = stage.removeprefix('pending-')
                 reserved = db.execute('SELECT text_hash FROM chain_actions WHERE chat=? AND kind=?', (chat, kind)).fetchone()
@@ -112,7 +136,7 @@ class Chain:
                 if len(incoming) != 1 or not incoming[0]['text'] or NEGATIVE.search(normalized(incoming[0]['text'])):
                     stage = 'manual-review'
                 elif stage == 'wait-contact':
-                    stage = 'done'  # Notify only; do not extract or forward contacts.
+                    stage = 'manual-review'  # No claimed contact, no Telegram notification.
                 else:
                     text = incoming[0]['text'].strip()
                     safe = HELLO.fullmatch(text) if stage == 'wait-reply' else POSITIVE.fullmatch(text)
@@ -140,20 +164,34 @@ class Chain:
             db.execute("UPDATE chain_actions SET status=? WHERE chat=? AND kind=? AND status='reserved-unknown'",
                        (status, who['chat'], action['kind']))
 
-    def notify(self, who, notifier):
-        if notifier is None:
+    def notify(self, who, notifier, cancelled=lambda: False):
+        # Never consume the former generic new-message outbox. It is obsolete.
+        if notifier is None or not self.contact_notifications:
             return 'disabled'
+        if cancelled():
+            return 'cancelled'
+        self.authorized(who)
         with self.store.connection() as db:
-            row = db.execute("SELECT message FROM chain_notifications WHERE chat=? AND status='pending' ORDER BY rowid LIMIT 1", (who['chat'],)).fetchone()
+            row = db.execute("SELECT payload FROM chain_contact_outbox WHERE chat=? AND status='pending'", (who['chat'],)).fetchone()
             if row is None:
                 return 'nothing-pending'
-            db.execute("UPDATE chain_notifications SET status='attempted-unknown' WHERE chat=? AND message=?", (who['chat'], row[0]))
+            try:
+                data = json.loads(self.unseal(row[0]))
+                if not isinstance(data, dict) or set(data) != {'name', 'contacts'}:
+                    raise ValueError('Invalid payload')
+                data = contact_payload(data['name'], data['contacts'])
+            except Exception:
+                db.execute("UPDATE chain_contact_outbox SET status='blocked' WHERE chat=?", (who['chat'],))
+                return 'blocked'
+            db.execute("UPDATE chain_contact_outbox SET status='attempted-unknown' WHERE chat=?", (who['chat'],))
+        if cancelled():
+            return 'cancelled'  # Reserved attempt remains consumed; no resend.
         try:
-            outcome = 'accepted' if notifier() is True else 'unknown'
+            outcome = 'accepted' if notifier(data) is True else 'unknown'
         except Exception:
             outcome = 'unknown'
         with self.store.connection() as db:
-            db.execute('UPDATE chain_notifications SET status=? WHERE chat=? AND message=?', (outcome, who['chat'], row[0]))
+            db.execute('UPDATE chain_contact_outbox SET status=? WHERE chat=?', (outcome, who['chat']))
         return outcome
 
 
@@ -166,7 +204,7 @@ def step(chain, before, sender, cancelled=lambda: False):
         if cancelled():
             return 'cancelled'
         try:
-            result = sender(before, action['text'])
+            result = sender({k: before[k] for k in ('identity', 'messages')}, action['text'])
             outcome = (isinstance(result, dict) and result.get('attempted') is True
                        and result.get('handler_returned') is True)
         except Exception:
@@ -186,27 +224,30 @@ def run(executable, folder, stopped, progress=lambda text: None, *, store=None, 
         raise ValueError('Read interval must be at least five seconds')
     capture = native_capture if capture is None else capture
     submit = native_submit if submit is None else submit
-    notifications = dict(accepted=0, unknown=0)
+    notifications = dict(accepted=0, unknown=0, blocked=0)
     def outcome(state):
         return dict(state=state, notifications=dict(notifications))
     with operation_lock():
-        chain = Chain(Store() if store is None else store)
+        chain = Chain(Store() if store is None else store, contact_notifications=notifier is not None)
         if stopped.is_set():
             return outcome('cancelled')
         # Identity-only pass cannot collect message bodies from an unknown chat.
         bound = capture(executable, folder, stopped.is_set)['identity']
         chain.authorized(bound)
         while not stopped.is_set():
-            before = capture(executable, folder, stopped.is_set, bound)
+            before = (capture(executable, folder, stopped.is_set, bound, read_name=True)
+                      if notifier is not None else capture(executable, folder, stopped.is_set, bound))
             state = step(chain, before, lambda snapshot, text: submit(
                 executable, folder, snapshot, stopped.is_set, text=text), stopped.is_set)
             if stopped.is_set():
                 return outcome('cancelled')
             while not stopped.is_set():
-                notification = chain.notify(bound, notifier)
+                notification = chain.notify(bound, notifier, stopped.is_set)
                 if notification not in notifications:
                     break
                 notifications[notification] += 1
+            if stopped.is_set():
+                return outcome('cancelled')
             progress(result_text(outcome(state)))
             if state in TERMINAL or state in {'submission-unknown', 'cancelled'}:
                 return outcome(state)
@@ -222,6 +263,8 @@ def result_text(result):
         text += ' Telegram принял уведомлений: ' + str(counts['accepted']) + '.'
     if counts['unknown']:
         text += ' Не подтверждено Telegram: ' + str(counts['unknown']) + '; автоповтора нет.'
+    if counts.get('blocked'):
+        text += ' Контакт не передан: не удалось проверить защищённые данные.'
     return text
 
 
@@ -236,6 +279,6 @@ def status_text(state):
         'submission-unknown': 'Результат отправки неизвестен. Цепочка остановлена, повтора нет.',
         'manual-review': 'Неоднозначный ответ или изменение истории. Цепочка остановлена — прочитай чат вручную.',
         'declined': 'Собеседник отказался от общения. Цепочка остановлена.',
-        'done': 'Получен ответ на предложение перейти в мессенджер. Цепочка завершена; контакты не пересылались.',
+        'done': 'Собеседник поделился своим контактом. Цепочка завершена; результат Telegram указан отдельно.',
         'cancelled': 'Автоцепочка остановлена.',
     }[state]

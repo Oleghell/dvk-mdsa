@@ -14,14 +14,14 @@ class ReadStopped(Exception):
         self.diagnostic = diagnostic
 
 
-def inspect(port, token, cancelled, expected=None, *, frida_api=None):
+def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=False):
     if frida_api is None:
         import frida as frida_api
     f = frida_api
     if f.__version__ != '17.24.1':
         raise ReadStopped('client-version')
     # Build only fixed code with validated decimal IDs; no user code is accepted.
-    source = probe.build(expected) + '''
+    source = probe.build(expected, read_name=read_name) + '''
     rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
       root(){return probeUIKitRoot();},cancel(){cancelNavigation();}};
     '''
@@ -61,7 +61,7 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None):
             monitor = threading.Thread(target=watch, daemon=True)
             monitor.start()
             result = script.exports_sync.root()
-            private = probe.private_snapshot(result, expected)
+            private = probe.private_snapshot(result, expected, read_name=read_name)
             n = result['navigation']
             if private is None:
                 # Only fixed stage names may leave the native result.
@@ -78,8 +78,12 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None):
         cleanup_frida(f, manager, address, script, session, device)
 
 
-def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect):
+def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect, read_name=False):
     """Private data remains in memory; no JSON serialization in this layer."""
+    if read_name:
+        if expected is None or inspector is not inspect:
+            raise ValueError('Name requires the fixed bound reader')
+        inspector = lambda port, token, cancel, who: inspect(port, token, cancel, who, read_name=True)
     folder = Path(folder).resolve(strict=True)
     adb = TargetOnlyAdb(executable, folder)
     token = bundle_token(folder)  # Pins existing test APKs; no install/launch.

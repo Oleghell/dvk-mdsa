@@ -33,7 +33,11 @@ class CatalogCancelled(Exception):
     pass
 
 
-def collect(metadata, cancelled=lambda: False):
+def collect(metadata, cancelled=lambda: False, *, root_specs=None, topic_words=None,
+            member_words=None, priority_image='DV.Search.dll', purpose='search-online-and-city-definitions-only'):
+    root_specs = ROOTS if root_specs is None else root_specs
+    topic_words = WORDS if topic_words is None else topic_words
+    member_words = MEMBER_WORDS if member_words is None else member_words
     def checkpoint():
         if cancelled():
             raise CatalogCancelled()
@@ -87,14 +91,14 @@ def collect(metadata, cancelled=lambda: False):
             enqueue(matches[0], depth, 'linked-definition')
 
     roots = []
-    for image, namespace, name in ROOTS:
+    for image, namespace, name in root_specs:
         checkpoint()
         matches = [i for i, t in enumerate(metadata.types)
                    if (t['image'], t['namespace'], t['name']) == (image, namespace, name)]
         roots.append(dict(image=image, namespace=namespace, type=name,
                           status='found' if len(matches) == 1 else 'missing' if not matches else 'ambiguous'))
         if len(matches) == 1:
-            enqueue(matches[0], 0, 'known-search-controller')
+            enqueue(matches[0], 0, 'known-controller')
     # Select definitions, never object instances. Search-owned nested delegates
     # and geo providers are included, even if an offline generic edge is unresolved.
     candidates = []
@@ -103,16 +107,16 @@ def collect(metadata, cancelled=lambda: False):
         if not supported(t) or t['name'].startswith('<'):
             continue
         owner = (t['namespace'] + '.' + t['name']).lower()
-        if t['image'] == 'DV.Search.dll':
+        if t['image'] == priority_image:
             priority = 0
-        elif t['image'].startswith('DV') and any(word in owner for word in WORDS):
+        elif t['image'].startswith('DV') and any(word in owner for word in topic_words):
             priority = 1
         else:
             continue
         candidates.append((priority, t['image'], t['namespace'], t['name'], index))
     candidates.sort()
     for *_, index in candidates:
-        enqueue(index, 0, 'search-or-location-definition')
+        enqueue(index, 0, 'topic-definition')
 
     nodes = []
     totals = dict(methods=0, fields=0, parameters=0)
@@ -125,7 +129,7 @@ def collect(metadata, cancelled=lambda: False):
                     parent=resolve(t['parent_type_index']), methods=[], fields=[])
         methods = [m for m in metadata.methods[t['method_start']:t['method_start'] + t['method_count']]
                    if label(m['name'])]
-        methods.sort(key=lambda m: (not any(w in m['name'].lower() for w in MEMBER_WORDS),
+        methods.sort(key=lambda m: (not any(w in m['name'].lower() for w in member_words),
                                     m['name'], m['parameter_count']))
         exported = methods[:min(MAX_METHODS, max(0, MAX_TOTAL_METHODS - totals['methods']))]
         for method in exported:
@@ -147,16 +151,16 @@ def collect(metadata, cancelled=lambda: False):
                 return_type=resolve(method['return_type_index']), parameters=parameters,
                 parameters_truncated=method['parameter_count'] != len(parameters)))
             totals['methods'] += 1
-            if any(w in method['name'].lower() for w in MEMBER_WORDS):
+            if any(w in method['name'].lower() for w in member_words):
                 follow(method['return_type_index'], depth + 1)
         fields = [(name, ti) for name, ti in fields_by_owner.get(owner, []) if label(name)]
-        fields.sort(key=lambda f: (not any(w in f[0].lower() for w in MEMBER_WORDS), f[0]))
+        fields.sort(key=lambda f: (not any(w in f[0].lower() for w in member_words), f[0]))
         exported_fields = fields[:min(MAX_FIELDS, max(0, MAX_TOTAL_FIELDS - totals['fields']))]
         for name, type_index in exported_fields:
             checkpoint()
             node['fields'].append(dict(field=name, declared_type=resolve(type_index)))
             totals['fields'] += 1
-            if any(w in name.lower() for w in MEMBER_WORDS):
+            if any(w in name.lower() for w in member_words):
                 follow(type_index, depth + 1)
         follow(t['parent_type_index'], depth + 1)
         node.update(method_total=len(methods), field_total=len(fields),
@@ -164,7 +168,7 @@ def collect(metadata, cancelled=lambda: False):
                                or any(m['parameters_truncated'] for m in node['methods'])))
         nodes.append(node)
     checkpoint()
-    return dict(purpose='search-online-and-city-definitions-only', roots=roots,
+    return dict(purpose=purpose, roots=roots,
                 types=nodes, candidate_total=len(candidates), exported_totals=totals,
                 truncated=truncated or any(n['truncated'] for n in nodes))
 

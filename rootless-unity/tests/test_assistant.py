@@ -210,7 +210,7 @@ class ManualGate(unittest.TestCase):
 class MainWindow(unittest.TestCase):
     def test_opening_window_and_declining_consent_never_start_transport(self):
         import sys
-        import assistant_app as app
+        import assistant_legacy as app
         tk, ttk = MagicMock(), MagicMock()
         tk.ttk = ttk
         tk.BooleanVar.return_value.get.return_value = False
@@ -231,7 +231,7 @@ class MainWindow(unittest.TestCase):
 
     def test_working_paths_are_prefilled_and_saved_choices_override_defaults(self):
         import sys
-        import assistant_app as app
+        import assistant_legacy as app
         self.assertEqual(app.DEFAULT_ADB, 'C:/Users/XXX/Desktop/platform-tools/adb.exe')
         self.assertEqual(app.DEFAULT_TEST_APKS, 'C:/Users/XXX/Desktop/spam-dvk-main/test-apks')
         with tempfile.TemporaryDirectory() as folder:

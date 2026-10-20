@@ -19,13 +19,14 @@
 #undef il2cpp_runtime_invoke
 #undef fixture_tick
 static Class manager_class={"DV.Messages","MessagesManager"},text_class={"DV.Messages","TextMessage"};
-static Type manager_type={18,&manager_class},long_type={10},text_type={14,&greeting_string_class};
+static Type manager_type={18,&manager_class},long_type={10},text_type={14,&greeting_string_class},name_type={14,&greeting_string_class};
 static Object manager_object={&manager_class,0},long_object={NULL,0};
 static int64_t long_value;
 typedef struct Text {Object header;int length;uint16_t chars[16];} Text;
 static Text text_a={{&greeting_string_class,0},5,{'H','e','l','l','o'}},text_b={{&greeting_string_class,0},5,{'R','e','p','l','y'}};
 static Object outgoing={&text_class,0},incoming={&text_class,0};
-static int body_reads,items;
+static int body_reads,items,name_reads;
+static Text display_name={{&greeting_string_class,0},4,{0x410,0x43d,0x43d,0x430}}, changed_name={{&greeting_string_class,0},4,{0x418,0x43d,0x43d,0x430}};
 static Method extra[]={
  {"get_MessagesManager",&cc[1],0,&manager_type,100},
  {"get_CurrentUserId",&manager_class,0,&long_type,101},
@@ -36,7 +37,8 @@ static Method extra[]={
  {"get_ChatId",&cc[2],0,&long_type,106},
  {"get_IsMine",&cc[2],0,&tbool,107},
  {"get_Text",&text_class,0,&text_type,108},
- {"get_Item",&cc[5],0,&ctmessage,109,1,&tint}};
+ {"get_Item",&cc[5],0,&ctmessage,109,1,&tint},
+ {"get_Name",&cc[0],0,&name_type,110}};
 API Class *il2cpp_class_from_name(Image *im,const char *ns,const char *name){
  if(im==&chat_image&&!strcmp(ns,"DV.Messages")){if(!strcmp(name,"MessagesManager"))return &manager_class;if(!strcmp(name,"TextMessage"))return &text_class;}
  return old_class_from_name(im,ns,name);
@@ -45,9 +47,10 @@ API Image *il2cpp_class_get_image(Class *k){if(k==&manager_class||k==&text_class
 API Class *il2cpp_class_get_parent(Class *k){if(k==&text_class)return &cc[2];return old_parent(k);}
 API unsigned char il2cpp_class_is_assignable_from(Class *a,Class *b){return (a==&cc[2]&&b==&text_class)||old_assignable(a,b);}
 API Method *il2cpp_class_get_method_from_name(Class *c,const char *name,int arity){
- int i;for(i=0;i<10;i++)if(extra[i].arity==(unsigned)arity&&!strcmp(name,extra[i].name)&&
+ int i;for(i=0;i<11;i++)if(extra[i].arity==(unsigned)arity&&!strcmp(name,extra[i].name)&&
   (c==extra[i].klass||(i==9&&(c==&cc[3]||c==&cc[4]))||(i>=4&&i<=7&&c==&text_class))){
-   if(mode==509&&i==8)return NULL;return &extra[i];}
+   if((mode==509&&i==8)||(mode==540&&i==10))return NULL;
+   if(mode==541&&i==10)name_type.kind=8;return &extra[i];}
  if(mode>=600&&c==&nc[5]&&arity==1&&!strcmp(name,greeting_send.name)){
   if(mode==605)return NULL;
  }
@@ -89,6 +92,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 106:long_value=mode==524?0:mode==525?-1:mode==502?301:300;break;
  case 107:boolbox.value=!in;return &boolbox;
  case 108:body_reads++;return (Object *)(in?&text_b:&text_a);
+ case 110:name_reads++;return (Object *)(mode==542&&name_reads%2==0?&changed_name:&display_name);
  case 109:items++;if(!args||!args[0]){*exc=&exception;return NULL;}return *(int *)args[0]?&incoming:&outgoing;
  }
  return &long_object;
@@ -96,3 +100,5 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
 API void fixture_tick(void){void *exc=NULL;il2cpp_runtime_invoke(&methods[3],&runtime,NULL,&exc);}
 API int fixture_body_reads(void){return body_reads;}
 API int fixture_item_reads(void){return items;}
+
+API int fixture_name_reads(void){return name_reads;}

@@ -59,7 +59,7 @@ class AutomaticChain(unittest.TestCase):
         self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
         self.assertNotIn(b'privateperson', self.path.read_bytes())
         with self.store.connection() as db:
-            self.assertEqual(db.execute('SELECT COUNT(*) FROM chain_notifications').fetchone()[0], 3)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM chain_notifications').fetchone()[0], 0)
 
     def test_no_incoming_no_action_and_collection_order_is_irrelevant(self):
         self.assertEqual(step(self.chain, snap(), self.send), 'wait-reply')
@@ -138,9 +138,9 @@ class AutomaticChain(unittest.TestCase):
     def test_notification_at_most_once_and_contains_no_private_content(self):
         step(self.chain, snap(msg(1002, 'Привет')), self.send)
         notifier = MagicMock(side_effect=TimeoutError('PRIVATE_TOKEN'))
-        self.assertEqual(self.chain.notify(WHO, notifier), 'unknown')
-        self.assertEqual(Chain(self.store).notify(WHO, notifier), 'nothing-pending')
-        notifier.assert_called_once_with()
+        self.assertEqual(self.chain.notify(WHO, notifier), 'disabled')
+        self.assertEqual(Chain(self.store).notify(WHO, notifier), 'disabled')
+        notifier.assert_not_called()
         self.assertNotIn(b'PRIVATE_TOKEN', self.path.read_bytes())
 
     def test_no_network_when_notifications_disabled(self):
@@ -217,7 +217,7 @@ class AutomaticGreetingAndNativeReply(unittest.TestCase):
 class AutomaticWindow(unittest.TestCase):
     def test_opening_mode_or_declining_opt_in_does_not_touch_device_or_telegram(self):
         import sys
-        import assistant_app as app
+        import assistant_legacy as app
         tk, ttk = MagicMock(), MagicMock()
         tk.ttk = ttk
         tk.BooleanVar.return_value.get.return_value = False

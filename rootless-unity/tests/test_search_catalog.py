@@ -174,7 +174,7 @@ class SearchDefinitions(unittest.TestCase):
 
 class SearchButton(unittest.TestCase):
     def test_same_window_explicit_start_no_consent_to_read_chats_or_native_actions(self):
-        import assistant_app as app
+        import assistant_legacy as app
         tk, ttk = MagicMock(), MagicMock()
         tk.ttk = ttk
         tk.StringVar.return_value.get.return_value = 'C:/private/test-apks'

@@ -61,11 +61,21 @@ def send(token,chat_id,text,opener=None):
         return data.get('ok') is True and isinstance(data.get('result'),dict) and type(data['result'].get('message_id')) is int
     except Exception:raise TelegramError('Результат уведомления неизвестен. Автоповтора нет; проверь Telegram.') from None
 
+def send_contact(token, chat_id, payload):
+    from shared_contact import payload as validate
+    try:
+        if not isinstance(payload, dict) or set(payload) != {'name', 'contacts'}:
+            raise ValueError('Invalid payload')
+        data = validate(payload['name'], payload['contacts'])
+    except Exception:
+        raise TelegramError('Непроверенные данные контакта: отправка запрещена.') from None
+    return send(token, chat_id, '🔥 Собеседник поделился контактом\nИмя: ' + data['name'] + '\nКонтакт: ' + ', '.join(data['contacts']))
+
+
 def contact_notification(payload):
-    token,chat_id=load();name=payload['name'];items=payload['contacts']
-    if not isinstance(name,str) or len(name)>128 or not isinstance(items,list) or not 1<=len(items)<=4 or any(not isinstance(c,str) or len(c)>64 for c in items):raise TelegramError('Неверные данные уведомления.')
-    name=' '.join(name.split())
-    return send(token,chat_id,'🔥 НОВЫЙ КОНТАКТ\nИмя: '+name+'\n'+'\n'.join(items))
+    token, chat_id = load()
+    return send_contact(token, chat_id, payload)
+
 
 def settings_window(parent):
     from tkinter import Toplevel,StringVar

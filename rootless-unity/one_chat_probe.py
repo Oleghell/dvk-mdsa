@@ -133,13 +133,18 @@ COLLECT = r'''
 '''
 
 
-def build(expected=None):
+def build(expected=None, *, read_name=False):
+    if read_name and expected is None:
+        raise ValueError('Name requires an authorized bound dialog')
     expected = identity(expected) if expected is not None else None
     # Use one stable key order on both sides; IDs are literal validated decimals.
     expected = {k: expected[k] for k in ('account', 'peer', 'chat')} if expected else None
     source = state.FUNCTION
     source = replace_once(source, "n.metadata_checkpoint='ready';return s;", "n.metadata_checkpoint='ready';return prepareOneChat(f,s,getClass);")
     source = PREPARE + source
+    if read_name:
+        source = replace_once(source, "  if(!s.messageItem)throw new Error('signature');return s;",
+            "  s.peerName=check(s.user,'get_Name',14);if(!f.classFromType(f.returnType(s.peerName.m)).equals(s.stringClass))throw new Error('signature');\n  if(!s.messageItem)throw new Error('signature');return s;")
     source = replace_once(source, 'function probeUIKitRoot() {', 'function probeUIKitRoot() {\n const expectedIdentity=' + json.dumps(expected) + ';')
     # The index argument helper originally supported only the modal collection.
     source = replace_once(source, "if(!f.classFromType(f.returnType(m)).equals(s.vc))fail('signature-mismatch');", "if(!f.classFromType(f.returnType(m)).equals(entry.result||s.vc))fail('signature-mismatch');")
@@ -153,10 +158,24 @@ def build(expected=None):
     source = replace_once(source, json.dumps(sorted(state.ERRORS)), json.dumps(sorted(ERRORS)))
     source = replace_once(source, "classParent:bind('class_get_parent','pointer',['pointer'])", "classParent:bind('class_get_parent','pointer',['pointer']),stringLength:bind('string_length','int',['pointer']),stringChars:bind('string_chars','pointer',['pointer'])")
     source = replace_once(source, json.dumps(__import__('uikit_root').APIS + nav.APIS + ['il2cpp_class_get_parent']), json.dumps(__import__('uikit_root').APIS + nav.APIS + ['il2cpp_class_get_parent', 'il2cpp_string_length', 'il2cpp_string_chars']))
+    if read_name:
+        # Read only the bound user's display name, after identity/body checks.
+        name_read = r"""
+   const display=call(s.peerName,user);if(display.isNull()||!f.objectClass(display).equals(s.stringClass))fail('message-invalid');
+   const displayHandle=own(display),displayLength=f.stringLength(display);
+   if(displayLength<1||displayLength>128)fail('message-invalid');
+   const displayChars=f.stringChars(display);if(displayChars.isNull())fail('message-invalid');
+   const peerName=displayChars.readUtf16String(displayLength);
+   if(peerName===null||!peerName.trim()||/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(peerName))fail('message-invalid');
+   releaseOne(displayHandle);verifyWho();
+"""
+        source = replace_once(source, "   n.read_checkpoint='recheck';", name_read + "   n.read_checkpoint='recheck';")
+        source = replace_once(source, 'draft:n.model_draft,identity:who,messages};', 'draft:n.model_draft,identity:who,messages,peer_name:peerName};')
+        source = replace_once(source, 'n.private_result={identity:who,messages};', 'n.private_result={identity:who,messages,peer_name:peerName};')
     return source
 
 
-def private_snapshot(value, expected=None):
+def private_snapshot(value, expected=None, *, read_name=False):
     """Validate private RPC data in memory; caller must never dump this object."""
     expected = identity(expected) if expected is not None else None
     result = copy.deepcopy(value)
@@ -179,9 +198,15 @@ def private_snapshot(value, expected=None):
             raise ValueError('Private data on failed read')
         state.validate(result)
         return None
-    if not isinstance(private, dict) or set(private) != {'identity', 'messages'}:
+    fields = {'identity', 'messages', 'peer_name'} if read_name else {'identity', 'messages'}
+    if read_name and expected is None:
+        raise ValueError('Name requires an authorized dialog')
+    if not isinstance(private, dict) or set(private) != fields:
         raise ValueError('Invalid private result')
     who = identity(private['identity'])
+    if read_name:
+        from shared_contact import display_name
+        display_name(private['peer_name'])
     if expected is not None and who != expected:
         raise ValueError('Different test dialog')
     if expected is None:
