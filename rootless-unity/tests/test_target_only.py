@@ -112,7 +112,7 @@ class TargetOnly(unittest.TestCase):
         self.assertIs(report['instances_verified_distinct'], False)
         self.assertIs(report['test_session_identity_rechecked'], True)
         self.assertNotIn('working_instance', report)
-        raw = path.read_text()
+        raw = path.read_text(encoding='utf-8')
         self.assertNotIn(BOOT, raw); self.assertNotIn('a'*64, raw)
         self.assertNotIn(WORKING, raw)
         self.assertFalse(any(WORKING in a for a in self.calls))
@@ -127,7 +127,7 @@ class TargetOnly(unittest.TestCase):
         self.assertEqual(report['status'], 'stopped')
         self.assertIs(report['test_session_identity_rechecked'], False)
         self.assertIn(['-s', TARGET, 'forward', '--remove', 'tcp:37149'], self.calls)
-        self.assertNotIn(OTHER_BOOT, path.read_text())
+        self.assertNotIn(OTHER_BOOT, path.read_text(encoding='utf-8'))
 
     def test_auth_failure_never_falls_back_and_does_not_export_exception(self):
         def failed(*args):
@@ -136,7 +136,7 @@ class TargetOnly(unittest.TestCase):
             report, path = d.diagnose(self.adb, self.folder, reply_contract_probe=True, test_only=True,
                                      inspector=failed)
         self.assertEqual(report['status'], 'stopped')
-        self.assertNotIn('PRIVATE TOKEN', path.read_text())
+        self.assertNotIn('PRIVATE TOKEN', path.read_text(encoding='utf-8'))
         self.assertFalse(any(WORKING in a for a in self.calls))
         self.assertIn(['-s', TARGET, 'forward', '--remove', 'tcp:37149'], self.calls)
 
