@@ -12,6 +12,7 @@ from assistant_store import StateError, data_directory
 from search_catalog import write_report as prepare_search_report
 from search_online import run as enable_online
 from search_city import run as select_city
+from assistant_preview import run as preview_profiles, status_text as preview_status
 
 # User-confirmed working paths on MuMu #4. Saved local choices take priority.
 DEFAULT_ADB = 'C:/Users/XXX/Desktop/platform-tools/adb.exe'
@@ -28,7 +29,7 @@ def launch(self_check=False):
     pane = ttk.Frame(root, padding=22)
     pane.pack(fill='both', expand=True)
     ttk.Label(pane, text='Помощник · MuMu №4', font=('Segoe UI', 20, 'bold')).pack(anchor='w')
-    ttk.Label(pane, text='Одна анкета за запуск. Каждое сообщение — только с твоего подтверждения.',
+    ttk.Label(pane, text='Одна анкета с подтверждением сообщения или до 5 анкет без чатов и сообщений.',
               wraplength=660).pack(anchor='w', pady=(8, 18))
     adb = tk.StringVar(value=DEFAULT_ADB)
     folder = tk.StringVar(value=DEFAULT_TEST_APKS)
@@ -112,6 +113,7 @@ def launch(self_check=False):
         search_button.configure(state='disabled' if busy else 'normal')
         online_button.configure(state='disabled' if busy else 'normal')
         city_button.configure(state='disabled' if busy else 'normal')
+        preview_button.configure(state='disabled' if busy else 'normal')
         search_report_button.configure(state='normal' if search_report_path is not None and not busy else 'disabled')
 
     def begin():
@@ -133,6 +135,33 @@ def launch(self_check=False):
         status.set('Проверяю анкету и чат. Сообщения без отдельного подтверждения не отправляются.')
         refresh()
         threading.Thread(target=worker, args=(adb.get(), folder.get(), greeting), daemon=True).start()
+
+    def preview_worker(executable, directory):
+        try:
+            result = preview_profiles(executable, directory, stopped.is_set,
+                                      lambda text: events.put(('preview-progress', text)))
+            events.put(('preview-result', result))
+        except Exception as error:
+            text = str(error) if isinstance(error, StateError) else 'Просмотр остановлен. Проверь экран MuMu №4 и подключение. Чаты и отправка этим режимом не запускаются.'
+            events.put(('error', text))
+
+    def begin_preview():
+        nonlocal busy
+        if busy:
+            return
+        if not consent.get():
+            messagebox.showinfo('Разрешение', 'Подтверди просмотр анкет на №4. Этот режим не открывает чаты и не отправляет сообщения.')
+            return
+        try:
+            save_paths()
+        except Exception:
+            status.set('Не удалось сохранить пути. Просмотр не запущен.')
+            return
+        stopped.clear()
+        busy = True
+        status.set('Просматриваю до 5 новых видимых анкет. Без чатов, отправок и смены города.')
+        refresh()
+        threading.Thread(target=preview_worker, args=(adb.get(), folder.get()), daemon=True).start()
 
     def city_worker(executable, directory, city):
         try:
@@ -222,7 +251,7 @@ def launch(self_check=False):
 
     def cancel():
         stopped.set()
-        status.set('Останавливаю. Выполненные действия не откатываются. Начатую отправку повторять не буду.')
+        status.set('Останавливаю. Выполненные действия не откатываются. Новых действий не начинаю.')
 
     row = ttk.Frame(pane)
     row.pack(fill='x', pady=10)
@@ -230,6 +259,12 @@ def launch(self_check=False):
     start.pack(side='left')
     stop = ttk.Button(row, text='Стоп', command=cancel, state='disabled')
     stop.pack(side='left', padx=10)
+    preview_row = ttk.Frame(pane)
+    preview_row.pack(fill='x', pady=(4, 4))
+    preview_button = ttk.Button(preview_row, text='Просмотреть до 5 анкет без сообщений', command=begin_preview)
+    preview_button.pack(side='left')
+    ttk.Label(pane, text='Просмотренные анкеты сохраняются в журнале и в дальнейшем пропускаются. Визит может быть виден владельцу анкеты.',
+              wraplength=660).pack(anchor='w')
     settings_row = ttk.Frame(pane)
     settings_row.pack(fill='x', pady=(4, 6))
     city_button = ttk.Button(settings_row, text='Выбрать город и онлайн', command=begin_city)
@@ -243,7 +278,7 @@ def launch(self_check=False):
     search_report_button = ttk.Button(search_row, text='Открыть сведения', command=open_search_report, state='disabled')
     search_report_button.pack(side='left', padx=10)
     ttk.Label(pane, text='Журнал попыток сохраняется между запусками. Не удаляй старые базы и lock-файлы. '
-              'Обход ленты и наблюдение за ответами пока не подключены. Город и онлайн настраиваются отдельной кнопкой.',
+              'Просмотр до 5 анкет работает только с видимыми карточками, без прокрутки. Наблюдение за ответами пока не подключено. Город и онлайн настраиваются отдельно.',
               wraplength=660).pack(anchor='w', pady=(12, 0))
 
     def ask(data):
@@ -294,11 +329,24 @@ def launch(self_check=False):
             if kind == 'approval':
                 ask(value)
                 continue
+            if kind == 'preview-progress':
+                if not stopped.is_set():
+                    status.set(value)
+                continue
             busy = False
             if reject_approval is not None:
                 reject_approval()
             if kind == 'error':
                 status.set(value)
+            elif kind == 'preview-result':
+                status.set(preview_status(value))
+                try:
+                    path = data_directory() / 'last-preview.json'
+                    temp = path.with_suffix('.tmp')
+                    temp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
+                    temp.replace(path)
+                except Exception:
+                    status.set(preview_status(value) + ' Итоговый отчёт не записан; журнал просмотров не удаляй.')
             elif kind == 'search-ready':
                 result, search_report_path = value
                 if result['status'] == 'catalog-ready':
@@ -399,7 +447,7 @@ def launch(self_check=False):
     if self_check:
         fit_window()
         root.update()
-        assert root.winfo_viewable() and start.winfo_viewable() and search_button.winfo_viewable() and online_button.winfo_viewable() and city_button.winfo_viewable()
+        assert root.winfo_viewable() and start.winfo_viewable() and search_button.winfo_viewable() and online_button.winfo_viewable() and city_button.winfo_viewable() and preview_button.winfo_viewable()
         assert not busy and not consent.get() and not stopped.is_set()
         assert str(stop.cget('state')) == 'disabled'
         assert events.empty()
