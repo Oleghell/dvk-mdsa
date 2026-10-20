@@ -10,6 +10,7 @@ import search_online as online
 import uikit_navigation as navigation
 from uikit_profile_navigation import replace_once as replace
 
+# Hosted picker is reported as the validated 'city' controller kind.
 MAX_FRAMES = 900
 ERRORS = navigation.ERRORS | {'city-ambiguous', 'city-results-incomplete', 'city-not-found', 'city-query-changed'}
 PHASES = navigation.PHASES | {'wait-city', 'query-city', 'scan-city', 'wait-city-return'}
