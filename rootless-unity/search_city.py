@@ -232,7 +232,7 @@ def build(city):
                 "   let current=resolve(candidate);if(current.isNull())return;\n   let k=kind(current);\n"
                 "   if(['wait-city','query-city','scan-city','wait-city-return'].includes(n.phase)&&k==='filters'&&current.equals(target(state.card))&&!state.cityPeople.isNull()){\n"
                 "    const hosted=modal(target(state.cityPeople));\n"
-                "    if(!hosted.isNull()&&f.objectClass(hosted).equals(s.city)){current=hosted;k='city';n.controller_path.push('city-hosted');}\n   }")
+                "    if(!hosted.isNull()&&f.objectClass(hosted).equals(s.city)){current=hosted;k='city';n.controller_path.push('city');}\n   }")
     s = replace(s, '   const root=call(s.windowRoot,window);', "   if(n.phase==='scan-city'&&Date.now()<state.cityNext)return;\n   const root=call(s.windowRoot,window);")
     s = replace(s, "if(klass.equals(s.search))return 'search';", "if(klass.equals(s.city))return 'city';if(klass.equals(s.search))return 'search';")
     s = replace(s, "if(k==='search'||k==='filters'){", "if(k==='search'||k==='filters'||k==='city'){")
