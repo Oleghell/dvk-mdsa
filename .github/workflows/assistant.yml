@@ -75,7 +75,7 @@ jobs:
           $root='out/DvkAssistant-windows-x64'
           Copy-Item rootless-unity/ASSISTANT.md "$root/README.md"
           Copy-Item START_ASSISTANT.bat "$root/START_ASSISTANT.bat"
-          @{source_commit=$env:GITHUB_SHA;live_android_verified=$false;automatic_send=$false;manual_confirmation_required=$true;device_endpoint='127.0.0.1:5563';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
+          @{source_commit=$env:GITHUB_SHA;live_android_verified=$false;automatic_send=$false;manual_confirmation_required=$true;offline_search_definitions_available=$true;automatic_search_settings_available=$false;device_endpoint='127.0.0.1:5563';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
       - uses: actions/upload-artifact@v4
         with:
           name: DvkAssistant-windows-x64

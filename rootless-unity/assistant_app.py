@@ -9,6 +9,7 @@ import time
 from assistant_config import ConfigError, load
 from assistant_pass import APPROVAL_SECONDS, run
 from assistant_store import StateError, data_directory
+from search_catalog import write_report as prepare_search_report
 
 # User-confirmed working paths on MuMu #4. Saved local choices take priority.
 DEFAULT_ADB = 'C:/Users/XXX/Desktop/platform-tools/adb.exe'
@@ -20,8 +21,8 @@ def launch(self_check=False):
     from tkinter import filedialog, messagebox, ttk
     root = tk.Tk()
     root.title('ДругВокруг · помощник')
-    root.geometry('740x570')
-    root.minsize(700, 550)
+    root.geometry('740x650')
+    root.minsize(700, 620)
     pane = ttk.Frame(root, padding=22)
     pane.pack(fill='both', expand=True)
     ttk.Label(pane, text='Помощник · MuMu №4', font=('Segoe UI', 20, 'bold')).pack(anchor='w')
@@ -71,6 +72,16 @@ def launch(self_check=False):
     busy = False
     approval = None
     reject_approval = None
+    search_report_path = None
+
+    def save_paths():
+        if not adb.get() or not folder.get():
+            raise ConfigError('Выбери ADB и прежнюю папку test-apks.')
+        if settings_path is not None:
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            temp = settings_path.with_suffix('.tmp')
+            temp.write_text(json.dumps(dict(adb=adb.get(), test_apks=folder.get()), ensure_ascii=False), encoding='utf-8')
+            temp.replace(settings_path)
 
     def worker(executable, directory, greeting):
         def approve(pending, text, cancelled):
@@ -96,6 +107,8 @@ def launch(self_check=False):
             control.configure(state='disabled' if busy else 'normal')
         start.configure(state='disabled' if busy else 'normal')
         stop.configure(state='normal' if busy else 'disabled')
+        search_button.configure(state='disabled' if busy else 'normal')
+        search_report_button.configure(state='normal' if search_report_path is not None and not busy else 'disabled')
 
     def begin():
         nonlocal busy
@@ -106,13 +119,7 @@ def launch(self_check=False):
             return
         try:
             config = load()
-            if not adb.get() or not folder.get():
-                raise ConfigError('Выбери ADB и прежнюю папку test-apks.')
-            if settings_path is not None:
-                settings_path.parent.mkdir(parents=True, exist_ok=True)
-                temp = settings_path.with_suffix('.tmp')
-                temp.write_text(json.dumps(dict(adb=adb.get(), test_apks=folder.get()), ensure_ascii=False), encoding='utf-8')
-                temp.replace(settings_path)
+            save_paths()
             greeting = config.greeting()
         except Exception as error:
             status.set(str(error) if isinstance(error, ConfigError) else 'Не удалось сохранить настройки. Запуск отменён.')
@@ -122,6 +129,40 @@ def launch(self_check=False):
         status.set('Проверяю анкету и чат. Сообщения без отдельного подтверждения не отправляются.')
         refresh()
         threading.Thread(target=worker, args=(adb.get(), folder.get(), greeting), daemon=True).start()
+
+    def search_worker(directory):
+        try:
+            result, path = prepare_search_report(directory, stopped.is_set)
+            events.put(('search-ready', (result, path)))
+        except Exception:
+            events.put(('error', 'Не удалось подготовить сведения о поиске. Проверь папку test-apks и право записи отчёта.'))
+
+    def begin_search():
+        nonlocal busy, search_report_path
+        if busy:
+            return
+        try:
+            # This action needs the existing local APKs, not a device, account
+            # or consent to read a chat. It never calls the native run path.
+            save_paths()
+        except Exception:
+            status.set('Не удалось сохранить пути. Подготовка поиска не запущена.')
+            return
+        search_report_path = None
+        stopped.clear()
+        busy = True
+        status.set('Читаю технические определения поиска из прежних APK. MuMu и переписку не трогаю.')
+        refresh()
+        threading.Thread(target=search_worker, args=(folder.get(),), daemon=True).start()
+
+    def open_search_report():
+        if search_report_path is None or busy:
+            return
+        import os
+        try:
+            os.startfile(str(search_report_path))
+        except (AttributeError, OSError):
+            messagebox.showinfo('Сведения о поиске', str(search_report_path))
 
     def cancel():
         stopped.set()
@@ -133,6 +174,12 @@ def launch(self_check=False):
     start.pack(side='left')
     stop = ttk.Button(row, text='Стоп', command=cancel, state='disabled')
     stop.pack(side='left', padx=10)
+    search_row = ttk.Frame(pane)
+    search_row.pack(fill='x', pady=(6, 4))
+    search_button = ttk.Button(search_row, text='Подготовить настройки поиска', command=begin_search)
+    search_button.pack(side='left')
+    search_report_button = ttk.Button(search_row, text='Открыть сведения', command=open_search_report, state='disabled')
+    search_report_button.pack(side='left', padx=10)
     ttk.Label(pane, text='Журнал попыток сохраняется между запусками. Не удаляй старые базы и lock-файлы. '
               'Настройка городов, обход ленты и наблюдение за ответами пока не подключены к этому окну.',
               wraplength=660).pack(anchor='w', pady=(12, 0))
@@ -179,7 +226,7 @@ def launch(self_check=False):
         root.after(100, expire)
 
     def poll():
-        nonlocal busy
+        nonlocal busy, search_report_path
         while not events.empty():
             kind, value = events.get_nowait()
             if kind == 'approval':
@@ -190,6 +237,12 @@ def launch(self_check=False):
                 reject_approval()
             if kind == 'error':
                 status.set(value)
+            elif kind == 'search-ready':
+                result, search_report_path = value
+                if result['status'] == 'catalog-ready':
+                    status.set('Сведения о поиске сохранены. Пришли search-settings-definitions.json через «Открыть сведения». Город и фильтры ещё не изменены.')
+                else:
+                    status.set('Подготовка поиска остановлена: ' + result['reason'] + '. Подробности — в «Открыть сведения».')
             else:
                 n = value['navigation']
                 if n['send_handler_returned']:
@@ -221,9 +274,17 @@ def launch(self_check=False):
         else:
             root.destroy()
     root.protocol('WM_DELETE_WINDOW', close)
+    def fit_window():
+        root.update_idletasks()
+        width = max(740, pane.winfo_reqwidth())
+        height = max(650, pane.winfo_reqheight())
+        root.geometry(f'{width}x{height}')
+        root.minsize(width, height)
+    root.after_idle(fit_window)
     if self_check:
+        fit_window()
         root.update()
-        assert root.winfo_viewable() and start.winfo_viewable()
+        assert root.winfo_viewable() and start.winfo_viewable() and search_button.winfo_viewable()
         assert not busy and not consent.get() and not stopped.is_set()
         assert str(stop.cget('state')) == 'disabled'
         assert events.empty()
