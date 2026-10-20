@@ -28,7 +28,7 @@ PREPARE = r'''
   for(const [key,image,ns,name] of [
    ['city','DV.dll','DV','CityFinderViewController'],['cityCell','DV.dll','DV','CityFinderCell'],
    ['geoRecord','DV.dll','DV.Models','GeoRecord'],['searchField','DV.dll','DV','SearchField'],
-   ['geoType','DV.dll','','GeoType'],['table','Core.dll','UIKit','TableView'],['tableCell','Core.dll','UIKit','TableCell']]){
+   ['table','Core.dll','UIKit','TableView'],['tableCell','Core.dll','UIKit','TableCell']]){
    mark('class:'+key);s[key]=getClass(image,ns,name);if(s[key].isNull())throw new Error('metadata');
   }
   mark('hierarchy');
@@ -47,7 +47,11 @@ PREPARE = r'''
   mark('method:citySearch');s.citySearch=checked(s.city,'OnSearch',1);
   mark('method:citySelect');s.citySelect=checked(s.city,'OnCellSelected',1,null,[{kind:18,klass:s.cityCell},{kind:18,klass:s.geoRecord}]);
   mark('method:geoID');s.geoID=checked(s.geoRecord,'get_GeoID',14);mark('method:geoName');s.geoName=checked(s.geoRecord,'get_Name',14);
-  mark('method:geoKind');s.geoKind=checked(s.geoRecord,'get_RecordType',17,s.geoType);
+  mark('method:geoKind');s.geoKind=checked(s.geoRecord,'get_RecordType',17);
+  // GeoType is nested inside GeoRecord, so it cannot be found by namespace/name; take it from the real return type.
+  mark('geotype-class');s.geoType=f.classFromType(f.returnType(s.geoKind.m));
+  if(s.geoType.isNull()||name(f.className(s.geoType))!=='GeoType'||name(f.classNamespace(s.geoType))!=='')throw new Error('signature');
+  s.geoKind.result=s.geoType;
   mark('method:geoFilterName');s.geoFilterName=checked(s.filterModel,'get_GeoRecordName',14);
   mark('method:distanceSet');s.distanceSet=checked(s.filterModel,'set_ByDistance',1,null,[{kind:2}]);
   mark('method:cityItem');s.cityItem=checked(s.cityCell,'get_Item',18,s.geoRecord,[],true);
@@ -96,7 +100,7 @@ PREPARE = r'''
 '''
 import re as _re
 PREPARE_STEPS = {'not-checked'} | set(_re.findall(r"mark\('([^'+]+)'\)", PREPARE)) | {'class:' + k for k in
-    ('city', 'cityCell', 'geoRecord', 'searchField', 'geoType', 'table', 'tableCell')}
+    ('city', 'cityCell', 'geoRecord', 'searchField', 'table', 'tableCell')}
 UTILS = r'''
   const cityArgs=values=>{const p=Memory.alloc(Process.pointerSize*values.length);values.forEach((v,i)=>p.add(i*Process.pointerSize).writePointer(v));return p;};
   const cityInt=(entry,obj,args=ptr(0))=>{const box=call(entry,obj,args);if(box.isNull())fail('signature-mismatch');own(box);const p=f.unbox(box);if(p.isNull())fail('signature-mismatch');return p.readS32();};
