@@ -5,7 +5,8 @@ import queue
 import sys
 import threading
 
-from one_chat_device import capture, report, ReadStopped
+from one_chat_device import capture, ReadStopped
+from one_chat_preview import report, display, fields, TEST_TEXT
 from one_chat_probe import VERSION, ERRORS
 from one_chat_store import TestChatStore
 
@@ -17,11 +18,11 @@ def launch_gui(self_check=False):
     from tkinter import ttk, filedialog, messagebox
     root = tk.Tk()
     root.title('ДругВокруг · один тестовый чат ' + VERSION)
-    root.geometry('760x560')
-    root.minsize(740, 530)
+    root.geometry('760x700')
+    root.minsize(740, 680)
     main = ttk.Frame(root, padding=14)
     main.pack(fill='both', expand=True)
-    ttk.Label(main, text='Один открытый чат · только чтение', font=('Segoe UI',12,'bold')).pack(anchor='w')
+    ttk.Label(main, text='Один тестовый чат · предпросмотр без отправки', font=('Segoe UI',12,'bold')).pack(anchor='w')
     ttk.Label(main, text='Только тестовый MuMu #4 / 5563. Открой переписку со своим вторым аккаунтом.\n'
       'Нет отправки, поиска анкет, смены города, Telegram или изменений старого журнала.\n'
       'Читается загруженная история (до 20 сообщений). Тексты и ID не попадают в JSON-отчёт.',
@@ -43,10 +44,16 @@ def launch_gui(self_check=False):
     consent=tk.BooleanVar(value=False)
     owned=ttk.Checkbutton(main,variable=consent,text='Открытый чат — с моим вторым аккаунтом. Разрешаю чтение его тестовых сообщений.')
     owned.pack(anchor='w',pady=(8,10));controls.append(owned)
-    state=tk.StringVar(value='Сначала привяжи открытый тестовый чат. Привязка не читает сообщения.')
+    state=tk.StringVar(value='Если чат уже привязан в 0.3.31 — нажми «Проверить». Повторная привязка не нужна.')
     ttk.Label(main,textvariable=state,wraplength=710).pack(anchor='w',pady=8)
-    ttk.Label(main,text='Первое чтение запоминает текущую историю как исходную. Затем отправь новый ответ\n'
-       'со второго аккаунта и нажми «Проверить» ещё раз. Повторное чтение не создаёт новое событие.',wraplength=710).pack(anchor='w',pady=8)
+    ttk.Label(main,text='Предпросмотр — отдельная демонстрация, не готовые автоответы. После контрольного чтения\n'
+       'отправь со второго аккаунта одну новую реплику: «'+TEST_TEXT+'». Затем нажми «Проверить».\n'
+       'Для других текстов, нескольких входящих или нового исходящего черновик не предлагается.',wraplength=710).pack(anchor='w',pady=8)
+    preview=tk.StringVar(value='Черновик не загружен. Сначала проверь привязанный открытый чат.')
+    preview_box=ttk.LabelFrame(main,text='Только локальный черновик · отправки нет',padding=10)
+    preview_box.pack(fill='x',pady=8)
+    preview_label=ttk.Label(preview_box,textvariable=preview,wraplength=680,font=('Segoe UI',10))
+    preview_label.pack(anchor='w')
     events=queue.Queue();stop=threading.Event();busy=False;report_path=None
 
     def worker(kind,executable,directory,expected):
@@ -73,6 +80,7 @@ def launch_gui(self_check=False):
                 messagebox.showinfo('Нет привязки','Сначала нажми «Привязать открытый чат».');return
         except Exception:
             state.set('Не удалось открыть отдельное тестовое состояние. Старые журналы не изменялись.');return
+        preview.set('Чтение… Предыдущий черновик скрыт до проверки чата.')
         busy=True;stop.clear()
         for control in controls:control.config(state='disabled')
         bind_button.config(state='disabled');read_button.config(state='disabled');stop_button.config(state='normal')
@@ -84,7 +92,7 @@ def launch_gui(self_check=False):
 
     def save_report(directory,value):
         nonlocal report_path
-        report_path=Path(directory).resolve(strict=True).parent/'rootless-one-chat-0.3.31.json'
+        report_path=Path(directory).resolve(strict=True).parent/'rootless-one-chat-0.3.32.json'
         report_path.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         report_button.config(state='normal')
 
@@ -112,9 +120,11 @@ def launch_gui(self_check=False):
                     value=report(failure=True);value['stop_reason']=reason
                     if diagnostic is not None:value['native_check']=diagnostic
                     save_report(directory,value)
+                    preview.set('Черновик скрыт: чтение не подтверждено.')
                     state.set('Чтение остановлено: '+reason+'. Пришли только JSON-отчёт; не присылай базы или test-apks.');continue
                 operation,private,directory=data
                 if stop.is_set():
+                    preview.set('Проверка отменена. Черновик не показан.')
                     state.set('Отменено. Полученные данные не записаны.');continue
                 store=TestChatStore()
                 try:
@@ -126,13 +136,15 @@ def launch_gui(self_check=False):
                         store.bind(who);save_report(directory,report())
                         state.set('Чат привязан. Нажми «Проверить»: первое чтение запомнит текущую историю.')
                     else:
-                        outcome=store.consume(private);save_report(directory,report(outcome))
+                        outcome=store.consume(private,preview=True);save_report(directory,report(outcome))
+                        preview.set(display(outcome))
                         if outcome['status']=='baseline-recorded':
-                            state.set(f"Исходная история сохранена без текстов. Входящих: {outcome['incoming_messages']}. Теперь отправь со второго аккаунта новую реплику и нажми «Проверить».")
+                            state.set(f"Исходная история сохранена без текстов. Входящих: {outcome['incoming_messages']}. Теперь отправь со второго аккаунта «Тест предпросмотра» и нажми «Проверить».")
                         else:
-                            state.set(f"Новых входящих: {outcome['new_incoming']}. Всего входящих: {outcome['incoming_messages']}. Ничего не отправлено. Для проверки повторов нажми ещё раз или перезапусти программу.")
+                            state.set(f"Новых входящих: {outcome['new_incoming']}. Всего входящих: {outcome['incoming_messages']}. Ничего не отправлено. Результат предпросмотра — в блоке выше.")
                 finally:store.close()
             except Exception:
+                preview.set('Черновик скрыт: проверка или запись отчёта не завершена. Повтори чтение без нового сообщения.')
                 state.set('Проверка/сохранение остановлены. Возможна другая привязка или изменившаяся история. Не удаляй журналы. Ничего не отправлено.')
                 try:
                     value=report(failure=True);value['stop_reason']='state-or-report-unavailable';save_report(directory,value)
@@ -148,7 +160,14 @@ def launch_gui(self_check=False):
     if needed>root.winfo_height():root.geometry('760x'+str(needed))
     if self_check:
         root.update()
-        assert root.winfo_viewable() and bind_button.winfo_viewable() and read_button.winfo_viewable()
+        assert root.winfo_viewable() and bind_button.winfo_viewable() and read_button.winfo_viewable() and preview_label.winfo_viewable()
+        # Exercise the real packaged preview label, still without ADB or state.
+        for value in (fields(), fields(reason='baseline-only'), fields('ask-how-are-you','new-test-text',True), fields('ask-how-are-you')):
+            preview.set(display(value));root.update_idletasks()
+            needed=main.winfo_reqheight()
+            if needed>root.winfo_height():root.geometry('760x'+str(needed));root.update()
+            assert preview.get()==display(value)
+            assert preview_box.winfo_y()+preview_box.winfo_height()<=root.winfo_height()
         assert main.winfo_reqheight()<=root.winfo_height()
         assert row.winfo_reqwidth()+28<=root.winfo_width()
         import frida

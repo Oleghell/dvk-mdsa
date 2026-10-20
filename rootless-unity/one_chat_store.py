@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import secrets
 import sqlite3
+import re
 
 from one_chat_probe import identity
 
@@ -28,6 +29,7 @@ class TestChatStore:
         self.db.executescript('''
           CREATE TABLE IF NOT EXISTS test_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS test_seen(message_key TEXT PRIMARY KEY,fingerprint TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS test_preview(singleton INTEGER PRIMARY KEY CHECK(singleton=1),code TEXT NOT NULL,snapshot_key TEXT NOT NULL);
         ''')
         self.db.execute("INSERT OR IGNORE INTO test_meta VALUES('salt',?)", (secrets.token_hex(32),))
         self.salt = bytes.fromhex(self.db.execute("SELECT value FROM test_meta WHERE key='salt'").fetchone()[0])
@@ -55,7 +57,7 @@ class TestChatStore:
     def _hash(self, value):
         return hmac.new(self.salt, json.dumps(value, ensure_ascii=False, sort_keys=True).encode(), hashlib.sha256).hexdigest()
 
-    def consume(self, snapshot):
+    def consume(self, snapshot, *, preview=False):
         who = identity(snapshot['identity'])
         messages = snapshot['messages']
         if not isinstance(messages, list) or len(messages) > 20:
@@ -87,12 +89,32 @@ class TestChatStore:
                 raise ValueError('History changed; nothing consumed')
             baseline = self.db.execute("SELECT 1 FROM test_meta WHERE key='baseline'").fetchone() is None
             new_incoming = 0 if baseline else len(incoming - set(old))
+            preview_fields = None
+            if preview:
+                from one_chat_preview import CODE, decide
+                saved = self.db.execute('SELECT code,snapshot_key FROM test_preview WHERE singleton=1').fetchone()
+                if saved and (saved[0] != CODE or not re.fullmatch('[0-9a-f]{64}', saved[1])):
+                    raise ValueError('Invalid saved preview')
+                snapshot_key = self._hash(sorted(records.items()))
+                expired = bool(saved and saved[1] != snapshot_key)
+                new_messages = [m for m in messages if self._hash(m['id']) not in old]
+                preview_fields = decide(baseline, new_messages, who['account'],
+                                        saved=bool(saved), expired=expired)
+                self.db.execute('DELETE FROM test_preview')
+                if preview_fields['preview_available']:
+                    self.db.execute('INSERT INTO test_preview VALUES(1,?,?)', (CODE, snapshot_key))
+            elif set(records) != set(old):
+                # Reading without preview must not leave an obsolete suggestion.
+                self.db.execute('DELETE FROM test_preview')
             self.db.executemany('INSERT OR IGNORE INTO test_seen VALUES(?,?)', records.items())
             self.db.execute("INSERT OR IGNORE INTO test_meta VALUES('baseline','1')")
             self.db.execute('COMMIT')
-            return dict(status='baseline-recorded' if baseline else 'read-complete',
+            result = dict(status='baseline-recorded' if baseline else 'read-complete',
                         observed_messages=len(records), incoming_messages=len(incoming),
                         new_incoming=new_incoming, baseline_recorded=True)
+            if preview_fields is not None:
+                result.update(preview_fields)
+            return result
         except BaseException:
             self.db.execute('ROLLBACK')
             raise
