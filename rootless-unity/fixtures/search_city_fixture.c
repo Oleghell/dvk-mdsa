@@ -49,10 +49,12 @@ static Class *city_class(Image *im,const char *ns,const char *name){int i;for(i=
 static Method *city_method(Class *c,const char *name,int arity){int i;for(i=0;i<19;i++)
  if((c==cmeth[i].klass||(c==&cc[1]&&i==11))&&arity==cmeth[i].arity&&!strcmp(name,cmeth[i].name))return &cmeth[i];return NULL;}
 static int city_assignable(Class *a,Class *b){
- if(a==&nc[1]&&b==&cc[0])return 1;if(a==&nc[3]&&b==&cc[0])return 1;
+ if(a==&nc[1]&&b==&cc[0])return 1;if(mode==325&&a==&nc[1]&&b==&oc[0])return 1;if(a==&nc[3]&&b==&cc[0])return 1;
  if(a==&nc[0]&&(b==&cc[1]||b==&cc[3]||b==&cc[5]||b==&cc[6]))return 1;
  if(b==&cc[1]&&(a==&cc[6]||a==&cc[8]))return 1;return a==b;}
-static Object *city_active(void){return &city_controller;}
+static Object *city_active(void){return mode==325?&filters:&city_controller;}
+static int city_hosted(void *obj){return mode==325&&phase==3&&obj==&people;}
+static Object *city_hosted_item(void){return &city_controller;}
 static Object *city_parent(Object *obj){return obj==&city_cell||obj==&city_cell2?&city_table:&window;}
 static Object *city_geocode(Object *obj){return (Object *)((obj==&form_model?form_has_city:model_has_city)?&new_id_string:&old_id_string);}
 static int city_distance(Object *obj){return obj==&form_model?form_distance:model_distance;}

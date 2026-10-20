@@ -25,6 +25,8 @@ static Object *city_active(void);
 static Object *city_parent(Object *);
 static Type *city_param(Method *,unsigned int);
 static void *city_unbox(Object *);
+static int city_hosted(void *);
+static Object *city_hosted_item(void);
 #endif
 static Class nc[]={
  {"UIKit","UIView"},{"UIKit","UIViewController"},{"DV.Common","DVViewController"},
@@ -182,6 +184,9 @@ if(m->action>=200)return online_invoke(m,obj,args,exc);
  case 30:case 31:yes=mode==86;break;
  case 32:yes=mode==87||((obj==&app_root||obj==&search)&&phase==1);break;
  case 33:
+#ifdef CITY_FIXTURE
+  if(city_hosted(obj))return &modal_list;
+#endif
   if(mode<98)return NULL;
   if(phase!=1)return NULL;
   if(mode==115&&obj==&filters)return &modal_list;
@@ -199,6 +204,9 @@ if(m->action>=200)return online_invoke(m,obj,args,exc);
   return &countbox;
  case 36:
   if(mode==119){*exc=&exception;return NULL;}
+#ifdef CITY_FIXTURE
+  if(mode==325&&phase==3)return city_hosted_item();
+#endif
   if(mode==120&&modal_reads>=3)return &other_filters;
   if(!args||!args[0]||*(int *)args[0]!=0){*exc=&exception;return NULL;}
   if(mode==107)return NULL;if(mode==99)return &other;

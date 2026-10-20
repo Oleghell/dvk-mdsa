@@ -226,6 +226,12 @@ def build(city):
     s = replace(s, "if(!ex.readPointer().isNull())fail('managed-exception');return out;",
                 "if(!ex.readPointer().isNull())fail('managed-exception');if(fixedCancellationRequested)fail('cancelled');if(Date.now()>deadline)fail('frame-budget');return out;")
 
+    # The real picker is presented by the people form (a child controller), not by the card/root list.
+    s = replace(s, "   const current=resolve(candidate);if(current.isNull())return;\n   const k=kind(current);",
+                "   let current=resolve(candidate);if(current.isNull())return;\n   let k=kind(current);\n"
+                "   if(['wait-city','query-city','scan-city','wait-city-return'].includes(n.phase)&&k==='filters'&&current.equals(target(state.card))&&!state.cityPeople.isNull()){\n"
+                "    const hosted=modal(target(state.cityPeople));\n"
+                "    if(!hosted.isNull()&&f.objectClass(hosted).equals(s.city)){current=hosted;k='city';n.controller_path.push('city-hosted');}\n   }")
     s = replace(s, '   const root=call(s.windowRoot,window);', "   if(n.phase==='scan-city'&&Date.now()<state.cityNext)return;\n   const root=call(s.windowRoot,window);")
     s = replace(s, "if(klass.equals(s.search))return 'search';", "if(klass.equals(s.city))return 'city';if(klass.equals(s.search))return 'search';")
     s = replace(s, "if(k==='search'||k==='filters'){", "if(k==='search'||k==='filters'||k==='city'){")
