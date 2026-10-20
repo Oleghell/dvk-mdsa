@@ -30,6 +30,16 @@ def validate(snapshot, expected):
     return snapshot
 
 
+def presentation_messages(snapshot, expected):
+    """Reverse the user-observed newest-first source for presentation ONLY.
+
+    No timestamps are verified, IDs are not sorted, and the source is untouched.
+    The reader, deduplication and manual-send guards keep the original snapshot.
+    """
+    validate(snapshot,expected)
+    return [dict(m) for m in reversed(snapshot['messages'])]
+
+
 def save(snapshot, expected, folder=None):
     validate(snapshot,expected)
     if folder is None:
@@ -38,7 +48,9 @@ def save(snapshot, expected, folder=None):
     folder=Path(folder);folder.mkdir(parents=True,exist_ok=True)
     path=folder/'one-chat-transcript.json'
     temp=None
-    value=dict(format='owned-test-chat-latest-snapshot-v1',chronological_order_verified=False,**snapshot)
+    value=dict(format='owned-test-chat-latest-snapshot-v2',chronological_order_verified=False,
+               presentation_order='reversed-source-collection',order_basis='user-observed-newest-first',
+               identity=dict(snapshot['identity']),messages=presentation_messages(snapshot,expected))
     try:
         with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=folder,prefix='.one-chat-transcript-',suffix='.tmp',delete=False) as f:
             temp=Path(f.name)
@@ -53,8 +65,9 @@ def save(snapshot, expected, folder=None):
 
 def display(snapshot, expected):
     validate(snapshot,expected)
-    lines=['Последний проверенный снимок. Порядок коллекции НЕ подтверждён как время.','']
-    for i,m in enumerate(snapshot['messages'],1):
+    lines=['От начала к концу · обратный порядок коллекции.',
+           'Порядок по времени НЕ подтверждён автоматически.','']
+    for i,m in enumerate(presentation_messages(snapshot,expected),1):
         sender='Я' if m['sender']==expected['account'] else 'Мой второй аккаунт'
         lines.extend([f'{i}. {sender}', m['text'] if m['text'] is not None else '[Нетекстовое сообщение]', ''])
     return '\n'.join(lines)

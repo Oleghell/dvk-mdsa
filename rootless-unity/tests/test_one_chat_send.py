@@ -184,13 +184,53 @@ class LocalTranscript(unittest.TestCase):
         path=local.save(snap(),WHO,self.folder)
         self.assertEqual(path.name,'one-chat-transcript.json')
         data=json.loads(path.read_text(encoding='utf-8'))
-        self.assertEqual(data['messages'],snap()['messages'])
+        self.assertEqual(data['messages'],list(reversed(snap()['messages'])))
         self.assertEqual(data['identity'],WHO)
         self.assertFalse(data['chronological_order_verified'])
         newer=snap([message('1003','200','new control')]);local.save(newer,WHO,self.folder)
-        self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['messages'],newer['messages'])
+        self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['messages'],list(reversed(newer['messages'])))
         self.assertEqual(len(list(self.folder.iterdir())),1)
         if os.name!='nt':self.assertEqual(path.stat().st_mode&0o777,0o600)
+
+    def test_view_and_file_reverse_newest_first_without_mutating_source(self):
+        # Deliberately non-monotonic IDs: order is NEVER inferred from their value.
+        sample=dict(identity=dict(WHO),messages=[message('8','200','NEWEST_TEXT'),
+            message('100','100','MIDDLE_TEXT'),message('9','200','OLDEST_TEXT')])
+        original=copy.deepcopy(sample)
+        shown=local.display(sample,WHO)
+        self.assertLess(shown.index('OLDEST_TEXT'),shown.index('MIDDLE_TEXT'))
+        self.assertLess(shown.index('MIDDLE_TEXT'),shown.index('NEWEST_TEXT'))
+        path=local.save(sample,WHO,self.folder)
+        saved=json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual([m['text'] for m in saved['messages']],['OLDEST_TEXT','MIDDLE_TEXT','NEWEST_TEXT'])
+        self.assertEqual(saved['format'],'owned-test-chat-latest-snapshot-v2')
+        self.assertEqual(saved['presentation_order'],'reversed-source-collection')
+        self.assertFalse(saved['chronological_order_verified'])
+        self.assertEqual(sample,original)
+        # Output dictionaries are copies, not aliases into the source snapshot.
+        copied=local.presentation_messages(sample,WHO);copied[0]['text']='CHANGED_COPY'
+        self.assertEqual(sample,original)
+
+    def test_empty_single_nontext_and_unicode_presentations(self):
+        for messages in ([],[message('1','200','Привет 🌸')],
+                         [message('2','200','Новое 👋'),message('1','100',None)]):
+            sample=dict(identity=dict(WHO),messages=messages)
+            self.assertEqual(local.presentation_messages(sample,WHO),list(reversed(messages)))
+            path=local.save(sample,WHO,self.folder)
+            self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['messages'],list(reversed(messages)))
+            local.display(sample,WHO)
+
+    def test_view_and_save_do_not_affect_dedup_or_single_send_limit(self):
+        path=self.folder/'one-chat-check.sqlite3';store=TestChatStore(path)
+        try:
+            store.bind(WHO);store.consume(snap())
+            sample=snap([message('1003','200',TEST_TEXT)])
+            store.consume(sample,preview=True);actions=Actions(store);actions.reserve(sample)
+            local.display(sample,WHO);local.save(sample,WHO,self.folder)
+            self.assertEqual(store.consume(sample,preview=True)['new_incoming'],0)
+            self.assertEqual(actions.state(),'reserved-unknown')
+            with self.assertRaises(ValueError):actions.reserve(sample)
+        finally:store.close()
 
     def test_wrong_binding_or_invalid_data_never_writes(self):
         for bad in (dict(snap(),identity=dict(WHO,chat='301')),dict(snap(),messages=[message(text='bad\0')])):

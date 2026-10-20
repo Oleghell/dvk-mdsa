@@ -1,4 +1,4 @@
-name: Build one owned test chat manual sender 0.3.33
+name: Build one owned test chat manual sender 0.3.34
 "on":
   push:
     branches: [feature/android-ui-hierarchy]
@@ -8,7 +8,7 @@ name: Build one owned test chat manual sender 0.3.33
       - 'rootless-unity/smoke_one_chat*.py'
       - 'rootless-unity/fixtures/one_chat_fixture.c'
       - 'rootless-unity/tests/test_one_chat*.py'
-      - 'rootless-unity/ONE-CHAT-0.3.33.md'
+      - 'rootless-unity/ONE-CHAT-0.3.34.md'
       - '.github/workflows/rootless-one-chat.yml'
   workflow_dispatch:
 permissions:
@@ -64,31 +64,31 @@ jobs:
       - name: Install pinned packaging dependencies
         run: python -m pip install frida==17.24.1 pyinstaller==6.16.0
       - name: Build separate manual one-shot executable
-        run: python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-one-chat-check --distpath out/Dvk-one-chat-check-0.3.33-windows-x64 rootless-unity/diagnose_one_chat.py
+        run: python -m PyInstaller --clean --noconfirm --onefile --windowed --name Dvk-one-chat-check --distpath out/Dvk-one-chat-check-0.3.34-windows-x64 rootless-unity/diagnose_one_chat.py
       - name: Verify packaged GUI starts without ADB or accounts
         shell: powershell
         run: |
-          $app=Start-Process -FilePath out/Dvk-one-chat-check-0.3.33-windows-x64/Dvk-one-chat-check.exe -ArgumentList '--self-check' -PassThru
+          $app=Start-Process -FilePath out/Dvk-one-chat-check-0.3.34-windows-x64/Dvk-one-chat-check.exe -ArgumentList '--self-check' -PassThru
           if (-not $app.WaitForExit(45000)) {$app.Kill(); throw 'GUI self-check timed out'}
           if ($app.ExitCode -ne 0) {throw "GUI self-check failed: $($app.ExitCode)"}
       - name: Package only tool, instructions and checksum manifest
         shell: powershell
         run: |
-          $root='out/Dvk-one-chat-check-0.3.33-windows-x64'
-          Copy-Item rootless-unity/ONE-CHAT-0.3.33.md "$root/README.md"
+          $root='out/Dvk-one-chat-check-0.3.34-windows-x64'
+          Copy-Item rootless-unity/ONE-CHAT-0.3.34.md "$root/README.md"
           $exe=Get-Item "$root/Dvk-one-chat-check.exe"
           @{source_commit=$env:GITHUB_SHA;read_only=$false;device_scope='test-only';live_android_verified=$false;automatic_replies_available=$false;manual_send_available=$true;manual_send_limit=1;preview_mode_available=$true;preview_test_phrase_only=$true;frida='17.24.1';pyinstaller='6.16.0';sha256=(Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
           $files=@(Get-ChildItem $root -File | Select-Object -ExpandProperty Name | Sort-Object)
           if (($files -join ',') -ne 'build-manifest.json,Dvk-one-chat-check.exe,README.md') {throw 'Unexpected package files'}
       - uses: actions/upload-artifact@v4
         with:
-          name: Dvk-one-chat-check-0.3.33-windows-x64
-          path: out/Dvk-one-chat-check-0.3.33-windows-x64/
+          name: Dvk-one-chat-check-0.3.34-windows-x64
+          path: out/Dvk-one-chat-check-0.3.34-windows-x64/
           if-no-files-found: error
           retention-days: 14
   publish:
     needs: [test, windows]
-    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release one-chat manual 0.3.33') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release one-chat manual 0.3.34') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -99,13 +99,13 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: Dvk-one-chat-check-0.3.33-windows-x64
-          path: release/Dvk-one-chat-check-0.3.33-windows-x64
+          name: Dvk-one-chat-check-0.3.34-windows-x64
+          path: release/Dvk-one-chat-check-0.3.34-windows-x64
       - name: Publish separate owned-chat one-shot prerelease without private data
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd release
-          zip -r Dvk-one-chat-check-0.3.33-windows-x64.zip Dvk-one-chat-check-0.3.33-windows-x64
-          sha256sum Dvk-one-chat-check-0.3.33-windows-x64.zip > SHA256SUMS.txt
-          gh release create rootless-one-chat-v0.3.33 Dvk-one-chat-check-0.3.33-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "One owned test chat 0.3.33 — one manually confirmed send" --notes-file ../rootless-unity/ONE-CHAT-0.3.33.md
+          zip -r Dvk-one-chat-check-0.3.34-windows-x64.zip Dvk-one-chat-check-0.3.34-windows-x64
+          sha256sum Dvk-one-chat-check-0.3.34-windows-x64.zip > SHA256SUMS.txt
+          gh release create rootless-one-chat-v0.3.34 Dvk-one-chat-check-0.3.34-windows-x64.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title "One owned test chat 0.3.34 — oldest-to-newest local presentation" --notes-file ../rootless-unity/ONE-CHAT-0.3.34.md

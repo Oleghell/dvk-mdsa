@@ -11,7 +11,7 @@ import chat_state_probe as state
 import uikit_navigation as nav
 from uikit_profile_navigation import replace_once
 
-VERSION = '0.3.33'
+VERSION = '0.3.34'
 MAX_MESSAGES = 20
 MAX_TEXT = 2048
 STATE_FIELDS = {'read_checkpoint','wait_reason','model_actual','model_draft','model_has_cm','cm_present','loaded_field_present','metadata_checkpoint','loaded_value_method_found','loaded_value_return_kind','loaded_value_byref','loaded_value_owner_verified','loaded_value_owner_inherited','loaded_value_owner_scope','loaded_value_static','loaded_value_abstract','loaded_value_arity','history_status','message_count','history_fully_loaded','history_loading','last_message_present','samples','sample_interval_ms','chat_identity_verified','app_actions_attempted','messages_sent'}

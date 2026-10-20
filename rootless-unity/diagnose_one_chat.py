@@ -138,7 +138,7 @@ def launch_gui(self_check=False):
 
     def show_transcript():
         if last_private is None:return
-        top=tk.Toplevel(root);top.title('Только локально · последний снимок, не порядок по времени');top.geometry('720x520')
+        top=tk.Toplevel(root);top.title('Только локально · от старых сообщений к новым');top.geometry('720x520')
         text=tk.Text(top,wrap='word');text.pack(fill='both',expand=True)
         text.insert('1.0',local.display(last_private,last_private['identity']));text.config(state='disabled')
     transcript_button=ttk.Button(send_row,text='Показать переписку локально',command=show_transcript,state='disabled');transcript_button.pack(side='left',padx=8)
@@ -226,6 +226,17 @@ def launch_gui(self_check=False):
             assert preview.get()==display(value)
         assert main.winfo_reqheight()<=root.winfo_height()
         assert send_row.winfo_reqwidth()+28<=root.winfo_width()
+        # Verify the actual packaged text widget uses the same presentation order.
+        sample=dict(identity=dict(account='100',peer='200',chat='300'),messages=[
+            dict(id='9',sender='200',text='NEW_SYNTHETIC'),dict(id='10',sender='100',text='OLD_SYNTHETIC')])
+        last_private=sample
+        show_transcript();root.update()
+        windows=[w for w in root.winfo_children() if isinstance(w,tk.Toplevel)]
+        assert len(windows)==1
+        content=[w for w in windows[0].winfo_children() if isinstance(w,tk.Text)][0].get('1.0','end-1c')
+        assert content.index('OLD_SYNTHETIC')<content.index('NEW_SYNTHETIC')
+        assert sample['messages'][0]['text']=='NEW_SYNTHETIC'
+        windows[0].destroy()
         import frida
         assert frida.__version__=='17.24.1'
         root.destroy();return
