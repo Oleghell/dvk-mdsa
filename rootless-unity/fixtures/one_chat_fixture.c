@@ -7,7 +7,9 @@
 #define il2cpp_object_unbox old_unbox
 #define il2cpp_runtime_invoke old_invoke
 #define fixture_tick old_tick
+#define il2cpp_string_new old_string_new
 #include "chat_state_fixture.c"
+#undef il2cpp_string_new
 #undef il2cpp_class_from_name
 #undef il2cpp_class_get_method_from_name
 #undef il2cpp_class_get_image
@@ -46,13 +48,29 @@ API Method *il2cpp_class_get_method_from_name(Class *c,const char *name,int arit
  int i;for(i=0;i<10;i++)if(extra[i].arity==(unsigned)arity&&!strcmp(name,extra[i].name)&&
   (c==extra[i].klass||(i==9&&(c==&cc[3]||c==&cc[4]))||(i>=4&&i<=7&&c==&text_class))){
    if(mode==509&&i==8)return NULL;return &extra[i];}
- return old_method(c,name,arity);
+ if(mode>=600&&c==&nc[5]&&arity==1&&!strcmp(name,greeting_send.name)){
+  if(mode==605)return NULL;
+ }
+ Method *found=old_method(c,name,arity);
+ if(mode==606&&found==&greeting_send)greeting_string_type.kind=8;
+ return found;
 }
 API void *il2cpp_object_unbox(Object *o){if(o==&long_object)return &long_value;return old_unbox(o);}
+API Object *il2cpp_string_new(const char *text){
+ if(mode<600)return old_string_new(text);
+ if(!text||strcmp(text,"\320\232\320\260\320\272 \320\264\320\265\320\273\320\260?)"))greeting_bad++;
+ return mode==604?NULL:&greeting_string;
+}
 API int il2cpp_string_length(Text *s){return mode==504?2049:s->length;}
 API const uint16_t *il2cpp_string_chars(Text *s){return s->chars;}
 API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  int in=obj==&incoming;if(exc)*exc=NULL;
+ if(mode>=600&&m->action==60){
+  managed_calls++;if(TID()!=main_id)off_thread_calls++;greeting_sends++;
+  if(obj!=&filters||!args||args[0]!=&greeting_string)greeting_bad++;
+  if(mode==603)*exc=&exception;return NULL;
+ }
+ if(mode==602&&m->action==61){managed_calls++;if(TID()!=main_id)off_thread_calls++;boolbox.value=0;return &boolbox;}
  if(m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=mode==507?0:2;return &integer_box;}
  if(m->action<100)return old_invoke(m,obj,args,exc);
  managed_calls++;if(TID()!=main_id)off_thread_calls++;
