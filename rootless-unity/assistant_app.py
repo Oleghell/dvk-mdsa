@@ -10,6 +10,10 @@ from assistant_config import ConfigError, load
 from assistant_pass import APPROVAL_SECONDS, run
 from assistant_store import StateError, data_directory
 
+# User-confirmed working paths on MuMu #4. Saved local choices take priority.
+DEFAULT_ADB = 'C:/Users/XXX/Desktop/platform-tools/adb.exe'
+DEFAULT_TEST_APKS = 'C:/Users/XXX/Desktop/spam-dvk-main/test-apks'
+
 
 def launch(self_check=False):
     import tkinter as tk
@@ -23,8 +27,8 @@ def launch(self_check=False):
     ttk.Label(pane, text='Помощник · MuMu №4', font=('Segoe UI', 20, 'bold')).pack(anchor='w')
     ttk.Label(pane, text='Одна анкета за запуск. Каждое сообщение — только с твоего подтверждения.',
               wraplength=660).pack(anchor='w', pady=(8, 18))
-    adb = tk.StringVar()
-    folder = tk.StringVar()
+    adb = tk.StringVar(value=DEFAULT_ADB)
+    folder = tk.StringVar(value=DEFAULT_TEST_APKS)
     status = tk.StringVar(value='Готов к работе')
     consent = tk.BooleanVar(value=False)
     settings_path = None
@@ -33,7 +37,7 @@ def launch(self_check=False):
             settings_path = data_directory() / 'settings.json'
             if settings_path.exists():
                 settings = json.loads(settings_path.read_text(encoding='utf-8'))
-                if set(settings) == {'adb', 'test_apks'} and all(isinstance(v, str) and len(v) <= 4096 for v in settings.values()):
+                if set(settings) == {'adb', 'test_apks'} and all(isinstance(v, str) and v == v.strip() and 1 <= len(v) <= 4096 and not any(ord(c) < 32 for c in v) for v in settings.values()):
                     adb.set(settings['adb'])
                     folder.set(settings['test_apks'])
         except Exception:

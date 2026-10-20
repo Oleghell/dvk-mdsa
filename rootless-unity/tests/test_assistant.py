@@ -229,6 +229,34 @@ class MainWindow(unittest.TestCase):
             commands['Стоп']()
             transport.assert_not_called()
 
+    def test_working_paths_are_prefilled_and_saved_choices_override_defaults(self):
+        import sys
+        import assistant_app as app
+        self.assertEqual(app.DEFAULT_ADB, 'C:/Users/XXX/Desktop/platform-tools/adb.exe')
+        self.assertEqual(app.DEFAULT_TEST_APKS, 'C:/Users/XXX/Desktop/spam-dvk-main/test-apks')
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'settings.json'
+            for saved in (None, {'adb': 'D:/tools/adb.exe', 'test_apks': 'D:/private/test-apks'},
+                          {'adb': '', 'test_apks': ''}):
+                if saved is not None:
+                    path.write_text(json.dumps(saved), encoding='utf-8')
+                tk, ttk = MagicMock(), MagicMock()
+                tk.ttk = ttk
+                with patch.dict(sys.modules, {'tkinter': tk, 'tkinter.ttk': ttk,
+                                'tkinter.filedialog': tk.filedialog, 'tkinter.messagebox': tk.messagebox}), \
+                     patch.object(app, 'data_directory', return_value=Path(folder)), \
+                     patch.object(app, 'run') as transport, patch.object(app.threading, 'Thread') as thread:
+                    app.launch()
+                    tk.StringVar.assert_any_call(value=app.DEFAULT_ADB)
+                    tk.StringVar.assert_any_call(value=app.DEFAULT_TEST_APKS)
+                    if saved and saved['adb']:
+                        tk.StringVar.return_value.set.assert_any_call('D:/tools/adb.exe')
+                        tk.StringVar.return_value.set.assert_any_call('D:/private/test-apks')
+                    else:
+                        self.assertNotIn(unittest.mock.call(''), tk.StringVar.return_value.set.call_args_list)
+                    transport.assert_not_called()
+                    thread.assert_not_called()
+
     def test_packaged_config_is_external_next_to_exe(self):
         import sys
         with tempfile.TemporaryDirectory() as folder, patch.object(sys, 'frozen', True, create=True), patch.object(sys, 'executable', str(Path(folder) / 'DvkAssistant.exe')):
