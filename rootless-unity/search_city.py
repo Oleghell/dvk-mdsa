@@ -1,10 +1,11 @@
 """One random configured city + online. Real returned visible GeoRecords only.
 
-Unknown/incomplete/offscreen/ambiguous results STOP; no guessed geo IDs, screen
+Unknown/incomplete/offscreen results STOP. First exact CITY match wins; no guessed geo IDs, screen
 coordinates, device geolocation, broad object search, profiles or message action.
 """
 import copy
 import json
+import unicodedata
 from assistant_config import ConfigError
 import search_online as online
 import uikit_navigation as navigation
@@ -19,7 +20,8 @@ DEFAULTS = dict(city_open_attempted=False, city_open_completed=False, city_query
                 city_query_completed=False, city_result_verified=False, city_select_attempted=False,
                 city_select_completed=False, city_form_verified=False, city_verified=False,
                 city_scan_samples=0, city_visible_rows=0, city_total_rows=0,
-                city_matches=0, city_checkpoint='not-checked', city_prepare='not-checked', city_identity='none')
+                city_matches=0, city_selected_name=None,
+                city_checkpoint='not-checked', city_prepare='not-checked', city_identity='none')
 PREPARE_STEPS = None  # filled below from the native source (fixed labels only)
 IDENTITY = {'none', 'select-recheck', 'scan-controller', 'query-controller'}
 CHECKPOINTS = {'not-checked', 'open-picker', 'query', 'results', 'select', 'form', 'complete'}
@@ -110,7 +112,7 @@ UTILS = r'''
   const cityString=obj=>{if(obj.isNull())return null;own(obj);const length=f.stringLength(obj);if(length<0||length>256)fail('signature-mismatch');const p=f.stringChars(obj);if(p.isNull())fail('signature-mismatch');return length===0?'':p.readUtf16String(length);};
   const cityId=label=>{n.city_identity=label;fail('identity-changed');};
   const cityNorm=text=>text===null?'':text.normalize('NFC').trim().toLowerCase().replace(/ё/g,'е');
-  const cityLike=text=>{const a=cityNorm(text),b=cityNorm(cityWanted);return b.length>0&&a.startsWith(b);};
+  const cityExact=text=>{const a=cityNorm(text),b=cityNorm(cityWanted);return b.length>0&&a===b;};
   const cityScoped=body=>{const start=held.length;try{return body();}finally{
    for(const h of held.splice(start)){try{f.release(h);n.handles_released++;}catch(_){n.cleanup_failed=true;}}
    if(n.cleanup_failed)fail('cleanup-failed');
@@ -140,7 +142,9 @@ UTILS = r'''
    if(!f.objectClass(list).equals(s.cityList))fail('unexpected-object');
    const count=cityInt(s.cityCount,list),total=cityRows(table);
    if(count<0)fail('city-results-incomplete');n.city_visible_rows=Math.min(count,12);n.city_total_rows=total;
-   if(count===0)return null;const scan=Math.min(count,12);
+   if(count===0)return null;
+   if(count>12||count!==total)fail('city-results-incomplete');
+   const scan=count;
    const records=[],matches=[];const seen=new Set();
    for(let i=0;i<scan;i++)cityScoped(()=>{
     const cell=cityIndex(s.cityAt,list,i);if(cell.isNull()||!f.objectClass(cell).equals(s.cityCell))fail('city-results-incomplete');own(cell);
@@ -149,12 +153,11 @@ UTILS = r'''
     const id=cityString(call(s.geoID,record)),name=cityString(call(s.geoName,record)),kind=cityInt(s.geoKind,record);
     if(!id||seen.has(id))fail('city-results-incomplete');seen.add(id);
     const item={id,name,kind,index:i};records.push(item);
-    if(cityLike(name)&&kind===s.cityEnum)matches.push(item);
+    if(cityExact(name)&&kind===s.cityEnum)matches.push(item);
    });
    if(cityInt(s.cityCount,list)!==count||cityRows(table)!==total)return null;
-   n.city_matches=Math.min(matches.length,8);
-   if(matches.length<1)return null;
-   return {fingerprint:JSON.stringify(records),match:matches[0],table,list};
+   n.city_matches=matches.length;
+   return {fingerprint:JSON.stringify(records),match:matches[0]||null,table,list};
   };
 '''
 PHASE_CODE = r'''
@@ -177,9 +180,11 @@ PHASE_CODE = r'''
     const found=citySnapshot(current);
     if(found===null){state.cityFingerprint=null;state.cityNext=Date.now()+1000;return;}
     if(state.cityFingerprint!==found.fingerprint){state.cityFingerprint=found.fingerprint;n.city_scan_samples=1;state.cityNext=Date.now()+1000;return;}
-    n.city_scan_samples=2;n.city_result_verified=true;
+    n.city_scan_samples=2;
+    if(found.match===null)fail('city-not-found');
+    n.city_result_verified=true;
     const cell=cityIndex(s.cityAt,found.list,found.match.index);own(cell);const record=call(s.cityItem,cell);own(record);
-    if(cityString(call(s.geoID,record))!==found.match.id||!cityLike(cityString(call(s.geoName,record)))||
+    if(cityString(call(s.geoID,record))!==found.match.id||cityString(call(s.geoName,record))!==found.match.name||
      cityInt(s.geoKind,record)!==s.cityEnum||!cityAttached(cell,found.table))cityId('select-recheck');
     state.cityID=found.match.id;n.city_checkpoint='select';n.city_select_attempted=true;
     call(s.citySelect,current,cityArgs([cell,record]));n.city_select_completed=true;n.phase='wait-city-return';return;
@@ -190,7 +195,7 @@ PHASE_CODE = r'''
     n.city_checkpoint='form';
     const people=fieldObject(current,s.peopleField,s.people);if(!people.equals(target(state.cityPeople))||!checkView(people)||!bool(s.formReady,people)||!bool(s.formValid,people))fail('screen-not-ready');
     const model=filter(s.formFilter,people);
-    if(code(s.geoGet)(model)!==state.cityID||!cityLike(cityString(call(s.geoFilterName,model))))fail('identity-changed');
+    if(code(s.geoGet)(model)!==state.cityID||!cityExact(cityString(call(s.geoFilterName,model))))fail('identity-changed');
     if(bool(s.distanceGet,model)){
      const value=Memory.alloc(1);value.writeU8(0);call(s.distanceSet,model,cityArgs([value]));
     }
@@ -240,7 +245,7 @@ def build(city):
     s = replace(s, "!['search','filters'].includes(k)", "!['search','filters','city'].includes(k)")
     s = replace(s, "   if(n.phase==='confirm-filters'){", PHASE_CODE + "\n   if(n.phase==='confirm-filters'){")
     s = replace(s, "    n.settings_checkpoint='people-view';", OPEN + "\n    n.settings_checkpoint='people-view';")
-    s = replace(s, "n.online_verified=true;n.location_preserved=true;n.settings_checkpoint='complete';", "if(code(s.geoGet)(actual)!==state.cityID||!cityLike(cityString(call(s.geoFilterName,actual)))||bool(s.distanceGet,actual))fail('identity-changed');\n    n.online_verified=true;n.location_preserved=true;n.settings_checkpoint='complete';n.city_verified=true;n.city_checkpoint='complete';")
+    s = replace(s, "n.online_verified=true;n.location_preserved=true;n.settings_checkpoint='complete';", "const appliedCityName=cityString(call(s.geoFilterName,actual));\n    if(code(s.geoGet)(actual)!==state.cityID||!cityExact(appliedCityName)||bool(s.distanceGet,actual))fail('identity-changed');\n    n.city_selected_name=appliedCityName;n.online_verified=true;n.location_preserved=true;n.settings_checkpoint='complete';n.city_verified=true;n.city_checkpoint='complete';")
     s = replace(s, "['card','origin','onlineCM']", "['card','origin','onlineCM','cityFinder','cityPeople']")
     s = replace(s, json.dumps(sorted(navigation.ERRORS)), json.dumps(sorted(ERRORS)))
     s = replace(s, 'r.navigation.frames>=180', 'r.navigation.frames>=900')
@@ -248,14 +253,14 @@ def build(city):
     return s
 
 
-def validate(value):
+def validate(value, *, expected_city=None):
     checked = copy.deepcopy(value)
     n = checked['navigation']
     extra = {k:n.pop(k) for k in DEFAULTS}
     for key,default in DEFAULTS.items():
         if type(default) is bool and type(extra[key]) is not bool:
             raise ValueError('Invalid city flag')
-    for key,limit in [('city_scan_samples',2),('city_visible_rows',12),('city_total_rows',200),('city_matches',8)]:
+    for key,limit in [('city_scan_samples',2),('city_visible_rows',12),('city_total_rows',200),('city_matches',12)]:
         if type(extra[key]) is not int or not 0<=extra[key]<=limit:
             raise ValueError('Invalid city counter')
     if extra['city_checkpoint'] not in CHECKPOINTS or extra['city_prepare'] not in PREPARE_STEPS or extra['city_identity'] not in IDENTITY:
@@ -270,8 +275,16 @@ def validate(value):
     for earlier,later in zip(chain,chain[1:]):
         if extra[later] and not extra[earlier]:
             raise ValueError('Out-of-order city operation')
-    if extra['city_result_verified'] and (extra['city_scan_samples']!=2 or not 1<=extra['city_matches']<=8 or not 1<=extra['city_visible_rows']<=12 or extra['city_visible_rows']>extra['city_total_rows']):
-        raise ValueError('City selected without complete stable unique results')
+    if extra['city_result_verified'] and (extra['city_scan_samples']!=2 or not 1<=extra['city_matches']<=extra['city_visible_rows']<=12 or extra['city_visible_rows']!=extra['city_total_rows']):
+        raise ValueError('City selected without complete stable results')
+    if extra['city_verified']:
+        selected = check_city(extra['city_selected_name'])
+        if expected_city is not None:
+            normalize = lambda text: unicodedata.normalize('NFC', check_city(text)).lower().replace('ё', 'е')
+            if normalize(selected) != normalize(expected_city):
+                raise ValueError('Applied city name differs from the requested city')
+    elif extra['city_selected_name'] is not None:
+        raise ValueError('Unverified selected city name')
     if n['stage']=='navigation-ready' and extra['city_prepare']!='ready':
         raise ValueError('City metadata was not ready')
     if n['apply_attempted'] and not extra['city_form_verified']:
@@ -288,4 +301,5 @@ def run(executable, folder, city, cancelled=lambda: False):
     with operation_lock():
         return capture(executable, folder, cancelled,
                        inspector=lambda port,token,cancel,expected: online.inspect(
-                           port,token,cancel,source_function=source,validator=validate,timeout=40))
+                           port,token,cancel,source_function=source,
+                           validator=lambda value: validate(value, expected_city=city),timeout=40))

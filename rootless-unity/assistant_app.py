@@ -309,11 +309,12 @@ def launch(self_check=False):
                 city, result = value
                 n = result['navigation']
                 if n['stage'] == 'navigation-ready' and n['city_verified'] and n['online_verified']:
-                    status.set('Город выбран и проверен: ' + city + '. «Только онлайн» включён. Можно проверить одну анкету.')
+                    status.set('Город выбран и проверен: ' + n['city_selected_name'] + '. «Только онлайн» включён. Можно проверить одну анкету.')
                 else:
                     reasons = {'city-ambiguous': 'Найдено несколько городов с одинаковым названием',
                                'city-results-incomplete': 'Не удалось проверить полный список городов',
                                'city-query-changed': 'Текст поиска города изменился',
+                               'city-not-found': 'Город с точным названием не найден',
                                'frame-limit': 'Город не найден или поиск не завершился вовремя'}
                     reason = reasons.get(n['error'], 'Остановлено: ' + (n['error'] if n['error'] != 'none' else n['stage']))
                     if n['stage'] == 'not-attempted' and n['error'] == 'none':
@@ -329,7 +330,7 @@ def launch(self_check=False):
                     keys = ('stage', 'phase', 'error', 'city_checkpoint', 'city_open_attempted', 'city_open_completed',
                             'city_query_attempted', 'city_query_completed', 'city_result_verified', 'city_select_attempted',
                             'city_select_completed', 'city_form_verified', 'city_verified', 'city_scan_samples',
-                            'city_visible_rows', 'city_total_rows', 'city_matches', 'city_prepare', 'city_identity', 'readiness_check', 'readiness',
+                            'city_visible_rows', 'city_total_rows', 'city_matches', 'city_selected_name', 'city_prepare', 'city_identity', 'readiness_check', 'readiness',
                             'controller_path', 'root_top_kind', 'last_presented_kind', 'frames', 'managed_calls', 'online_verified',
                             'apply_attempted', 'apply_completed', 'return_verified')
                     report = {k: n[k] for k in keys}

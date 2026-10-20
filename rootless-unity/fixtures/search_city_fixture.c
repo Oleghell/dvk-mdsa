@@ -29,15 +29,16 @@ static Method cmeth[]={
 static Object city_controller={&cc[0],0},city_input={&cc[3],0},city_table={&cc[5],0},city_list={&cc[7],0},city_cell={&cc[1],0},city_cell2={&cc[1],0},city_record={&cc[2],0},city_record2={&cc[2],0},city_int_box={NULL,0};
 static Field input_field={&cc[0],&ctinput,3},table_field={&cc[0],&cttable,4},query_field={&cc[0],&otstring,5},enum_field={&cc[4],&ctenum,6};
 typedef struct CityString {Class *klass;int length;uint16_t chars[128];} CityString;
-static CityString wanted_string,old_id_string,new_id_string,other_id_string,old_name_string,other_name_string;
-static int query_sent,city_pick_calls,city_open_calls,city_text_calls,city_search_calls,form_has_city,model_has_city,form_distance,model_distance,city_integer;
+static CityString wanted_string,old_id_string,new_id_string,other_id_string,old_name_string,other_name_string,similar_name_string,case_name_string;
+static int query_sent,city_pick_calls,city_open_calls,city_text_calls,city_search_calls,form_has_city,model_has_city,form_distance,model_distance,city_integer,picked_second,city_name_reads;
 static Object *input_text;
 static void init_string(CityString *s,const char *text){int i;s->klass=NULL;s->length=(int)strlen(text);for(i=0;i<s->length;i++)s->chars[i]=(uint16_t)text[i];s->chars[s->length]=0;}
 static void city_init(int m){
  query_sent=city_pick_calls=city_open_calls=city_text_calls=city_search_calls=form_has_city=model_has_city=0;
- form_distance=model_distance=1;input_text=NULL;
+ form_distance=model_distance=1;input_text=NULL;picked_second=city_name_reads=0;
  init_string(&wanted_string,"Pskov");init_string(&old_id_string,"old-code");init_string(&new_id_string,"actual-returned-code");
  init_string(&other_id_string,"different-real-code");init_string(&old_name_string,"OldCity");init_string(&other_name_string,"NotPskov");
+ init_string(&similar_name_string,"Pskovsk");init_string(&case_name_string,"PSKOV");
  if(m==301)cmeth[5].arity=1;
  if(m==302)cmeth[2].param=&tbool;
  if(m==303)table_field.type=&ctinput;
@@ -56,7 +57,7 @@ static Object *city_active(void){return mode==325?&filters:&city_controller;}
 static int city_hosted(void *obj){return mode==325&&phase==3&&obj==&people;}
 static Object *city_hosted_item(void){return &city_controller;}
 static Object *city_parent(Object *obj){return obj==&city_cell||obj==&city_cell2?&city_table:&window;}
-static Object *city_geocode(Object *obj){return (Object *)((obj==&form_model?form_has_city:model_has_city)?&new_id_string:&old_id_string);}
+static Object *city_geocode(Object *obj){return (Object *)((obj==&form_model?form_has_city:model_has_city)?(picked_second?&other_id_string:&new_id_string):&old_id_string);}
 static int city_distance(Object *obj){return obj==&form_model?form_distance:model_distance;}
 static void city_apply(void){model_has_city=mode==314?0:form_has_city;model_distance=form_distance;}
 static Object *city_invoke(Method *m,void *obj,void **args,void **exc){
@@ -70,20 +71,26 @@ static Object *city_invoke(Method *m,void *obj,void **args,void **exc){
  case 304:city_search_calls++;if(mode==307){*exc=&exception;return NULL;}query_sent=1;return NULL;
  case 305:
   city_pick_calls++;
-  if(!args||args[0]!=&city_cell||args[1]!=&city_record){*exc=&exception;return NULL;}
+  if(!args||args[0]!=(mode==327?&city_cell2:&city_cell)||args[1]!=(mode==327?&city_record2:&city_record)){*exc=&exception;return NULL;}
+  picked_second=mode==327;
   if(mode==315||mode==323)slow();if(mode==316){*exc=&exception;return NULL;}
   form_has_city=mode!=313;phase=1;return NULL;
  case 306:return (Object *)(obj==&city_record2?&other_id_string:&new_id_string);
- case 307:return (Object *)(mode==310?&other_name_string:&wanted_string);
+ case 307:
+  city_name_reads++;
+  if(mode==326||(mode==327&&obj==&city_record)||(mode==331&&city_name_reads>2))return (Object *)&similar_name_string;
+  return (Object *)(mode==310?&other_name_string:mode==330?&case_name_string:&wanted_string);
  case 308:city_integer=mode==311?2:1;return &city_int_box;
- case 309:return (Object *)((obj==&form_model?form_has_city:model_has_city)?&wanted_string:&old_name_string);
+ case 309:
+  if((mode==328&&obj==&model&&model_has_city)||(mode==329&&obj==&form_model&&form_has_city))return (Object *)&similar_name_string;
+  return (Object *)((obj==&form_model?form_has_city:model_has_city)?(mode==330?&case_name_string:&wanted_string):&old_name_string);
  case 310:if(!args||!args[0]||*(unsigned char *)args[0]!=0){*exc=&exception;return NULL;}if(mode!=318)form_distance=0;return NULL;
  case 311:return obj==&city_cell2?&city_record2:&city_record;
  case 312:return &city_list;
- case 313:city_integer=mode==308?0:mode==309?2:1;return &city_int_box;
+ case 313:city_integer=mode==308?0:mode==309||mode==327?2:1;return &city_int_box;
  case 314:if(mode==320)return &other;return index==0?&city_cell:&city_cell2;
  case 315:city_integer=1;return &city_int_box;
- case 316:city_integer=mode==308?0:mode==309||mode==312?2:1;return &city_int_box;
+ case 316:city_integer=mode==308?0:mode==309||mode==312||mode==327?2:1;return &city_int_box;
  case 317:yes=mode!=317;break;
  case 318:yes=0;break;
  }

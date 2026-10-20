@@ -18,7 +18,7 @@ def ready_city():
     n.update(city.DEFAULTS)
     n.update({k:True for k,v in city.DEFAULTS.items() if type(v) is bool})
     n.update(city_scan_samples=2, city_visible_rows=1, city_total_rows=1,
-             city_matches=1,city_checkpoint='complete',city_prepare='ready')
+             city_matches=1,city_selected_name='Pskov',city_checkpoint='complete',city_prepare='ready')
     # A city operation has a separate bounded wait budget; online-only still
     # retains its original 180-frame validation budget.
     n['ui_text_read'] = True
@@ -48,7 +48,7 @@ class CitySchema(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     city.validate(value)
 
-    def test_no_ambiguous_offscreen_unstable_or_invalid_type_success(self):
+    def test_invalid_city_evidence_is_rejected(self):
         for key,bad in [('city_visible_rows',0),('city_total_rows',0),('city_scan_samples',1),
                         ('city_matches',0),('city_scan_samples',True),('city_verified',1),
                         ('city_checkpoint','private-code'),('city_visible_rows',13)]:
@@ -62,6 +62,32 @@ class CitySchema(unittest.TestCase):
         value['navigation']['geo_id'] = 'PRIVATE-CODE'
         with self.assertRaises(ValueError):
             city.validate(value)
+
+    def test_complete_list_and_honest_match_count_are_required(self):
+        for visible,total,matches in ((1,2,1),(2,1,1),(1,1,2),(2,2,0)):
+            value = ready_city()
+            value['navigation'].update(city_visible_rows=visible, city_total_rows=total, city_matches=matches)
+            with self.assertRaises(ValueError):
+                city.validate(value)
+        value = ready_city()
+        value['navigation'].update(city_visible_rows=2, city_total_rows=2, city_matches=2)
+        self.assertIs(city.validate(value), value)  # First of exact duplicates is allowed.
+
+    def test_verified_name_must_be_real_and_match_request_not_prefix(self):
+        for name in (None, '', True, 'Pskov\n', ' Pskov', 'A'*81, '\ud800'):
+            value = ready_city()
+            value['navigation']['city_selected_name'] = name
+            with self.assertRaises(ConfigError):
+                city.validate(value, expected_city='Pskov')
+        for requested,name in (('Pskov','Pskovsk'),('Pskov','NotPskov'),
+                               ('Армавир','Армавирский'),('Армавир','Армавир-2')):
+            value = ready_city()
+            value['navigation']['city_selected_name'] = name
+            with self.assertRaises(ValueError):
+                city.validate(value, expected_city=requested)
+        value = ready_city()
+        value['navigation']['city_selected_name'] = 'ОрЁл'
+        self.assertIs(city.validate(value, expected_city='орел'), value)
 
     def test_configured_random_city(self):
         config = Config(('Pskov','City2'),('Greeting',))
@@ -80,7 +106,7 @@ class CitySchema(unittest.TestCase):
     def test_uses_actual_records_and_complete_visible_results_only(self):
         source = city.build('Псков')
         for text in ('get_GeoID','get_RecordType','OnCellSelected','citySignature(f,entry,m)',
-                     'city-query-changed','cityLike','cityFingerprint',
+                     'city-query-changed','cityExact','cityFingerprint',
                      'city_scan_samples=2',
                      'field_static_get_value','class_enum_basetype','get_SectionsCount','GetSectionItemsCount'):
             self.assertIn(text, source)
@@ -91,6 +117,9 @@ class CitySchema(unittest.TestCase):
         self.assertIn("if(n.phase==='scan-city'&&Date.now()<state.cityNext)return;", source)
         self.assertIn('r.navigation.frames>=900', source)
         self.assertIn('},30000);', source)
+        self.assertNotIn('.startsWith(', source)
+        self.assertIn("if(count>12||count!==total)fail('city-results-incomplete');", source)
+        self.assertIn("if(found.match===null)fail('city-not-found');", source)
 
 
 class CityPrepare(unittest.TestCase):
@@ -130,7 +159,12 @@ class CityTransport(unittest.TestCase):
             lock.return_value.__enter__.assert_called_once()
             inspector = capture.call_args.kwargs['inspector']
             inspector(37149,'a'*64,lambda:False,None)
-            self.assertIs(inspect.call_args.kwargs['validator'],city.validate)
+            validator = inspect.call_args.kwargs['validator']
+            self.assertEqual(validator(ready_city())['navigation']['city_selected_name'], 'Pskov')
+            wrong = ready_city()
+            wrong['navigation']['city_selected_name'] = 'Pskovsk'
+            with self.assertRaises(ValueError):
+                validator(wrong)
             self.assertEqual(inspect.call_args.kwargs['timeout'],40)
 
 
@@ -180,10 +214,26 @@ class CityButton(unittest.TestCase):
             value=json.loads((folder/'last-city-settings.json').read_text(encoding='utf-8'))
             self.assertTrue(value['city_verified'] and value['online_verified'])
             self.assertEqual(value['requested_city'],'Pskov')
+            self.assertEqual(value['city_selected_name'],'Pskov')
             self.assertEqual(value['messages_sent'],0)
             self.assertFalse(value['chat_content_read'])
             self.assertNotIn('geo_id',value)
             online.assert_not_called()
+            profile.assert_not_called()
+
+    def test_success_displays_actual_name_not_config_spelling(self):
+        with gui() as (tk,buttons,poll,thread,native,online,profile,load,folder):
+            result = ready_city()
+            result['navigation']['city_selected_name'] = 'PSKOV'
+            native.return_value = result
+            buttons['Выбрать город и онлайн']()
+            thread.call_args.kwargs['target']('ADB','APKS','Pskov')
+            poll()
+            messages = [c.args[0] for c in tk.StringVar.return_value.set.call_args_list if c.args]
+            self.assertTrue(any('Город выбран и проверен: PSKOV.' in text for text in messages))
+            report = json.loads((folder/'last-city-settings.json').read_text(encoding='utf-8'))
+            self.assertEqual(report['requested_city'], 'Pskov')
+            self.assertEqual(report['city_selected_name'], 'PSKOV')
             profile.assert_not_called()
 
     def test_config_error_prevents_thread(self):
