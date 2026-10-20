@@ -12,7 +12,7 @@ from assistant_store import StateError, data_directory
 from search_catalog import write_report as prepare_search_report
 from search_online import run as enable_online
 from search_city import run as select_city
-from assistant_preview import run as preview_profiles, status_text as preview_status
+from assistant_rotation import run as preview_profiles, status_text as preview_status
 
 # User-confirmed working paths on MuMu #4. Saved local choices take priority.
 DEFAULT_ADB = 'C:/Users/XXX/Desktop/platform-tools/adb.exe'
@@ -159,7 +159,7 @@ def launch(self_check=False):
             return
         stopped.clear()
         busy = True
-        status.set('Просматриваю до 5 новых видимых анкет. Без чатов, отправок и смены города.')
+        status.set('Просматриваю до 5 новых видимых анкет. Если новых нет — выберу другой город. Без чатов и сообщений.')
         refresh()
         threading.Thread(target=preview_worker, args=(adb.get(), folder.get()), daemon=True).start()
 
@@ -263,7 +263,7 @@ def launch(self_check=False):
     preview_row.pack(fill='x', pady=(4, 4))
     preview_button = ttk.Button(preview_row, text='Просмотреть до 5 анкет без сообщений', command=begin_preview)
     preview_button.pack(side='left')
-    ttk.Label(pane, text='Просмотренные анкеты сохраняются в журнале и в дальнейшем пропускаются. Визит может быть виден владельцу анкеты.',
+    ttk.Label(pane, text='Просмотренные анкеты запоминаются. Если новых видимых нет — одна смена города и онлайн. Визит может быть виден владельцу анкеты.',
               wraplength=660).pack(anchor='w')
     settings_row = ttk.Frame(pane)
     settings_row.pack(fill='x', pady=(4, 6))
@@ -278,7 +278,7 @@ def launch(self_check=False):
     search_report_button = ttk.Button(search_row, text='Открыть сведения', command=open_search_report, state='disabled')
     search_report_button.pack(side='left', padx=10)
     ttk.Label(pane, text='Журнал попыток сохраняется между запусками. Не удаляй старые базы и lock-файлы. '
-              'Просмотр до 5 анкет работает только с видимыми карточками, без прокрутки. Наблюдение за ответами пока не подключено. Город и онлайн настраиваются отдельно.',
+              'Просмотр работает без прокрутки. Если новых видимых анкет нет — выбирается другой город из списка. Наблюдение за ответами пока не подключено.',
               wraplength=660).pack(anchor='w', pady=(12, 0))
 
     def ask(data):

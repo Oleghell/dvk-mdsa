@@ -13,7 +13,7 @@ from uikit_profile_navigation import replace_once as replace
 
 # Hosted picker is reported as the validated 'city' controller kind.
 MAX_FRAMES = 900
-ERRORS = navigation.ERRORS | {'city-ambiguous', 'city-results-incomplete', 'city-not-found', 'city-query-changed'}
+ERRORS = navigation.ERRORS | {'city-ambiguous', 'city-results-incomplete', 'city-not-found', 'city-query-changed', 'city-no-alternative'}
 PHASES = navigation.PHASES | {'wait-city', 'query-city', 'scan-city', 'wait-city-return'}
 KINDS = navigation.KINDS | {'city'}
 DEFAULTS = dict(city_open_attempted=False, city_open_completed=False, city_query_attempted=False,
@@ -292,6 +292,74 @@ def validate(value, *, expected_city=None):
     if (n['stage']=='navigation-ready') != (extra['city_verified'] and extra['city_checkpoint']=='complete'):
         raise ValueError('Missing applied city evidence')
     return value
+
+
+def normalize_city(city):
+    return unicodedata.normalize('NFC', check_city(city)).lower().replace('ё', 'е')
+
+
+def check_cities(cities):
+    if not isinstance(cities, (list, tuple)) or not 1 <= len(cities) <= 100:
+        raise ConfigError('Нужен непустой список городов.')
+    normalized = [normalize_city(city) for city in cities]
+    if len(set(normalized)) != len(normalized):
+        raise ConfigError('В списке повторяются названия городов.')
+    return list(cities)
+
+
+def build_next(cities, used=()):
+    """Read the actual current city first; select one other configured name."""
+    cities = check_cities(cities)
+    used = check_cities(used) if used else []
+    if not set(map(normalize_city, used)) <= set(map(normalize_city, cities)):
+        raise ConfigError('Неверный журнал городов.')
+    source = build(cities[0])
+    source = replace(source, 'const cityWanted=' + json.dumps(cities[0]) + ';',
+                     'let cityWanted=null;const cityCandidates=' + json.dumps(cities) +
+                     ';const cityUsed=new Set(' + json.dumps(list(map(normalize_city, used))) +
+                     ');r.navigation.city_previous_name=null;r.navigation.city_round_reset=false;')
+    anchor = 'n.online_before=bool(s.onlineGet,model);state.location=location(model);'
+    source = replace(source, anchor, anchor + '''
+    const previousCityName=cityString(call(s.geoFilterName,model));
+    if(previousCityName===null||cityNorm(previousCityName)==='')fail('screen-not-ready');
+    state.rotationCityID=code(s.geoGet)(model);
+    if(!state.rotationCityID)fail('screen-not-ready');
+    n.city_previous_name=cityCandidates.find(name=>cityNorm(name)===cityNorm(previousCityName))||null;
+    const alternatives=cityCandidates.filter(name=>cityNorm(name)!==cityNorm(previousCityName));
+    if(alternatives.length===0)fail('city-no-alternative');
+    const fresh=alternatives.filter(name=>!cityUsed.has(cityNorm(name)));
+    n.city_round_reset=fresh.length===0;cityWanted=(fresh.length?fresh:alternatives)[0];
+''')
+    source = replace(source, "state.cityID=found.match.id;n.city_checkpoint='select';",
+                     "if(found.match.id===state.rotationCityID)fail('identity-changed');\n    state.cityID=found.match.id;n.city_checkpoint='select';")
+    return source
+
+
+def validate_next(value, cities):
+    cities = check_cities(cities)
+    allowed = set(map(normalize_city, cities))
+    checked = copy.deepcopy(value)
+    n = checked['navigation']
+    previous = n.pop('city_previous_name')
+    reset = n.pop('city_round_reset')
+    if type(reset) is not bool or (previous is not None and normalize_city(previous) not in allowed):
+        raise ValueError('Invalid city rotation evidence')
+    validate(checked)
+    if n['city_verified']:
+        selected = normalize_city(n['city_selected_name'])
+        if selected not in allowed or (previous is not None and selected == normalize_city(previous)):
+            raise ValueError('The next city must be another configured city')
+    return value
+
+
+def _capture_next(executable, folder, cities, used, cancelled):
+    """Internal rotation entry: caller holds DvkAssistant's shared operation lock."""
+    from one_chat_device import capture
+    source = build_next(cities, used)
+    return capture(executable, folder, cancelled,
+                   inspector=lambda port,token,cancel,expected: online.inspect(
+                       port,token,cancel,source_function=source,
+                       validator=lambda value: validate_next(value, cities),timeout=40))
 
 
 def run(executable, folder, city, cancelled=lambda: False):

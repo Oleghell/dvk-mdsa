@@ -57,7 +57,7 @@ static Object *city_active(void){return mode==325?&filters:&city_controller;}
 static int city_hosted(void *obj){return mode==325&&phase==3&&obj==&people;}
 static Object *city_hosted_item(void){return &city_controller;}
 static Object *city_parent(Object *obj){return obj==&city_cell||obj==&city_cell2?&city_table:&window;}
-static Object *city_geocode(Object *obj){return (Object *)((obj==&form_model?form_has_city:model_has_city)?(picked_second?&other_id_string:&new_id_string):&old_id_string);}
+static Object *city_geocode(Object *obj){if(mode==333)return (Object *)&new_id_string;return (Object *)((obj==&form_model?form_has_city:model_has_city)?(picked_second?&other_id_string:&new_id_string):&old_id_string);}
 static int city_distance(Object *obj){return obj==&form_model?form_distance:model_distance;}
 static void city_apply(void){model_has_city=mode==314?0:form_has_city;model_distance=form_distance;}
 static Object *city_invoke(Method *m,void *obj,void **args,void **exc){

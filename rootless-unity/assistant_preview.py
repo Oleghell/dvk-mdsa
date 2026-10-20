@@ -172,7 +172,7 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
         cleanup_frida(f, manager, address, script, session, device)
 
 
-def run(executable, folder, cancelled=lambda: False, progress=lambda text: None, *, store=None):
+def run(executable, folder, cancelled=lambda: False, progress=lambda text: None, *, store=None, after_preview=None):
     from pathlib import Path
     from one_chat_device import capture, ReadStopped
     from assistant_lock import operation_lock
@@ -187,7 +187,7 @@ def run(executable, folder, cancelled=lambda: False, progress=lambda text: None,
             completed.append(value)
             return value
         try:
-            return capture(executable, folder, cancelled, inspector=inspector)
+            value = capture(executable, folder, cancelled, inspector=inspector)
         except ReadStopped as error:
             # capture checks boot identity and removes its forward before this
             # cancellation reaches us. Never mask a transport/cleanup failure.
@@ -196,3 +196,10 @@ def run(executable, folder, cancelled=lambda: False, progress=lambda text: None,
                 value.update(status='preview-cancelled', reason='cancelled')
                 return value
             raise
+        # Keep the same OS lock until the optional bounded city change finishes.
+        if after_preview is not None:
+            if cancelled():
+                value.update(status='preview-cancelled', reason='cancelled')
+                return value
+            return after_preview(value, store)
+        return value
