@@ -20,6 +20,12 @@ static Object *online_invoke(Method *,void *,void **,void **);
 static int online_assignable(Class *,Class *);
 static Method *online_virtual(Object *,Method *);
 #endif
+#ifdef CITY_FIXTURE
+static Object *city_active(void);
+static Object *city_parent(Object *);
+static Type *city_param(Method *,unsigned int);
+static void *city_unbox(Object *);
+#endif
 static Class nc[]={
  {"UIKit","UIView"},{"UIKit","UIViewController"},{"DV.Common","DVViewController"},
  {"DV","CardViewController"},{"DV.Search","SearchTabController"},
@@ -94,12 +100,20 @@ if(online_assignable(a,b))return 1;
  if(a==&nc[2])return b==&nc[2]||b==&nc[4];
  if(a==&nc[3])return b==&nc[3]||b==&nc[5];return 0;}
 static int modal_count;static Object countbox={NULL,0};
-static void *tree_unbox(Object *o){return o==&countbox?&modal_count:NULL;}
+static void *tree_unbox(Object *o){
+#ifdef CITY_FIXTURE
+ void *extra=city_unbox(o);if(extra)return extra;
+#endif
+return o==&countbox?&modal_count:NULL;}
 API unsigned char il2cpp_class_is_valuetype(Class *c){return mode==113&&c==&modal_class;}
 API const char *il2cpp_class_get_name(Class *c){return mode==114&&c==&modal_class?"OtherList":c->name;}
 API const char *il2cpp_class_get_namespace(Class *c){return c->ns;}
 API Image *il2cpp_class_get_image(Class *c){(void)c;return &images[0];}
-API Type *il2cpp_method_get_param(Method *m,unsigned int n){return n==0?m->param:NULL;}
+API Type *il2cpp_method_get_param(Method *m,unsigned int n){
+#ifdef CITY_FIXTURE
+ Type *extra=city_param(m,n);if(extra)return extra;
+#endif
+return n==0?m->param:NULL;}
 API Class *il2cpp_method_get_class(Method *m){return m->klass;}
 API unsigned char il2cpp_type_is_byref(Type *t){(void)t;return 0;}
 API Class *il2cpp_class_from_type(Type *t){return t->klass;}
@@ -115,6 +129,10 @@ API int fixture_opens(void){return opens;}
 API int fixture_cancels(void){return cancels;}
 API int fixture_virtual_calls(void){return virtual_calls;}
 static Object *active(void){
+#ifdef CITY_FIXTURE
+ if(mode>=300&&phase==3)return city_active();
+#endif
+
  if(mode==61)return &other;
  if(mode==71&&phase>0)return &other;
  if(mode==70&&phase==2)return &replacement;
@@ -128,7 +146,11 @@ if(m->action>=200)return online_invoke(m,obj,args,exc);
 
  if(mode==67&&m->action==15){*exc=&exception;return NULL;}
  switch(m->action){
- case 10:if(mode==77)slow();return mode>=80?&app_root:active();
+ case 10:
+#ifdef CITY_FIXTURE
+ if(mode>=300)return active();
+#endif
+ if(mode==77)slow();return mode>=80?&app_root:active();
  case 11:if(mode>=98)return NULL;if(mode==88)return &view;return (mode==72||phase!=1||mode==87)?NULL:&view;
  case 12:if(obj==&app_root)return mode==81?&dv_nav:&ui_nav;return NULL;
  case 13:return mode==88?&other:active();
@@ -137,6 +159,9 @@ if(m->action>=200)return online_invoke(m,obj,args,exc);
  case 16:yes=(mode==73);break;
  case 17:yes=0;break;
  case 18:
+#ifdef CITY_FIXTURE
+ if(mode>=300)return city_parent((Object *)obj);
+#endif
   if(mode==94){if(obj==&view)return &view_chain[0];if((uintptr_t)obj>=(uintptr_t)&view_chain[0]&&(uintptr_t)obj<(uintptr_t)&view_chain[34])return ((Object *)obj)+1;}
   if(mode==95)return obj==&other_window?NULL:&other_window;
   if(mode==68||mode==93)return NULL;if(mode==91)return &view;return &window;

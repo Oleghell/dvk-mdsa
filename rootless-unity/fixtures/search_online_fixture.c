@@ -1,6 +1,16 @@
 /* Owned ABI fixture for exactly one online-only settings operation. No APKs. */
 #define SEARCH_SETTINGS_FIXTURE
 #include "navigation_fixture.c"
+#ifdef CITY_FIXTURE
+static void city_init(int);
+static Class *city_class(Image *,const char *,const char *);
+static Method *city_method(Class *,const char *,int);
+static Object *city_invoke(Method *,void *,void **,void **);
+static int city_assignable(Class *,Class *);
+static Object *city_geocode(Object *);
+static int city_distance(Object *);
+static void city_apply(void);
+#endif
 static Class oc[]={
  {"DV","SearchPeopleFilterViewController"},{"DV.Search","SearchFilterBaseViewController"},
  {"DV.Search","SearchFilter"},{"DV.CMs","SearchCM"}};
@@ -24,19 +34,35 @@ typedef struct LocationString {Class *klass;int length;uint16_t chars[4];} Locat
 static LocationString geo_string={NULL,2,{'A','1',0,0}},changed_geo={NULL,2,{'B','2',0,0}};
 static int online_set_calls,online_refresh_calls,online_apply_calls,location_changed,field_reads;
 static void online_init(int m){
- model.value=m==201;form_model.value=model.value;online_set_calls=online_refresh_calls=online_apply_calls=location_changed=field_reads=0;
+#ifdef CITY_FIXTURE
+ city_init(m);
+#endif
+
+ model.value=m==201||m==324;form_model.value=model.value;online_set_calls=online_refresh_calls=online_apply_calls=location_changed=field_reads=0;
  if(m==202)om[5].param=&tint;
  if(m==203)cm_field.type=&otpeople;
  if(m==216)om[9].param=&otpeople;
 }
 static Class *online_class(Image *im,const char *ns,const char *name){int i;
+#ifdef CITY_FIXTURE
+ Class *extra=city_class(im,ns,name);if(extra)return extra;
+#endif
+
  if(im!=&nav_image)return NULL;
  for(i=0;i<4;i++)if(!strcmp(ns,oc[i].ns)&&!strcmp(name,oc[i].name))return &oc[i];return NULL;
 }
 static Method *online_method(Class *c,const char *name,int arity){int i;
+#ifdef CITY_FIXTURE
+ Method *extra=city_method(c,name,arity);if(extra)return extra;
+#endif
+
  for(i=0;i<11;i++)if(c==om[i].klass&&arity==om[i].arity&&!strcmp(name,om[i].name))return &om[i];return NULL;
 }
 static int online_assignable(Class *a,Class *b){
+#ifdef CITY_FIXTURE
+ if(city_assignable(a,b))return 1;
+#endif
+
  return (b==&oc[0]&&(a==&oc[1]||a==&nc[1]))||a==b;
 }
 static Method *online_virtual(Object *obj,Method *m){
@@ -49,6 +75,12 @@ static Method *online_virtual(Object *obj,Method *m){
 }
 static Object *online_invoke(Method *m,void *obj,void **args,void **exc){
  int yes=0;
+#ifdef CITY_FIXTURE
+ if(m->action>=300)return city_invoke(m,obj,args,exc);
+ if(mode>=300&&m->action==206)return city_geocode((Object *)obj);
+ if(mode>=300&&m->action==208){online_box.value=(unsigned char)city_distance((Object *)obj);return &online_box;}
+ if(mode>=300&&m->action==210)city_apply();
+#endif
  switch(m->action){
  case 200:return &model;
  case 201:return &form_model;
@@ -81,20 +113,42 @@ static Object *online_invoke(Method *m,void *obj,void **args,void **exc){
  }
  online_box.value=(unsigned char)yes;return &online_box;
 }
+#ifdef CITY_FIXTURE
+static Field *city_field(Class *,const char *);
+static Object *city_field_object(Object *,Field *);
+static int city_string_length(void *);
+static uint16_t *city_string_chars(void *);
+#endif
 API Field *il2cpp_class_get_field_from_name(Class *c,const char *name){
+#ifdef CITY_FIXTURE
+ Field *extra=city_field(c,name);if(extra)return extra;
+#endif
+
  if(c==&nc[4]&&!strcmp(name,"m_SearchCM"))return &cm_field;
  if(c==&nc[5]&&!strcmp(name,"m_PeopleFilterViewController"))return &people_field;return NULL;
 }
 API Class *il2cpp_field_get_parent(Field *f){return f->parent;}
 API Type *il2cpp_field_get_type(Field *f){return f->type;}
-API int il2cpp_field_get_flags(Field *f){(void)f;return 0;}
+API int il2cpp_field_get_flags(Field *f){return f->slot==6?(16|64):0;}
 API void il2cpp_field_get_value(Object *obj,Field *f,Object **out){
  (void)obj;field_reads++;
+#ifdef CITY_FIXTURE
+ if(f->slot>=3){*out=city_field_object(obj,f);return;}
+#endif
+
  if(f->slot==1){*out=mode==211&&phase==2?&changed_cm:&cm;return;}
  *out=mode==217?&other:&people;
 }
-API int il2cpp_string_length(void *s){return mode==221?129:((LocationString *)s)->length;}
-API uint16_t *il2cpp_string_chars(void *s){return ((LocationString *)s)->chars;}
+API int il2cpp_string_length(void *s){
+#ifdef CITY_FIXTURE
+ if(mode>=300)return city_string_length(s);
+#endif
+return mode==221?129:((LocationString *)s)->length;}
+API uint16_t *il2cpp_string_chars(void *s){
+#ifdef CITY_FIXTURE
+ if(mode>=300)return city_string_chars(s);
+#endif
+return ((LocationString *)s)->chars;}
 API int fixture_online_sets(void){return online_set_calls;}
 API int fixture_online_refreshes(void){return online_refresh_calls;}
 API int fixture_online_applies(void){return online_apply_calls;}

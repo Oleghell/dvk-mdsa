@@ -51,6 +51,9 @@ class Config:
     cities: tuple
     greetings: tuple
 
+    def city(self):
+        return secrets.choice(self.cities)
+
     def greeting(self):
         return secrets.choice(self.greetings)
 

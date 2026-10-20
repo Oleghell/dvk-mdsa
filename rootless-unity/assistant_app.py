@@ -11,6 +11,7 @@ from assistant_pass import APPROVAL_SECONDS, run
 from assistant_store import StateError, data_directory
 from search_catalog import write_report as prepare_search_report
 from search_online import run as enable_online
+from search_city import run as select_city
 
 # User-confirmed working paths on MuMu #4. Saved local choices take priority.
 DEFAULT_ADB = 'C:/Users/XXX/Desktop/platform-tools/adb.exe'
@@ -61,7 +62,7 @@ def launch(self_check=False):
         button = ttk.Button(row, text='Выбрать', command=choose)
         button.pack(side='right', padx=(8, 0))
         controls.extend((entry, button))
-    ttk.Label(pane, text='Перед запуском: открой поиск анкет в №4. Город пока выбери вручную. «Только онлайн» можно включить кнопкой ниже. '
+    ttk.Label(pane, text='Перед запуском: открой поиск анкет в №4. Город и «Только онлайн» можно настроить кнопками ниже. '
               'Не переключай экран во время работы. Закрой другие инструменты управления MuMu.',
               wraplength=660).pack(anchor='w', pady=(8, 12))
     check = ttk.Checkbutton(pane, variable=consent, text='Разрешаю работу с поиском, анкетами и состоянием чатов на №4')
@@ -110,6 +111,7 @@ def launch(self_check=False):
         stop.configure(state='normal' if busy else 'disabled')
         search_button.configure(state='disabled' if busy else 'normal')
         online_button.configure(state='disabled' if busy else 'normal')
+        city_button.configure(state='disabled' if busy else 'normal')
         search_report_button.configure(state='normal' if search_report_path is not None and not busy else 'disabled')
 
     def begin():
@@ -131,6 +133,32 @@ def launch(self_check=False):
         status.set('Проверяю анкету и чат. Сообщения без отдельного подтверждения не отправляются.')
         refresh()
         threading.Thread(target=worker, args=(adb.get(), folder.get(), greeting), daemon=True).start()
+
+    def city_worker(executable, directory, city):
+        try:
+            result = select_city(executable, directory, city, stopped.is_set)
+            events.put(('city-result', (city, result)))
+        except Exception:
+            events.put(('error', 'Выбор города не подтверждён. Проверь текущий экран и настройки вручную: часть изменений могла выполниться. Анкеты и сообщения не запускались.'))
+
+    def begin_city():
+        nonlocal busy
+        if busy:
+            return
+        if not consent.get():
+            messagebox.showinfo('Разрешение', 'Подтверди доступ к MuMu №4. Эта кнопка выберет город из списка и включит онлайн-фильтр.')
+            return
+        try:
+            city = load().city()
+            save_paths()
+        except Exception as error:
+            status.set(str(error) if isinstance(error, ConfigError) else 'Не удалось сохранить пути. Выбор города не запущен.')
+            return
+        stopped.clear()
+        busy = True
+        status.set('Выбираю город: ' + city + '. Затем включу «Только онлайн». Сообщения не отправляются.')
+        refresh()
+        threading.Thread(target=city_worker, args=(adb.get(), folder.get(), city), daemon=True).start()
 
     def online_worker(executable, directory):
         try:
@@ -193,7 +221,7 @@ def launch(self_check=False):
 
     def cancel():
         stopped.set()
-        status.set('Останавливаю. Уже начатую отправку отменить нельзя; повторять её программа не будет.')
+        status.set('Останавливаю. Выполненные действия не откатываются. Начатую отправку повторять не буду.')
 
     row = ttk.Frame(pane)
     row.pack(fill='x', pady=10)
@@ -201,8 +229,12 @@ def launch(self_check=False):
     start.pack(side='left')
     stop = ttk.Button(row, text='Стоп', command=cancel, state='disabled')
     stop.pack(side='left', padx=10)
-    online_button = ttk.Button(pane, text='Включить только онлайн', command=begin_online)
-    online_button.pack(anchor='w', pady=(4, 6))
+    settings_row = ttk.Frame(pane)
+    settings_row.pack(fill='x', pady=(4, 6))
+    city_button = ttk.Button(settings_row, text='Выбрать город и онлайн', command=begin_city)
+    city_button.pack(side='left')
+    online_button = ttk.Button(settings_row, text='Включить только онлайн', command=begin_online)
+    online_button.pack(side='left', padx=10)
     search_row = ttk.Frame(pane)
     search_row.pack(fill='x', pady=(6, 4))
     search_button = ttk.Button(search_row, text='Подготовить настройки поиска', command=begin_search)
@@ -210,7 +242,7 @@ def launch(self_check=False):
     search_report_button = ttk.Button(search_row, text='Открыть сведения', command=open_search_report, state='disabled')
     search_report_button.pack(side='left', padx=10)
     ttk.Label(pane, text='Журнал попыток сохраняется между запусками. Не удаляй старые базы и lock-файлы. '
-              'Настройка городов, обход ленты и наблюдение за ответами пока не подключены к этому окну.',
+              'Обход ленты и наблюдение за ответами пока не подключены. Город и онлайн настраиваются отдельной кнопкой.',
               wraplength=660).pack(anchor='w', pady=(12, 0))
 
     def ask(data):
@@ -272,6 +304,32 @@ def launch(self_check=False):
                     status.set('Сведения о поиске сохранены. Пришли search-settings-definitions.json через «Открыть сведения». Эта подготовка не изменяет город и фильтры.')
                 else:
                     status.set('Подготовка поиска остановлена: ' + result['reason'] + '. Подробности — в «Открыть сведения».')
+            elif kind == 'city-result':
+                city, result = value
+                n = result['navigation']
+                if n['stage'] == 'navigation-ready' and n['city_verified'] and n['online_verified']:
+                    status.set('Город выбран и проверен: ' + city + '. «Только онлайн» включён. Можно проверить одну анкету.')
+                else:
+                    reasons = {'city-ambiguous': 'Найдено несколько городов с одинаковым названием',
+                               'city-results-incomplete': 'Не удалось проверить полный список городов',
+                               'city-query-changed': 'Текст поиска города изменился',
+                               'frame-limit': 'Город не найден или поиск не завершился вовремя'}
+                    reason = reasons.get(n['error'], 'Остановлено: ' + (n['error'] if n['error'] != 'none' else n['stage']))
+                    status.set(reason + '. Проверь текущий экран и настройки вручную. Анкеты и сообщения не запускались.')
+                try:
+                    keys = ('stage', 'phase', 'error', 'city_checkpoint', 'city_open_attempted', 'city_open_completed',
+                            'city_query_attempted', 'city_query_completed', 'city_result_verified', 'city_select_attempted',
+                            'city_select_completed', 'city_form_verified', 'city_verified', 'city_scan_samples',
+                            'city_visible_rows', 'city_total_rows', 'city_matches', 'online_verified',
+                            'apply_attempted', 'apply_completed', 'return_verified')
+                    report = {k: n[k] for k in keys}
+                    report.update(device='MuMu #4', requested_city=city, chat_content_read=False, messages_sent=0)
+                    path = data_directory() / 'last-city-settings.json'
+                    temp = path.with_suffix('.tmp')
+                    temp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+                    temp.replace(path)
+                except Exception:
+                    status.set('Операция с городом завершилась, но отчёт не сохранён. Проверь настройки вручную.')
             elif kind == 'online-result':
                 n = value['navigation']
                 if n['online_verified'] and n['location_preserved'] and n['stage'] == 'navigation-ready':
@@ -330,7 +388,7 @@ def launch(self_check=False):
     if self_check:
         fit_window()
         root.update()
-        assert root.winfo_viewable() and start.winfo_viewable() and search_button.winfo_viewable() and online_button.winfo_viewable()
+        assert root.winfo_viewable() and start.winfo_viewable() and search_button.winfo_viewable() and online_button.winfo_viewable() and city_button.winfo_viewable()
         assert not busy and not consent.get() and not stopped.is_set()
         assert str(stop.cget('state')) == 'disabled'
         assert events.empty()

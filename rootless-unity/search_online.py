@@ -148,7 +148,7 @@ def build():
 FUNCTION = build()
 
 
-def validate(value):
+def validate(value, **navigation_options):
     checked = copy.deepcopy(value)
     n = checked['navigation']
     if any(k not in n for k in DEFAULTS):
@@ -163,7 +163,7 @@ def validate(value):
         raise ValueError('Invalid online checkpoint')
     n['cancel_attempted'] = n.pop('apply_attempted')
     n['cancel_completed'] = n.pop('apply_completed')
-    navigation.validate(checked)
+    navigation.validate(checked, **navigation_options)
     if extra['online_set_completed'] and not extra['online_set_attempted']:
         raise ValueError('Setter completed without attempt')
     mutated = extra['online_set_attempted'] or extra['form_refreshed'] or n['cancel_attempted']
@@ -181,7 +181,7 @@ def validate(value):
     return value
 
 
-def inspect(port, token, cancelled, expected=None, *, frida_api=None):
+def inspect(port, token, cancelled, expected=None, *, frida_api=None, source_function=FUNCTION, validator=validate, timeout=25):
     if frida_api is None:
         import frida as frida_api
     from diagnose_device import cleanup_frida, validate_runtime
@@ -190,7 +190,7 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None):
     f = frida_api
     if f.__version__ != '17.24.1':
         raise ReadStopped('client-version')
-    source = FUNCTION + '''
+    source = source_function + '''
 rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
  root(){return probeUIKitRoot();},cancel(){cancelNavigation();}};
 '''
@@ -198,7 +198,7 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
     address = '127.0.0.1:' + str(port)
     device = session = script = None
     guard = f.Cancellable()
-    timer = threading.Timer(25, guard.cancel)
+    timer = threading.Timer(timeout, guard.cancel)
     timer.daemon = True
     done = threading.Event()
     monitor = None
@@ -228,7 +228,7 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
                         return
             monitor = threading.Thread(target=watch, daemon=True)
             monitor.start()
-            return validate(script.exports_sync.root())
+            return validator(script.exports_sync.root())
     finally:
         done.set()
         timer.cancel()
