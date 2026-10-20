@@ -58,12 +58,12 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  managed_calls++;if(TID()!=main_id)off_thread_calls++;
  switch(m->action){
  case 100:return &manager_object;
- case 101:long_value=100;break;
- case 102:long_value=mode==506&&sample_frames>1?201:200;break;
- case 103:long_value=300;break;
- case 104:long_value=in&&mode!=503?1002:1001;break;
- case 105:long_value=in?(mode==501?999:200):100;break;
- case 106:long_value=mode==502?301:300;break;
+ case 101:long_value=mode==526?0:mode==527?-1:100;break;
+ case 102:long_value=mode==528?0:mode==529?-1:mode==506&&sample_frames>1?201:200;break;
+ case 103:long_value=mode==530?0:mode==531?-1:300;break;
+ case 104:long_value=mode==520?0:mode==521?-1:in&&mode!=503?1002:1001;break;
+ case 105:long_value=mode==522?0:mode==523?-1:in?(mode==501?999:200):100;break;
+ case 106:long_value=mode==524?0:mode==525?-1:mode==502?301:300;break;
  case 107:boolbox.value=!in;return &boolbox;
  case 108:body_reads++;return (Object *)(in?&text_b:&text_a);
  case 109:items++;if(!args||!args[0]){*exc=&exception;return NULL;}return *(int *)args[0]?&incoming:&outgoing;

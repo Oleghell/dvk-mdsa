@@ -22,6 +22,7 @@ def message(mid='1001',sender='100',text='PRIVATE TEST TEXT'):
 def rpc(messages=None):
     messages=messages if messages is not None else [message()]
     value=ready(len(messages))
+    value['navigation'].update(scalar_checkpoint='message-chat-id',scalar_state='positive',identity_checkpoint='recheck',message_slot=0 if messages else -1,message_kind='text' if messages else 'not-read',message_direction='own' if messages else 'not-read')
     value['navigation']['private_result']=dict(identity=dict(WHO),messages=messages)
     return value
 
@@ -100,7 +101,8 @@ class Durable(unittest.TestCase):
         self.store.consume(self.snap())
         raw=self.path.read_bytes()
         self.assertNotIn(b'PRIVATE TEST TEXT',raw)
-        self.assertNotIn(b'1001',raw);self.assertNotIn(b'1002',raw)
+        rows=self.store.db.execute('SELECT message_key FROM test_seen').fetchall()
+        self.assertTrue(all(len(row[0])==64 and row[0] not in ('1001','1002') for row in rows))
 
     def test_cannot_rebind_or_consume_unknown_dialog(self):
         different=dict(WHO,peer='201')
@@ -187,7 +189,9 @@ class Inspector(unittest.TestCase):
         f=self.fake(r)
         with self.assertRaises(device.ReadStopped) as raised:device.inspect(37149,'a'*64,lambda:False,WHO,frida_api=f)
         self.assertNotIn('PRIVATE',json.dumps(raised.exception.diagnostic))
-        self.assertNotIn('identity',json.dumps(raised.exception.diagnostic))
+        self.assertNotIn('identity',raised.exception.diagnostic)
+        self.assertNotIn('account',raised.exception.diagnostic)
+        self.assertNotIn('peer',raised.exception.diagnostic)
         self.assertTrue(f.script_unloaded and f.detached and f.removed)
 
     def test_gui_has_no_autostart(self):
@@ -203,3 +207,32 @@ class Inspector(unittest.TestCase):
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
             self.assertIn('1. Привязать открытый чат',labels)
             self.assertIn('2. Проверить · без отправки',labels)
+
+
+class ScalarDiagnostics(unittest.TestCase):
+    def test_closed_enums_no_raw_ids_or_private_values(self):
+        for label in p.SCALAR_CHECKPOINTS:
+            d=dict(scalar_checkpoint=label,scalar_state='not-read',identity_checkpoint='initial-ids',message_slot=-1,message_kind='not-read',message_direction='not-read')
+            self.assertEqual(p.diagnostic(d),d)
+        for key,bad in [('scalar_checkpoint','PRIVATE'),('scalar_state','-1234'),('identity_checkpoint','PRIVATE'),('message_slot',True),('message_slot',20)]:
+            d=dict(scalar_checkpoint='message-id',scalar_state='zero',identity_checkpoint='recheck',message_slot=0,message_kind='text',message_direction='own')
+            d[key]=bad
+            with self.assertRaises(ValueError):p.diagnostic(d)
+
+    def test_failed_nonpositive_id_reports_label_and_sign_not_value(self):
+        value=rpc();n=value['navigation']
+        n.update(stage='navigation-stopped',error='nonpositive-message-id',private_result=None,history_status='unknown',message_count=None,samples=0,scalar_checkpoint='message-id',scalar_state='negative')
+        self.assertIsNone(p.private_snapshot(value,WHO))
+        diag=p.diagnostic(n)
+        self.assertEqual(diag['scalar_state'],'negative')
+        self.assertNotIn('PRIVATE',json.dumps(diag))
+        f=Inspector().fake(value)
+        with self.assertRaises(device.ReadStopped) as exc:device.inspect(37149,'a'*64,lambda:False,WHO,frida_api=f)
+        self.assertEqual(exc.exception.diagnostic['scalar_checkpoint'],'message-id')
+        self.assertNotIn('PRIVATE',json.dumps(exc.exception.diagnostic))
+
+    def test_diagnostic_fields_never_allow_unsafe_history_or_weaker_identity(self):
+        source=p.build(WHO)
+        self.assertIn("if(sign<=0)fail(label.startsWith('message-')?'nonpositive-'+label:'identity-not-bound')",source)
+        self.assertIn("if(expectedIdentity!==null&&JSON.stringify(who)!==JSON.stringify(expectedIdentity))fail('identity-not-bound')",source)
+        self.assertIn("value=p.readS64()",source)

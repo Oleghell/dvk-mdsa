@@ -84,7 +84,7 @@ def launch_gui(self_check=False):
 
     def save_report(directory,value):
         nonlocal report_path
-        report_path=Path(directory).resolve(strict=True).parent/'rootless-one-chat-0.3.30.json'
+        report_path=Path(directory).resolve(strict=True).parent/'rootless-one-chat-0.3.31.json'
         report_path.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         report_button.config(state='normal')
 

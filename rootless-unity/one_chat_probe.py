@@ -11,11 +11,11 @@ import chat_state_probe as state
 import uikit_navigation as nav
 from uikit_profile_navigation import replace_once
 
-VERSION = '0.3.30'
+VERSION = '0.3.31'
 MAX_MESSAGES = 20
 MAX_TEXT = 2048
 STATE_FIELDS = {'read_checkpoint','wait_reason','model_actual','model_draft','model_has_cm','cm_present','loaded_field_present','metadata_checkpoint','loaded_value_method_found','loaded_value_return_kind','loaded_value_byref','loaded_value_owner_verified','loaded_value_owner_inherited','loaded_value_owner_scope','loaded_value_static','loaded_value_abstract','loaded_value_arity','history_status','message_count','history_fully_loaded','history_loading','last_message_present','samples','sample_interval_ms','chat_identity_verified','app_actions_attempted','messages_sent'}
-ERRORS = state.ERRORS | {'identity-not-bound', 'snapshot-too-large', 'message-invalid', 'snapshot-changing'}
+ERRORS = state.ERRORS | {'identity-not-bound', 'snapshot-too-large', 'message-invalid', 'snapshot-changing', 'nonpositive-message-id', 'nonpositive-message-sender-id', 'nonpositive-message-chat-id'}
 
 
 def identity(value):
@@ -27,6 +27,25 @@ def identity(value):
     if value['account'] == value['peer']:
         raise ValueError('Self dialog')
     return dict(value)
+
+
+DIAGNOSTIC_FIELDS = {'scalar_checkpoint', 'scalar_state', 'identity_checkpoint', 'message_slot', 'message_kind', 'message_direction'}
+SCALAR_CHECKPOINTS = {'not-read','account-id','peer-id','chat-id','message-id','message-sender-id','message-chat-id'}
+SCALAR_STATES = {'not-read','positive','zero','negative','missing-box','missing-unbox'}
+IDENTITY_CHECKPOINTS = {'not-checked','initial-ids','distinct-accounts','actual-server-chat','saved-binding','recheck'}
+
+
+def diagnostic(value):
+    out = {k: value[k] for k in DIAGNOSTIC_FIELDS}
+    if (out['scalar_checkpoint'] not in SCALAR_CHECKPOINTS or out['scalar_state'] not in SCALAR_STATES
+            or out['identity_checkpoint'] not in IDENTITY_CHECKPOINTS
+            or out['message_kind'] not in {'not-read','text','non-text'}
+            or out['message_direction'] not in {'not-read','own','not-own'}
+            or type(out['message_slot']) is not int or not -1 <= out['message_slot'] < MAX_MESSAGES):
+        raise ValueError('Invalid scalar diagnostic')
+    if out['scalar_checkpoint'] == 'not-read' and out['scalar_state'] != 'not-read':
+        raise ValueError('Scalar result without a read')
+    return out
 
 
 PREPARE = r'''
@@ -61,15 +80,26 @@ PREPARE = r'''
  }
 '''
 BIND = r'''
-   const id64=(entry,obj)=>{const box=call(entry,obj);if(box.isNull())fail('signature-mismatch');const p=f.unbox(box);if(p.isNull())fail('signature-mismatch');const value=p.readS64();if(value.compare(0)<=0)fail('identity-not-bound');return value.toString();};
+   const id64=(entry,obj,label)=>{
+    n.scalar_checkpoint=label;n.scalar_state='not-read';
+    const box=call(entry,obj);if(box.isNull()){n.scalar_state='missing-box';fail('signature-mismatch');}
+    const p=f.unbox(box);if(p.isNull()){n.scalar_state='missing-unbox';fail('signature-mismatch');}
+    const value=p.readS64(),sign=value.compare(0);n.scalar_state=sign===0?'zero':sign<0?'negative':'positive';
+    if(sign<=0)fail(label.startsWith('message-')?'nonpositive-'+label:'identity-not-bound');
+    return value.toString();
+   };
+   n.identity_checkpoint='initial-ids';
    const manager=call(s.chatManager,chat);if(manager.isNull())fail('identity-not-bound');own(manager);
-   const who={account:id64(s.accountId,manager),peer:id64(s.peerId,user),chat:id64(s.chatId,chat)};
-   if(who.account===who.peer||!bool(s.actual,chat)||bool(s.draft,chat))fail('identity-not-bound');
+   const who={account:id64(s.accountId,manager,'account-id'),peer:id64(s.peerId,user,'peer-id'),chat:id64(s.chatId,chat,'chat-id')};
+   n.identity_checkpoint='distinct-accounts';if(who.account===who.peer)fail('identity-not-bound');
+   n.identity_checkpoint='actual-server-chat';if(!bool(s.actual,chat)||bool(s.draft,chat))fail('identity-not-bound');
+   n.identity_checkpoint='saved-binding';
    if(expectedIdentity!==null&&JSON.stringify(who)!==JSON.stringify(expectedIdentity))fail('identity-not-bound');
    const verifyWho=()=>{
+    n.identity_checkpoint='recheck';
     if(!call(s.chat,current).equals(chat)||!call(s.chatUser,current).equals(user)||!call(s.opponent,chat).equals(user)||
-       !call(s.chatManager,chat).equals(manager)||id64(s.accountId,manager)!==who.account||
-       id64(s.peerId,user)!==who.peer||id64(s.chatId,chat)!==who.chat||!bool(s.actual,chat)||bool(s.draft,chat))fail('identity-changed');
+       !call(s.chatManager,chat).equals(manager)||id64(s.accountId,manager,'account-id')!==who.account||
+       id64(s.peerId,user,'peer-id')!==who.peer||id64(s.chatId,chat,'chat-id')!==who.chat||!bool(s.actual,chat)||bool(s.draft,chat))fail('identity-changed');
    };
    verifyWho();
    if(expectedIdentity===null){
@@ -83,9 +113,12 @@ COLLECT = r'''
    const messages=[],seenIds=new Set();let totalText=0;
    const releaseOne=h=>{f.release(h);n.handles_released++;held.splice(held.indexOf(h),1);};
    for(let i=0;i<first;i++){
+    n.message_slot=i;
     const index=Memory.alloc(4);index.writeS32(i);const args=Memory.alloc(8);args.writePointer(index);
     const message=call(s.messageItem,cm,args);if(message.isNull()||!f.assignable(s.message,f.objectClass(message)))fail('message-invalid');
-    const mh=own(message);const id=id64(s.messageId,message),sender=id64(s.messageSender,message),chatId=id64(s.messageChat,message),mine=bool(s.messageMine,message);
+    const mh=own(message);n.message_kind=f.assignable(s.textMessage,f.objectClass(message))?'text':'non-text';
+    const mine=bool(s.messageMine,message);n.message_direction=mine?'own':'not-own';
+    const id=id64(s.messageId,message,'message-id'),sender=id64(s.messageSender,message,'message-sender-id'),chatId=id64(s.messageChat,message,'message-chat-id');
     if(seenIds.has(id)||chatId!==who.chat||![who.account,who.peer].includes(sender)||mine!==(sender===who.account))fail('message-invalid');seenIds.add(id);
     let text=null;
     if(f.assignable(s.textMessage,f.objectClass(message))){
@@ -110,7 +143,7 @@ def build(expected=None):
     source = replace_once(source, 'function probeUIKitRoot() {', 'function probeUIKitRoot() {\n const expectedIdentity=' + json.dumps(expected) + ';')
     # The index argument helper originally supported only the modal collection.
     source = replace_once(source, "if(!f.classFromType(f.returnType(m)).equals(s.vc))fail('signature-mismatch');", "if(!f.classFromType(f.returnType(m)).equals(entry.result||s.vc))fail('signature-mismatch');")
-    source = replace_once(source, "messages_sent:0};}", "messages_sent:0,private_result:null};}")
+    source = replace_once(source, "messages_sent:0};}", "messages_sent:0,private_result:null,scalar_checkpoint:'not-read',scalar_state:'not-read',identity_checkpoint:'not-checked',message_slot:-1,message_kind:'not-read',message_direction:'not-read'};}")
     source = replace_once(source, "save('origin',current);save('card',chat);save('user',user);n.chat_identity_verified=true;", "save('origin',current);save('card',chat);save('user',user);n.chat_identity_verified=true;" + BIND)
     source = replace_once(source, "n.read_checkpoint='recheck';", COLLECT + "\n   n.read_checkpoint='recheck';")
     source = replace_once(source, "const sample={count:first,last:!lastMessage.isNull(),draft:n.model_draft};", "verifyWho();\n   const sample={count:first,last:!lastMessage.isNull(),draft:n.model_draft,identity:who,messages};")
@@ -130,8 +163,11 @@ def private_snapshot(value, expected=None):
     n = result.get('navigation', {})
     if not isinstance(n, dict) or 'private_result' not in n:
         raise ValueError('Missing test result')
-    if set(n) != _nav_fields() | STATE_FIELDS | {'private_result'}:
+    if set(n) != _nav_fields() | STATE_FIELDS | DIAGNOSTIC_FIELDS | {'private_result'}:
         raise ValueError('Unexpected test fields')
+    diagnostic(n)
+    for key in DIAGNOSTIC_FIELDS:
+        n.pop(key)
     private = n.pop('private_result')
     error = n.get('error')
     if error not in ERRORS:

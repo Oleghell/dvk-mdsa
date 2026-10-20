@@ -39,6 +39,13 @@ def one(library, mode, expected=None):
                 assert private['messages'][1]==dict(id='1002',sender='200',text='Reply')
         else:
             assert private is None,(mode,out,counts)
+            if 520<=mode<=531:
+                label=['message-id','message-sender-id','message-chat-id','account-id','peer-id','chat-id'][(mode-520)//2]
+                n=out['navigation']
+                assert n['scalar_checkpoint']==label and n['scalar_state']==('zero' if mode%2==0 else 'negative'),(mode,out)
+                expected_error='nonpositive-'+label if mode<526 else 'identity-not-bound'
+                assert n['error']==expected_error,(mode,out)
+                assert counts['bodies']==0,(mode,counts)
             if expected and expected['peer']=='201':
                 assert counts['bodies']==counts['items']==0
         print('Synthetic one-chat',mode,'identity' if expected is None else 'read',out['navigation']['stage'],out['navigation']['error'],flush=True)
@@ -58,6 +65,6 @@ if __name__=='__main__':
     lib=Path(sys.argv[1]).resolve(strict=True)
     one(lib,500)
     who=dict(account='100',peer='200',chat='300')
-    for mode in (500,501,502,503,504,506,507,509):one(lib,mode,who)
+    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531):one(lib,mode,who)
     one(lib,500,dict(account='100',peer='201',chat='300'))
     print('Synthetic read-only ABI passed; live Android has not been tested.')

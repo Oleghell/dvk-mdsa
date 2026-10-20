@@ -45,7 +45,7 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None):
             if processes[0].name not in ('Gadget', PACKAGE):
                 raise ReadStopped('unexpected-process')
             session = device.attach(processes[0].pid)
-            script = session.create_script(source, name='dvk-one-chat-readonly-0.3.30')
+            script = session.create_script(source, name='dvk-one-chat-readonly-0.3.31')
             script.load()
             runtime = validate_runtime(script.exports_sync.runtime())
             if runtime['arch'] != 'arm64' or runtime['platform'] != 'linux':
@@ -66,7 +66,7 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None):
             if private is None:
                 # Only fixed stage names may leave the native result.
                 raise ReadStopped(n['error'] if n['error'] != 'none' else 'not-ready',
-                  {key: n[key] for key in ('stage','metadata_checkpoint','read_checkpoint','wait_reason','frames','managed_calls')})
+                  dict({key: n[key] for key in ('stage','metadata_checkpoint','read_checkpoint','wait_reason','frames','managed_calls')}, **probe.diagnostic(n)))
             if cancelled():
                 raise ReadStopped('cancelled')
             return private
