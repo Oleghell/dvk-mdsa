@@ -176,3 +176,15 @@ def run(executable, folder, text, approve, cancelled=lambda: False, *, store=Non
         store = Store() if store is None else store
         return capture(executable, folder, cancelled,
                        inspector=lambda port, token, cancel, expected: inspect(port, token, cancel, text, store, approve))
+
+
+def run_automatic(executable, folder, text, cancelled=lambda: False, *, enabled=False, store=None):
+    """Explicit one-run opt-in, ONE profile/greeting, same native checks/journal.
+
+    No modal per-message approval. This is not a background/bulk sender.
+    """
+    if enabled is not True:
+        raise StateError('Сначала явно включи автоматические сообщения в окне режима.')
+    return run(executable, folder, text,
+               lambda pending, greeting, native_cancelled: not cancelled() and not native_cancelled(),
+               cancelled, store=store)

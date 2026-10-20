@@ -76,7 +76,7 @@ def settings_window(parent):
     for label,var,show in (('Токен бота',token,'*'),('Chat ID получателя',chat,'')):
         ttk.Label(f,text=label).pack(anchor='w');ttk.Entry(f,textvariable=var,show=show,width=58).pack(fill='x',pady=(2,8))
     def store():
-        try:save(token.get(),chat.get());token.set('');status.set('Сохранено. Автоуведомления пока не подключены к Android.')
+        try:save(token.get(),chat.get());token.set('');status.set('Сохранено. Уведомления включаются отдельной галочкой в окне автоцепочки.')
         except TelegramError as e:status.set(str(e))
     def test():
         test_button.config(state='disabled');save_button.config(state='disabled');status.set('Отправляю одно тестовое уведомление…')

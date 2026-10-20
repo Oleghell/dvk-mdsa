@@ -1,18 +1,21 @@
-"""Fixed manual-send transport. Uses exactly the reader's pinned test-only ADB path."""
+"""Single whitelisted submission via the reader's pinned test-only ADB path.
+The caller must hold the shared operation lock and commit authorization first.
+"""
 import threading
 import one_chat_send as sender
+from one_chat_preview import QUESTION
 from one_chat_device import capture, ReadStopped
 from diagnose_device import cleanup_frida, validate_runtime
 from test_device import PACKAGE
 
-def inspect_submission(port, token, cancelled, before, *, frida_api=None):
+def inspect_submission(port, token, cancelled, before, *, text=QUESTION, frida_api=None):
     if frida_api is None:
         import frida as frida_api
     f = frida_api
     if f.__version__ != '17.24.1':
         raise ReadStopped('client-version')
     # Build only fixed code with validated decimal IDs; no user code is accepted.
-    source = sender.build(before) + '''
+    source = sender.build(before, text=text) + '''
     rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
       root(){return probeUIKitRoot();},cancel(){cancelNavigation();}};
     '''
@@ -66,10 +69,13 @@ def inspect_submission(port, token, cancelled, before, *, frida_api=None):
 
 
 
-def submit(executable, folder, before, cancelled=lambda: False):
+def submit(executable, folder, before, cancelled=lambda: False, *, text=QUESTION):
+    from conversation_engine import QUESTIONS, CONTACT_TEXT
+    if text not in (*QUESTIONS, CONTACT_TEXT):
+        raise ValueError('Unsupported automatic reply')
     before = sender.checked(before)
     def inspector(port, token, cancel, expected):
         if expected != before['identity']:
             raise ReadStopped('identity-not-bound')
-        return inspect_submission(port, token, cancel, before)
+        return inspect_submission(port, token, cancel, before, text=text)
     return capture(executable, folder, cancelled, before['identity'], inspector=inspector)

@@ -1,6 +1,8 @@
-"""One fixed, manually confirmed send in the exact owned bound test dialog.
+"""One fixed/whitelisted reply in the exact bound dialog.
 
-No dispatcher, arbitrary text, typing imitation, background loop or retries.
+Caller commits authorization before submission. Default retains the manual
+test question; automatic callers may select only the three chain templates.
+No arbitrary text, navigation, typing imitation or retries.
 """
 import copy
 import json
@@ -34,7 +36,10 @@ def checked(snapshot):
     return copy.deepcopy(snapshot)
 
 
-def build(before):
+def build(before, *, text=QUESTION):
+    from conversation_engine import QUESTIONS, CONTACT_TEXT
+    if text not in (*QUESTIONS, CONTACT_TEXT):
+        raise ValueError('Unsupported automatic reply')
     before = checked(before)
     source = reader.build(before['identity'])
     setup = r'''
@@ -61,7 +66,7 @@ def build(before):
    oneSubmissionAttempted=true;n.submission_attempted=true;n.app_actions_attempted=true;n.messages_sent=null;
    call(s.submit,current,args);n.submission_returned=true;
    n.private_result={identity:who,messages};n.read_checkpoint='complete';n.samples=2;
-'''.replace('__BEFORE__', json.dumps(before['messages'])).replace('__QUESTION__', json.dumps(QUESTION)))
+'''.replace('__BEFORE__', json.dumps(before['messages'])).replace('__QUESTION__', json.dumps(text)))
     source = replace_once(source, "stringChars:bind('string_chars','pointer',['pointer'])", "stringChars:bind('string_chars','pointer',['pointer']),newString:bind('string_new','pointer',['pointer'])")
     source = replace_once(source, '"il2cpp_string_chars"]', '"il2cpp_string_chars", "il2cpp_string_new"]')
     source = replace_once(source, json.dumps(sorted(reader.ERRORS)), json.dumps(sorted(ERRORS)))

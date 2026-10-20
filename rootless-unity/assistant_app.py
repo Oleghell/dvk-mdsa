@@ -7,7 +7,9 @@ import threading
 import time
 
 from assistant_config import ConfigError, load
-from assistant_pass import APPROVAL_SECONDS, run
+from assistant_pass import APPROVAL_SECONDS, run, run_automatic
+from assistant_chain import run as run_chain, result_text as chain_result_text
+import telegram_notify
 from assistant_store import StateError, data_directory
 from search_catalog import write_report as prepare_search_report
 from search_online import run as enable_online
@@ -35,6 +37,10 @@ def launch(self_check=False):
     folder = tk.StringVar(value=DEFAULT_TEST_APKS)
     status = tk.StringVar(value='Готов к работе')
     consent = tk.BooleanVar(value=False)
+    auto_allowed = tk.BooleanVar(value=False)
+    telegram_enabled = tk.BooleanVar(value=False)
+    auto_window = None
+    auto_controls = []
     settings_path = None
     if not self_check:
         try:
@@ -86,7 +92,7 @@ def launch(self_check=False):
             temp.write_text(json.dumps(dict(adb=adb.get(), test_apks=folder.get()), ensure_ascii=False), encoding='utf-8')
             temp.replace(settings_path)
 
-    def worker(executable, directory, greeting):
+    def worker(executable, directory, greeting, automatic=False):
         def approve(pending, text, cancelled):
             reply = queue.Queue(maxsize=1)
             deadline = time.monotonic() + APPROVAL_SECONDS
@@ -99,7 +105,10 @@ def launch(self_check=False):
                     pass
             return False
         try:
-            value = run(executable, directory, greeting, approve, stopped.is_set)
+            if automatic:
+                value = run_automatic(executable, directory, greeting, stopped.is_set, enabled=True)
+            else:
+                value = run(executable, directory, greeting, approve, stopped.is_set)
             events.put(('result', value))
         except Exception as error:
             text = str(error) if isinstance(error, (StateError, ConfigError)) else 'Операция остановлена. Проверь ADB, папку test-apks и экран MuMu №4.'
@@ -109,6 +118,9 @@ def launch(self_check=False):
         for control in controls:
             control.configure(state='disabled' if busy else 'normal')
         start.configure(state='disabled' if busy else 'normal')
+        auto_button.configure(state='disabled' if busy else 'normal')
+        for control in auto_controls:
+            control.configure(state='disabled' if busy else 'normal')
         stop.configure(state='normal' if busy else 'disabled')
         search_button.configure(state='disabled' if busy else 'normal')
         online_button.configure(state='disabled' if busy else 'normal')
@@ -116,12 +128,15 @@ def launch(self_check=False):
         preview_button.configure(state='disabled' if busy else 'normal')
         search_report_button.configure(state='normal' if search_report_path is not None and not busy else 'disabled')
 
-    def begin():
+    def begin(automatic=False):
         nonlocal busy
         if busy:
             return
         if not consent.get():
             messagebox.showinfo('Разрешение', 'Подтверди проверку анкет и состояния чатов на №4.')
+            return
+        if automatic and not auto_allowed.get():
+            messagebox.showinfo('Автоматические сообщения', 'Включи явное разрешение в окне автоматического режима.')
             return
         try:
             config = load()
@@ -132,9 +147,85 @@ def launch(self_check=False):
             return
         stopped.clear()
         busy = True
-        status.set('Проверяю анкету и чат. Сообщения без отдельного подтверждения не отправляются.')
+        status.set('Одна анкета: приветствие без отдельного подтверждения, только в пустой чат.' if automatic else 'Проверяю анкету и чат. Сообщения без отдельного подтверждения не отправляются.')
         refresh()
-        threading.Thread(target=worker, args=(adb.get(), folder.get(), greeting), daemon=True).start()
+        threading.Thread(target=worker, args=(adb.get(), folder.get(), greeting, automatic), daemon=True).start()
+
+    def chain_worker(executable, directory, notify):
+        try:
+            notifier = None
+            if notify:
+                token, chat_id = telegram_notify.load()
+                notifier = lambda: telegram_notify.send(token, chat_id,
+                    '🔥 Новое сообщение\nВ одном из отслеживаемых чатов появился ответ. Откройте приложение, чтобы посмотреть переписку.')
+            result = run_chain(executable, directory, stopped,
+                               lambda text: events.put(('preview-progress', text)), notifier=notifier)
+            events.put(('chain-result', result))
+        except Exception as error:
+            text = str(error) if isinstance(error, (StateError, telegram_notify.TelegramError)) else 'Автоцепочка остановлена. Проверь открытый чат, ADB и подключение №4. Отправка не повторяется.'
+            events.put(('error', text))
+
+    def begin_chain():
+        nonlocal busy
+        if busy:
+            return
+        if not consent.get() or not auto_allowed.get():
+            messagebox.showinfo('Разрешение', 'Включи доступ к №4 и автоматические сообщения. Режим сам отвечает в одном открытом чате.')
+            return
+        try:
+            save_paths()
+        except Exception:
+            status.set('Не удалось сохранить пути. Автоцепочка не запущена.')
+            return
+        stopped.clear()
+        busy = True
+        status.set('Проверяю привязку открытого чата к журналу. Другие чаты не открываю.')
+        refresh()
+        threading.Thread(target=chain_worker, args=(adb.get(), folder.get(), telegram_enabled.get()), daemon=True).start()
+
+    def automatic_window():
+        nonlocal auto_window
+        if auto_window is not None:
+            auto_window.lift()
+            return
+        w = tk.Toplevel(root)
+        auto_window = w
+        w.title('Автоцепочка · один открытый чат')
+        box = ttk.Frame(w, padding=18)
+        box.pack(fill='both', expand=True)
+        ttk.Label(box, text='Без подтверждения каждого сообщения', font=('Segoe UI', 14, 'bold')).pack(anchor='w')
+        ttk.Label(box, text='Сначала можно отправить одно приветствие из поиска. Затем вручную открой этот диалог в MuMu и запусти автоцепочку. '
+                  'Она читает только открытый чат, начатый DvkAssistant. Переключение чатов и общий цикл городов ещё не подключены.', wraplength=590).pack(anchor='w', pady=10)
+        allow = ttk.Checkbutton(box, variable=auto_allowed, text='Разрешаю автоматическое приветствие и ответы по цепочке')
+        allow.pack(anchor='w')
+        notify = ttk.Checkbutton(box, variable=telegram_enabled, text='Уведомлять в Telegram о новых входящих — без текста и контактов')
+        notify.pack(anchor='w', pady=6)
+        actions = ttk.Frame(box)
+        actions.pack(fill='x', pady=10)
+        greet = ttk.Button(actions, text='Одно приветствие без подтверждения', command=lambda: begin(True))
+        greet.pack(side='left')
+        observe = ttk.Button(box, text='Запустить автоцепочку открытого чата', command=begin_chain)
+        observe.pack(anchor='w')
+        options = ttk.Frame(box)
+        options.pack(fill='x', pady=10)
+        telegram = ttk.Button(options, text='Настроить Telegram', command=lambda: telegram_notify.settings_window(w))
+        telegram.pack(side='left')
+        ttk.Button(options, text='Стоп', command=cancel).pack(side='left', padx=10)
+        ttk.Label(box, textvariable=status, wraplength=590).pack(anchor='w', pady=8)
+        ttk.Label(box, text='Приветствие → новый ответ → вопрос → новый ответ → предложение перейти в мессенджер → ответ → завершение. '
+                  'Неоднозначность, отказ или ошибка останавливают цепочку. Во время работы не меняй экран. Разрешения не сохраняются.', wraplength=590).pack(anchor='w')
+        auto_controls.extend((allow, notify, greet, observe, telegram))
+        def close_auto():
+            nonlocal auto_window
+            if busy:
+                cancel()
+                return
+            auto_controls.clear()
+            auto_allowed.set(False)
+            telegram_enabled.set(False)
+            auto_window = None
+            w.destroy()
+        w.protocol('WM_DELETE_WINDOW', close_auto)
 
     def preview_worker(executable, directory):
         try:
@@ -259,6 +350,8 @@ def launch(self_check=False):
     start.pack(side='left')
     stop = ttk.Button(row, text='Стоп', command=cancel, state='disabled')
     stop.pack(side='left', padx=10)
+    auto_button = ttk.Button(row, text='Автоцепочка и Telegram', command=automatic_window)
+    auto_button.pack(side='left')
     preview_row = ttk.Frame(pane)
     preview_row.pack(fill='x', pady=(4, 4))
     preview_button = ttk.Button(preview_row, text='Просмотреть до 5 анкет без сообщений', command=begin_preview)
@@ -278,7 +371,7 @@ def launch(self_check=False):
     search_report_button = ttk.Button(search_row, text='Открыть сведения', command=open_search_report, state='disabled')
     search_report_button.pack(side='left', padx=10)
     ttk.Label(pane, text='Журнал попыток сохраняется между запусками. Не удаляй старые базы и lock-файлы. '
-              'Просмотр работает без прокрутки. Если новых видимых анкет нет — выбирается другой город из списка. Наблюдение за ответами пока не подключено.',
+              'Просмотр работает без прокрутки. Если новых видимых анкет нет — выбирается другой город из списка. Автоответы для одного открытого чата — в «Автоцепочка и Telegram».',
               wraplength=660).pack(anchor='w', pady=(12, 0))
 
     def ask(data):
@@ -338,6 +431,15 @@ def launch(self_check=False):
                 reject_approval()
             if kind == 'error':
                 status.set(value)
+            elif kind == 'chain-result':
+                status.set(chain_result_text(value))
+                try:
+                    path = data_directory() / 'last-chain.json'
+                    temp = path.with_suffix('.tmp')
+                    temp.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
+                    temp.replace(path)
+                except Exception:
+                    status.set(chain_result_text(value) + ' Итоговый отчёт не записан; журнал не удаляй.')
             elif kind == 'preview-result':
                 status.set(preview_status(value))
                 try:
@@ -448,8 +550,13 @@ def launch(self_check=False):
         fit_window()
         root.update()
         assert root.winfo_viewable() and start.winfo_viewable() and search_button.winfo_viewable() and online_button.winfo_viewable() and city_button.winfo_viewable() and preview_button.winfo_viewable()
-        assert not busy and not consent.get() and not stopped.is_set()
+        assert not busy and not consent.get() and not auto_allowed.get() and not telegram_enabled.get() and not stopped.is_set()
         assert str(stop.cget('state')) == 'disabled'
+        assert auto_button.winfo_viewable()
+        automatic_window()
+        root.update()
+        assert auto_window.winfo_viewable() and len(auto_controls) == 5
+        assert all(control.winfo_viewable() for control in auto_controls)
         assert events.empty()
         assert load().greetings
         root.destroy()
