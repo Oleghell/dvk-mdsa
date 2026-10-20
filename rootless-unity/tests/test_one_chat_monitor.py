@@ -54,8 +54,8 @@ class MonitorTests(unittest.TestCase):
             with self.assertRaises(ValueError):ReadLoop(None,None,None,interval)
     def test_no_io_sender_navigation_or_contact_modules(self):
         p=Path(__file__).parents[1]/'one_chat_monitor.py'
-        tree=ast.parse(p.read_text());self.assertFalse(any(isinstance(n,(ast.Import,ast.ImportFrom)) for n in ast.walk(tree)))
-        source=(p.parent/'diagnose_one_chat.py').read_text()
+        tree=ast.parse(p.read_text(encoding='utf-8'));self.assertFalse(any(isinstance(n,(ast.Import,ast.ImportFrom)) for n in ast.walk(tree)))
+        source=(p.parent/'diagnose_one_chat.py').read_text(encoding='utf-8')
         self.assertIn("monitor=ReadLoop(root.after,root.after_cancel,lambda:begin('read'))",source)
         self.assertIn("if busy or (monitor.active and kind!='read'):return False",source)
         self.assertIn('monitor.complete(success)',source)
