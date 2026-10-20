@@ -201,12 +201,16 @@ class Inspector(unittest.TestCase):
         tk=MagicMock();ttk=MagicMock();tk.ttk=ttk
         tk.Tk.return_value.winfo_height.return_value=560
         ttk.Frame.return_value.winfo_reqheight.return_value=530
+        ttk.Frame.return_value.winfo_reqwidth.return_value=600
         with patch.dict(sys.modules,{'tkinter':tk,'tkinter.ttk':ttk,'tkinter.filedialog':tk.filedialog,'tkinter.messagebox':tk.messagebox}),patch.object(gui,'capture') as capture,patch.object(gui,'TestChatStore') as store,patch.object(gui.threading,'Thread') as thread:
             gui.launch_gui()
             capture.assert_not_called();store.assert_not_called();thread.assert_not_called()
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
-            self.assertIn('1. Привязать открытый чат',labels)
-            self.assertIn('2. Проверить · без отправки',labels)
+            self.assertIn('Старт',labels)
+            self.assertIn('Стоп',labels)
+            self.assertIn('Проверить один раз',labels)
+            self.assertIn('Настройки',labels)
+            self.assertNotIn('Тестовая отправка · один раз',labels)
 
 
 class ScalarDiagnostics(unittest.TestCase):

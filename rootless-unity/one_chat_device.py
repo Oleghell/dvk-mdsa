@@ -45,7 +45,7 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None):
             if processes[0].name not in ('Gadget', PACKAGE):
                 raise ReadStopped('unexpected-process')
             session = device.attach(processes[0].pid)
-            script = session.create_script(source, name='dvk-one-chat-readonly-0.3.34')
+            script = session.create_script(source, name='dvk-one-chat-readonly-0.3.35')
             script.load()
             runtime = validate_runtime(script.exports_sync.runtime())
             if runtime['arch'] != 'arm64' or runtime['platform'] != 'linux':
