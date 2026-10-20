@@ -19,8 +19,9 @@ DEFAULTS = dict(city_open_attempted=False, city_open_completed=False, city_query
                 city_query_completed=False, city_result_verified=False, city_select_attempted=False,
                 city_select_completed=False, city_form_verified=False, city_verified=False,
                 city_scan_samples=0, city_visible_rows=0, city_total_rows=0,
-                city_matches=0, city_checkpoint='not-checked', city_prepare='not-checked')
+                city_matches=0, city_checkpoint='not-checked', city_prepare='not-checked', city_identity='none')
 PREPARE_STEPS = None  # filled below from the native source (fixed labels only)
+IDENTITY = {'none', 'select-recheck', 'scan-controller', 'query-controller'}
 CHECKPOINTS = {'not-checked', 'open-picker', 'query', 'results', 'select', 'form', 'complete'}
 
 PREPARE = r'''
@@ -107,6 +108,7 @@ UTILS = r'''
   const cityInt=(entry,obj,args=ptr(0))=>{const box=call(entry,obj,args);if(box.isNull())fail('signature-mismatch');own(box);const p=f.unbox(box);if(p.isNull())fail('signature-mismatch');return p.readS32();};
   const cityIndex=(entry,obj,i)=>{const p=Memory.alloc(4);p.writeS32(i);return call(entry,obj,cityArgs([p]));};
   const cityString=obj=>{if(obj.isNull())return null;own(obj);const length=f.stringLength(obj);if(length<0||length>256)fail('signature-mismatch');const p=f.stringChars(obj);if(p.isNull())fail('signature-mismatch');return length===0?'':p.readUtf16String(length);};
+  const cityId=label=>{n.city_identity=label;fail('identity-changed');};
   const cityNorm=text=>text===null?'':text.normalize('NFC').trim().toLowerCase().replace(/ё/g,'е');
   const cityLike=text=>{const a=cityNorm(text),b=cityNorm(cityWanted);return b.length>0&&a.startsWith(b);};
   const cityScoped=body=>{const start=held.length;try{return body();}finally{
@@ -146,11 +148,10 @@ UTILS = r'''
     const record=call(s.cityItem,cell);if(record.isNull()||!f.objectClass(record).equals(s.geoRecord))fail('unexpected-object');own(record);
     const id=cityString(call(s.geoID,record)),name=cityString(call(s.geoName,record)),kind=cityInt(s.geoKind,record);
     if(!id||seen.has(id))fail('city-results-incomplete');seen.add(id);
-    const item={cell:cell.toString(),record:record.toString(),id,name,kind,index:i};records.push(item);
+    const item={id,name,kind,index:i};records.push(item);
     if(cityLike(name)&&kind===s.cityEnum)matches.push(item);
-    if(!call(s.cityItem,cell).equals(record)||!cityIndex(s.cityAt,list,i).equals(cell))fail('identity-changed');
    });
-   if(cityInt(s.cityCount,list)!==count||cityRows(table)!==total||!call(s.cityVisible,table).equals(list))fail('identity-changed');
+   if(cityInt(s.cityCount,list)!==count||cityRows(table)!==total)return null;
    n.city_matches=Math.min(matches.length,8);
    if(matches.length<1)return null;
    return {fingerprint:JSON.stringify(records),match:matches[0],table,list};
@@ -162,7 +163,7 @@ PHASE_CODE = r'''
     if(k!=='city')fail('unexpected-screen');saveOnline('cityFinder',current);n.phase='query-city';return;
    }
    if(n.phase==='query-city'){
-    if(k!=='city'||!current.equals(target(state.cityFinder)))fail('identity-changed');
+    if(k!=='city'||!current.equals(target(state.cityFinder)))cityId('query-controller');
     n.city_checkpoint='query';const input=fieldObject(current,s.cityInputField,s.searchField);
     if(!cityAttached(input,input))fail('screen-not-ready');
     const text=f.newString(Memory.allocUtf8String(cityWanted));if(text.isNull())fail('unexpected-object');own(text);
@@ -171,16 +172,15 @@ PHASE_CODE = r'''
     call(s.citySearch,current);n.city_query_completed=true;state.cityNext=Date.now()+1000;n.phase='scan-city';return;
    }
    if(n.phase==='scan-city'){
-    if(k!=='city'||!current.equals(target(state.cityFinder)))fail('identity-changed');
+    if(k!=='city'||!current.equals(target(state.cityFinder)))cityId('scan-controller');
     n.city_checkpoint='results';if(Date.now()<state.cityNext)return;
     const found=citySnapshot(current);
     if(found===null){state.cityFingerprint=null;state.cityNext=Date.now()+1000;return;}
     if(state.cityFingerprint!==found.fingerprint){state.cityFingerprint=found.fingerprint;n.city_scan_samples=1;state.cityNext=Date.now()+1000;return;}
     n.city_scan_samples=2;n.city_result_verified=true;
     const cell=cityIndex(s.cityAt,found.list,found.match.index);own(cell);const record=call(s.cityItem,cell);own(record);
-    if(cell.toString()!==found.match.cell||record.toString()!==found.match.record||
-     cityString(call(s.geoID,record))!==found.match.id||!cityLike(cityString(call(s.geoName,record)))||
-     cityInt(s.geoKind,record)!==s.cityEnum||!cityAttached(cell,found.table))fail('identity-changed');
+    if(cityString(call(s.geoID,record))!==found.match.id||!cityLike(cityString(call(s.geoName,record)))||
+     cityInt(s.geoKind,record)!==s.cityEnum||!cityAttached(cell,found.table))cityId('select-recheck');
     state.cityID=found.match.id;n.city_checkpoint='select';n.city_select_attempted=true;
     call(s.citySelect,current,cityArgs([cell,record]));n.city_select_completed=true;n.phase='wait-city-return';return;
    }
@@ -258,7 +258,7 @@ def validate(value):
     for key,limit in [('city_scan_samples',2),('city_visible_rows',12),('city_total_rows',200),('city_matches',8)]:
         if type(extra[key]) is not int or not 0<=extra[key]<=limit:
             raise ValueError('Invalid city counter')
-    if extra['city_checkpoint'] not in CHECKPOINTS or extra['city_prepare'] not in PREPARE_STEPS:
+    if extra['city_checkpoint'] not in CHECKPOINTS or extra['city_prepare'] not in PREPARE_STEPS or extra['city_identity'] not in IDENTITY:
         raise ValueError('Invalid city checkpoint')
     online.validate(checked, max_frames=MAX_FRAMES, phases=PHASES, errors=ERRORS, kinds=KINDS, allow_ui_text=True)
     if extra['city_query_completed'] and not n['ui_text_read']:

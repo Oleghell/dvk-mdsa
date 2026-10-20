@@ -323,13 +323,13 @@ def launch(self_check=False):
                               '; путь=' + '>'.join(str(x) for x in n['controller_path']) + '; верх=' + str(n['root_top_kind']) +
                               '; последний=' + str(n['last_presented_kind']) + '; вид=' + ','.join(k + ':' + str(rd.get(k)) for k in
                               ('has_view', 'is_presented', 'hidden', 'interactive', 'attached_to_main_window')) +
-                              '; кадров=' + str(n['frames']))
+                              '; проверка-объекта=' + str(n['city_identity']) + '; выбрано=' + str(n['city_matches']) + '/' + str(n['city_visible_rows']) + '/' + str(n['city_total_rows']) + '; кадров=' + str(n['frames']))
                     status.set(reason + '. Проверь текущий экран и настройки вручную. Анкеты и сообщения не запускались. [' + detail + ']')
                 try:
                     keys = ('stage', 'phase', 'error', 'city_checkpoint', 'city_open_attempted', 'city_open_completed',
                             'city_query_attempted', 'city_query_completed', 'city_result_verified', 'city_select_attempted',
                             'city_select_completed', 'city_form_verified', 'city_verified', 'city_scan_samples',
-                            'city_visible_rows', 'city_total_rows', 'city_matches', 'city_prepare', 'readiness_check', 'readiness',
+                            'city_visible_rows', 'city_total_rows', 'city_matches', 'city_prepare', 'city_identity', 'readiness_check', 'readiness',
                             'controller_path', 'root_top_kind', 'last_presented_kind', 'frames', 'managed_calls', 'online_verified',
                             'apply_attempted', 'apply_completed', 'return_verified')
                     report = {k: n[k] for k in keys}
