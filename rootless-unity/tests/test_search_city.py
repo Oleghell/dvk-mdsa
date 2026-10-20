@@ -18,7 +18,7 @@ def ready_city():
     n.update(city.DEFAULTS)
     n.update({k:True for k,v in city.DEFAULTS.items() if type(v) is bool})
     n.update(city_scan_samples=2, city_visible_rows=1, city_total_rows=1,
-             city_matches=1,city_checkpoint='complete')
+             city_matches=1,city_checkpoint='complete',city_prepare='ready')
     # A city operation has a separate bounded wait budget; online-only still
     # retains its original 180-frame validation budget.
     n['ui_text_read'] = True
@@ -92,6 +92,19 @@ class CitySchema(unittest.TestCase):
         self.assertIn('r.navigation.frames>=900', source)
         self.assertIn('},30000);', source)
 
+
+class CityPrepare(unittest.TestCase):
+    def test_unsupported_step_is_fixed_label_and_success_needs_ready(self):
+        value = ready_city()
+        value['navigation']['city_prepare'] = 'private-code'
+        with self.assertRaises(ValueError):
+            city.validate(value)
+        value = ready_city()
+        value['navigation']['city_prepare'] = 'method:cityItem'
+        with self.assertRaises(ValueError):
+            city.validate(value)
+        self.assertIn('method:cityItem', city.PREPARE_STEPS)
+        self.assertIn('field:cityTableField', city.PREPARE_STEPS)
 
 class CityTransport(unittest.TestCase):
     def test_source_and_validator_inject_only_through_internal_run(self):

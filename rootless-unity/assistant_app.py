@@ -315,12 +315,14 @@ def launch(self_check=False):
                                'city-query-changed': 'Текст поиска города изменился',
                                'frame-limit': 'Город не найден или поиск не завершился вовремя'}
                     reason = reasons.get(n['error'], 'Остановлено: ' + (n['error'] if n['error'] != 'none' else n['stage']))
+                    if n['stage'] == 'not-attempted' and n['error'] == 'none':
+                        reason = 'Эта версия приложения не поддерживается для выбора города (шаг проверки: ' + n['city_prepare'] + '). Ничего не выбиралось'
                     status.set(reason + '. Проверь текущий экран и настройки вручную. Анкеты и сообщения не запускались.')
                 try:
                     keys = ('stage', 'phase', 'error', 'city_checkpoint', 'city_open_attempted', 'city_open_completed',
                             'city_query_attempted', 'city_query_completed', 'city_result_verified', 'city_select_attempted',
                             'city_select_completed', 'city_form_verified', 'city_verified', 'city_scan_samples',
-                            'city_visible_rows', 'city_total_rows', 'city_matches', 'online_verified',
+                            'city_visible_rows', 'city_total_rows', 'city_matches', 'city_prepare', 'online_verified',
                             'apply_attempted', 'apply_completed', 'return_verified')
                     report = {k: n[k] for k in keys}
                     report.update(device='MuMu #4', requested_city=city, chat_content_read=False, messages_sent=0)

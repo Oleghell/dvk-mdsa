@@ -18,17 +18,20 @@ DEFAULTS = dict(city_open_attempted=False, city_open_completed=False, city_query
                 city_query_completed=False, city_result_verified=False, city_select_attempted=False,
                 city_select_completed=False, city_form_verified=False, city_verified=False,
                 city_scan_samples=0, city_visible_rows=0, city_total_rows=0,
-                city_matches=0, city_checkpoint='not-checked')
+                city_matches=0, city_checkpoint='not-checked', city_prepare='not-checked')
+PREPARE_STEPS = None  # filled below from the native source (fixed labels only)
 CHECKPOINTS = {'not-checked', 'open-picker', 'query', 'results', 'select', 'form', 'complete'}
 
 PREPARE = r'''
  function prepareCity(f,s,getClass){
+  const mark=v=>{r.navigation.city_prepare=v;};
   for(const [key,image,ns,name] of [
    ['city','DV.dll','DV','CityFinderViewController'],['cityCell','DV.dll','DV','CityFinderCell'],
    ['geoRecord','DV.dll','DV.Models','GeoRecord'],['searchField','DV.dll','DV','SearchField'],
    ['geoType','DV.dll','','GeoType'],['table','Core.dll','UIKit','TableView'],['tableCell','Core.dll','UIKit','TableCell']]){
-   s[key]=getClass(image,ns,name);if(s[key].isNull())throw new Error('metadata');
+   mark('class:'+key);s[key]=getClass(image,ns,name);if(s[key].isNull())throw new Error('metadata');
   }
+  mark('hierarchy');
   if(!f.assignable(s.card,s.city)||!f.assignable(s.tableCell,s.cityCell)||!f.assignable(s.view,s.searchField))throw new Error('hierarchy');
   const name=p=>{if(p.isNull())throw new Error('signature');let v='';for(let i=0;i<96;i++){const c=p.add(i).readU8();if(c===0)return v;if(c<32||c>126)throw new Error('signature');v+=String.fromCharCode(c);}throw new Error('signature');};
   const checked=(klass,label,kind,result=null,params=[],inherited=false,byref=false)=>{
@@ -37,47 +40,48 @@ PREPARE = r'''
    if(!citySignature(f,e,e.m))throw new Error('signature');
    if(!inherited&&!f.methodClass(e.m).equals(klass))throw new Error('signature');return e;
   };
-  s.cityOpen=checked(s.people,'ShowRegionPicker',1);
-  s.cityTextGet=checked(s.searchField,'get_Text',14);
-  s.cityTextSet=checked(s.searchField,'set_Text',1,null,[{kind:14}]);
-  s.cityQuery=checked(s.city,'get_QueryString',14);
-  s.citySearch=checked(s.city,'OnSearch',1);
-  s.citySelect=checked(s.city,'OnCellSelected',1,null,[{kind:18,klass:s.cityCell},{kind:18,klass:s.geoRecord}]);
-  s.geoID=checked(s.geoRecord,'get_GeoID',14);s.geoName=checked(s.geoRecord,'get_Name',14);
-  s.geoKind=checked(s.geoRecord,'get_RecordType',17,s.geoType);
-  s.geoFilterName=checked(s.filterModel,'get_GeoRecordName',14);
-  s.distanceSet=checked(s.filterModel,'set_ByDistance',1,null,[{kind:2}]);
-  s.cityItem=checked(s.cityCell,'get_Item',18,s.geoRecord,[],true);
-  const owner=f.methodClass(s.cityItem.m);
+  mark('method:cityOpen');s.cityOpen=checked(s.people,'ShowRegionPicker',1);
+  mark('method:cityTextGet');s.cityTextGet=checked(s.searchField,'get_Text',14);
+  mark('method:cityTextSet');s.cityTextSet=checked(s.searchField,'set_Text',1,null,[{kind:14}]);
+  mark('method:cityQuery');s.cityQuery=checked(s.city,'get_QueryString',14);
+  mark('method:citySearch');s.citySearch=checked(s.city,'OnSearch',1);
+  mark('method:citySelect');s.citySelect=checked(s.city,'OnCellSelected',1,null,[{kind:18,klass:s.cityCell},{kind:18,klass:s.geoRecord}]);
+  mark('method:geoID');s.geoID=checked(s.geoRecord,'get_GeoID',14);mark('method:geoName');s.geoName=checked(s.geoRecord,'get_Name',14);
+  mark('method:geoKind');s.geoKind=checked(s.geoRecord,'get_RecordType',17,s.geoType);
+  mark('method:geoFilterName');s.geoFilterName=checked(s.filterModel,'get_GeoRecordName',14);
+  mark('method:distanceSet');s.distanceSet=checked(s.filterModel,'set_ByDistance',1,null,[{kind:2}]);
+  mark('method:cityItem');s.cityItem=checked(s.cityCell,'get_Item',18,s.geoRecord,[],true);
+  mark('item-owner');const owner=f.methodClass(s.cityItem.m);
   if(name(f.imageName(f.classImage(owner)))!=='Core.dll')throw new Error('signature');
-  s.cityVisible=checked(s.table,'get_VisibleCells',21);
-  s.cityList=f.classFromType(f.returnType(s.cityVisible.m));
+  mark('method:cityVisible');s.cityVisible=checked(s.table,'get_VisibleCells',21);
+  mark('list-class');s.cityList=f.classFromType(f.returnType(s.cityVisible.m));
   if(s.cityList.isNull()||f.isValueType(s.cityList)||name(f.className(s.cityList))!=='CoreList`1'||
    name(f.classNamespace(s.cityList))!=='Core.Collections'||name(f.imageName(f.classImage(s.cityList)))!=='Core.dll')throw new Error('signature');
-  s.cityCount=checked(s.cityList,'get_Count',8);
+  mark('method:cityCount');s.cityCount=checked(s.cityList,'get_Count',8);
   // This exact CoreList<TableCell> indexer is already exercised by profile navigation.
-  s.cityAt=checked(s.cityList,'get_Item',18,s.tableCell,[{kind:8}],false,true);
-  s.sectionCount=checked(s.table,'get_SectionsCount',8);
-  s.sectionRows=checked(s.table,'GetSectionItemsCount',8,null,[{kind:8}]);
-  s.canSelect=checked(s.tableCell,'get_CanSelect',2);s.nonSelectable=checked(s.tableCell,'get_NonSelectable',2);
+  mark('method:cityAt');s.cityAt=checked(s.cityList,'get_Item',18,s.tableCell,[{kind:8}],false,true);
+  mark('method:sectionCount');s.sectionCount=checked(s.table,'get_SectionsCount',8);
+  mark('method:sectionRows');s.sectionRows=checked(s.table,'GetSectionItemsCount',8,null,[{kind:8}]);
+  mark('method:canSelect');s.canSelect=checked(s.tableCell,'get_CanSelect',2);mark('method:nonSelectable');s.nonSelectable=checked(s.tableCell,'get_NonSelectable',2);
   const field=(klass,label,expected=null)=>{
    const p=f.field(klass,Memory.allocUtf8String(label));
    if(p.isNull()||!f.fieldOwner(p).equals(klass)||(f.fieldFlags(p)&16))throw new Error('signature');
    const t=f.fieldType(p);if(t.isNull()||f.byref(t))throw new Error('signature');
    if(expected&&(f.typeKind(t)!==18||!f.classFromType(t).equals(expected)))throw new Error('signature');return p;
   };
-  s.cityInputField=field(s.city,'m_SearchField',s.searchField);
-  s.cityTableField=field(s.city,'m_TableView');
-  const tt=f.fieldType(s.cityTableField);s.cityTableClass=f.classFromType(tt);
+  mark('field:cityInputField');s.cityInputField=field(s.city,'m_SearchField',s.searchField);
+  mark('field:cityTableField');s.cityTableField=field(s.city,'m_TableView');
+  mark('table-field-type');const tt=f.fieldType(s.cityTableField);s.cityTableClass=f.classFromType(tt);
   if(![18,21].includes(f.typeKind(tt))||s.cityTableClass.isNull()||f.isValueType(s.cityTableClass)||!f.assignable(s.table,s.cityTableClass))throw new Error('signature');
-  s.lastCityQuery=field(s.city,'m_LastSearchText');if(f.typeKind(f.fieldType(s.lastCityQuery))!==14)throw new Error('signature');
-  const basetype=f.enumBase(s.geoType);
+  mark('field:lastCityQuery');s.lastCityQuery=field(s.city,'m_LastSearchText');if(f.typeKind(f.fieldType(s.lastCityQuery))!==14)throw new Error('signature');
+  mark('enum-base');const basetype=f.enumBase(s.geoType);
   if(basetype.isNull()||f.typeKind(basetype)!==8)throw new Error('signature');
-  const city=f.field(s.geoType,Memory.allocUtf8String('CITY'));
+  mark('enum-city');const city=f.field(s.geoType,Memory.allocUtf8String('CITY'));
   if(city.isNull()||!f.fieldOwner(city).equals(s.geoType)||(f.fieldFlags(city)&(16|64))!==(16|64)||
    f.byref(f.fieldType(city))||f.typeKind(f.fieldType(city))!==17||!f.classFromType(f.fieldType(city)).equals(s.geoType))throw new Error('signature');
   const val=Memory.alloc(4);val.writeS32(-1);f.staticFieldValue(city,val);s.cityEnum=val.readS32();
   if(s.cityEnum<0||s.cityEnum>32767)throw new Error('signature');
+  mark('ready');
  }
  function citySignature(f,e,m){
   if(m.isNull()||f.arity(m)!==e.arity)return false;
@@ -90,6 +94,9 @@ PREPARE = r'''
   return true;
  }
 '''
+import re as _re
+PREPARE_STEPS = {'not-checked'} | set(_re.findall(r"mark\('([^'+]+)'\)", PREPARE)) | {'class:' + k for k in
+    ('city', 'cityCell', 'geoRecord', 'searchField', 'geoType', 'table', 'tableCell')}
 UTILS = r'''
   const cityArgs=values=>{const p=Memory.alloc(Process.pointerSize*values.length);values.forEach((v,i)=>p.add(i*Process.pointerSize).writePointer(v));return p;};
   const cityInt=(entry,obj,args=ptr(0))=>{const box=call(entry,obj,args);if(box.isNull())fail('signature-mismatch');own(box);const p=f.unbox(box);if(p.isNull())fail('signature-mismatch');return p.readS32();};
@@ -239,7 +246,7 @@ def validate(value):
     for key,limit in [('city_scan_samples',2),('city_visible_rows',8),('city_total_rows',32),('city_matches',8)]:
         if type(extra[key]) is not int or not 0<=extra[key]<=limit:
             raise ValueError('Invalid city counter')
-    if extra['city_checkpoint'] not in CHECKPOINTS:
+    if extra['city_checkpoint'] not in CHECKPOINTS or extra['city_prepare'] not in PREPARE_STEPS:
         raise ValueError('Invalid city checkpoint')
     online.validate(checked, max_frames=MAX_FRAMES, phases=PHASES, errors=ERRORS, kinds=KINDS, allow_ui_text=True)
     if extra['city_query_completed'] and not n['ui_text_read']:
@@ -253,6 +260,8 @@ def validate(value):
             raise ValueError('Out-of-order city operation')
     if extra['city_result_verified'] and (extra['city_scan_samples']!=2 or extra['city_matches']!=1 or not 1<=extra['city_visible_rows']<=8 or extra['city_visible_rows']!=extra['city_total_rows']):
         raise ValueError('City selected without complete stable unique results')
+    if n['stage']=='navigation-ready' and extra['city_prepare']!='ready':
+        raise ValueError('City metadata was not ready')
     if n['apply_attempted'] and not extra['city_form_verified']:
         raise ValueError('Applied without checking selected city')
     if (n['stage']=='navigation-ready') != (extra['city_verified'] and extra['city_checkpoint']=='complete'):
