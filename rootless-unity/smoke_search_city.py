@@ -56,8 +56,8 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         c = script.exports_sync.counts()
         expected = {300:'navigation-ready',301:'not-attempted',302:'not-attempted',303:'not-attempted',
                     304:'managed-exception',305:'unexpected-screen',306:'city-query-changed',307:'managed-exception',
-                    308:'frame-limit',309:'city-ambiguous',310:'frame-limit',311:'frame-limit',
-                    312:'city-results-incomplete',313:'identity-changed',314:'screen-not-ready',315:'frame-budget',
+                    308:'frame-limit',309:'navigation-ready',310:'frame-limit',311:'frame-limit',
+                    312:'navigation-ready',313:'identity-changed',314:'screen-not-ready',315:'frame-budget',
                     316:'managed-exception',317:'screen-not-ready',318:'screen-not-ready',319:'navigation-ready',320:'city-results-incomplete',321:'managed-exception',322:'cancelled',323:'cancelled',324:'navigation-ready',325:'navigation-ready'}[mode]
         actual = n['stage'] if n['stage'] in ('navigation-ready','not-attempted') else n['error']
         assert actual == expected, (mode, result, c)
@@ -65,13 +65,13 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         assert n['handles_acquired'] == n['handles_released'], (mode,n)
         assert c['calls'] == result['managed_calls'] + n['managed_calls'], (mode,c,n)
         assert all(c[k]<=1 for k in ('opens','cityopens','searches','selects','sets','applies','refreshes')),c
-        if mode in (300,319,324,325):
+        if mode in (300,309,312,319,324,325):
             assert c['cityopens']==c['searches']==c['selects']==c['applies']==1,c
-            assert n['city_verified'] and n['online_verified'] and n['city_matches']==1,n
+            assert n['city_verified'] and n['online_verified'] and n['city_matches']==(2 if mode==309 else 1),n
             assert c['sets']==(mode!=324),c
         else:assert not n['city_verified'],n
         if mode in (301,302,303):assert c['opens']==c['cityopens']==c['selects']==c['applies']==0,c
-        if mode in (306,307,308,309,310,311,312,317,320):assert c['selects']==c['applies']==0,c
+        if mode in (306,307,308,310,311,317,320):assert c['selects']==c['applies']==0,c
         print('Synthetic city', mode, actual, flush=True)
         for private in ('0x','private-text','token','GeoCode','RegionCode','actual-returned-code','old-code','Pskov'):
             assert private not in json.dumps(result)

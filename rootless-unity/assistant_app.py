@@ -138,8 +138,9 @@ def launch(self_check=False):
         try:
             result = select_city(executable, directory, city, stopped.is_set)
             events.put(('city-result', (city, result)))
-        except Exception:
-            events.put(('error', 'Выбор города не подтверждён. Проверь текущий экран и настройки вручную: часть изменений могла выполниться. Анкеты и сообщения не запускались.'))
+        except Exception as error:
+            note = ' [' + type(error).__name__ + (': ' + str(error)[:120].replace(chr(10), ' ') if type(error) is ValueError else '') + ']'
+            events.put(('error', 'Выбор города не подтверждён' + note + '. Проверь текущий экран и настройки вручную: часть изменений могла выполниться. Анкеты и сообщения не запускались.'))
 
     def begin_city():
         nonlocal busy

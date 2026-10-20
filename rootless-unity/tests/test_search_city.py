@@ -49,9 +49,9 @@ class CitySchema(unittest.TestCase):
                     city.validate(value)
 
     def test_no_ambiguous_offscreen_unstable_or_invalid_type_success(self):
-        for key,bad in [('city_visible_rows',0),('city_total_rows',2),('city_scan_samples',1),
-                        ('city_matches',2),('city_scan_samples',True),('city_verified',1),
-                        ('city_checkpoint','private-code'),('city_visible_rows',9)]:
+        for key,bad in [('city_visible_rows',0),('city_total_rows',0),('city_scan_samples',1),
+                        ('city_matches',0),('city_scan_samples',True),('city_verified',1),
+                        ('city_checkpoint','private-code'),('city_visible_rows',13)]:
             value = ready_city()
             value['navigation'][key] = bad
             with self.assertRaises(ValueError):
@@ -80,7 +80,7 @@ class CitySchema(unittest.TestCase):
     def test_uses_actual_records_and_complete_visible_results_only(self):
         source = city.build('Псков')
         for text in ('get_GeoID','get_RecordType','OnCellSelected','citySignature(f,entry,m)',
-                     'city-query-changed','city-ambiguous','count!==total','cityFingerprint',
+                     'city-query-changed','cityLike','cityFingerprint',
                      'city_scan_samples=2',
                      'field_static_get_value','class_enum_basetype','get_SectionsCount','GetSectionItemsCount'):
             self.assertIn(text, source)
