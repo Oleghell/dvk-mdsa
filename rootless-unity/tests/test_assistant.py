@@ -199,7 +199,7 @@ class ManualGate(unittest.TestCase):
                  patch('assistant_lock.operation_lock') as lock:
                 self.assertEqual(manual.run('adb', folder, 'Hi', lambda *args: False, store=MagicMock()), 'ok')
                 lock.assert_called_once()
-                self.assertEqual(capture.call_args.args[:2], ('adb', Path(folder)))
+                self.assertEqual(capture.call_args.args[:2], ('adb', Path(folder).resolve()))
             (Path(folder) / '.dvk-ten-profile-pass.lock').write_text('reserved')
             with patch('one_chat_device.capture') as capture:
                 with self.assertRaises(StateError):
