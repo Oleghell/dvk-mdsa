@@ -13,7 +13,7 @@ from one_chat_probe import identity
 from one_chat_send import checked
 from conversation_engine import CONTACT_TEXT
 
-VERSION = '0.4.9'
+VERSION = '0.4.10'
 
 
 def report():
@@ -218,7 +218,7 @@ class GuidedChain(Chain):
 
 def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
          greetings=(), notifier=None, progress=lambda _: None, pause=None,
-         max_polls=360, deadline=None):
+         max_polls=360, deadline=None, contact_reader=None):
     """Monitor ONE open chat through both replies; all bodies remain in RAM."""
     out = report()
     if approved is not True:
@@ -226,10 +226,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         return out
     pause = stopped.wait if pause is None else pause
     who = identity(who)
-    def read():
+    def read(source=reader):
         if stopped.is_set():
             raise StateError('cancelled')
-        private = reader(who)
+        private = source(who)
         if (not isinstance(private, dict) or
                 set(private) not in ({'identity', 'messages'},
                                      {'identity', 'messages', 'peer_name'})):
@@ -250,7 +250,18 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             if deadline is not None and time.monotonic() >= deadline:
                 out.update(status='chain-paused', reason='wait-timeout')
                 return out
-            stage, action = chain.proposal(before)
+            try:
+                stage, action = chain.proposal(before)
+            except StateError as error:
+                if (str(error) !=
+                        'Имя или защита контакта не подтверждены. Передачи в Telegram нет.'
+                        or contact_reader is None):
+                    raise
+                named = read(contact_reader)
+                if 'peer_name' not in named or not same_snapshot(before, named):
+                    raise StateError('guided-contact-name-not-verified')
+                before = named
+                stage, action = chain.proposal(before)
             out['stage'] = stage
             out['stages']['greeting'] = True
             with chain.store.connection() as db:
@@ -432,12 +443,15 @@ def run(settings, stopped, approve, progress=lambda _: None, *, approved=False,
             who = identity(private['identity'])
             chain = GuidedChain(Store() if store is None else store)
             value = walk(chain, who, stopped, approve,
-                         lambda expected: reader(settings.adb, settings.folder, stopped.is_set,
-                                                 expected, read_name=True),
+                         lambda expected: reader(settings.adb, settings.folder,
+                                                 stopped.is_set, expected),
                          lambda snapshot, text: sender(settings.adb, settings.folder, snapshot,
                                                        stopped.is_set, text=text),
                          approved=True, greetings=greetings, notifier=notifier, progress=progress,
-                         deadline=time.monotonic() + 1800)
+                         deadline=time.monotonic() + 1800,
+                         contact_reader=lambda expected: reader(
+                             settings.adb, settings.folder, stopped.is_set,
+                             expected, read_name=True))
         except Exception as error:
             value = report()
             value.update(reason='telegram-disabled' if isinstance(error, StateError) and

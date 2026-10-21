@@ -24,7 +24,7 @@ def launch(self_check=False):
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Сборка 0.4.9. «Старт» — прежнее чтение непрочитанных без отправки. Остановленную цепочку можно явно начать заново в открытом чате.')
+    status = tk.StringVar(value='Сборка 0.4.10. Имя собеседника читается только после добровольно присланного контакта. Остановленную цепочку можно начать заново.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:

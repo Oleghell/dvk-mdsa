@@ -120,8 +120,12 @@ class WholeChain(unittest.TestCase):
                                      'accepted')
                     self.assertEqual(db.execute('SELECT COUNT(*) FROM manual_actions').fetchone()[0], 0)
 
-    def test_full_transport_entrypoint_uses_identity_then_bound_reads_never_names(self):
-        values = [dict(identity=WHO, messages=None)] + sequence()
+    def test_full_transport_reads_name_only_after_contact_arrives(self):
+        histories = sequence()
+        values = [dict(identity=WHO, messages=None)]
+        values += [{key: value[key] for key in ('identity', 'messages')}
+                   for value in histories]
+        values.append(histories[-1])
         reader = MagicMock(side_effect=copy.deepcopy(values))
         sender = MagicMock(return_value=dict(attempted=True, handler_returned=True))
         with patch.object(guided, 'data_directory', return_value=Path(self.temp.name)), \
@@ -134,8 +138,10 @@ class WholeChain(unittest.TestCase):
                              notifier=self.notifier, greetings=(GREETING,))
         self.assertEqual(out['status'], 'chain-completed')
         self.assertIsNone(reader.call_args_list[0].args[3])
-        self.assertTrue(all(call.args[3] == WHO and call.kwargs == {'read_name': True}
-                            for call in reader.call_args_list[1:]))
+        self.assertTrue(all(call.args[3] == WHO and not call.kwargs
+                            for call in reader.call_args_list[1:-1]))
+        self.assertEqual(reader.call_args_list[-1].args[3], WHO)
+        self.assertEqual(reader.call_args_list[-1].kwargs, {'read_name': True})
         self.assertEqual(sender.call_count, 2)
         self.notifier.assert_called_once_with(dict(name=PEER_NAME, contacts=[CONTACT]))
         self.assertEqual(out['report_name'], 'messages-chain-check.json')
