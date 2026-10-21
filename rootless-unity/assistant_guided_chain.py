@@ -15,6 +15,7 @@ from conversation_engine import CONTACT_TEXT
 from shared_contact import display_name
 
 from version import VERSION
+from assistant_authorization import flags
 
 
 def report():
@@ -23,14 +24,14 @@ def report():
                 stages=dict(greeting=False, peer_greeting=False, question=False,
                             peer_reply=False, contact_request=False,
                             peer_contact=False),
-                confirmations=0, submission_calls=0, handler_returns=0, outgoing_observed=0,
+                confirmations=0, automatic_authorizations=0, submission_calls=0, handler_returns=0, outgoing_observed=0,
                 outgoing_observed_this_run=0,
                 notifications=dict(accepted=0, unknown=0, disabled=0, blocked=0),
                 device_scope='MuMu-4-only', per_message_confirmation=True,
                 automatic_send=False, delivery_confirmed=False,
                 personal_data_exported=False, chat_content_exported=False,
                 diagnostics=dict(name_source='not-requested', name_read='not-attempted',
-                                 failure_point='none'),
+                                 failure_point='none', read_retries=0, last_read_failure=None),
                 telegram_used=False, ui_may_remain_open=True,
                 live_cycle_available=False)
 
@@ -240,6 +241,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
     peer message, leave it (status chain-waiting) instead of polling it.
     """
     out = report()
+    out.update(flags(approve))
     if approved is not True:
         out.update(reason='guided-consent-required')
         return out
@@ -252,7 +254,19 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
     def read(source=reader):
         if stopped.is_set():
             raise StateError('cancelled')
-        private = source(who)
+        from one_chat_device import ReadStopped, safe_read_failure, transient_read_failure
+        for attempt in range(2):
+            try:
+                private = source(who)
+                break
+            except ReadStopped as error:
+                out['diagnostics']['last_read_failure'] = safe_read_failure(error)
+                if attempt or not transient_read_failure(error) or stopped.is_set():
+                    raise
+                out['diagnostics']['read_retries'] += 1
+                progress('История ещё загружается. Повторяю только чтение того же чата; отправки нет.')
+                if pause(.5) or stopped.is_set():
+                    raise StateError('cancelled')
         if (not isinstance(private, dict) or
                 set(private) not in ({'identity', 'messages'},
                                      {'identity', 'messages', 'peer_name'})):
@@ -364,7 +378,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 if approve(action['kind'], action['text'], stopped.is_set) is not True:
                     out.update(status='chain-paused', reason='message-not-approved')
                     return out
-                out['confirmations'] += 1
+                out['automatic_authorizations' if out['automatic_send'] else 'confirmations'] += 1
                 if stopped.is_set():
                     break
                 fresh = read()

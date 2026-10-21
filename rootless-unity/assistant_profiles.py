@@ -1,9 +1,9 @@
-"""«Старт», step 2: new profiles, friends < 50, greeting only after confirmation.
+"""«Старт», step 2: new profiles, friends < 50, greeting after run or per-message permission.
 
 Each profile cycle is the existing native one-profile cycle (assistant_pass):
 it opens one new visible profile, reads the friend count, opens the chat only
 when friends < 50, re-checks that the history is empty and asks for an explicit
-confirmation of ONE greeting. When the visible list is exhausted, the city is
+permission for ONE greeting. When the visible list is exhausted, the city is
 changed to another configured city and «Только онлайн» is re-verified.
 """
 from datetime import datetime, timezone
@@ -11,14 +11,16 @@ import secrets
 
 from assistant_store import StateError
 from version import VERSION
+from assistant_authorization import flags
 
 MAX_LIMIT = 20
 MAX_CITY_CHANGES = 3
+MAX_SCANNED = 200
 
 
 def report(limit):
     return dict(tool_version=VERSION, mode='new-profiles-pass', status='profiles-stopped',
-                reason='not-started', profile_limit=limit, profiles_checked=0,
+                reason='not-started', profile_limit=limit, profiles_checked=0, qualified_profiles=0, scan_limit=MAX_SCANNED,
                 skipped_friends=0, skipped_existing_chat=0, greetings_offered=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
                 greetings_declined=0, city_changes=0,
@@ -87,6 +89,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
     if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
         raise ValueError('Invalid profile limit')
     out = report(limit)
+    out.update(flags(approve))
     config = load() if config is None else config
     session = Session(store)
     out['current_city'] = session.get('city')
@@ -104,12 +107,15 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
 
         if fresh_session or out['current_city'] is None:
             new_city('Настраиваю поиск: случайный город из списка и «Только онлайн».')
-        while out['profiles_checked'] < limit:
+        while out['qualified_profiles'] < limit:
+            if out['profiles_checked'] >= MAX_SCANNED:
+                raise StateError('profile-scan-limit')
             if stopped.is_set():
                 raise StateError('cancelled')
             greeting = config.greeting()
-            progress(f'Новые анкеты: {out["profiles_checked"] + 1}/{limit}. '
-                     'Друзей меньше 50 → пустой чат → приветствие после подтверждения.')
+            progress(f'Новые анкеты: {out["qualified_profiles"] + 1}/{limit}. ' +
+                     ('Друзей меньше 50 → пустой чат → автоматическое приветствие.' if out['automatic_send'] else
+                      'Друзей меньше 50 → пустой чат → приветствие после подтверждения.'))
             offered = []
 
             def ask(pending, text, cancelled):
@@ -149,12 +155,14 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 out['skipped_existing_chat'] += 1
             if not n['return_verified']:
                 raise StateError('return-not-verified')
+            if n['send_handler_returned']:
+                out['qualified_profiles'] += 1
         out.update(status='profiles-completed', reason='profile-limit', return_verified=True)
     except Exception as error:
         if cycle_pending:
             out.update(send_attempts_unknown=True, greetings_sent=None)
         known = {'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
-                 'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'city-change-limit'}
+                 'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'city-change-limit', 'profile-scan-limit'}
         reason = 'cancelled' if stopped.is_set() else (
             str(error) if isinstance(error, StateError) and str(error) in known else 'device-or-journal-check-stopped')
         status = ('profiles-cancelled' if reason == 'cancelled' else

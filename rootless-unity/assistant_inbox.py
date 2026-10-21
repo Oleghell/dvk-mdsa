@@ -1,8 +1,8 @@
 """«Старт», step 1: unread chats that already belong to the message chain.
 
 Only chats with OUR greeting are eligible: an explicit guided binding or a
-greeting recorded in the send journal. Each outgoing message needs its own
-confirmation; unknown sends and notifications are never retried. Message
+greeting recorded in the send journal. Outgoing messages need run-scoped
+or per-message permission; unknown sends and notifications are never retried. Message
 bodies stay in RAM; the report holds counters only.
 """
 from assistant_chain import Chain, TERMINAL
@@ -11,6 +11,7 @@ from assistant_store import StateError
 from dialog_browser import targets
 from one_chat_probe import identity
 from version import VERSION
+from assistant_authorization import flags
 
 LIMIT = 10
 PAUSE_OUTCOMES = {'message-not-approved', 'manual-review', 'telegram-disabled',
@@ -83,13 +84,13 @@ def inbox_targets(chain):
 def report():
     return dict(tool_version=VERSION, mode='inbox-chain-pass', status='inbox-stopped',
                 reason='not-started', dialog_limit=LIMIT, dialogs_opened=0,
-                dialogs_processed=0, read_rows_skipped=0, confirmations=0,
+                dialogs_processed=0, read_rows_skipped=0, confirmations=0, automatic_authorizations=0,
                 submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0,
                 outcomes={}, per_message_confirmation=True, automatic_send=False,
                 return_verified=False, dialogs_verified=False, delivery_confirmed=False,
                 all_dialogs_covered=False, ui_may_remain_open=False,
                 personal_data_exported=False, chat_content_exported=False,
-                device_scope='MuMu-4-only', last_navigation=None)
+                device_scope='MuMu-4-only', last_navigation=None, last_chat_diagnostics=None)
 
 
 def walk(settings, stopped, approve, progress, chain, *, navigator, reader, sender,
@@ -98,6 +99,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     if entry not in ('search', 'dialogs') or return_to not in ('search', 'dialogs'):
         raise ValueError('Invalid inbox screen')
     out = report()
+    out.update(flags(approve))
     attention, unread = inbox_targets(chain)
     if not attention and not unread:
         out.update(status='inbox-empty', reason='no-chain-dialogs')
@@ -146,8 +148,9 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 groups.pop(0)
                 continue
             phase = 'navigation'
-            progress(f'Ответы: открываю чат {out["dialogs_opened"] + 1}. '
-                     'Каждое сообщение — только после твоего подтверждения.')
+            progress(f'Ответы: открываю чат {out["dialogs_opened"] + 1}. ' +
+                     ('Автоматическая отправка разрешена этим запуском.' if out['automatic_send'] else
+                      'Каждое сообщение — только после твоего подтверждения.'))
             selected = call('open', allowed=allowed, entry=entry, unread_only=unread_only)
             entry = 'dialogs'
             if selected['state'] == 'exhausted':
@@ -165,6 +168,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 pause=pause, max_polls=8, until_waiting=True,
                 contact_reader=lambda expected: reader(settings.adb, settings.folder,
                                                        stopped.is_set, expected, read_name=True))
+            out['last_chat_diagnostics'] = result['diagnostics']
+            out['automatic_authorizations'] += result.get('automatic_authorizations', 0)
             for key in ('confirmations', 'submission_calls', 'handler_returns'):
                 out[key] += result[key]
             out['outgoing_observed'] += result['outgoing_observed_this_run']

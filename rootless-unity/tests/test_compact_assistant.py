@@ -30,6 +30,15 @@ class Settings(unittest.TestCase):
             self.assertEqual(set(json.loads((path/'settings.json').read_text())),{'adb','test_apks'})
             self.assertNotIn('token', (path/'workflow-settings.json').read_text())
 
+    def test_default_interval_and_old_default_migrate_to_30(self):
+        self.assertEqual(cfg.Settings().reply_interval, 30)
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp) / 'workflow-settings.json'
+            p.write_text(json.dumps(dict(contacts_enabled=False, reply_interval=120)))
+            self.assertEqual(cfg.load(temp).reply_interval, 30)
+            cfg.save(cfg.Settings(reply_interval=120), temp)
+            self.assertEqual(cfg.load(temp).reply_interval, 120)  # explicit new choice is preserved
+
     def test_bad_interval_and_broken_settings_fail_closed(self):
         for seconds in (True,0,29,3601,'120'):
             with self.assertRaises(StateError):cfg.Settings(reply_interval=seconds).check()
@@ -83,6 +92,10 @@ class CompactWindow(unittest.TestCase):
             call = thread.call_args
             call.kwargs['target'](*call.kwargs['args'])
             self.assertTrue(monitor.call_args.args[1].is_set())
+            permission = monitor.call_args.args[2]
+            self.assertTrue(permission.automatic_send)
+            self.assertFalse(permission('greeting', 'Привет', lambda: False))
+            tk.Toplevel.assert_not_called()
             poll()
             self.assertEqual(thread.call_count, 1)  # No auto-restart on completion.
             commands['Только ответы']()
@@ -147,6 +160,23 @@ class BoundName(unittest.TestCase):
         for name in ('',None,'x'*129,'name\nPRIVATE'):
             r['navigation']['private_result']['peer_name']=name
             with self.assertRaises(ValueError):reader.private_snapshot(r,WHO,read_name=True)
+
+
+
+
+class RunAuthorization(unittest.TestCase):
+    def test_known_actions_only_and_stop_revokes_permission(self):
+        from assistant_authorization import RunAuthorization, flags
+        stopped = threading.Event()
+        permit = RunAuthorization(stopped)
+        self.assertEqual(flags(permit), dict(per_message_confirmation=False, automatic_send=True))
+        for kind in ('greeting', 'question', 'contact'):
+            self.assertTrue(permit(kind, 'text', lambda: False))
+        self.assertFalse(permit('arbitrary', 'text', lambda: False))
+        self.assertFalse(permit('greeting', '', lambda: False))
+        self.assertFalse(permit('greeting', 'text', lambda: True))
+        stopped.set()
+        self.assertFalse(permit('greeting', 'text', lambda: False))
 
 
 if __name__=='__main__':unittest.main()

@@ -129,3 +129,38 @@ def report(outcome=None, *, failure=False):
             raise ValueError('Invalid diagnostic counters')
         result.update(outcome)
     return result
+
+
+def safe_read_failure(error):
+    """Export only authored codes and validated diagnostic categories, never bodies/IDs."""
+    import chat_state_probe as state
+    code = str(error)
+    out = {'error': code if code in probe.ERRORS | {
+        'client-version', 'cancelled', 'ambiguous-process', 'unexpected-process',
+        'unsupported-runtime', 'invalid-forward', 'not-ready'} else 'read-stopped'}
+    value = error.diagnostic
+    if not isinstance(value, dict):
+        return out
+    for key, choices in (('stage', {'navigation-ready', 'navigation-stopped', 'not-attempted'}),
+                         ('metadata_checkpoint', state.CHECKPOINTS),
+                         ('read_checkpoint', state.READ_STEPS), ('wait_reason', state.WAIT_REASONS)):
+        if isinstance(value.get(key), str) and value[key] in choices:
+            out[key] = value[key]
+    for key in ('frames', 'managed_calls'):
+        number = value.get(key)
+        if type(number) is int and 0 <= number <= 1000000:
+            out[key] = number
+    try:
+        out.update(probe.diagnostic(value))
+    except (ValueError, KeyError, TypeError):
+        pass
+    return out
+
+
+def transient_read_failure(error):
+    """Only bounded read-only retries for loading/changing history, not changed identity."""
+    value = safe_read_failure(error)
+    return (value['error'] in {'history-not-ready', 'frame-limit', 'frame-budget'}
+            and value.get('wait_reason') in {'history-loading', 'history-not-loaded',
+                'null-history-manager', 'null-loaded-flag', 'changing-count',
+                'changing-last-message', 'view-not-ready'})

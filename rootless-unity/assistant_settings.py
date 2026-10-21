@@ -13,7 +13,7 @@ class Settings:
     adb: str = DEFAULT_ADB
     folder: str = DEFAULT_TEST_APKS
     contacts_enabled: bool = False
-    reply_interval: int = 120
+    reply_interval: int = 30
     profile_limit: int = 5
 
     def check(self):
@@ -42,11 +42,16 @@ def load(directory=None):
             for key in saved:
                 if old[key]:
                     saved[key] = old[key]
-        config = dict(contacts_enabled=False, reply_interval=120)
+        config = dict(contacts_enabled=False, reply_interval=30)
         if options.exists():
             if options.stat().st_size > 8192:
                 raise ValueError()
             config = json.loads(options.read_text(encoding='utf-8'))
+            schema = config.pop('settings_version', 1)
+            if type(schema) is not int or schema not in (1, 2):
+                raise ValueError()
+            if schema == 1 and type(config.get('reply_interval')) is int and config['reply_interval'] == 120:
+                config['reply_interval'] = 30
             # 0.4.x files have no profile_limit; keep reading them.
             if set(config) not in ({'contacts_enabled', 'reply_interval'},
                                    {'contacts_enabled', 'reply_interval', 'profile_limit'}):
@@ -61,7 +66,7 @@ def save(settings, directory=None):
     directory = data_directory() if directory is None else Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     values = {'settings.json': dict(adb=settings.adb, test_apks=settings.folder),
-              'workflow-settings.json': dict(contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
+              'workflow-settings.json': dict(settings_version=2, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
                                             profile_limit=settings.profile_limit)}
     for filename, value in values.items():
         path = directory / filename

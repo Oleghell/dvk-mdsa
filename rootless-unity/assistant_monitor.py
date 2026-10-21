@@ -1,7 +1,7 @@
 """Explicitly started, serial monitoring of journal-authorized dialogs.
 
 The existing full pass runs at most once. Subsequent passes ONLY inspect the
-tracked inbox, with per-message approval, no city timer and no new profiles.
+tracked inbox, with explicit run or per-message permission, no city timer and no new profiles.
 One OS device lock is held until Stop, failure or a declined approval. Reports
 contain counters/categories only; unknown sends are never retried.
 """
@@ -15,6 +15,7 @@ from assistant_inbox import run as inbox_pass, PAUSE_OUTCOMES
 from assistant_run import start as initial_pass
 from dialog_browser import perform
 from version import VERSION
+from assistant_authorization import flags
 
 REPORT = 'last-monitor.json'
 COUNTERS = ('submission_calls', 'handler_returns', 'outgoing_observed', 'contacts_forwarded')
@@ -50,6 +51,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
     if mode not in ('full', 'inbox'):
         raise ValueError('Invalid monitor mode')
     out = report(mode)
+    out.update(flags(approve))
     wait = stopped.wait if wait is None else wait
     phase = 'settings-check-stopped'
 
@@ -169,7 +171,7 @@ def summary(result):
     first = result.get('initial_run') or {}
     profiles = first.get('profiles')
     if profiles:
-        text += (f"Начальная порция анкет: проверено {profiles['profiles_checked']}, "
+        text += (f"Начальная порция: подходящих {profiles.get('qualified_profiles', 0)}/{profiles['profile_limit']}, просмотрено {profiles['profiles_checked']}, "
                  f"попыток приветствия {profiles['send_attempts']}, возвратов обработчика "
                  f"{profiles['handlers_returned']}. Появление приветствий в истории не проверялось. ")
         city = profiles.get('last_city_navigation')
@@ -177,6 +179,10 @@ def summary(result):
             text += f"Выбор города остановлен: {city['error']}, этап {city['city_checkpoint']}. "
         if profiles.get('send_attempts_unknown'):
             text += 'Цикл оборвался: число дополнительных попыток приветствия неизвестно. '
+    last = (result.get('last_pass') or first.get('inbox') or {}).get('last_chat_diagnostics') or {}
+    read = last.get('last_read_failure')
+    if read:
+        text += f"Чтение истории: {read['error']}, этап {read.get('read_checkpoint', 'unknown')}, ожидание {read.get('wait_reason', 'unknown')}. "
     if result['status'] == 'waiting':
         text += 'Остаюсь в диалогах. Новые анкеты повторно не запускаются.'
     elif result['status'] == 'cancelled':

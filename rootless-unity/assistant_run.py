@@ -4,6 +4,7 @@ import json
 from assistant_lock import operation_lock
 from assistant_store import StateError, data_directory
 from version import VERSION
+from assistant_authorization import flags
 from assistant_inbox import PAUSE_OUTCOMES
 
 MODES = ('full', 'inbox', 'profiles')
@@ -33,6 +34,7 @@ def start(settings, stopped, approve, progress=lambda _: None, *, mode='full', f
         from assistant_profiles import run as profiles
     result = dict(tool_version=VERSION, mode=mode, status='stopped', reason='not-started',
                   inbox=None, profiles=None, per_message_confirmation=True, automatic_send=False)
+    result.update(flags(approve))
     try:
         if stopped.is_set():
             raise StateError('cancelled')
@@ -79,7 +81,7 @@ def summary(result):
     profiles = result.get('profiles')
     if profiles:
         city = profiles['current_city']
-        parts.append(f"Анкеты{(' (' + city + ')') if city else ''}: проверено {profiles['profiles_checked']}, "
+        parts.append(f"Анкеты{(' (' + city + ')') if city else ''}: подходящих {profiles.get('qualified_profiles', 0)}/{profiles['profile_limit']}, просмотрено {profiles['profiles_checked']}, "
                      f"попыток приветствия {profiles['send_attempts']}, возвратов обработчика {profiles['handlers_returned']}, "
                      f"пропущено (50+ друзей) {profiles['skipped_friends']}, "
                      f"пропущено (уже есть переписка) {profiles['skipped_existing_chat']}.")
@@ -110,6 +112,7 @@ INBOX_REASONS = {
     'cancelled': 'Остановлено.',
 }
 PROFILE_REASONS = {
+    'profile-scan-limit': 'Достигнут предел просмотра 200 анкет. Подходящих недостаточно; продолжение — новым запуском.',
     'greeting-not-approved': 'Приветствие не подтверждено — оно не отправлялось.',
     'send-outcome-unknown': 'Результат отправки приветствия неизвестен — повтора не будет.',
     'city-no-alternative': 'В config/cities.json нет другого города.',

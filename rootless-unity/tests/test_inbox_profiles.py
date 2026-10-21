@@ -97,6 +97,31 @@ class Inbox(Base):
         self.assertEqual([c.args[0] for c in self.nav.call_args_list], ['open', 'back', 'return'])
         self.assertTrue(self.nav.call_args_list[0].kwargs['unread_only'])
 
+    def test_vzaimno_after_run_authorization_sends_one_question_without_prompt(self):
+        from assistant_authorization import RunAuthorization
+        self.journal()
+        self.approve = RunAuthorization(self.stop)
+        hello = msg(1002, 'Взаимно')
+        q = msg(1003, QUESTIONS[0], True)
+        out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
+                        [snap(hello), snap(hello), snap(hello, q)])
+        self.assertEqual(out['status'], 'inbox-completed')
+        self.assertEqual(self.sent, [QUESTIONS[0]])
+        self.assertEqual(out['confirmations'], 0)
+        self.assertEqual(out['automatic_authorizations'], 1)
+        self.assertTrue(out['automatic_send'])
+        self.assertFalse(out['per_message_confirmation'])
+
+    def test_read_failure_details_survive_inbox_report(self):
+        from one_chat_device import ReadStopped
+        self.journal()
+        out = self.walk([nav('opened', WHO)], [ReadStopped('nonpositive-message-id',
+            dict(read_checkpoint='recheck', wait_reason='none', private_text='PRIVATE'))])
+        self.assertEqual(out['reason'], 'chat-bound-chat-read-failed')
+        self.assertEqual(out['last_chat_diagnostics']['last_read_failure']['error'], 'nonpositive-message-id')
+        self.assertNotIn('PRIVATE', json.dumps(out))
+        self.assertFalse(self.sent)
+
     def test_whole_chain_over_three_starts_sends_each_message_once(self):
         self.journal()
         hello, q = msg(1002, 'Здарова'), msg(1003, QUESTIONS[0], True)
@@ -247,7 +272,7 @@ class Profiles(Base):
         def greeted(adb, folder, text, ask, cancelled, store):
             self.assertTrue(ask(dict(), text, cancelled))
             return cycle_result(send_attempted=True, send_handler_returned=True)
-        results = [greeted, cycle_result(friends_eligible=False), cycle_result()]
+        results = [greeted, cycle_result(friends_eligible=False), cycle_result(), greeted, greeted]
         values = iter(results)
         def cycle(*args, **kwargs):
             value = next(values)
@@ -258,19 +283,21 @@ class Profiles(Base):
                                 cycle=cycle, city_next=MagicMock(return_value=self.city_value()),
                                 config=Config(), limit=3, fresh_session=True)
         self.assertEqual(out['status'], 'profiles-completed')
-        self.assertEqual((out['send_attempts'], out['handlers_returned'], out['skipped_friends'], out['skipped_existing_chat']), (1, 1, 1, 1))
+        self.assertEqual((out['send_attempts'], out['handlers_returned'], out['skipped_friends'], out['skipped_existing_chat']), (3, 3, 1, 1))
         self.assertIsNone(out['greetings_sent'])
         self.assertIsNone(out['outgoing_observed'])
         self.assertFalse(out['delivery_confirmed'])
         self.assertEqual(out['current_city'], 'Псков')
         self.assertTrue(out['online_verified'])
-        self.approve.assert_called_once()
+        self.assertEqual(self.approve.call_count, 3)
+        self.assertEqual(out["qualified_profiles"], 3)
+        self.assertEqual(out["profiles_checked"], 5)
         self.assertEqual(self.approve.call_args.args[:2], ('greeting', GREETING))
         self.assertEqual(profiles.Session(self.store).get('city'), 'Псков')
 
     def test_exhausted_list_changes_city_and_continues(self):
         exhausted = cycle_result(stage='navigation-stopped', error='selection-unavailable', open_attempted=False)
-        out = self.go([exhausted, cycle_result(friends_eligible=False)],
+        out = self.go([exhausted, cycle_result(send_attempted=True, send_handler_returned=True)],
                        [self.city_value('Псков'), self.city_value('Орск')], limit=1)
         self.assertEqual(out['status'], 'profiles-completed')
         self.assertEqual(out['city_changes'], 2)  # initial (no saved city) + exhaustion
@@ -293,9 +320,22 @@ class Profiles(Base):
 
     def test_saved_city_is_kept_between_runs(self):
         profiles.Session(self.store).set('city', 'Псков')
-        out = self.go([cycle_result(friends_eligible=False)], limit=1)
+        out = self.go([cycle_result(friends_eligible=False), cycle_result(send_attempted=True, send_handler_returned=True)], limit=1)
+        self.assertEqual(out['status'], 'profiles-completed')
+        self.assertEqual(out['qualified_profiles'], 1)
+        self.assertEqual(out['profiles_checked'], 2)
         self.assertEqual(out['city_changes'], 0)
         self.city.assert_not_called()
+
+    def test_nonqualifying_profiles_are_replaced_but_scan_is_bounded(self):
+        profiles.Session(self.store).set('city', 'Псков')
+        with unittest.mock.patch.object(profiles, 'MAX_SCANNED', 3):
+            out = self.go([cycle_result(friends_eligible=False)] * 3, limit=1)
+        self.assertEqual(out['reason'], 'profile-scan-limit')
+        self.assertEqual(out['qualified_profiles'], 0)
+        self.assertEqual(out['profiles_checked'], 3)
+        self.assertEqual(out['skipped_friends'], 3)
+        self.assertEqual(self.cycle.call_count, 3)
 
     def test_declined_greeting_pauses(self):
         profiles.Session(self.store).set('city', 'Псков')

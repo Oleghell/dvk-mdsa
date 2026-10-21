@@ -54,7 +54,7 @@ class Monitor(unittest.TestCase):
 
     def wait_stop(self, interval):
         self.assertTrue(self.held)
-        self.assertEqual(interval, 120)
+        self.assertEqual(interval, 30)
         self.stop.set()
         return True
 

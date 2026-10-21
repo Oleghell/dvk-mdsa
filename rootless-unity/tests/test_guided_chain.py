@@ -213,6 +213,33 @@ class WholeChain(unittest.TestCase):
         names.assert_not_called()
         self.assertNotIn('PRIVATE', json.dumps(out))
 
+    def test_transient_loading_retries_only_read_then_sends_each_action_once(self):
+        from one_chat_device import ReadStopped
+        loading = ReadStopped('history-not-ready', dict(read_checkpoint='loaded-flag',
+                              wait_reason='history-loading', private_text='PRIVATE'))
+        out = self.walk([loading] + sequence())
+        self.assertEqual(out['status'], 'chain-completed')
+        self.assertEqual(out['diagnostics']['read_retries'], 1)
+        self.assertEqual(len(self.sent), 2)
+        self.assertNotIn('PRIVATE', json.dumps(out))
+
+    def test_repeated_loading_stops_without_send_or_unbounded_retry(self):
+        from one_chat_device import ReadStopped
+        loading = ReadStopped('history-not-ready', dict(wait_reason='history-loading'))
+        out = self.walk([loading, loading])
+        self.assertEqual(out['reason'], 'bound-chat-read-failed')
+        self.assertEqual(out['diagnostics']['read_retries'], 1)
+        self.assertEqual(self.sent, [])
+
+    def test_identity_failure_is_not_retried(self):
+        from one_chat_device import ReadStopped
+        reader = MagicMock(side_effect=ReadStopped('identity-not-bound'))
+        out = guided.walk(self.chain, WHO, self.stop, self.approve, reader, self.send,
+                          approved=True, greetings=(GREETING,), notifier=self.notifier)
+        self.assertEqual(out['reason'], 'bound-chat-read-failed')
+        self.assertEqual(reader.call_count, 1)
+        self.assertEqual(self.sent, [])
+
     def test_reader_failure_has_transport_category_without_private_error(self):
         from one_chat_device import ReadStopped
         reader = MagicMock(side_effect=ReadStopped('PRIVATE_ERROR'))

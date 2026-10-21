@@ -1,13 +1,13 @@
 """DvkAssistant window: Start / Replies / Stop / Settings.
 
-No automatic startup actions. Every outgoing message needs its own confirmation.
+No startup actions. Explicit Start authorizes this run; Stop revokes it.
 """
 import os
 import queue
 import sys
 import threading
-import time
 
+from assistant_authorization import RunAuthorization
 from assistant_store import StateError, data_directory
 from assistant_settings import Settings, load, save
 from assistant_monitor import run as monitor, summary as monitor_summary
@@ -26,7 +26,7 @@ def launch(self_check=False):
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
     status = tk.StringVar(value='Версия ' + VERSION + '. «Старт»: сначала ответы в непрочитанных чатах, '
-                          'затем одна порция анкет и мониторинг отслеживаемых диалогов. Каждое сообщение — после подтверждения.')
+                          'затем одна порция анкет и мониторинг отслеживаемых диалогов. Сообщения цепочки отправляются автоматически после явного запуска.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
@@ -43,7 +43,6 @@ def launch(self_check=False):
     stopped = threading.Event()
     busy = False
     dialog = None
-    approval_window = None
     first_profiles_run = True
 
     def refresh():
@@ -58,7 +57,7 @@ def launch(self_check=False):
 
     def worker(current, mode, fresh):
         try:
-            result = monitor(current, stopped, ask_send,
+            result = monitor(current, stopped, RunAuthorization(stopped),
                              lambda text: events.put(('progress', text)),
                              mode=mode, fresh_session=fresh)
             events.put(('start-result', result))
@@ -75,15 +74,15 @@ def launch(self_check=False):
         except Exception as error:
             status.set(str(error) if isinstance(error, StateError) else 'Не удалось сохранить настройки. Запуск отменён.')
             return
-        text = ('1) Открою непрочитанные чаты, где уже идёт цепочка, и предложу следующее сообщение.\n'
-                '2) Затем проверю до ' + str(settings.profile_limit) + ' новых анкет: только онлайн, '
-                'друзей меньше 50, пустой чат — и предложу приветствие.\n\n'
+        text = ('1) Открою непрочитанные чаты, где уже идёт цепочка, и отправлю следующее сообщение цепочки.\n'
+                '2) Затем наберу ' + str(settings.profile_limit) + ' подходящих анкет: только онлайн, '
+                'друзей меньше 50, пустой чат — отправлю приветствие.\n\n'
                 if mode == 'full' else
-                'Открою непрочитанные чаты, где уже идёт цепочка, и предложу следующее сообщение.\n\n')
+                'Открою непрочитанные чаты, где уже идёт цепочка, и отправлю следующее сообщение цепочки.\n\n')
         if not messagebox.askyesno('Старт' if mode == 'full' else 'Только ответы', text +
                                    'После прохода останусь в диалогах и буду проверять отслеживаемые чаты каждые '
                                    + str(settings.reply_interval) + ' сек. Новые анкеты повторно не запускаются.\n'
-                                   'Каждое сообщение отправляется только после кнопки «Отправить». '
+                                   'Этот запуск разрешает автоматические приветствия и ответы цепочки без отдельных окон. '
                                    'Не трогай MuMu №4 во время работы.\n\nНачать?', parent=root):
             return
         fresh = first_profiles_run and mode == 'full'
@@ -92,64 +91,8 @@ def launch(self_check=False):
         stopped.clear()
         busy = True
         refresh()
-        status.set('Работаю. Каждая отправка требует подтверждения; «Стоп» завершает мониторинг.')
+        status.set('Работаю. Отправка автоматическая в рамках этого запуска; «Стоп» завершает мониторинг.')
         threading.Thread(target=worker, args=(settings, mode, fresh), daemon=True).start()
-
-    def ask_send(kind, text, cancelled):
-        request = dict(kind=kind, text=text, done=threading.Event(), accepted=False,
-                       expires=time.monotonic() + 60)
-        events.put(('approval', request))
-        while not request['done'].wait(.1):
-            if cancelled() or time.monotonic() >= request['expires']:
-                return False
-        return request['accepted'] is True and not cancelled() and time.monotonic() < request['expires']
-
-    def show_approval(request):
-        nonlocal approval_window
-        if stopped.is_set() or request['done'].is_set() or time.monotonic() >= request['expires']:
-            request['done'].set()
-            return
-        w = tk.Toplevel(root)
-        approval_window = w
-        w.title('Подтвердить одно сообщение')
-        box = ttk.Frame(w, padding=16)
-        box.pack(fill='both', expand=True)
-        ttk.Label(box, text=('Отправить приветствие в этот пустой чат MuMu №4?'
-                             if request['kind'] == 'greeting' else
-                             'Отправить в открытый чат MuMu №4?'),
-                  wraplength=480).pack(anchor='w')
-        ttk.Label(box, text=request['text'], wraplength=480,
-                  font=('Segoe UI', 12)).pack(anchor='w', pady=16)
-        note = tk.StringVar()
-        ttk.Label(box, textvariable=note).pack(anchor='w')
-        row = ttk.Frame(box)
-        row.pack(fill='x', pady=12)
-        def finish(accepted=False):
-            nonlocal approval_window
-            if request['done'].is_set():
-                return
-            request['accepted'] = accepted is True
-            request['done'].set()
-            approval_window = None
-            w.destroy()
-        ttk.Button(row, text='Отправить это сообщение', command=lambda: finish(True)).pack(side='left')
-        ttk.Button(row, text='Не отправлять', command=finish).pack(side='left', padx=8)
-        def stop_all():
-            cancel()
-            finish()
-        ttk.Button(box, text='Остановить всё', command=stop_all).pack(anchor='w')
-        w.protocol('WM_DELETE_WINDOW', finish)
-        def tick():
-            seconds = max(0, int(request['expires'] - time.monotonic()))
-            if request['done'].is_set():
-                return
-            if stopped.is_set() or seconds <= 0:
-                finish()
-                return
-            note.set(f'Без подтверждения отправки не будет. Осталось: {seconds} сек.')
-            w.after(200, tick)
-        tick()
-        w.lift()
 
     def configure():
         nonlocal dialog
@@ -265,9 +208,6 @@ def launch(self_check=False):
             if kind == 'progress':
                 if not stopped.is_set():
                     status.set(value)
-                continue
-            if kind == 'approval':
-                show_approval(value)
                 continue
             busy = False
             if kind == 'error':
