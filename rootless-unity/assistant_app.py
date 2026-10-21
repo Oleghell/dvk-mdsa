@@ -17,19 +17,19 @@ def launch(self_check=False):
     from tkinter import ttk, filedialog
     root = tk.Tk()
     root.title('ДругВокруг · MuMu №4')
-    root.geometry('540x270')
-    root.minsize(520, 270)
+    root.geometry('580x300')
+    root.minsize(560, 300)
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Открой анкеты в MuMu №4. «Старт» проверит переход в личку и обратно — без сообщений.')
+    status = tk.StringVar(value='Открой анкеты на MuMu №4. «Старт» проверит видимые диалоги из журнала и автоматически продолжит цепочку при новых ответах.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
         settings = Settings()
         status.set(str(error))
-    ttk.Label(frame, textvariable=status, wraplength=470).pack(anchor='w', pady=(18, 12))
-    ttk.Label(frame, text='Город → анкеты → ответы в личке → следующий город.\nTelegram — только имя и добровольно присланный свой контакт.', wraplength=470).pack(anchor='w')
+    ttk.Label(frame, textvariable=status, wraplength=520).pack(anchor='w', pady=(18, 12))
+    ttk.Label(frame, text='Сейчас: один проход по диалогам, без новых приветствий и смены города.\nTelegram — только имя и добровольно присланный свой контакт.', wraplength=520).pack(anchor='w')
     controls = ttk.Frame(frame)
     controls.pack(fill='x', pady=(18, 0))
     events = queue.Queue()
@@ -127,7 +127,7 @@ def launch(self_check=False):
             except Exception as error:
                 note.set(str(error) if isinstance(error, (StateError, telegram_notify.TelegramError)) else 'Не удалось сохранить настройки. Проверь поля.')
         ttk.Button(box, text='Сохранить', command=store).pack(anchor='w', pady=8)
-        ttk.Label(box, textvariable=note, wraplength=470).pack(anchor='w')
+        ttk.Label(box, textvariable=note, wraplength=520).pack(anchor='w')
         def close_settings():
             nonlocal dialog
             token.set('')
@@ -154,18 +154,22 @@ def launch(self_check=False):
             if kind == 'error':
                 status.set(value)
             elif value.get('report_name'):
-                if value['status'] == 'dialog-route-ready':
-                    status.set('Личка открыта, возврат к анкетам подтверждён. Пришли messages-navigation-check.json. Общий цикл пока выключен.')
+                if value['status'] == 'dialogs-completed':
+                    status.set(f"Обработано диалогов: {value['dialogs_processed']}. Попыток ответа: {value['reply_submission_calls']}. Возврат к анкетам подтверждён. Отчёт: messages-pass-check.json.")
+                elif value['status'] == 'dialogs-empty':
+                    status.set('В журнале нет активных привязанных диалогов. Посторонним не отвечаю. Отчёт: messages-pass-check.json.')
+                elif value['status'] == 'dialogs-cancelled':
+                    status.set('Проход остановлен. Уже выполненные действия не откатываются. Отчёт: messages-pass-check.json.')
                 else:
-                    status.set('Переход остановлен: ' + value['reason'] + '. Пришли messages-navigation-check.json. Отправок не было; экран мог остаться в личке.')
+                    status.set('Проход остановлен: ' + value['reason'] + '. Пришли messages-pass-check.json. Проверь экран вручную; неизвестные попытки не повторяются.')
                 try:
                     os.startfile(str(data_directory()))
                 except (OSError, AttributeError):
-                    status.set('Отчёт: %LOCALAPPDATA%/DvkAssistant/messages-navigation-check.json. Общий цикл выключен. Отправок не было.')
+                    status.set(status.get() + ' Папка: %LOCALAPPDATA%/DvkAssistant/.')
             elif value['status'] == 'cancelled':
-                status.set('Остановлено. Отправок не было.')
+                status.set('Остановлено до запуска прохода.')
             else:
-                status.set('Проверка лички остановлена: ' + value['reason'] + '. Проверь папку test-apks. Отправок не было.')
+                status.set('Проход остановлен. Проверь экран и журнал. Неизвестные попытки не повторяются.')
             refresh()
         root.after(100, poll)
 

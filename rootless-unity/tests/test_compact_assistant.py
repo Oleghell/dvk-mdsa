@@ -62,7 +62,7 @@ class NavigationReadiness(unittest.TestCase):
     def test_cancelled_preflight_reads_no_apk(self):
         stopped=threading.Event();stopped.set()
         with patch.object(cycle,'run_route') as collect:
-            self.assertEqual(cycle.start(cfg.Settings(),stopped)['status'],'cancelled')
+            self.assertEqual(cycle.check_navigation(cfg.Settings(),stopped)['status'],'cancelled')
         collect.assert_not_called()
 
     def test_route_success_is_not_live_cycle_success(self):
@@ -70,7 +70,7 @@ class NavigationReadiness(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.object(cycle,'operation_lock'), \
              patch.object(cycle,'data_directory',return_value=Path(temp)), \
              patch.object(cycle,'run_route',return_value=ready_route()):
-            result=cycle.start(cfg.Settings(),threading.Event())
+            result=cycle.check_navigation(cfg.Settings(),threading.Event())
             report=json.loads((Path(temp)/result['report_name']).read_text())
         self.assertEqual(result['status'],'dialog-route-ready')
         self.assertFalse(result['live_cycle_available'])

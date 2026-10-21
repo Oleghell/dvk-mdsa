@@ -23,6 +23,10 @@ POSITIVE = re.compile(r'^(?:вс[её]\s+)?(?:хорошо|отлично|нор
 HELLO = re.compile(r'^(?:привет(?:ик)?|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|хай|hello|hi)[\s!.,)🙂😊👋]*$', re.I)
 
 
+class ReviewRequired(StateError):
+    """A bound history does not verify the original greeting; never auto-reply."""
+
+
 def fingerprint(message, salt):
     raw = json.dumps(message, ensure_ascii=False, sort_keys=True).encode()
     return hmac.new(bytes.fromhex(salt), raw, hashlib.sha256).hexdigest()
@@ -75,7 +79,7 @@ class Chain:
             if row is None:
                 own = [m for m in messages if m['sender'] == who['account']]
                 if len(own) != 1 or not isinstance(own[0]['text'], str) or text_hash(own[0]['text']) != greeting_hash:
-                    raise StateError('Не подтверждено единственное исходное приветствие. Автоцепочка не запущена.')
+                    raise ReviewRequired('Не подтверждено единственное исходное приветствие. Автоцепочка не запущена.')
                 row = (own[0]['id'], 'wait-reply', secrets.token_hex(32))
                 db.execute('INSERT INTO chain_dialogs VALUES(?,?,?,?,?,?)',
                            (who['account'], who['peer'], chat, *row))
@@ -157,6 +161,17 @@ class Chain:
                 db.execute('INSERT INTO chain_seen VALUES(?,?,?)', (chat, m['id'], now[m['id']]))
             db.execute('UPDATE chain_dialogs SET stage=? WHERE chat=?', (stage, chat))
         return stage, action
+
+    def mark_review(self, who):
+        who=identity(who)
+        self.authorized(who)
+        with self.store.connection() as db:
+            # NULL greeting records a terminal block, not an invented message ID.
+            db.execute("INSERT INTO chain_dialogs(account,peer,chat,greeting,stage,salt) VALUES(?,?,?,NULL,'manual-review',?) ON CONFLICT(account,peer) DO NOTHING",
+                       (who['account'],who['peer'],who['chat'],secrets.token_hex(32)))
+            cur=db.execute("UPDATE chain_dialogs SET stage='manual-review' WHERE account=? AND peer=? AND chat=?",
+                           (who['account'],who['peer'],who['chat']))
+            if cur.rowcount!=1:raise StateError('Не удалось сохранить блокировку диалога.')
 
     def finish(self, who, action, outcome):
         status = 'handler-returned-unconfirmed' if outcome is True else 'unknown'

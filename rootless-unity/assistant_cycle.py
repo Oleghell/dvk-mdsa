@@ -1,4 +1,4 @@
-"""Bounded no-send route check; this is NOT the complete automated cycle."""
+"""Compact pass entry and retained developer-only route check. Not a city cycle."""
 import json
 from assistant_lock import operation_lock
 from assistant_store import data_directory
@@ -17,7 +17,7 @@ def write_navigation_report(report):
     return target
 
 
-def start(settings, stopped, progress=lambda text: None):
+def check_navigation(settings, stopped, progress=lambda text: None):
     if stopped.is_set():
         return dict(status='cancelled',reason='cancelled',live_cycle_available=False)
     with operation_lock():
@@ -41,3 +41,27 @@ def start(settings, stopped, progress=lambda text: None):
         path=write_navigation_report(report)
     return dict(status='cancelled' if stopped.is_set() else 'dialog-route-ready' if ready else 'blocked',
                 reason=reason,live_cycle_available=False,report_name=path.name)
+
+
+def start(settings, stopped, progress=lambda text: None):
+    from assistant_dialogs import run_pass
+    if stopped.is_set():
+        return dict(status='cancelled',reason='cancelled',live_cycle_available=False)
+    try:
+        result=run_pass(settings,stopped,progress)
+    except Exception as error:
+        from assistant_dialogs import report
+        from telegram_notify import TelegramError
+        result=report()
+        result.update(status='dialogs-cancelled' if stopped.is_set() else 'dialogs-stopped',
+                      reason='cancelled' if stopped.is_set() else 'telegram-settings-unavailable' if isinstance(error,TelegramError) else 'journal-or-device-start-stopped')
+    directory=data_directory();directory.mkdir(parents=True,exist_ok=True)
+    target=directory/'messages-pass-check.json';temporary=target.with_suffix('.tmp')
+    try:
+        temporary.write_text(json.dumps(result,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return dict(status=result['status'],reason=result['reason'],live_cycle_available=False,report_name=target.name,
+                dialogs_processed=result['dialogs_processed'],reply_submission_calls=result['reply_submission_calls'],
+                reply_handler_returns=result['reply_handler_returns'],return_verified=result['return_verified'])

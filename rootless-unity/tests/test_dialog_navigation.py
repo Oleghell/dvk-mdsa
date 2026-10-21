@@ -61,7 +61,7 @@ class CycleReport(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.object(cycle,'operation_lock'), \
              patch.object(cycle,'data_directory',return_value=Path(temp)), \
              patch.object(cycle,'run_route',return_value=result,side_effect=error) as run:
-            outcome=cycle.start(Settings(),stopped or threading.Event())
+            outcome=cycle.check_navigation(Settings(),stopped or threading.Event())
             p=Path(temp)/'messages-navigation-check.json'
             report=json.loads(p.read_text()) if p.exists() else None
             return outcome,report,run.call_count
