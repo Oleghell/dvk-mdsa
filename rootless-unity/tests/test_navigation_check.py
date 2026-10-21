@@ -6,6 +6,7 @@ from unittest.mock import MagicMock,patch
 
 import assistant_navigation_check as n
 import assistant_cycle as cycle
+import assistant_read_check as read_check
 from assistant_settings import Settings
 from test_assistant_dialogs import WHO,diag,nav_result
 
@@ -101,14 +102,14 @@ class NavigationCheck(unittest.TestCase):
         out=self.walk();self.assertEqual(out['status'],'dialogs-stopped')
         self.assertNotIn('PRIVATE',json.dumps(out));self.nav.assert_not_called()
 
-    def test_gui_entry_calls_only_navigation_check_even_with_telegram_enabled(self):
-        with patch.object(n,'run_navigation_check',return_value=n.report()) as check, \
+    def test_retained_navigation_check_is_not_the_new_gui_entry(self):
+        with patch('assistant_read_check.run_read_check',return_value=read_check.report()) as check, \
              patch('assistant_dialogs.run_pass') as automatic, \
              patch.object(cycle,'data_directory',return_value=Path(self.temp.name)):
             cycle.start(Settings(contacts_enabled=True),self.stop)
         check.assert_called_once();automatic.assert_not_called()
         saved=json.loads((Path(self.temp.name)/'messages-pass-check.json').read_text())
-        self.assertTrue(saved['navigation_only']);self.assertFalse(saved['telegram_used'])
+        self.assertFalse(saved['navigation_only']);self.assertTrue(saved['read_only_check']);self.assertFalse(saved['telegram_used'])
 
 
 if __name__=='__main__':unittest.main()

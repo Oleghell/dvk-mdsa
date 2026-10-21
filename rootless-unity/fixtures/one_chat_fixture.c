@@ -26,6 +26,7 @@ typedef struct Text {Object header;int length;uint16_t chars[16];} Text;
 static Text text_a={{&greeting_string_class,0},5,{'H','e','l','l','o'}},text_b={{&greeting_string_class,0},5,{'R','e','p','l','y'}};
 static Object outgoing={&text_class,0},incoming={&text_class,0};
 static int body_reads,items,name_reads;
+static Object read_parents[31];
 static Text display_name={{&greeting_string_class,0},4,{0x410,0x43d,0x43d,0x430}}, changed_name={{&greeting_string_class,0},4,{0x418,0x43d,0x43d,0x430}};
 static Method extra[]={
  {"get_MessagesManager",&cc[1],0,&manager_type,100},
@@ -80,6 +81,13 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  }
  if(mode==602&&m->action==61){managed_calls++;if(TID()!=main_id)off_thread_calls++;boolbox.value=0;return &boolbox;}
  if(m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=mode==507?0:2;return &integer_box;}
+ if((mode==550||mode==551)&&m->action==18){
+  managed_calls++;if(TID()!=main_id)off_thread_calls++;
+  int length=mode==550?24:31;
+  for(int i=0;i<length;i++){read_parents[i].klass=&nc[0];read_parents[i].value=i;}
+  if(obj==&view)return &read_parents[0];
+  for(int i=0;i<length;i++)if(obj==&read_parents[i])return i+1<length?&read_parents[i+1]:&window;
+ }
  if(m->action<100)return old_invoke(m,obj,args,exc);
  managed_calls++;if(TID()!=main_id)off_thread_calls++;
  switch(m->action){

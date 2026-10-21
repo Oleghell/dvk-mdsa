@@ -44,13 +44,13 @@ def check_navigation(settings, stopped, progress=lambda text: None):
 
 
 def start(settings, stopped, progress=lambda text: None):
-    from assistant_navigation_check import run_navigation_check
+    from assistant_read_check import run_read_check
     if stopped.is_set():
         return dict(status='cancelled',reason='cancelled',live_cycle_available=False)
     try:
-        result=run_navigation_check(settings,stopped,progress)
+        result=run_read_check(settings,stopped,progress)
     except Exception as error:
-        from assistant_navigation_check import report
+        from assistant_read_check import report
         result=report()
         result.update(status='dialogs-cancelled' if stopped.is_set() else 'dialogs-stopped',
                       reason='cancelled' if stopped.is_set() else 'journal-or-device-start-stopped')
@@ -64,4 +64,5 @@ def start(settings, stopped, progress=lambda text: None):
     return dict(status=result['status'],reason=result['reason'],live_cycle_available=False,report_name=target.name,
                 dialogs_processed=result['dialogs_processed'],reply_submission_calls=result['reply_submission_calls'],
                 reply_handler_returns=result['reply_handler_returns'],return_verified=result['return_verified'],
-                navigation_dialogs_checked=result.get('navigation_dialogs_checked',0))
+                navigation_dialogs_checked=result.get('navigation_dialogs_checked',0),
+                dialogs_read=result.get('dialogs_read',0))

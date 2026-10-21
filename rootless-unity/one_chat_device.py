@@ -21,7 +21,7 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
     if f.__version__ != '17.24.1':
         raise ReadStopped('client-version')
     # Build only fixed code with validated decimal IDs; no user code is accepted.
-    source = probe.build(expected, read_name=read_name) + '''
+    source = probe.build(expected, read_name=read_name, scoped_traversal=True) + '''
     rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
       root(){return probeUIKitRoot();},cancel(){cancelNavigation();}};
     '''

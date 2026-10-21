@@ -165,19 +165,19 @@ class DialogPass(unittest.TestCase):
 class PassEntry(unittest.TestCase):
     def test_start_writes_the_new_body_free_report(self):
         import assistant_cycle as cycle
-        from assistant_navigation_check import report
+        from assistant_read_check import report
         result=report();result.update(status='dialogs-completed',reason='visible-exhausted',return_verified=True)
-        with tempfile.TemporaryDirectory() as temp,patch('assistant_navigation_check.run_navigation_check',return_value=result) as run,patch.object(cycle,'data_directory',return_value=Path(temp)):
+        with tempfile.TemporaryDirectory() as temp,patch('assistant_read_check.run_read_check',return_value=result) as run,patch.object(cycle,'data_directory',return_value=Path(temp)):
             out=cycle.start(Settings(),threading.Event())
             saved=json.loads((Path(temp)/'messages-pass-check.json').read_text())
         self.assertEqual(out['status'],'dialogs-completed');self.assertEqual(out['report_name'],'messages-pass-check.json')
-        self.assertEqual(saved['mode'],'single-dialog-navigation-check');self.assertFalse(saved['live_cycle_available'])
+        self.assertEqual(saved['mode'],'visible-journal-dialog-read-check');self.assertFalse(saved['live_cycle_available'])
         self.assertEqual(run.call_count,1)
 
     def test_credential_failure_is_not_exported_as_secret_text(self):
         import assistant_cycle as cycle
         from telegram_notify import TelegramError
-        with tempfile.TemporaryDirectory() as temp,patch('assistant_navigation_check.run_navigation_check',side_effect=TelegramError('PRIVATE_TOKEN')),patch.object(cycle,'data_directory',return_value=Path(temp)):
+        with tempfile.TemporaryDirectory() as temp,patch('assistant_read_check.run_read_check',side_effect=TelegramError('PRIVATE_TOKEN')),patch.object(cycle,'data_directory',return_value=Path(temp)):
             out=cycle.start(Settings(),threading.Event())
             text=(Path(temp)/out['report_name']).read_text()
         self.assertEqual(out['reason'],'journal-or-device-start-stopped');self.assertNotIn('PRIVATE',text)

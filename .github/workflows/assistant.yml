@@ -47,6 +47,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/one_chat_fixture.c -o one_chat_fixture.so
+          python rootless-unity/smoke_one_chat.py ./one_chat_fixture.so
           python rootless-unity/smoke_one_chat_send.py ./one_chat_fixture.so
           python rootless-unity/smoke_one_chat_name.py ./one_chat_fixture.so
           cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/dialog_navigation_fixture.c -o dialog_fixture.so
@@ -90,6 +91,8 @@ jobs:
         shell: powershell
         run: |
           cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/one_chat_fixture.c /Fe:one_chat_fixture.dll
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+          python rootless-unity/smoke_one_chat.py ./one_chat_fixture.dll
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
           python rootless-unity/smoke_one_chat_send.py ./one_chat_fixture.dll
           if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
@@ -141,7 +144,7 @@ jobs:
           $root='out/DvkAssistant-windows-x64'
           Copy-Item rootless-unity/ASSISTANT.md "$root/README.md"
           Copy-Item START_ASSISTANT.bat "$root/START_ASSISTANT.bat"
-          @{source_commit=$env:GITHUB_SHA;entry_mode='single-dialog-navigation-check';readiness_only=$true;live_cycle_available=$false;automatic_send=$false;chat_content_read=$false;telegram_used=$false;new_greetings_available=$false;city_cycle_available=$false;dialog_navigation_available=$true;dialog_navigation_live_verified=$true;dialog_traversal_available=$true;dialog_traversal_live_verified=$false;contact_forwarding_library_available=$true;contact_forwarding_enabled=$false;contact_forwarding_live_verified=$false;device_scope='MuMu-4-only';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
+          @{source_commit=$env:GITHUB_SHA;entry_mode='visible-journal-dialog-read-check';tool_version='0.4.4';dialog_limit=5;read_only_check=$true;journal_read_only=$true;analysis_in_memory=$true;live_cycle_available=$false;automatic_send=$false;chat_content_read_available=$true;chat_content_exported=$false;telegram_used=$false;new_greetings_available=$false;city_cycle_available=$false;dialog_navigation_available=$true;dialog_navigation_live_verified=$true;dialog_traversal_available=$true;dialog_traversal_live_verified=$false;contact_forwarding_library_available=$true;contact_forwarding_enabled=$false;contact_forwarding_live_verified=$false;device_scope='MuMu-4-only';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
       - uses: actions/upload-artifact@v4
         with:
           name: DvkAssistant-windows-x64

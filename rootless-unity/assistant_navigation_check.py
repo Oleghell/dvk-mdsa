@@ -34,19 +34,23 @@ def read_targets(path=None):
     with closing(sqlite3.connect(path.resolve(strict=True).as_uri()+'?mode=ro',timeout=5,uri=True)) as db:
         db.execute('PRAGMA query_only=ON')
         db.execute('BEGIN')  # One consistent, read-only snapshot.
-        tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if 'manual_actions' not in tables:
-            raise StateError('journal-schema-unavailable')
-        if 'chain_dialogs' in tables:
-            rows=db.execute('''SELECT m.account,m.peer,COALESCE(c.chat,m.initial_chat)
-                FROM manual_actions m LEFT JOIN chain_dialogs c
-                  ON c.account=m.account AND c.peer=m.peer
-                WHERE m.status!='not-invoked'
-                  AND (c.stage IS NULL OR c.stage NOT IN ('done','declined','manual-review'))
-                ORDER BY m.id LIMIT ?''',(MAX_TARGETS+1,)).fetchall()
-        else:
-            rows=db.execute('''SELECT account,peer,initial_chat FROM manual_actions
-                WHERE status!='not-invoked' ORDER BY id LIMIT ?''',(MAX_TARGETS+1,)).fetchall()
+        return read_targets_from_db(db)
+
+
+def read_targets_from_db(db):
+    tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if 'manual_actions' not in tables:
+        raise StateError('journal-schema-unavailable')
+    if 'chain_dialogs' in tables:
+        rows=db.execute('''SELECT m.account,m.peer,COALESCE(c.chat,m.initial_chat)
+            FROM manual_actions m LEFT JOIN chain_dialogs c
+              ON c.account=m.account AND c.peer=m.peer
+            WHERE m.status!='not-invoked'
+              AND (c.stage IS NULL OR c.stage NOT IN ('done','declined','manual-review'))
+            ORDER BY m.id LIMIT ?''',(MAX_TARGETS+1,)).fetchall()
+    else:
+        rows=db.execute('''SELECT account,peer,initial_chat FROM manual_actions
+            WHERE status!='not-invoked' ORDER BY id LIMIT ?''',(MAX_TARGETS+1,)).fetchall()
     return targets([dict(account=a,peer=p,chat=c) for a,p,c in rows])
 
 

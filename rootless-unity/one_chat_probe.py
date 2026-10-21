@@ -133,7 +133,7 @@ COLLECT = r'''
 '''
 
 
-def build(expected=None, *, read_name=False):
+def build(expected=None, *, read_name=False, scoped_traversal=False):
     if read_name and expected is None:
         raise ValueError('Name requires an authorized bound dialog')
     expected = identity(expected) if expected is not None else None
@@ -172,6 +172,9 @@ def build(expected=None, *, read_name=False):
         source = replace_once(source, "   n.read_checkpoint='recheck';", name_read + "   n.read_checkpoint='recheck';")
         source = replace_once(source, 'draft:n.model_draft,identity:who,messages};', 'draft:n.model_draft,identity:who,messages,peer_name:peerName};')
         source = replace_once(source, 'n.private_result={identity:who,messages};', 'n.private_result={identity:who,messages,peer_name:peerName};')
+    if scoped_traversal:
+        from navigation_handles import scoped_traversals
+        source=scoped_traversals(source)
     return source
 
 
