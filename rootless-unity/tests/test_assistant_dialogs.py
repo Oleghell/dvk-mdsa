@@ -10,7 +10,7 @@ from test_assistant_chain import WHO,GREETING,msg,snap
 
 
 def diag():
-    return dict(stage='navigation-ready',error='none',phase='done',metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,action_attempted=True,action_completed=True,destination_verified=True)
+    return dict(stage='navigation-ready',error='none',phase='done',metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,action_attempted=True,action_completed=True,destination_verified=True,unread_filter_applied=False,unread_verified=False,read_rows_skipped=0)
 
 
 def nav_result(state,who=None):return dict(state=state,identity=dict(who) if who else None,diagnostic=diag())

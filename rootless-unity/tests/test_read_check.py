@@ -10,7 +10,13 @@ from assistant_store import Store
 from assistant_chain import Chain
 from assistant_settings import Settings
 from one_chat_device import ReadStopped
-from test_assistant_dialogs import nav_result
+from test_assistant_dialogs import nav_result as unfiltered_nav_result
+
+
+def nav_result(state,who=None):
+    value=unfiltered_nav_result(state,who)
+    value['diagnostic'].update(unread_filter_applied=state in ('opened','exhausted'),unread_verified=state=='opened')
+    return value
 
 WHO=dict(account='100',peer='200',chat='300')
 GREETING='Привет 🙂'
@@ -76,6 +82,8 @@ class ReadCheck(unittest.TestCase):
         opens=[c for c in self.nav.call_args_list if c.args[0]=='open']
         self.assertEqual([len(c.kwargs['allowed']) for c in opens],[6,5,4,3,2])
         self.assertEqual([c.kwargs['entry'] for c in opens],['search']+['dialogs']*4)
+        self.assertTrue(all(c.kwargs['unread_only'] is True for c in opens))
+        self.assertEqual(out['unread_dialogs_verified'],5)
         self.assertEqual(self.path.read_bytes(),before)
 
     def test_untracked_dialog_is_not_read(self):
@@ -229,8 +237,35 @@ class ReadCheck(unittest.TestCase):
             out=cycle.start(Settings(contacts_enabled=True),self.stop)
         run.assert_called_once();automatic.assert_not_called();nav.assert_not_called();self.assertEqual(out['dialogs_read'],3)
         saved=json.loads((Path(self.tmp.name)/'messages-pass-check.json').read_text())
-        self.assertEqual(saved['tool_version'],'0.4.5');self.assertEqual(saved['dialog_limit'],5)
+        self.assertEqual(saved['tool_version'],'0.4.6');self.assertEqual(saved['dialog_limit'],5)
         self.assertTrue(saved['read_only_check']);self.assertFalse(saved['telegram_used'])
+
+    def test_missing_unread_filter_evidence_never_reaches_reader(self):
+        for field in ('unread_filter_applied','unread_verified'):
+            with self.subTest(field=field):
+                value=nav_result('opened',WHO);value['diagnostic'][field]=False
+                self.nav.side_effect=[value]
+                out=self.walk()
+                self.assertEqual(out['status'],'dialogs-stopped');self.reader.assert_not_called()
+                self.assertEqual(self.nav.call_count,1)
+                self.nav.reset_mock()
+
+    def test_missing_unread_schema_stops_without_history_or_fallback(self):
+        value=nav_result('stopped');value['diagnostic'].update(stage='not-attempted',destination_verified=False,
+            metadata_checkpoint='unread-count',unread_filter_applied=False,unread_verified=False)
+        self.nav.side_effect=[value]
+        out=self.walk();self.reader.assert_not_called();self.assertEqual(self.nav.call_count,1)
+        self.assertEqual(out['status'],'dialogs-stopped');self.assertEqual(out['dialogs_opened'],0)
+        self.assertTrue(self.nav.call_args.kwargs['unread_only'])
+
+    def test_all_read_rows_are_skipped_without_history_analysis(self):
+        empty=nav_result('exhausted');empty['diagnostic']['read_rows_skipped']=2
+        self.nav.side_effect=[empty,nav_result('search-ready')]
+        out=self.walk();self.reader.assert_not_called()
+        self.assertEqual(out['status'],'dialogs-completed');self.assertTrue(out['return_verified'])
+        self.assertTrue(out['unread_only']);self.assertEqual(out['dialogs_read'],0)
+        self.assertEqual(out['unread_dialogs_verified'],0);self.assertEqual(out['read_rows_skipped'],2)
+        self.assertEqual([c.args[0] for c in self.nav.call_args_list],['open','return'])
 
     def test_native_read_uses_scoped_handles_and_retains_guards(self):
         import one_chat_probe as probe

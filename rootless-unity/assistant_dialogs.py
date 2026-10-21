@@ -36,13 +36,8 @@ def report():
 
 
 def safe_diagnostic(value):
-    from dialog_browser import ERRORS,PHASES,CHECKPOINTS,SELECTION
-    keys={'stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified'}
-    if not isinstance(value,dict) or set(value)!=keys:raise ValueError('Invalid diagnostic')
-    if value['stage'] not in {'not-attempted','navigation-ready','navigation-stopped','cleanup-failed'} or value['error'] not in ERRORS or value['phase'] not in PHASES or value['metadata_checkpoint'] not in CHECKPOINTS or value['selection_checkpoint'] not in SELECTION:raise ValueError('Invalid diagnostic category')
-    if any(type(value[k]) is not bool for k in ('action_attempted','action_completed','destination_verified')):raise ValueError('Invalid diagnostic flag')
-    if type(value['rows_scanned']) is not int or not 0<=value['rows_scanned']<=128 or type(value['scan_batches']) is not int or not 0<=value['scan_batches']<=180:raise ValueError('Invalid diagnostic count')
-    return dict(value)
+    from assistant_navigation_check import safe_diagnostic as validate_diagnostic
+    return validate_diagnostic(value)
 
 
 def safe_reader_failure(error):

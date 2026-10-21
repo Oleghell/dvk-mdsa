@@ -11,20 +11,20 @@ import uikit_navigation as nav
 from one_chat_probe import identity
 from uikit_profile_navigation import replace_once
 
-VERSION='0.4.3'
+VERSION='0.4.6'
 LIMIT=32
 MAX_TARGETS=1000
 # Fixed categories only: never export object pointers, IDs or text.
 SELECTION_ERRORS={'selection-screen-changed','selection-controller-changed','selection-table-changed',
                   'selection-list-changed','selection-count-changed','selection-cell-changed',
-                  'selection-chat-changed','selection-detached'}
-ERRORS=nav.ERRORS|SELECTION_ERRORS|{'identity-not-bound','selection-changed','collection-too-large','binding-unavailable'}
+                  'selection-chat-changed','selection-detached','selection-unread-changed'}
+ERRORS=nav.ERRORS|SELECTION_ERRORS|{'identity-not-bound','selection-changed','collection-too-large','binding-unavailable','unread-count-invalid'}
 KINDS=route.KINDS|{'chat'}
 PHASES={'entry','wait-list','scan','wait-chat','wait-back','wait-search','done'}
-CHECKPOINTS={'not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','chat-controller','open-handler','back-handler','ready'}
-SELECTION={'not-checked','table','visible','cell','binding','filter','stability','open','verify-chat','back','search','exhausted'}
-FLAGS={'cleanup_failed','ui_text_read','entry_verified','list_verified','chat_verified','destination_verified','action_attempted','action_completed','selection_verified','exhausted'}
-EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches'}
+CHECKPOINTS={'not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','unread-count','chat-controller','open-handler','back-handler','ready'}
+SELECTION={'not-checked','table','visible','cell','binding','filter','unread','stability','open','verify-chat','back','search','exhausted'}
+FLAGS={'cleanup_failed','ui_text_read','entry_verified','list_verified','chat_verified','destination_verified','action_attempted','action_completed','selection_verified','exhausted','unread_filter_applied','unread_verified'}
+EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped'}
 
 
 def targets(values):
@@ -84,6 +84,12 @@ PREPARE=r'''
   s.actual=checked(s.chatModel,'get_IsActual',2);s.draft=checked(s.chatModel,'get_IsDraftChat',2);
   s.chatManager=checked(s.chatModel,'get_MessagesManager',18,s.manager);s.accountId=checked(s.manager,'get_CurrentUserId',10);
   s.peerId=checked(s.user,'get_Id',10);s.chatId=checked(s.chatModel,'get_Id',10);
+  // Exact definition from the pinned offline catalogue: Chat.get_UnreadCount,
+  // zero-argument instance Int32. Never infer unread from body/order/last sender.
+  if(unreadOnly&&operation==='open'){
+   n.metadata_checkpoint='unread-count';s.unreadCount=checked(s.chatModel,'get_UnreadCount',8);
+   n.unread_filter_applied=true;
+  }
   n.metadata_checkpoint='chat-controller';s.currentChat=checked(s.chatController,'get_Chat',18,s.chatModel);s.currentUser=checked(s.chatController,'get_User',18,s.user);
   n.metadata_checkpoint='open-handler';s.openCell=checked(s.filters,'OnCellDidClicked',1,null,[{kind:18,klass:s.chatCell},{kind:18,klass:s.chatModel}]);
   n.metadata_checkpoint='back-handler';s.closeChat=checked(s.chatController,'DV.Messages.BottomBarView.IDelegate.OnBackButton',1);
@@ -106,6 +112,9 @@ UTILS=r'''
    }
   };
   const int32=(entry,obj)=>{const box=call(entry,obj);if(box.isNull())fail('signature-mismatch');const p=f.unbox(box);if(p.isNull())fail('signature-mismatch');return p.readS32();};
+  const unreadCount=chat=>{
+   const value=int32(s.unreadCount,chat);if(value<0)fail('unread-count-invalid');return value;
+  };
   const id64=(entry,obj)=>{const box=call(entry,obj);if(box.isNull())fail('identity-not-bound');const p=f.unbox(box);if(p.isNull())fail('identity-not-bound');const v=p.readS64();if(v.compare(0)<=0)fail('identity-not-bound');return v.toString();};
   const modelIdentity=chat=>{
    if(chat.isNull()||!f.objectClass(chat).equals(s.chatModel))fail('identity-not-bound');
@@ -160,6 +169,11 @@ UTILS=r'''
      n.selection_checkpoint='binding';const chat=call(s.cellChat,cell);if(chat.isNull())return false;own(chat);
      const model=modelIdentity(chat);if(model===null)return false;
      n.selection_checkpoint='filter';if(!permitted(model.who))return false;
+     let unread=null;
+     if(unreadOnly){
+      n.selection_checkpoint='unread';unread=unreadCount(chat);
+      if(unread===0){n.read_rows_skipped++;return false;}
+     }
      n.selection_checkpoint='stability';
      // Preserve every original guard and its order; only explain WHICH one failed.
      if(!checkView(current))fail('selection-screen-changed');
@@ -169,6 +183,13 @@ UTILS=r'''
      if(!call(s.cellChat,cell).equals(chat))fail('selection-chat-changed');
      if(!attached(cell,table))fail('selection-detached');
      const again=modelIdentity(chat);if(again===null||!same(model.who,again.who)||!again.user.equals(model.user)||!permitted(again.who))fail('identity-changed');
+     // Re-read after the complete identity/table/attachment stability checks.
+     // A concurrent read or any count change cancels selection before the click.
+     if(unreadOnly){
+      n.selection_checkpoint='unread';
+      if(unreadCount(chat)!==unread)fail('selection-unread-changed');
+      n.unread_verified=true;
+     }
      save('selectedChat',chat);save('selectedUser',model.user);state.selectedIdentity=model.who;
      const args=Memory.alloc(Process.pointerSize*2);args.writePointer(cell);args.add(Process.pointerSize).writePointer(chat);
      n.selection_verified=true;n.selection_checkpoint='open';n.action_attempted=true;
@@ -225,15 +246,16 @@ TICK=r'''
 '''
 
 
-def build(operation, *, allowed=(), expected=None, entry='search'):
+def build(operation, *, allowed=(), expected=None, entry='search', unread_only=False):
     if operation not in ('open','back','return') or entry not in ('search','dialogs'):raise ValueError('Invalid fixed operation')
+    if type(unread_only) is not bool or (unread_only and operation!='open'):raise ValueError('Invalid unread filter')
     allowed=targets(allowed);expected=identity(expected) if expected is not None else None
     if (operation=='back')!=(expected is not None) or (operation!='open' and allowed):raise ValueError('Invalid operation binding')
     s=route.FUNCTION
-    s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+';')
+    s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+',unreadOnly='+json.dumps(unread_only)+';')
     s=replace_once(s,' function prepareNavigation(',PREPARE+'\n function prepareNavigation(')
     s=replace_once(s,'prepareDialogRoute(f,setup.navigation,getClass);','prepareDialogRoute(f,setup.navigation,getClass);prepareDialogBrowser(f,setup.navigation,getClass);')
-    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0});
+    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,unread_filter_applied:false,unread_verified:false});
  for(const k of ['search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'])delete r.navigation[k];''')
     s=replace_once(s,'"il2cpp_type_get_object"]','"il2cpp_type_get_object","il2cpp_class_get_parent"]')
     s=replace_once(s,"Object.assign(f,{classType:","Object.assign(f,{classParent:bind('class_get_parent','pointer',['pointer']),classType:")
@@ -259,15 +281,19 @@ def build(operation, *, allowed=(), expected=None, entry='search'):
     return s
 
 
-def validate(value,operation, *, allowed=(), expected=None):
+def validate(value,operation, *, allowed=(), expected=None, unread_only=False):
+    if type(unread_only) is not bool or (unread_only and operation!='open'):raise ValueError('Invalid unread filter')
     allowed=targets(allowed);expected=identity(expected) if expected is not None else None
     if not isinstance(value,dict) or not isinstance(value.get('navigation'),dict):raise ValueError('Missing dialog evidence')
     n=value['navigation']
     if set(n)!=EXTRAS or n['phase'] not in PHASES or n['error'] not in ERRORS:raise ValueError('Invalid dialog evidence')
     if any(type(n[k]) is not bool for k in FLAGS) or n['ui_text_read']:raise ValueError('Invalid flags')
     if n['metadata_checkpoint'] not in CHECKPOINTS or n['selection_checkpoint'] not in SELECTION:raise ValueError('Invalid checkpoint')
-    for k,limit in [('rows_scanned',128),('scan_batches',180)]:
+    for k,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128)]:
         if type(n[k]) is not int or not 0<=n[k]<=limit:raise ValueError('Invalid scan bounds')
+    if n['read_rows_skipped']>n['rows_scanned']:raise ValueError('Invalid skipped rows')
+    if not unread_only and (n['unread_filter_applied'] or n['unread_verified'] or n['read_rows_skipped']):raise ValueError('Unexpected unread evidence')
+    if n['unread_verified'] and (not n['unread_filter_applied'] or not n['selection_verified']):raise ValueError('Invalid unread evidence')
     if n['action_completed'] and not n['action_attempted']:raise ValueError('Action without attempt')
     if n['action_attempted'] and not n['entry_verified']:raise ValueError('Action without entry')
     if n['selection_verified'] and (operation!='open' or not n['list_verified']):raise ValueError('Invalid selection')
@@ -278,6 +304,7 @@ def validate(value,operation, *, allowed=(), expected=None):
     if ready:
         if not n['entry_verified'] or n['metadata_checkpoint']!='ready':raise ValueError('Incomplete operation')
         if operation=='open':
+            if unread_only and (not n['unread_filter_applied'] or n['unread_verified']==n['exhausted']):raise ValueError('Missing unread evidence')
             if n['exhausted']:
                 if private is not None or n['chat_verified']:raise ValueError('Identity on exhaustion')
             elif not (n['selection_verified'] and n['chat_verified'] and n['action_completed'] and private is not None):raise ValueError('Missing opened binding')
@@ -301,14 +328,14 @@ def validate(value,operation, *, allowed=(), expected=None):
     if not isinstance(bn['controller_path'],list):raise ValueError('Invalid controller path')
     bn['controller_path']=[old(k) for k in bn['controller_path']]
     nav.validate(base,errors=ERRORS)
-    diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified')}
+    diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped')}
     return dict(state=('exhausted' if n['exhausted'] else 'opened' if operation=='open' else 'returned' if operation=='back' else 'search-ready') if ready else 'stopped',identity=private,diagnostic=diagnostic)
 
 
-def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),expected=None,entry='search'):
+def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),expected=None,entry='search',unread_only=False):
     from one_chat_device import capture
     from search_online import inspect
-    source=build(operation,allowed=allowed,expected=expected,entry=entry)
+    source=build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only)
     def inspector(port,token,cancel,binding):
-        return inspect(port,token,cancel,source_function=source,validator=lambda r:validate(r,operation,allowed=allowed,expected=expected))
+        return inspect(port,token,cancel,source_function=source,validator=lambda r:validate(r,operation,allowed=allowed,expected=expected,unread_only=unread_only))
     return capture(executable,folder,cancelled,inspector=inspector)

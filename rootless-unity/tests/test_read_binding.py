@@ -12,7 +12,7 @@ from assistant_store import Store, StateError
 from assistant_chain import Chain
 from assistant_settings import Settings
 import assistant_read_check as read
-from test_assistant_dialogs import nav_result
+from test_read_check import nav_result
 
 WHO=dict(account='100', peer='200', chat='300')
 

@@ -17,7 +17,7 @@ from one_chat_device import capture
 from one_chat_probe import identity
 from assistant_read_binding import read_bindings
 
-VERSION='0.4.5'
+VERSION='0.4.6'
 LIMIT=5
 MAX_JOURNAL_BYTES=64*1024*1024
 STAGES=TERMINAL|{'wait-reply','wait-mood','wait-contact','pending-question','pending-contact'}
@@ -25,7 +25,7 @@ STAGES=TERMINAL|{'wait-reply','wait-mood','wait-contact','pending-question','pen
 
 def report():
     return dict(tool_version=VERSION,mode='visible-journal-dialog-read-check',
-                navigation_only=False,read_only_check=True,status='dialogs-stopped',reason='not-started',
+                navigation_only=False,read_only_check=True,unread_only=True,read_rows_skipped=0,unread_dialogs_verified=0,status='dialogs-stopped',reason='not-started',
                 live_cycle_available=False,city_changes=0,new_greetings=0,all_dialogs_covered=False,
                 device_scope='MuMu-4-only',dialog_limit=LIMIT,dialogs_opened=0,dialogs_read=0,
                 dialogs_processed=0,navigation_dialogs_checked=0,
@@ -118,6 +118,13 @@ def walk(settings,stopped,progress=lambda _:None, *, navigator=perform,reader=ca
             raise ValueError('Unverified navigation')
         if value['state'] not in {'open':{'opened','exhausted'},'back':{'returned'},'return':{'search-ready'}}[operation]:
             raise ValueError('Unexpected navigation state')
+        if operation=='open':
+            if kwargs.get('unread_only') is not True or not n['unread_filter_applied']:
+                raise StateError('unread-filter-not-verified')
+            if n['unread_verified'] != (value['state']=='opened'):
+                raise StateError('unread-selection-not-verified')
+            out['read_rows_skipped']+=n['read_rows_skipped']
+            if value['state']=='opened':out['unread_dialogs_verified']+=1
         who=identity(value['identity']) if value['identity'] is not None else None
         if (value['state'] in ('opened','returned'))!=(who is not None):
             raise ValueError('Invalid navigation binding')
@@ -138,8 +145,8 @@ def walk(settings,stopped,progress=lambda _:None, *, navigator=perform,reader=ca
             entry='search';reason='visible-pass-limit'
             for number in range(1,LIMIT+1):
                 check_stop();phase='navigation'
-                progress(f'Читаю разрешённые диалоги: {number}/{LIMIT}. Отправка сообщений и Telegram выключены.')
-                selected=call('open',allowed=remaining,entry=entry);entry='dialogs'
+                progress(f'Читаю только непрочитанные привязанные диалоги: {number}/{LIMIT}. Отправка сообщений и Telegram выключены.')
+                selected=call('open',allowed=remaining,entry=entry,unread_only=True);entry='dialogs'
                 if selected['state']=='exhausted':
                     reason='visible-exhausted';break
                 who=identity(selected['identity']);out['dialogs_opened']+=1

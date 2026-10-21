@@ -53,16 +53,20 @@ static Method bm[]={
  {"get_Chat",&bc[0],0,&bt[1],813},
  {"get_User",&bc[0],0,&bt[3],814},
  {"OnCellDidClicked",&chats_class,64,&tvoid,815,2,&bt[4]},
- {"DV.Messages.BottomBarView.IDelegate.OnBackButton",&bc[0],0,&tvoid,816}};
-static Method browser_bad_method;
+ {"DV.Messages.BottomBarView.IDelegate.OnBackButton",&bc[0],0,&tvoid,816},
+ {"get_UnreadCount",&bc[1],0,&tint,817}};
+static Method browser_bad_method,browser_unread_bad_method;
 static Object browser_vc={&bc[0],0},browser_table={&bc[5],0},browser_list={&bc[8],0},browser_list_alt={&bc[8],0};
 static Object browser_cells[]={{&bc[4],0},{&bc[4],1}},browser_chats[]={{&bc[1],0},{&bc[1],1}},browser_users[]={{&bc[3],0},{&bc[3],1}};
 static Object browser_manager={&bc[2],0},browser_long_box={NULL,0};
 static int64_t browser_long;
+static int browser_unread,browser_unread_reads;
+static Object browser_unread_box={NULL,0};
+API int fixture_browser_unread_reads(void){return browser_unread_reads;}
 static int browser_clicks,browser_backs,browser_cell_reads,browser_count_reads,browser_visible_reads,browser_start;
 static Object *browser_selected;
 static Object browser_parents[31];
-static void browser_init(void){int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_start=0;browser_selected=&browser_chats[1];}
+static void browser_init(void){int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_start=0;browser_selected=&browser_chats[1];}
 API int fixture_browser_clicks(void){return browser_clicks;}
 API int fixture_browser_backs(void){return browser_backs;}
 API void fixture_browser_entry(int entry){phase=entry;browser_start=entry;}
@@ -93,7 +97,17 @@ API unsigned char il2cpp_class_is_assignable_from(Class *a,Class *b){
 }
 API Method *il2cpp_class_get_method_from_name(Class *k,const char *name,int arity){
  if(k==&nc[8]&&arity==2&&!strcmp(name,route.name))return &route;
- for(int i=0;i<17;i++)if(arity==(int)bm[i].arity&&!strcmp(name,bm[i].name)&&(k==bm[i].klass||(i==4&&k==&bc[4]))){if(mode==801&&i==4)return NULL;return &bm[i];}
+ for(int i=0;i<18;i++)if(arity==(int)bm[i].arity&&!strcmp(name,bm[i].name)&&(k==bm[i].klass||(i==4&&k==&bc[4]))){if(mode==801&&i==4)return NULL;
+  if(i==17){
+   if(mode==833)return NULL;
+   if(mode==825||mode==834||mode==835){browser_unread_bad_method=bm[i];
+    if(mode==825)browser_unread_bad_method.type=&tbool;
+    if(mode==834)browser_unread_bad_method.klass=&bc[3];
+    if(mode==835)browser_unread_bad_method.flags=16;
+    return &browser_unread_bad_method;
+   }
+  }
+  return &bm[i];}
  return old_method(k,name,arity);
 }
 API Type *il2cpp_method_get_param(Method *m,unsigned int i){
@@ -108,7 +122,7 @@ API Method *il2cpp_object_get_virtual_method(Object *obj,Method *m){
  return old_virtual(obj,m);
 }
 API Class *il2cpp_class_get_parent(Class *k){return k==&bc[4]?&bc[9]:NULL;}
-API void *il2cpp_object_unbox(Object *obj){return obj==&browser_long_box?&browser_long:browser_base_unbox(obj);}
+API void *il2cpp_object_unbox(Object *obj){return obj==&browser_long_box?&browser_long:obj==&browser_unread_box?&browser_unread:browser_base_unbox(obj);}
 API unsigned char il2cpp_type_is_byref(Type *t){return mode==817&&t==&bcellref;}
 API Type *il2cpp_class_get_type(Class *k){return k==&nc[4]?&search_type:k==&message_tab?&message_type:NULL;}
 API Object *il2cpp_type_get_object(Type *t){return t==&search_type?&type_search:t==&message_type?&type_messages:NULL;}
@@ -138,6 +152,16 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 816:
   browser_backs++;if(obj!=&browser_vc)route_bad++;
   if(mode==808){*exc=&exception;return NULL;}phase=1;return NULL;
+ case 817:
+  browser_unread_reads++;
+  if(mode==827)return NULL;
+  if(mode==828){*exc=&exception;return NULL;}
+  browser_unread=1;
+  if(mode==822||mode==832||(mode==829&&((Object *)obj)->value==0))browser_unread=0;
+  if(mode==824&&browser_unread_reads>=2)browser_unread=0;
+  if(mode==831&&browser_unread_reads>=2)browser_unread=2;
+  if(mode==826)browser_unread=-1;
+  return &browser_unread_box;
  case 10:return &app_root;
  case 11:return NULL;
  case 12:if(obj==&message_tab_obj)return mode==712?&message_tab_obj:&chats_obj;return obj==&app_root?&ui_nav:NULL;

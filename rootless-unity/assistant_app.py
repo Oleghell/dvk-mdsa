@@ -22,7 +22,7 @@ def launch(self_check=False):
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Проверочная сборка 0.4.5. Открой анкеты на MuMu №4. «Старт» прочитает до пяти привязанных диалогов и вернётся. Сообщения не отправляются.')
+    status = tk.StringVar(value='Проверочная сборка 0.4.6. Открой анкеты на MuMu №4. «Старт» откроет только привязанные чаты с непрочитанными сообщениями, до пяти за проход. Отправка выключена.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
@@ -189,7 +189,10 @@ def launch(self_check=False):
                 status.set(value)
             elif value.get('report_name'):
                 if value['status'] == 'dialogs-completed':
-                    status.set(f"Прочитано диалогов: {value['dialogs_read']}. Сообщения не отправлялись. Возврат к анкетам подтверждён. Пришли messages-pass-check.json.")
+                    count = value['dialogs_read']
+                    text = (f'Прочитано чатов с непрочитанными сообщениями: {count}.' if count else
+                            'Среди видимых привязанных чатов непрочитанных нет.')
+                    status.set(text + ' Сообщения не отправлялись. Возврат к анкетам подтверждён. Пришли messages-pass-check.json.')
                 elif value['status'] == 'dialogs-empty':
                     status.set('В журнале нет подходящих диалогов для проверки. Сообщения не отправлялись. Пришли messages-pass-check.json.')
                 elif value['status'] == 'dialogs-cancelled':

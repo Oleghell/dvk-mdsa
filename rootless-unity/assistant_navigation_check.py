@@ -56,7 +56,8 @@ def read_targets_from_db(db):
 
 def safe_diagnostic(value):
     keys={'stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned',
-          'scan_batches','action_attempted','action_completed','destination_verified'}
+          'scan_batches','action_attempted','action_completed','destination_verified',
+          'unread_filter_applied','unread_verified','read_rows_skipped'}
     if not isinstance(value,dict) or set(value)!=keys:
         raise ValueError('Invalid diagnostic')
     if (value['stage'] not in {'not-attempted','navigation-ready','navigation-stopped','cleanup-failed'}
@@ -64,12 +65,14 @@ def safe_diagnostic(value):
             or value['metadata_checkpoint'] not in CHECKPOINTS
             or value['selection_checkpoint'] not in SELECTION):
         raise ValueError('Invalid diagnostic category')
-    for key in ('action_attempted','action_completed','destination_verified'):
+    for key in ('action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified'):
         if type(value[key]) is not bool:
             raise ValueError('Invalid diagnostic flag')
-    for key,limit in [('rows_scanned',128),('scan_batches',180)]:
+    for key,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128)]:
         if type(value[key]) is not int or not 0<=value[key]<=limit:
             raise ValueError('Invalid diagnostic counter')
+    if value['read_rows_skipped']>value['rows_scanned'] or (not value['unread_filter_applied'] and (value['unread_verified'] or value['read_rows_skipped'])):
+        raise ValueError('Invalid unread diagnostic')
     return dict(value)
 
 

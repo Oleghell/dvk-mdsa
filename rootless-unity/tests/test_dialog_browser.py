@@ -8,7 +8,7 @@ TARGET=dict(WHO,chat='-1')
 def raw_open():
     value=ready_route();n=value['navigation']
     for k in ('search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'):n.pop(k)
-    n.update(entry_verified=True,list_verified=True,chat_verified=True,destination_verified=True,action_attempted=True,action_completed=True,selection_verified=True,exhausted=False,private_identity=dict(WHO),metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1)
+    n.update(entry_verified=True,list_verified=True,chat_verified=True,destination_verified=True,action_attempted=True,action_completed=True,selection_verified=True,exhausted=False,private_identity=dict(WHO),metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,unread_filter_applied=False,unread_verified=False,read_rows_skipped=0)
     n['controller_path']=['chat'];n['root_top_kind']='chat'
     return value
 
@@ -72,6 +72,40 @@ class BrowserSchema(unittest.TestCase):
             self.assertIn(text,source)
         self.assertNotIn('if(!checkView(current))',source)
         self.assertNotIn('if(!resolve(candidate).equals(current))',source)
+
+    def test_unread_filter_requires_evidence_and_rechecks_before_open(self):
+        source=b.build('open',allowed=[TARGET],unread_only=True)
+        self.assertIn('unreadOnly=true',source)
+        self.assertIn("s.unreadCount=checked(s.chatModel,'get_UnreadCount',8)",source)
+        self.assertIn("if(unread===0){n.read_rows_skipped++;return false;}",source)
+        first=source.index('unread=unreadCount(chat)')
+        again=source.index('if(unreadCount(chat)!==unread)')
+        self.assertLess(first,source.index("fail('selection-chat-changed')"))
+        self.assertGreater(again,source.index("fail('selection-detached')"))
+        self.assertLess(again,source.index('call(s.openCell,current,args)'))
+        self.assertNotIn('get_UnreadUnmutedChatsCount',source)
+        for option in (None,1,'true'):
+            with self.assertRaises(ValueError):b.build('open',allowed=[TARGET],unread_only=option)
+        for operation in ('back','return'):
+            with self.assertRaises(ValueError):b.build(operation,expected=WHO if operation=='back' else None,unread_only=True)
+        with self.assertRaises(ValueError):b.validate(raw_open(),'open',allowed=[TARGET],unread_only=True)
+        value=raw_open();value['navigation'].update(unread_filter_applied=True,unread_verified=True,read_rows_skipped=1)
+        result=b.validate(value,'open',allowed=[TARGET],unread_only=True)
+        self.assertTrue(result['diagnostic']['unread_verified'])
+        self.assertEqual(result['diagnostic']['read_rows_skipped'],1)
+        with self.assertRaises(ValueError):b.validate(value,'open',allowed=[TARGET])
+        for field,bad in [('unread_filter_applied',False),('unread_verified',False),('read_rows_skipped',3),('read_rows_skipped',True)]:
+            value=raw_open();value['navigation'].update(unread_filter_applied=True,unread_verified=True,read_rows_skipped=1)
+            value['navigation'][field]=bad
+            with self.assertRaises(ValueError):b.validate(value,'open',allowed=[TARGET],unread_only=True)
+
+    def test_unread_exhaustion_requires_filter_but_no_selected_chat(self):
+        value=raw_open();value['navigation'].update(exhausted=True,selection_verified=False,chat_verified=False,private_identity=None,
+            selection_checkpoint='exhausted',unread_filter_applied=True,unread_verified=False,read_rows_skipped=2)
+        out=b.validate(value,'open',allowed=[TARGET],unread_only=True)
+        self.assertEqual(out['state'],'exhausted')
+        value['navigation']['unread_verified']=True
+        with self.assertRaises(ValueError):b.validate(value,'open',allowed=[TARGET],unread_only=True)
 
     def test_back_requires_exact_binding_and_has_no_cell_selection(self):
         for op,expected in [('back',None),('return',WHO),('open',WHO)]:
