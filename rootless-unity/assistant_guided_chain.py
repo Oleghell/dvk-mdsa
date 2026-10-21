@@ -12,8 +12,9 @@ from assistant_store import Store, StateError, data_directory
 from one_chat_probe import identity
 from one_chat_send import checked
 from conversation_engine import CONTACT_TEXT
+from shared_contact import display_name
 
-VERSION = '0.4.11'
+VERSION = '0.4.12'
 
 
 def report():
@@ -27,6 +28,8 @@ def report():
                 device_scope='MuMu-4-only', per_message_confirmation=True,
                 automatic_send=False, delivery_confirmed=False,
                 personal_data_exported=False, chat_content_exported=False,
+                diagnostics=dict(name_source='not-requested', name_read='not-attempted',
+                                 failure_point='none'),
                 telegram_used=False, ui_may_remain_open=True,
                 live_cycle_available=False)
 
@@ -37,6 +40,15 @@ def same_snapshot(left, right):
     return (left['identity'] == right['identity'] and
             {m['id']: m for m in left['messages']} ==
             {m['id']: m for m in right['messages']})
+
+
+def extends_snapshot(previous, current):
+    """Allow arrivals during name lookup, never edits, truncation or chat changes."""
+    previous = checked({key: previous[key] for key in ('identity', 'messages')})
+    current = checked({key: current[key] for key in ('identity', 'messages')})
+    old = {m['id']: m for m in previous['messages']}
+    new = {m['id']: m for m in current['messages']}
+    return previous['identity'] == current['identity'] and all(new.get(k) == v for k, v in old.items())
 
 
 class GuidedChain(Chain):
@@ -236,9 +248,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 set(private) not in ({'identity', 'messages'},
                                      {'identity', 'messages', 'peer_name'})):
             raise ValueError('Invalid private snapshot fields')
-        value = checked({key: private[key] for key in ('identity', 'messages')})
-        if value['identity'] != who:
+        if identity(private['identity']) != who:
             raise StateError('guided-binding-changed')
+        value = checked({key: private[key] for key in ('identity', 'messages')})
         if 'peer_name' in private:
             value['peer_name'] = private['peer_name']
         return value
@@ -255,13 +267,32 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             try:
                 stage, action = chain.proposal(before)
             except StateError as error:
-                if (str(error) !=
-                        'Имя или защита контакта не подтверждены. Передачи в Telegram нет.'
-                        or contact_reader is None):
+                if str(error) != 'contact-name-required':
                     raise
-                named = read(contact_reader)
-                if 'peer_name' not in named or not same_snapshot(before, named):
-                    raise StateError('guided-contact-name-not-verified')
+                out['diagnostics']['name_read'] = 'attempted'
+                named = None
+                if contact_reader is not None:
+                    try:
+                        candidate = read(contact_reader)
+                        display_name(candidate.get('peer_name'))
+                        named = candidate
+                    except Exception:
+                        # No exception text, private bodies or names enter reports.
+                        out['diagnostics']['name_read'] = 'unavailable'
+                if stopped.is_set():
+                    raise StateError('cancelled')
+                if named is None:
+                    # Re-read the normal bound snapshot before using an explicit
+                    # unknown-name label; never weaken identity/history checks.
+                    named = read()
+                    named['peer_name'] = 'не определено'
+                    out['diagnostics']['name_source'] = 'unavailable-label'
+                    out['diagnostics']['name_read'] = 'unavailable'
+                else:
+                    out['diagnostics']['name_source'] = 'bound-chat'
+                    out['diagnostics']['name_read'] = 'verified'
+                if not extends_snapshot(before, named):
+                    raise StateError('guided-contact-history-changed')
                 before = named
                 stage, action = chain.proposal(before)
             out['stage'] = stage
@@ -366,7 +397,19 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         # Only fixed, authored categories; no arbitrary native exception text.
         allowed = {'start-before-peer-reply', 'guided-binding-changed',
                    'guided-history-not-verified', 'guided-consent-required'}
+        allowed |= {'guided-contact-history-changed', 'contact-name-required',
+                    'contact-protection-failed', 'contact-payload-invalid',
+                    'contact-limit-exceeded', 'guided-binding-not-authorized',
+                    'guided-outgoing-not-verified'}
         reason = str(error) if isinstance(error, StateError) and str(error) in allowed else 'binding-or-history-check-stopped'
+        # Fixed, non-private categories distinguish transport from contact storage.
+        if reason == 'binding-or-history-check-stopped':
+            from one_chat_device import ReadStopped
+            if isinstance(error, ReadStopped):
+                reason = 'bound-chat-read-failed'
+            elif isinstance(error, ValueError):
+                reason = 'snapshot-validation-failed'
+        out['diagnostics']['failure_point'] = reason
         out.update(status='chain-cancelled' if stopped.is_set() else 'chain-stopped',
                    reason='cancelled' if stopped.is_set() else reason)
     return out

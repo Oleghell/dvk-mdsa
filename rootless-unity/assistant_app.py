@@ -24,7 +24,7 @@ def launch(self_check=False):
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Сборка 0.4.11. Любой ответ продолжает цепочку; явный отказ прекращает общение. Остановленную цепочку можно начать заново.')
+    status = tk.StringVar(value='Сборка 0.4.12. Любой ответ продолжает цепочку; явный отказ прекращает общение. Остановленную цепочку можно начать заново.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
@@ -316,7 +316,11 @@ def launch(self_check=False):
             if kind == 'guided-result':
                 reason = value['reason']
                 if value['status'] == 'chain-completed':
-                    text = 'Оба сообщения появились в истории. Telegram подтвердил уведомление. Доставка сообщений собеседнику не подтверждена.'
+                    text = ('Контакт уже обработан. Повторного уведомления нет.'
+                            if reason == 'contact-already-handled' else
+                            'Оба сообщения появились в истории. Telegram подтвердил уведомление. Доставка сообщений собеседнику не подтверждена.')
+                    if value.get('diagnostics', {}).get('name_source') == 'unavailable-label':
+                        text += ' Имя не прочитано: в уведомлении указано «не определено».'
                 else:
                     text = {
                         'message-not-approved': 'Сообщение не подтверждено. Оно не отправлялось; цепочка на паузе.',
@@ -326,6 +330,12 @@ def launch(self_check=False):
                         'cancelled': 'Цепочка остановлена.',
                         'manual-review': 'Ответ или история неоднозначны. Проверь чат вручную; цепочка остановлена.',
                         'declined': 'Собеседник отказался. Цепочка остановлена.',
+                        'guided-contact-history-changed': 'При получении имени изменился чат или прежние сообщения. Контакт не передан.',
+                        'contact-protection-failed': 'Windows не удалось защитить контакт. Передачи в Telegram нет.',
+                        'contact-payload-invalid': 'Формат контакта не прошёл проверку. Передачи в Telegram нет.',
+                        'contact-limit-exceeded': 'За один проход получено больше четырёх контактов. Нужна ручная проверка.',
+                        'bound-chat-read-failed': 'Не удалось повторно прочитать привязанный чат. Контакт не передан.',
+                        'snapshot-validation-failed': 'Данные открытого чата не прошли проверку. Контакт не передан.',
                     }.get(reason, 'Цепочка остановлена: ' + reason + '. Проверь чат вручную; неизвестные отправки не повторяются.')
                 status.set(text + ' Отчёт: messages-chain-check.json. Чат остаётся открытым.')
             elif kind == 'binding':

@@ -148,6 +148,90 @@ class WholeChain(unittest.TestCase):
         saved = json.loads((Path(self.temp.name) / out['report_name']).read_text())
         self.assertEqual(saved['status'], 'chain-completed')
 
+    def contact_history_without_name(self):
+        return [{key: copy.deepcopy(value[key]) for key in ('identity', 'messages')}
+                for value in sequence()]
+
+    def test_two_shared_contacts_same_batch_one_notification(self):
+        values = sequence()
+        values[-1]['messages'].append(dict(id='1007', sender='200', text='+79991234567'))
+        out = self.walk(values)
+        self.assertEqual(out['status'], 'chain-completed')
+        self.notifier.assert_called_once_with(dict(name=PEER_NAME, contacts=[CONTACT, '+79991234567']))
+        self.assertEqual(len(self.sent), 2)
+        out = self.walk([values[-1]])
+        self.assertEqual(out['reason'], 'contact-already-handled')
+        self.assertEqual(self.notifier.call_count, 1)
+
+    def test_second_contact_arrives_during_name_lookup(self):
+        values = self.contact_history_without_name()
+        named = copy.deepcopy(sequence()[-1])
+        named['messages'].append(dict(id='1007', sender='200', text='+79991234567'))
+        out = self.walk(values, contact_reader=MagicMock(return_value=named))
+        self.assertEqual(out['status'], 'chain-completed')
+        self.assertEqual(out['diagnostics']['name_source'], 'bound-chat')
+        self.notifier.assert_called_once_with(dict(name=PEER_NAME, contacts=[CONTACT, '+79991234567']))
+
+    def test_unavailable_name_rechecks_history_and_uses_honest_label(self):
+        values = self.contact_history_without_name()
+        values.append(copy.deepcopy(values[-1]))
+        out = self.walk(values, contact_reader=MagicMock(side_effect=ValueError('PRIVATE_BODY_TOKEN')))
+        self.assertEqual(out['status'], 'chain-completed')
+        self.assertEqual(out['diagnostics']['name_source'], 'unavailable-label')
+        self.notifier.assert_called_once_with(dict(name='не определено', contacts=[CONTACT]))
+        self.assertNotIn('PRIVATE', json.dumps(out))
+        self.assertNotIn(CONTACT, json.dumps(out))
+
+    def test_name_failure_never_bypasses_changed_chat_on_plain_reread(self):
+        values = self.contact_history_without_name()
+        changed = copy.deepcopy(values[-1])
+        changed['identity']['peer'] = '201'
+        values.append(changed)
+        out = self.walk(values, contact_reader=MagicMock(side_effect=RuntimeError('PRIVATE')))
+        self.assertEqual(out['reason'], 'guided-binding-changed')
+        self.assertFalse(out['telegram_used'])
+        self.notifier.assert_not_called()
+
+    def test_name_lookup_cannot_edit_or_truncate_previous_messages(self):
+        values = self.contact_history_without_name()
+        named = copy.deepcopy(sequence()[-1])
+        named['messages'][0]['text'] = 'changed'
+        out = self.walk(values, contact_reader=MagicMock(return_value=named))
+        self.assertEqual(out['reason'], 'guided-contact-history-changed')
+        self.assertEqual(out['diagnostics']['failure_point'], 'guided-contact-history-changed')
+        self.notifier.assert_not_called()
+
+    def test_encryption_failure_has_distinct_reason_no_name_fallback(self):
+        self.chain.seal = MagicMock(side_effect=RuntimeError('PRIVATE_ENCRYPTION'))
+        names = MagicMock()
+        out = self.walk(contact_reader=names)
+        self.assertEqual(out['reason'], 'contact-protection-failed')
+        self.assertFalse(out['telegram_used'])
+        self.notifier.assert_not_called()
+        names.assert_not_called()
+        self.assertNotIn('PRIVATE', json.dumps(out))
+
+    def test_reader_failure_has_transport_category_without_private_error(self):
+        from one_chat_device import ReadStopped
+        reader = MagicMock(side_effect=ReadStopped('PRIVATE_ERROR'))
+        out = guided.walk(self.chain, WHO, self.stop, self.approve, reader, self.send,
+                          approved=True, greetings=(GREETING,), notifier=self.notifier)
+        self.assertEqual(out['reason'], 'bound-chat-read-failed')
+        self.assertNotIn('PRIVATE', json.dumps(out))
+        self.notifier.assert_not_called()
+
+    def test_resume_saved_wait_contact_after_name_error_without_resend(self):
+        values = sequence()[:-1]
+        self.walk(values + [values[-1]] * 12)
+        private = self.contact_history_without_name()[-1]
+        with self.assertRaisesRegex(guided.StateError, 'contact-name-required'):
+            self.chain.proposal(private)
+        self.chain = guided.GuidedChain(self.store, seal=lambda value: value, unseal=lambda value: value)
+        out = self.walk([private, private], contact_reader=MagicMock(side_effect=ValueError('PRIVATE')))
+        self.assertEqual(out['status'], 'chain-completed')
+        self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
+        self.notifier.assert_called_once_with(dict(name='не определено', contacts=[CONTACT]))
+
     @staticmethod
     def initialize(obj, store):
         ORIGINAL_INIT(obj, store, choose=lambda: 0,

@@ -14,7 +14,7 @@ from assistant_store import StateError, Store
 from conversation_engine import QUESTIONS, CONTACT_TEXT, REFUSAL, NEGATIVE, normalized
 from one_chat_probe import identity
 from one_chat_send import checked
-from shared_contact import self_shared, payload as contact_payload
+from shared_contact import self_shared, payload as contact_payload, display_name
 from telegram_notify import protect
 
 TERMINAL = {'done', 'declined', 'manual-review'}
@@ -107,20 +107,34 @@ class Chain:
             if any(m['text'] and REFUSAL.search(normalized(m['text'])) for m in incoming):
                 stage = 'declined'
             elif shared:
-                if len(shared) != 1 or len(incoming) != 1 or outgoing:
+                aggregate = self.any_replies and stage == 'wait-contact'
+                if outgoing or (not aggregate and (len(shared) != 1 or len(incoming) != 1)):
                     stage = 'manual-review'
                 else:
                     message, items = shared[0]
+                    if aggregate:
+                        # Only independently self-shared contacts from this bound
+                        # chat and this newly observed batch; never profile data.
+                        items = list(dict.fromkeys(c for _, values in shared for c in values))
+                        if len(items) > 4:
+                            raise StateError('contact-limit-exceeded')
                     if self.contact_notifications:
                         try:
+                            display_name(snapshot.get('peer_name'))
+                        except ValueError:
+                            raise StateError('contact-name-required') from None
+                        try:
                             data = contact_payload(snapshot.get('peer_name'), items)
+                        except ValueError:
+                            raise StateError('contact-payload-invalid') from None
+                        try:
                             protected = self.seal(json.dumps(data, ensure_ascii=False).encode('utf-8'))
                             if not isinstance(protected, bytes) or not protected:
                                 raise ValueError('Encryption failed')
                             db.execute("INSERT OR IGNORE INTO chain_contact_outbox VALUES(?,?,?,'pending')",
                                        (chat, message['id'], protected))
                         except Exception:
-                            raise StateError('Имя или защита контакта не подтверждены. Передачи в Telegram нет.') from None
+                            raise StateError('contact-protection-failed') from None
                     stage = 'done'
             elif stage.startswith('pending-'):
                 kind = stage.removeprefix('pending-')
