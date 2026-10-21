@@ -10,7 +10,7 @@ from pathlib import Path
 from assistant_store import StateError, data_directory
 from assistant_settings import Settings, load, save
 from assistant_cycle import start as start_cycle
-from assistant_guided_chain import run as run_guided_chain
+from assistant_guided_chain import run as run_guided_chain, run_reset
 import telegram_notify
 
 
@@ -19,12 +19,12 @@ def launch(self_check=False):
     from tkinter import ttk, filedialog, messagebox
     root = tk.Tk()
     root.title('ДругВокруг · MuMu №4')
-    root.geometry('680x430')
-    root.minsize(680, 430)
+    root.geometry('680x470')
+    root.minsize(680, 470)
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Сборка 0.4.8. «Старт» — прежнее чтение непрочитанных без отправки. «Вся цепочка» — один открытый чат; уведомление в Telegram только после контакта от собеседника.')
+    status = tk.StringVar(value='Сборка 0.4.9. «Старт» — прежнее чтение непрочитанных без отправки. Остановленную цепочку можно явно начать заново в открытом чате.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
@@ -45,6 +45,7 @@ def launch(self_check=False):
         options.configure(state='disabled' if busy else 'normal')
         bind.configure(state='disabled' if busy else 'normal')
         guided.configure(state='disabled' if busy else 'normal')
+        reset_chain.configure(state='disabled' if busy else 'normal')
         stop.configure(state='normal' if busy else 'disabled')
 
     def cancel():
@@ -159,6 +160,38 @@ def launch(self_check=False):
                 events.put(('error', 'Цепочка остановлена. Проверь открытый чат и отчёт. Не повторяй неизвестную отправку.'))
         threading.Thread(target=chain_worker, daemon=True).start()
 
+    def begin_reset():
+        nonlocal busy
+        if busy:
+            return
+        try:
+            settings.check()
+            save(settings)
+        except Exception:
+            status.set('Проверь пути в настройках. Перезапуск цепочки не выполнен.')
+            return
+        if not messagebox.askyesno('Начать цепочку заново',
+                'Используй только нужный открытый чат.\n'
+                'Сейчас в нём должно быть ровно одно твоё приветствие из списка '
+                'и ещё не должно быть ответа собеседника.\n\n'
+                'Сохранённая остановленная цепочка этого собеседника будет забыта. '
+                'Если старая отправка имела неизвестный результат, проверь чат вручную, '
+                'чтобы не повторить сообщение.\n\n'
+                'Начать заново с текущего приветствия?', parent=root):
+            return
+        stopped.clear()
+        busy = True
+        refresh()
+        status.set('Проверяю одно свежее приветствие в открытом чате. Не переключай экран.')
+        current = settings
+        def reset_worker():
+            try:
+                value = run_reset(current, stopped, approved=True)
+                events.put(('reset-result', value))
+            except Exception:
+                events.put(('error', 'Перезапуск не выполнен. Проверь открытый чат. Отправки не было.'))
+        threading.Thread(target=reset_worker, daemon=True).start()
+
     def bind_current():
         nonlocal busy
         if busy:
@@ -262,6 +295,9 @@ def launch(self_check=False):
     bind.pack(side='left', padx=(0, 10))
     guided = ttk.Button(frame, text='Вся цепочка · открытый чат', command=begin_guided)
     guided.pack(anchor='w', pady=(16, 0))
+    reset_chain = ttk.Button(frame, text='Начать цепочку заново · открытый чат',
+                             command=begin_reset)
+    reset_chain.pack(anchor='w', pady=(8, 0))
     options = ttk.Button(controls, text='Настройки', command=configure)
     options.pack(side='right')
 
@@ -294,6 +330,15 @@ def launch(self_check=False):
                 status.set(text + ' Отчёт: messages-chain-check.json. Чат остаётся открытым.')
             elif kind == 'binding':
                 status.set('Чат привязан только для чтения. Вернись к анкетам и нажми «Старт». Разрешения на отправку нет.')
+            elif kind == 'reset-result':
+                if value['status'] == 'reset-completed':
+                    status.set('Цепочка начата заново. Теперь нажми «Вся цепочка · открытый чат», затем собеседник может ответить на приветствие.')
+                elif value['reason'] == 'reset-needs-one-fresh-greeting':
+                    status.set('Перезапуск не выполнен: в открытом чате должно быть ровно одно твоё приветствие из списка и ни одного ответа.')
+                elif value['reason'] == 'cancelled':
+                    status.set('Перезапуск отменён. Ничего не отправлялось.')
+                else:
+                    status.set('Перезапуск не выполнен: ' + value['reason'] + '. Ничего не отправлялось.')
             elif kind == 'error':
                 status.set(value)
             elif value.get('report_name'):
@@ -327,7 +372,9 @@ def launch(self_check=False):
     root.protocol('WM_DELETE_WINDOW', close)
     if self_check:
         root.update()
-        assert root.winfo_viewable() and all(b.winfo_viewable() for b in (start, stop, bind, guided, options))
+        assert root.winfo_viewable() and all(b.winfo_viewable() for b in
+                                             (start, stop, bind, guided,
+                                              reset_chain, options))
         assert not busy and not stopped.is_set() and events.empty()
         assert str(stop.cget('state')) == 'disabled'
         configure()

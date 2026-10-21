@@ -13,7 +13,7 @@ from one_chat_probe import identity
 from one_chat_send import checked
 from conversation_engine import CONTACT_TEXT
 
-VERSION = '0.4.8'
+VERSION = '0.4.9'
 
 
 def report():
@@ -117,6 +117,55 @@ class GuidedChain(Chain):
                            (who['chat'], greeting['id'], fingerprint(greeting, salt)))
             db.execute('INSERT INTO guided_bindings VALUES(?,?,?,?)',
                        (who['account'], who['peer'], who['chat'], text_hash(greeting['text'])))
+
+    def reset(self, snapshot, greetings, *, approved=False):
+        """Explicitly replace one peer's stopped chain with one fresh greeting."""
+        if approved is not True:
+            raise StateError('guided-reset-consent-required')
+        snapshot = checked({key: snapshot[key] for key in ('identity', 'messages')})
+        who, messages = snapshot['identity'], snapshot['messages']
+        if (len(messages) != 1 or messages[0]['sender'] != who['account'] or
+                messages[0]['text'] not in greetings):
+            raise StateError('reset-needs-one-fresh-greeting')
+        greeting = messages[0]
+        salt = secrets.token_hex(32)
+        with self.store.connection() as db:
+            for table in ('guided_bindings', 'chain_dialogs'):
+                conflict = db.execute(
+                    f'SELECT account,peer FROM {table} WHERE chat=?',
+                    (who['chat'],)).fetchone()
+                if conflict and tuple(conflict) != (who['account'], who['peer']):
+                    raise StateError('guided-reset-binding-conflict')
+            old_guided = db.execute(
+                'SELECT chat FROM guided_bindings WHERE account=? AND peer=?',
+                (who['account'], who['peer'])).fetchone()
+            old_chain = db.execute(
+                'SELECT chat FROM chain_dialogs WHERE account=? AND peer=?',
+                (who['account'], who['peer'])).fetchone()
+            chats = {who['chat']}
+            chats.update(row[0] for row in (old_guided, old_chain) if row)
+            for chat in chats:
+                db.execute('DELETE FROM chain_contact_outbox WHERE chat=?', (chat,))
+                db.execute('DELETE FROM chain_seen WHERE chat=?', (chat,))
+                db.execute('DELETE FROM chain_actions WHERE chat=?', (chat,))
+                db.execute('DELETE FROM chain_notifications WHERE chat=?', (chat,))
+                if db.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' "
+                        "AND name='guided_notices'").fetchone():
+                    db.execute('DELETE FROM guided_notices WHERE chat=?', (chat,))
+            db.execute('DELETE FROM guided_bindings WHERE account=? AND peer=?',
+                       (who['account'], who['peer']))
+            db.execute('DELETE FROM chain_dialogs WHERE account=? AND peer=?',
+                       (who['account'], who['peer']))
+            db.execute('INSERT INTO chain_dialogs VALUES(?,?,?,?,?,?)',
+                       (who['account'], who['peer'], who['chat'],
+                        greeting['id'], 'wait-reply', salt))
+            db.execute('INSERT INTO chain_seen VALUES(?,?,?)',
+                       (who['chat'], greeting['id'], fingerprint(greeting, salt)))
+            db.execute('INSERT INTO guided_bindings VALUES(?,?,?,?)',
+                       (who['account'], who['peer'], who['chat'],
+                        text_hash(greeting['text'])))
+        return True
 
     def proposal(self, snapshot):
         who = snapshot['identity']
@@ -321,6 +370,41 @@ def write_report(value):
     finally:
         temporary.unlink(missing_ok=True)
     return path.name
+
+
+def run_reset(settings, stopped, *, approved=False, store=None, reader=None,
+              greetings=None):
+    """Reset only the explicitly open peer after verifying one fresh greeting."""
+    from assistant_lock import operation_lock
+    from assistant_config import load
+    from one_chat_device import capture
+    if approved is not True or stopped.is_set():
+        return dict(tool_version=VERSION, status='reset-cancelled',
+                    reason='cancelled' if stopped.is_set() else
+                    'guided-reset-consent-required')
+    with operation_lock():
+        try:
+            greetings = load().greetings if greetings is None else greetings
+            reader = capture if reader is None else reader
+            private = reader(settings.adb, settings.folder, stopped.is_set, None)
+            if set(private) != {'identity', 'messages'} or private['messages'] is not None:
+                raise StateError('guided-identity-not-verified')
+            who = identity(private['identity'])
+            fresh = reader(settings.adb, settings.folder, stopped.is_set, who)
+            if stopped.is_set():
+                raise StateError('cancelled')
+            chain = GuidedChain(Store() if store is None else store)
+            chain.reset(fresh, greetings, approved=True)
+            return dict(tool_version=VERSION, status='reset-completed',
+                        reason='fresh-greeting-bound')
+        except Exception as error:
+            allowed = {'reset-needs-one-fresh-greeting',
+                       'guided-reset-binding-conflict', 'cancelled'}
+            reason = str(error) if isinstance(error, StateError) and \
+                str(error) in allowed else 'reset-device-or-history-check-stopped'
+            return dict(tool_version=VERSION,
+                        status='reset-cancelled' if reason == 'cancelled' else
+                        'reset-stopped', reason=reason)
 
 
 def run(settings, stopped, approve, progress=lambda _: None, *, approved=False,

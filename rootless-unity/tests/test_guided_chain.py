@@ -25,6 +25,11 @@ def snapshot(*extra):
     return dict(identity=dict(WHO), messages=messages, peer_name=PEER_NAME)
 
 
+def fresh_snapshot(message_id='9001', text=GREETING):
+    return dict(identity=dict(WHO),
+                messages=[dict(id=message_id, sender='100', text=text)])
+
+
 def sequence(choice=0):
     hello = ('Привет!', False)
     question = (QUESTIONS[choice], True)
@@ -180,6 +185,73 @@ class WholeChain(unittest.TestCase):
         out = self.walk(sequence()[1:])
         self.assertEqual(out['status'], 'chain-completed')
         self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
+
+    def test_explicit_reset_replaces_only_this_peers_stopped_chain(self):
+        self.chain.bind(snapshot(), (GREETING,), approved=True)
+        with self.store.connection() as db:
+            db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,?)",
+                       ('300', 'question', '1002', 'old-hash', 'unknown'))
+            db.execute("INSERT INTO chain_contact_outbox VALUES(?,?,?,?)",
+                       ('300', '1003', b'old-private-payload', 'unknown'))
+            db.execute("INSERT INTO chain_dialogs VALUES(?,?,?,?,?,?)",
+                       ('101', '201', '301', '7001', 'wait-reply', '11' * 32))
+            db.execute("INSERT INTO chain_seen VALUES(?,?,?)",
+                       ('301', '7001', 'other-fingerprint'))
+        self.assertTrue(self.chain.reset(fresh_snapshot(), (GREETING,), approved=True))
+        with self.store.connection() as db:
+            self.assertEqual(db.execute(
+                'SELECT greeting,stage FROM chain_dialogs WHERE chat=?',
+                ('300',)).fetchone(), ('9001', 'wait-reply'))
+            self.assertEqual(db.execute(
+                'SELECT message FROM chain_seen WHERE chat=?',
+                ('300',)).fetchall(), [('9001',)])
+            self.assertEqual(db.execute(
+                'SELECT COUNT(*) FROM chain_actions WHERE chat=?',
+                ('300',)).fetchone()[0], 0)
+            self.assertEqual(db.execute(
+                'SELECT COUNT(*) FROM chain_contact_outbox WHERE chat=?',
+                ('300',)).fetchone()[0], 0)
+            self.assertEqual(db.execute(
+                'SELECT stage FROM chain_dialogs WHERE chat=?',
+                ('301',)).fetchone()[0], 'wait-reply')
+            self.assertEqual(db.execute(
+                'SELECT COUNT(*) FROM chain_seen WHERE chat=?',
+                ('301',)).fetchone()[0], 1)
+
+    def test_reset_requires_explicit_consent_and_exactly_one_fresh_greeting(self):
+        with self.assertRaisesRegex(Exception, 'guided-reset-consent-required'):
+            self.chain.reset(fresh_snapshot(), (GREETING,))
+        with self.assertRaisesRegex(Exception, 'reset-needs-one-fresh-greeting'):
+            self.chain.reset(snapshot(('Привет', False)), (GREETING,), approved=True)
+        with self.assertRaisesRegex(Exception, 'reset-needs-one-fresh-greeting'):
+            self.chain.reset(fresh_snapshot(text='Здарова'), (GREETING,), approved=True)
+        with self.store.connection() as db:
+            self.assertEqual(db.execute(
+                'SELECT COUNT(*) FROM guided_bindings').fetchone()[0], 0)
+
+    def test_reset_entrypoint_reads_identity_then_one_bound_snapshot(self):
+        reader = MagicMock(side_effect=[
+            dict(identity=WHO, messages=None), fresh_snapshot()])
+        with patch('assistant_lock.operation_lock'):
+            out = guided.run_reset(
+                Settings(), self.stop, approved=True, store=self.store,
+                reader=reader, greetings=(GREETING,))
+        self.assertEqual(out['status'], 'reset-completed')
+        self.assertEqual(reader.call_count, 2)
+        self.assertIsNone(reader.call_args_list[0].args[3])
+        self.assertEqual(reader.call_args_list[1].args[3], WHO)
+        with self.store.connection() as db:
+            self.assertEqual(db.execute(
+                'SELECT greeting,stage FROM chain_dialogs').fetchone(),
+                ('9001', 'wait-reply'))
+
+    def test_reset_without_approval_does_not_read_device_or_create_store(self):
+        with patch('one_chat_device.capture') as reader, \
+             patch.object(guided, 'Store') as store:
+            out = guided.run_reset(Settings(), self.stop)
+        self.assertEqual(out['reason'], 'guided-reset-consent-required')
+        reader.assert_not_called()
+        store.assert_not_called()
 
     def test_declined_confirmation_can_resume_but_no_unapproved_send(self):
         self.approve.return_value = False
