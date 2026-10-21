@@ -8,7 +8,7 @@ TARGET=dict(WHO,chat='-1')
 def raw_open():
     value=ready_route();n=value['navigation']
     for k in ('search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'):n.pop(k)
-    n.update(entry_verified=True,list_verified=True,chat_verified=True,destination_verified=True,action_attempted=True,action_completed=True,selection_verified=True,exhausted=False,private_identity=dict(WHO),metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,unread_filter_applied=False,unread_verified=False,read_rows_skipped=0)
+    n.update(entry_verified=True,list_verified=True,chat_verified=True,destination_verified=True,action_attempted=True,action_completed=True,selection_verified=True,exhausted=False,private_identity=dict(WHO),metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,unread_filter_applied=False,unread_verified=False,read_rows_skipped=0,back_budget_retries=0)
     n['controller_path']=['chat'];n['root_top_kind']='chat'
     return value
 
@@ -141,3 +141,36 @@ class BrowserSchema(unittest.TestCase):
         b.build('back',expected=WHO)
 
 if __name__=='__main__':unittest.main()
+
+
+class BackBudgetRecovery(unittest.TestCase):
+    def test_retry_is_only_after_completed_bound_back_and_remains_observation(self):
+        source=b.build('back',expected=WHO)
+        self.assertIn("e==='frame-budget'&&operation==='back'&&n.phase==='wait-back'",source)
+        self.assertIn('same(n.private_identity,expectedIdentity)&&state.stop===null',source)
+        self.assertIn('!fixedCancellationRequested&&!n.cleanup_failed&&n.back_budget_retries<3',source)
+        self.assertIn('n.back_budget_retries++;return;',source)
+        self.assertEqual(source.count('call(s.closeChat,current)'),1)
+        wait=source.split("if(n.phase==='wait-back'){")[1].split('if(n.phase===')[0]
+        self.assertNotIn('call(s.closeChat',wait)
+        self.assertIn("if(k!=='dialogs')fail('unexpected-screen')",wait)
+        self.assertIn("if(!same(currentIdentity(current).who,expectedIdentity))fail('identity-changed')",wait)
+        self.assertIn('const deadline=Date.now()+100',source)
+        self.assertIn('r.navigation.frames>=180',source)
+
+    def test_recovery_evidence_rejected_for_open_or_uncompleted_back(self):
+        v=raw_open();v['navigation']['back_budget_retries']=1
+        with self.assertRaises(ValueError):b.validate(v,'open',allowed=[TARGET])
+        for bad in (-1,4,True,'1'):
+            v=raw_open();v['navigation']['back_budget_retries']=bad
+            with self.assertRaises(ValueError):b.validate(v,'open',allowed=[TARGET])
+
+    def test_diagnostic_counter_is_optional_for_legacy_and_bounded(self):
+        from assistant_navigation_check import safe_diagnostic
+        diagnostic=b.validate(raw_open(),'open',allowed=[TARGET])['diagnostic']
+        safe_diagnostic(diagnostic)
+        diagnostic.pop('back_budget_retries');safe_diagnostic(diagnostic)
+        for bad in (-1,4,True,'1'):
+            with self.assertRaises(ValueError):safe_diagnostic(dict(diagnostic,back_budget_retries=bad))
+        for change in (dict(phase='entry'),dict(action_completed=False)):
+            with self.assertRaises(ValueError):safe_diagnostic(dict(diagnostic,back_budget_retries=1,**change))

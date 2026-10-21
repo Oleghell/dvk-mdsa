@@ -65,8 +65,9 @@ static Object browser_unread_box={NULL,0};
 API int fixture_browser_unread_reads(void){return browser_unread_reads;}
 static int browser_clicks,browser_backs,browser_cell_reads,browser_count_reads,browser_visible_reads,browser_start;
 static Object *browser_selected;
+static int browser_back_checks;
 static Object browser_parents[31];
-static void browser_init(void){int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_start=0;browser_selected=&browser_chats[1];}
+static void browser_init(void){int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_back_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
 API int fixture_browser_clicks(void){return browser_clicks;}
 API int fixture_browser_backs(void){return browser_backs;}
 API void fixture_browser_entry(int entry){phase=entry;browser_start=entry;}
@@ -150,8 +151,8 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   browser_clicks++;if(obj!=&chats_obj||!args||args[0]!=&browser_cells[1]||args[1]!=&browser_chats[1])route_bad++;
   if(mode==807){*exc=&exception;return NULL;}browser_selected=args[1];phase=3;if(mode==815)slow();return NULL;
  case 816:
-  browser_backs++;if(obj!=&browser_vc)route_bad++;
-  if(mode==808){*exc=&exception;return NULL;}phase=1;return NULL;
+  browser_backs++;browser_back_checks=0;if(obj!=&browser_vc)route_bad++;
+  if(mode==808){*exc=&exception;return NULL;}phase=mode==838||mode==841?3:1;return NULL;
  case 817:
   browser_unread_reads++;
   if(mode==827)return NULL;
@@ -162,7 +163,17 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   if(mode==831&&browser_unread_reads>=2)browser_unread=2;
   if(mode==826)browser_unread=-1;
   return &browser_unread_box;
- case 10:return &app_root;
+ case 10:
+  if(mode==842&&!browser_backs)slow();
+  if(browser_backs){
+   browser_back_checks++;
+   if((mode==836||mode==838||mode==839||mode==841)&&browser_back_checks==1)slow();
+   if(mode==837)slow();
+   if(mode==838&&browser_back_checks>=2)browser_selected=&browser_chats[0];
+   if(mode==840){*exc=&exception;return NULL;}
+   if(mode==841&&browser_back_checks>=3)phase=1;
+  }
+  return &app_root;
  case 11:return NULL;
  case 12:if(obj==&message_tab_obj)return mode==712?&message_tab_obj:&chats_obj;return obj==&app_root?&ui_nav:NULL;
  case 14:boolbox.value=1;return &boolbox;

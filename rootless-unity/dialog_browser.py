@@ -11,7 +11,8 @@ import uikit_navigation as nav
 from one_chat_probe import identity
 from uikit_profile_navigation import replace_once
 
-VERSION='0.4.6'
+VERSION='0.4.7'
+MAX_BACK_BUDGET_RETRIES=3
 LIMIT=32
 MAX_TARGETS=1000
 # Fixed categories only: never export object pointers, IDs or text.
@@ -24,7 +25,7 @@ PHASES={'entry','wait-list','scan','wait-chat','wait-back','wait-search','done'}
 CHECKPOINTS={'not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','unread-count','chat-controller','open-handler','back-handler','ready'}
 SELECTION={'not-checked','table','visible','cell','binding','filter','unread','stability','open','verify-chat','back','search','exhausted'}
 FLAGS={'cleanup_failed','ui_text_read','entry_verified','list_verified','chat_verified','destination_verified','action_attempted','action_completed','selection_verified','exhausted','unread_filter_applied','unread_verified'}
-EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped'}
+EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped','back_budget_retries'}
 
 
 def targets(values):
@@ -257,7 +258,7 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+',unreadOnly='+json.dumps(unread_only)+';')
     s=replace_once(s,' function prepareNavigation(',PREPARE+'\n function prepareNavigation(')
     s=replace_once(s,'prepareDialogRoute(f,setup.navigation,getClass);','prepareDialogRoute(f,setup.navigation,getClass);prepareDialogBrowser(f,setup.navigation,getClass);')
-    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,unread_filter_applied:false,unread_verified:false});
+    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,back_budget_retries:0,unread_filter_applied:false,unread_verified:false});
  for(const k of ['search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'])delete r.navigation[k];''')
     s=replace_once(s,'"il2cpp_type_get_object"]','"il2cpp_type_get_object","il2cpp_class_get_parent"]')
     s=replace_once(s,"Object.assign(f,{classType:","Object.assign(f,{classParent:bind('class_get_parent','pointer',['pointer']),classType:")
@@ -276,6 +277,17 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     start=s.index("   if(n.phase==='search'&&k!=='search')")
     end=s.index('\n  } catch(e)',start)
     s=s[:start]+TICK+s[end:]
+    # A slow frame AFTER the one verified back handler may be retried only as
+    # observation. wait-back has no action calls and is never reset to entry.
+    # Keep the baseline 100 ms/frame, total call/frame/time limits and cleanup.
+    s=replace_once(s, "} catch(e){n.error=", """} catch(e){
+   if(e==='frame-budget'&&operation==='back'&&n.phase==='wait-back'&&
+      n.entry_verified&&n.chat_verified&&n.action_attempted&&n.action_completed&&
+      same(n.private_identity,expectedIdentity)&&state.stop===null&&
+      !fixedCancellationRequested&&!n.cleanup_failed&&n.back_budget_retries<"""+str(MAX_BACK_BUDGET_RETRIES)+"""){
+    n.back_budget_retries++;return;
+   }
+   n.error=""")
     s=s.replace('checkView(current)', 'scope(()=>checkView(current))')
     s=s.replace('resolve(candidate).equals(current)', 'scope(()=>resolve(candidate).equals(current))')
     s=replace_once(s,"['card','origin','tabs']", "['card','origin','tabs','selectedChat','selectedUser']")
@@ -293,8 +305,9 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False):
     if set(n)!=EXTRAS or n['phase'] not in PHASES or n['error'] not in ERRORS:raise ValueError('Invalid dialog evidence')
     if any(type(n[k]) is not bool for k in FLAGS) or n['ui_text_read']:raise ValueError('Invalid flags')
     if n['metadata_checkpoint'] not in CHECKPOINTS or n['selection_checkpoint'] not in SELECTION:raise ValueError('Invalid checkpoint')
-    for k,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128)]:
+    for k,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128),('back_budget_retries',MAX_BACK_BUDGET_RETRIES)]:
         if type(n[k]) is not int or not 0<=n[k]<=limit:raise ValueError('Invalid scan bounds')
+    if n['back_budget_retries'] and (operation!='back' or n['phase'] not in ('wait-back','done') or not n['chat_verified'] or not n['action_completed']):raise ValueError('Invalid back recovery evidence')
     if n['read_rows_skipped']>n['rows_scanned']:raise ValueError('Invalid skipped rows')
     if not unread_only and (n['unread_filter_applied'] or n['unread_verified'] or n['read_rows_skipped']):raise ValueError('Unexpected unread evidence')
     if n['unread_verified'] and (not n['unread_filter_applied'] or not n['selection_verified']):raise ValueError('Invalid unread evidence')
@@ -337,7 +350,7 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False):
     if not isinstance(bn['controller_path'],list):raise ValueError('Invalid controller path')
     bn['controller_path']=[old(k) for k in bn['controller_path']]
     nav.validate(base,errors=ERRORS)
-    diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped')}
+    diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped','back_budget_retries')}
     return dict(state=('exhausted' if n['exhausted'] else 'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready') if ready else 'stopped',identity=private,diagnostic=diagnostic)
 
 

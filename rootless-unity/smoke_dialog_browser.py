@@ -31,17 +31,17 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
  return {handles:read('fixture_handles'),bad:read('fixture_bad_frees'),off:read('fixture_off_thread_calls'),
  unread_reads:read('fixture_browser_unread_reads'),clicks:read('fixture_browser_clicks'),backs:read('fixture_browser_backs'),route_bad:read('fixture_route_bad')};}};''')
         script.load()
-        if mode==815:
+        if mode in (815,839):
             def stop():
                 until=time.monotonic()+5
                 while time.monotonic()<until:
-                    if script.exports_sync.counts()['clicks']:script.exports_sync.cancel();return
+                    if script.exports_sync.counts()['backs' if mode==839 else 'clicks']:script.exports_sync.cancel();return
                     time.sleep(.003)
             monitor=threading.Thread(target=stop,daemon=True);monitor.start()
         raw=script.exports_sync.probe();result=validate(raw,operation,allowed=allowed,expected=expected,unread_only=unread_only)
         if monitor:monitor.join(timeout=6)
         c=script.exports_sync.counts();n=raw['navigation']
-        expected_status={800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted'}[mode]
+        expected_status={800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget'}[mode]
         actual=result['state'] if result['state']!='stopped' else n['stage'] if n['stage']=='not-attempted' else n['error']
         assert actual==expected_status,(mode,operation,actual,n,c)
         assert c['handles']==c['bad']==c['off']==c['route_bad']==0,(mode,n,c)
@@ -56,7 +56,10 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         else:assert c['unread_reads']==0 and not n['unread_filter_applied'] and not n['unread_verified'],(mode,n,c)
         if result['state']=='opened':assert result['identity']==WHO and c['clicks']==1,(result,c)
         if result['state']=='exhausted' or mode in (801,802,804,811,812,813,818,821):assert c['clicks']==0,c
-        if operation=='back':assert c['clicks']==0 and c['backs']==(mode!=809),c
+        if operation=='back':assert c['clicks']==0 and c['backs']==(mode not in (809,842)),c
+        if mode in (836,838,841):assert n['back_budget_retries']==1,(mode,n,c)
+        if mode==837:assert n['back_budget_retries']==3,(mode,n,c)
+        if mode in (840,842):assert n['back_budget_retries']==0,(mode,n,c)
         if operation in ('return','list'):assert c['clicks']==c['backs']==0,c
         print('Synthetic dialog browser',mode,operation,entry,actual,flush=True)
     finally:
@@ -71,7 +74,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         except subprocess.TimeoutExpired:child.kill();child.wait(timeout=3)
         child.stdout.close();child.stderr.close()
 
-def integration(library):
+def integration(library,mode=800):
     # Keep one owned process alive through open -> real Chain reservation ->
     # outgoing observation -> back -> search. Bodies and transport are synthetic.
     import tempfile
@@ -80,14 +83,15 @@ def integration(library):
     from assistant_settings import Settings
     from assistant_dialogs import walk
     code='''import ctypes,sys,time
-lib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL);lib.fixture_init(800)
+lib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL);lib.fixture_init(int(sys.argv[2]))
 print('ready',flush=True)
 for _ in range(12000):
  lib.fixture_tick();time.sleep(.003)
 '''
-    child=subprocess.Popen([sys.executable,'-u','-c',code,str(library)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    child=subprocess.Popen([sys.executable,'-u','-c',code,str(library),str(mode)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     try:
         q=queue.Queue();threading.Thread(target=lambda:q.put(child.stdout.readline()),daemon=True).start();assert q.get(timeout=10).strip()=='ready'
+        recovered=[]
         def navigator(operation,*args,allowed=(),expected=None,entry='search',**kwargs):
             unread_only=kwargs.get('unread_only',False)
             session=frida.get_local_device().attach(child.pid);script=None
@@ -98,6 +102,7 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
  return [read('fixture_handles'),read('fixture_bad_frees'),read('fixture_off_thread_calls'),read('fixture_route_bad')];}};''')
                 script.load();result=validate(script.exports_sync.probe(),operation,allowed=allowed,expected=expected,unread_only=unread_only)
                 assert script.exports_sync.counts()==[0,0,0,0]
+                if operation=='back':recovered.append(result['diagnostic']['back_budget_retries'])
                 return result
             finally:
                 if script:script.unload()
@@ -148,6 +153,8 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
             assert monitored['totals']['outgoing_observed']==1,monitored
             assert monitored['totals']['contacts_forwarded']==0,monitored
             assert not monitored['automatic_profile_repeat'] and not monitored['delivery_confirmed']
+            if mode==836:assert recovered and all(r==1 for r in recovered),recovered
+            assert sum(m['sender']=='100' for m in messages)==3,messages
         print('Synthetic browser + durable chain + outgoing observation + return passed.',flush=True)
         print('Synthetic monitor: two serial inbox passes, one approval, no duplicate counters, stays in dialogs.',flush=True)
     finally:
@@ -164,7 +171,7 @@ if __name__=='__main__':
     one(lib,820,entry='dialogs')
     one(lib,820,'back')
     one(lib,820,'return')
-    for mode in (800,808,809):one(lib,mode,'back')
+    for mode in (800,808,809,836,837,838,839,840,841,842):one(lib,mode,'back')
     one(lib,800,'return')
     for mode in (822,823,824,825,826,827,828,829,831,832,833,834,835):one(lib,mode,unread_only=True)
     for mode in (800,820):
@@ -173,4 +180,5 @@ if __name__=='__main__':
         one(lib,mode,'list',entry='either')
         one(lib,mode,'list',entry='either',start_override=1)
     integration(lib)
-    print('48 synthetic browser cases and chain integration passed. No live dialog selection verified.')
+    integration(lib,836)
+    print('55 synthetic browser cases and chain integration passed. No live dialog selection verified.')

@@ -10,7 +10,7 @@ import sqlite3
 from assistant_lock import operation_lock
 from assistant_store import data_directory, StateError
 from dialog_browser import (VERSION, MAX_TARGETS, ERRORS, PHASES, CHECKPOINTS,
-                            SELECTION, targets, perform)
+                            SELECTION, MAX_BACK_BUDGET_RETRIES, targets, perform)
 from one_chat_probe import identity
 
 
@@ -58,7 +58,7 @@ def safe_diagnostic(value):
     keys={'stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned',
           'scan_batches','action_attempted','action_completed','destination_verified',
           'unread_filter_applied','unread_verified','read_rows_skipped'}
-    if not isinstance(value,dict) or set(value)!=keys:
+    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries'}:
         raise ValueError('Invalid diagnostic')
     if (value['stage'] not in {'not-attempted','navigation-ready','navigation-stopped','cleanup-failed'}
             or value['error'] not in ERRORS or value['phase'] not in PHASES
@@ -73,6 +73,11 @@ def safe_diagnostic(value):
             raise ValueError('Invalid diagnostic counter')
     if value['read_rows_skipped']>value['rows_scanned'] or (not value['unread_filter_applied'] and (value['unread_verified'] or value['read_rows_skipped'])):
         raise ValueError('Invalid unread diagnostic')
+    retries=value.get('back_budget_retries',0)
+    if type(retries) is not int or not 0<=retries<=MAX_BACK_BUDGET_RETRIES:
+        raise ValueError('Invalid back recovery counter')
+    if retries and (value['phase'] not in ('wait-back','done') or not value['action_completed']):
+        raise ValueError('Invalid back recovery diagnostic')
     return dict(value)
 
 
