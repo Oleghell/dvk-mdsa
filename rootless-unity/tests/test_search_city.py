@@ -63,15 +63,16 @@ class CitySchema(unittest.TestCase):
         with self.assertRaises(ValueError):
             city.validate(value)
 
-    def test_complete_list_and_honest_match_count_are_required(self):
-        for visible,total,matches in ((1,2,1),(2,1,1),(1,1,2),(2,2,0)):
+    def test_first_result_evidence_allows_virtualized_list(self):
+        for visible,total,matches in ((2,1,1),(1,1,2),(2,2,0)):
             value = ready_city()
             value['navigation'].update(city_visible_rows=visible, city_total_rows=total, city_matches=matches)
             with self.assertRaises(ValueError):
                 city.validate(value)
         value = ready_city()
-        value['navigation'].update(city_visible_rows=2, city_total_rows=2, city_matches=2)
-        self.assertIs(city.validate(value), value)  # First of exact duplicates is allowed.
+        for visible,total in ((1,2),(12,30),(2,2)):
+            value['navigation'].update(city_visible_rows=visible, city_total_rows=total, city_matches=1)
+            self.assertIs(city.validate(value), value)
 
     def test_verified_name_must_be_real_and_match_request_not_prefix(self):
         for name in (None, '', True, 'Pskov\n', ' Pskov', 'A'*81, '\ud800'):
@@ -103,7 +104,7 @@ class CitySchema(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 city.build(bad)
 
-    def test_uses_actual_records_and_complete_visible_results_only(self):
+    def test_uses_verified_first_result_without_requiring_all_rows(self):
         source = city.build('Псков')
         for text in ('get_GeoID','get_RecordType','OnCellSelected','citySignature(f,entry,m)',
                      'city-query-changed','cityExact','cityFingerprint',
@@ -118,7 +119,9 @@ class CitySchema(unittest.TestCase):
         self.assertIn('r.navigation.frames>=900', source)
         self.assertIn('},30000);', source)
         self.assertNotIn('.startsWith(', source)
-        self.assertIn("if(count>12||count!==total)fail('city-results-incomplete');", source)
+        self.assertIn("if(count>200||count>total)fail('city-results-incomplete');", source)
+        self.assertIn("const scan=1;", source)
+        self.assertIn("fingerprint:JSON.stringify({records,count,total})", source)
         self.assertIn("if(found.match===null)fail('city-not-found');", source)
 
 

@@ -80,17 +80,17 @@ static Object *city_invoke(Method *m,void *obj,void **args,void **exc){
   city_name_reads++;
   if(mode==326||(mode==327&&obj==&city_record)||(mode==331&&city_name_reads>2))return (Object *)&similar_name_string;
   return (Object *)(mode==310?&other_name_string:mode==330?&case_name_string:&wanted_string);
- case 308:city_integer=mode==311?2:1;return &city_int_box;
+ case 308:city_integer=(mode==311||(mode==336&&obj==&city_record))?2:1;return &city_int_box;
  case 309:
   if((mode==328&&obj==&model&&model_has_city)||(mode==329&&obj==&form_model&&form_has_city))return (Object *)&similar_name_string;
   return (Object *)((obj==&form_model?form_has_city:model_has_city)?(mode==330?&case_name_string:&wanted_string):&old_name_string);
  case 310:if(!args||!args[0]||*(unsigned char *)args[0]!=0){*exc=&exception;return NULL;}if(mode!=318)form_distance=0;return NULL;
  case 311:return obj==&city_cell2?&city_record2:&city_record;
  case 312:return &city_list;
- case 313:city_integer=mode==308?0:mode==309||mode==327?2:1;return &city_int_box;
- case 314:if(mode==320)return &other;return index==0?&city_cell:&city_cell2;
+ case 313:city_integer=mode==308?0:mode==334?13:mode==309||mode==327||mode==336||mode==337?2:1;return &city_int_box;
+ case 314:if(mode==320||(mode==334&&index>0))return &other;return index==0?&city_cell:&city_cell2;
  case 315:city_integer=1;return &city_int_box;
- case 316:city_integer=mode==308?0:mode==309||mode==312||mode==327?2:1;return &city_int_box;
+ case 316:city_integer=mode==308?0:mode==334?30:mode==335?200:mode==309||mode==312||mode==327||mode==336?2:1;return &city_int_box;
  case 317:yes=mode!=317;break;
  case 318:yes=0;break;
  }

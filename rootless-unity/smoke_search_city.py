@@ -57,10 +57,10 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         expected = {300:'navigation-ready',301:'not-attempted',302:'not-attempted',303:'not-attempted',
                     304:'managed-exception',305:'unexpected-screen',306:'city-query-changed',307:'managed-exception',
                     308:'frame-limit',309:'navigation-ready',310:'city-not-found',311:'city-not-found',
-                    312:'city-results-incomplete',313:'identity-changed',314:'screen-not-ready',315:'frame-budget',
+                    312:'navigation-ready',313:'identity-changed',314:'screen-not-ready',315:'frame-budget',
                     316:'managed-exception',317:'screen-not-ready',318:'screen-not-ready',319:'navigation-ready',320:'city-results-incomplete',321:'managed-exception',322:'cancelled',323:'cancelled',324:'navigation-ready',325:'navigation-ready',
-                    326:'city-not-found',327:'navigation-ready',328:'identity-changed',
-                    329:'identity-changed',330:'navigation-ready',331:'identity-changed'}.get(mode,expected_result)
+                    326:'city-not-found',327:'city-not-found',328:'identity-changed',
+                    329:'identity-changed',330:'navigation-ready',331:'identity-changed',334:'navigation-ready',335:'navigation-ready',336:'city-not-found',337:'city-results-incomplete'}.get(mode,expected_result)
         if expected_result is not None:
             expected = expected_result
         actual = n['stage'] if n['stage'] in ('navigation-ready','not-attempted') else n['error']
@@ -71,13 +71,13 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         assert all(c[k]<=1 for k in ('opens','cityopens','searches','selects','sets','applies','refreshes')),c
         if actual == 'navigation-ready':
             assert c['cityopens']==c['searches']==c['selects']==c['applies']==1,c
-            assert n['city_verified'] and n['online_verified'] and n['city_matches']==(2 if mode==309 else 1),n
+            assert n['city_verified'] and n['online_verified'] and n['city_matches']==1,n
             assert c['sets']==(mode!=324),c
             assert n['city_selected_name']==('PSKOV' if mode==330 else 'Pskov'),n
         else:
             assert not n['city_verified'] and n['city_selected_name'] is None,n
         if mode in (301,302,303):assert c['opens']==c['cityopens']==c['selects']==c['applies']==0,c
-        if mode in (306,307,308,310,311,312,317,320,326,331):assert c['selects']==c['applies']==0,c
+        if mode in (306,307,308,310,311,317,320,326,327,331,336,337):assert c['selects']==c['applies']==0,c
         if mode==328:assert c['selects']==c['applies']==1,c
         if mode==329:assert c['selects']==1 and c['applies']==0,c
         if mode==333:assert c['selects']==c['applies']==0,c
@@ -108,7 +108,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
 
 
 if __name__ == '__main__':
-    modes = range(300,332)
+    modes = list(range(300,332)) + [334,335,336,337]
     for mode in modes:
         one(Path(sys.argv[1]).resolve(strict=True), mode)
     print(str(len(modes))+' synthetic city cases passed. Updated city selection on MuMu is NOT verified.')

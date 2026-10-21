@@ -1,6 +1,6 @@
 """One random configured city + online. Real returned visible GeoRecords only.
 
-Unknown/incomplete/offscreen results STOP. First exact CITY match wins; no guessed geo IDs, screen
+Select only the first visible result after two stable snapshots. It must be an exact CITY match; no guessed geo IDs, screen
 coordinates, device geolocation, broad object search, profiles or message action.
 """
 import copy
@@ -143,8 +143,10 @@ UTILS = r'''
    const count=cityInt(s.cityCount,list),total=cityRows(table);
    if(count<0)fail('city-results-incomplete');n.city_visible_rows=Math.min(count,12);n.city_total_rows=total;
    if(count===0)return null;
-   if(count>12||count!==total)fail('city-results-incomplete');
-   const scan=count;
+   if(count>200||count>total)fail('city-results-incomplete');
+   // The picker is virtualized: hidden rows need not be materialized.
+   // Never fall through to a lower result when the first result is unsuitable.
+   const scan=1;
    const records=[],matches=[];const seen=new Set();
    for(let i=0;i<scan;i++)cityScoped(()=>{
     const cell=cityIndex(s.cityAt,list,i);if(cell.isNull()||!f.objectClass(cell).equals(s.cityCell))fail('city-results-incomplete');own(cell);
@@ -157,7 +159,7 @@ UTILS = r'''
    });
    if(cityInt(s.cityCount,list)!==count||cityRows(table)!==total)return null;
    n.city_matches=matches.length;
-   return {fingerprint:JSON.stringify(records),match:matches[0]||null,table,list};
+   return {fingerprint:JSON.stringify({records,count,total}),match:matches[0]||null,table,list};
   };
 '''
 PHASE_CODE = r'''
@@ -185,7 +187,7 @@ PHASE_CODE = r'''
     n.city_result_verified=true;
     const cell=cityIndex(s.cityAt,found.list,found.match.index);own(cell);const record=call(s.cityItem,cell);own(record);
     if(cityString(call(s.geoID,record))!==found.match.id||cityString(call(s.geoName,record))!==found.match.name||
-     cityInt(s.geoKind,record)!==s.cityEnum||!cityAttached(cell,found.table))cityId('select-recheck');
+     cityInt(s.geoKind,record)!==s.cityEnum||!cityAttached(cell,found.table)||!bool(s.canSelect,cell)||bool(s.nonSelectable,cell))cityId('select-recheck');
     state.cityID=found.match.id;n.city_checkpoint='select';n.city_select_attempted=true;
     call(s.citySelect,current,cityArgs([cell,record]));n.city_select_completed=true;n.phase='wait-city-return';return;
    }
@@ -275,8 +277,8 @@ def validate(value, *, expected_city=None):
     for earlier,later in zip(chain,chain[1:]):
         if extra[later] and not extra[earlier]:
             raise ValueError('Out-of-order city operation')
-    if extra['city_result_verified'] and (extra['city_scan_samples']!=2 or not 1<=extra['city_matches']<=extra['city_visible_rows']<=12 or extra['city_visible_rows']!=extra['city_total_rows']):
-        raise ValueError('City selected without complete stable results')
+    if extra['city_result_verified'] and (extra['city_scan_samples']!=2 or not 1<=extra['city_matches']<=1<=extra['city_visible_rows']<=extra['city_total_rows']):
+        raise ValueError('City selected without a stable verified first result')
     if extra['city_verified']:
         selected = check_city(extra['city_selected_name'])
         if expected_city is not None:

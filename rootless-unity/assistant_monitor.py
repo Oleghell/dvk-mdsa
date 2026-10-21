@@ -172,6 +172,9 @@ def summary(result):
         text += (f"Начальная порция анкет: проверено {profiles['profiles_checked']}, "
                  f"попыток приветствия {profiles['send_attempts']}, возвратов обработчика "
                  f"{profiles['handlers_returned']}. Появление приветствий в истории не проверялось. ")
+        city = profiles.get('last_city_navigation')
+        if city and city['stage'] != 'navigation-ready':
+            text += f"Выбор города остановлен: {city['error']}, этап {city['city_checkpoint']}. "
         if profiles.get('send_attempts_unknown'):
             text += 'Цикл оборвался: число дополнительных попыток приветствия неизвестно. '
     if result['status'] == 'waiting':

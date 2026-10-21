@@ -240,7 +240,8 @@ class Profiles(Base):
                                  cycle=self.cycle, city_next=self.city, config=Config(), **kwargs)
 
     def city_value(self, name='Псков'):
-        return dict(navigation=dict(stage='navigation-ready', error='none', city_selected_name=name))
+        from search_city import DEFAULTS
+        return dict(navigation=dict(DEFAULTS, stage='navigation-ready', error='none', phase='done', city_selected_name=name))
 
     def test_first_run_sets_city_then_counts_each_outcome(self):
         def greeted(adb, folder, text, ask, cancelled, store):
@@ -274,6 +275,21 @@ class Profiles(Base):
         self.assertEqual(out['status'], 'profiles-completed')
         self.assertEqual(out['city_changes'], 2)  # initial (no saved city) + exhaustion
         self.assertEqual(out['current_city'], 'Орск')
+
+    def test_city_failure_keeps_safe_diagnostics_and_does_not_open_profiles(self):
+        value = self.city_value()
+        value['navigation'].update(stage='navigation-stopped', error='city-results-incomplete',
+                                   phase='scan-city', city_checkpoint='results',
+                                   city_visible_rows=10, city_total_rows=30,
+                                   private_geo_id='PRIVATE-ID', private_text='PRIVATE-TEXT')
+        out = self.go([], [value], limit=1)
+        self.assertEqual(out['reason'], 'city-not-verified')
+        self.assertEqual(out['last_error'], 'city-results-incomplete')
+        self.assertEqual(out['last_city_navigation']['city_checkpoint'], 'results')
+        self.assertEqual(out['last_city_navigation']['city_total_rows'], 30)
+        self.assertFalse(out['last_city_navigation']['city_select_attempted'])
+        self.assertNotIn('PRIVATE', json.dumps(out))
+        self.cycle.assert_not_called()
 
     def test_saved_city_is_kept_between_runs(self):
         profiles.Session(self.store).set('city', 'Псков')

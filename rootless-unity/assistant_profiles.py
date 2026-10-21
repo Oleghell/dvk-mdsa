@@ -24,7 +24,7 @@ def report(limit):
                 greetings_declined=0, city_changes=0,
                 current_city=None, online_verified=False, per_message_confirmation=True,
                 automatic_send=False, delivery_confirmed=False, return_verified=False,
-                personal_data_exported=False, device_scope='MuMu-4-only', last_error=None)
+                personal_data_exported=False, device_scope='MuMu-4-only', last_error=None, last_city_navigation=None)
 
 
 class Session:
@@ -56,7 +56,7 @@ def clear_history(store):
     return True
 
 
-def change_city(settings, stopped, store, cities, *, city_next=None):
+def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics=None):
     """Return the verified city name or raise StateError; never retries."""
     import search_city
     from assistant_rotation import History
@@ -68,6 +68,13 @@ def change_city(settings, stopped, store, cities, *, city_next=None):
     value = city_next(settings.adb, settings.folder, cities, used, stopped.is_set)
     search_city.validate_next(value, cities)
     n = value['navigation']
+    if diagnostics is not None:
+        diagnostics['last_city_navigation'] = {key: n[key] for key in (
+            'stage', 'error', 'phase', 'city_checkpoint', 'city_prepare',
+            'city_visible_rows', 'city_total_rows', 'city_scan_samples',
+            'city_matches', 'city_select_attempted', 'city_select_completed', 'city_verified')}
+        if n['stage'] != 'navigation-ready':
+            diagnostics['last_error'] = n['error']
     if n['stage'] != 'navigation-ready':
         raise StateError('city-no-alternative' if n['error'] == 'city-no-alternative' else 'city-not-verified')
     history.record(cities, value)
@@ -89,7 +96,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             if out['city_changes'] >= MAX_CITY_CHANGES:
                 raise StateError('city-change-limit')
             progress(text)
-            city = change_city(settings, stopped, store, config.cities, city_next=city_next)
+            city = change_city(settings, stopped, store, config.cities, city_next=city_next, diagnostics=out)
             out['city_changes'] += 1
             out.update(current_city=city, online_verified=True)
             session.set('city', city)
