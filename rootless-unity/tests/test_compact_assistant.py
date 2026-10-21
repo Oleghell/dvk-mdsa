@@ -41,7 +41,7 @@ class Settings(unittest.TestCase):
 
 
 class CompactWindow(unittest.TestCase):
-    def test_four_main_buttons_and_no_startup_activity(self):
+    def test_five_main_buttons_and_no_startup_activity(self):
         import sys
         import assistant_app as app
         tk,ttk=MagicMock(),MagicMock()
@@ -49,13 +49,16 @@ class CompactWindow(unittest.TestCase):
         with patch.dict(sys.modules,{'tkinter':tk,'tkinter.ttk':ttk,'tkinter.filedialog':tk.filedialog}), \
              patch.object(app,'load',return_value=cfg.Settings()), \
              patch.object(app,'start_cycle') as start, \
+             patch.object(app,'run_guided_chain') as guided, \
              patch.object(app.telegram_notify,'load') as credentials, \
              patch.object(app.telegram_notify,'send') as telegram, \
              patch.object(app.threading,'Thread') as thread:
             app.launch()
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
-            self.assertEqual(labels,['Старт','Стоп','Привязать чат для чтения','Настройки'])
+            self.assertEqual(labels,['Старт','Стоп','Привязать чат для чтения',
+                                     'Вся цепочка · открытый чат','Настройки'])
             start.assert_not_called();credentials.assert_not_called();telegram.assert_not_called();thread.assert_not_called()
+            guided.assert_not_called()
 
 
 class NavigationReadiness(unittest.TestCase):

@@ -1,0 +1,367 @@
+"""One explicitly selected chat, the complete chain, per-message confirmation.
+
+The existing read-only Start is untouched. No profile search, name collection,
+contact export, send retries or chronology inferred from list positions.
+"""
+import json
+import secrets
+import time
+
+from assistant_chain import Chain, ReviewRequired, REPLIES, TERMINAL, text_hash, fingerprint
+from assistant_store import Store, StateError, data_directory
+from one_chat_probe import identity
+from one_chat_send import checked
+from conversation_engine import CONTACT_TEXT
+
+VERSION = '0.4.7'
+NOTICE = ('✅ Этап разговора завершён\n'
+          'Предложение перейти в Telegram или WhatsApp появилось в истории чата. '
+          'Откройте приложение, чтобы посмотреть разговор. Доставка не подтверждена.')
+
+
+def report():
+    return dict(tool_version=VERSION, mode='guided-open-dialog-chain',
+                status='chain-stopped', reason='not-started', stage='not-started',
+                stages=dict(greeting=False, peer_greeting=False, question=False,
+                            peer_reply=False, contact_request=False),
+                confirmations=0, submission_calls=0, outgoing_observed=0,
+                notifications=dict(accepted=0, unknown=0, disabled=0),
+                device_scope='MuMu-4-only', per_message_confirmation=True,
+                automatic_send=False, delivery_confirmed=False,
+                personal_data_exported=False, chat_content_exported=False,
+                telegram_used=False, ui_may_remain_open=True,
+                live_cycle_available=False)
+
+
+def same_snapshot(left, right):
+    left, right = checked(left), checked(right)
+    return (left['identity'] == right['identity'] and
+            {m['id']: m for m in left['messages']} ==
+            {m['id']: m for m in right['messages']})
+
+
+class GuidedChain(Chain):
+    def __init__(self, store, choose=None):
+        # Never use the legacy name/contact notification outbox in this mode.
+        kwargs = {} if choose is None else dict(choose=choose)
+        super().__init__(store, contact_notifications=False, **kwargs)
+        self.notification_attempted = False
+        with self.store.connection() as db:
+            db.execute('''CREATE TABLE IF NOT EXISTS guided_bindings(
+                account TEXT, peer TEXT, chat TEXT UNIQUE, greeting_hash TEXT,
+                PRIMARY KEY(account,peer))''')
+            db.execute('''CREATE TABLE IF NOT EXISTS guided_notices(
+                chat TEXT PRIMARY KEY, status TEXT NOT NULL)''')
+
+    def authorized(self, who):
+        who = identity(who)
+        with self.store.connection() as db:
+            row = db.execute('SELECT chat,greeting_hash FROM guided_bindings '
+                             'WHERE account=? AND peer=?',
+                             (who['account'], who['peer'])).fetchone()
+            bound = db.execute('SELECT chat FROM chain_dialogs WHERE account=? AND peer=?',
+                               (who['account'], who['peer'])).fetchone()
+        if row is None or row[0] != who['chat'] or (bound and bound[0] != who['chat']):
+            raise StateError('guided-binding-not-authorized')
+        return row[1]
+
+    def bind(self, snapshot, greetings, *, approved=False):
+        """Read-only bindings are NOT send consent. This needs its own approval."""
+        if approved is not True:
+            raise StateError('guided-consent-required')
+        snapshot = checked(snapshot)
+        who, messages = snapshot['identity'], snapshot['messages']
+        with self.store.connection() as db:
+            old = db.execute('SELECT chat FROM guided_bindings WHERE account=? AND peer=?',
+                             (who['account'], who['peer'])).fetchone()
+            if old:
+                if old[0] != who['chat']:
+                    raise StateError('guided-binding-changed')
+                baseline = db.execute('SELECT chat FROM chain_dialogs WHERE account=? AND peer=?',
+                                      (who['account'], who['peer'])).fetchone()
+                if not baseline or baseline[0] != who['chat']:
+                    raise StateError('guided-history-not-verified')
+                return
+            # Never reset a previous chain or its unknown send reservations.
+            previous = db.execute('SELECT greeting,chat FROM chain_dialogs '
+                                  'WHERE account=? AND peer=?',
+                                  (who['account'], who['peer'])).fetchone()
+            if previous:
+                greeting = next((m for m in messages if m['id'] == previous[0]), None)
+                if previous[1] != who['chat'] or greeting is None:
+                    raise StateError('guided-history-not-verified')
+                legacy = db.execute('SELECT text_hash,status,initial_chat FROM manual_actions '
+                                    'WHERE account=? AND peer=?',
+                                    (who['account'], who['peer'])).fetchone()
+                if (legacy is None or legacy[1] == 'not-invoked' or
+                        (int(legacy[2]) > 0 and legacy[2] != who['chat']) or
+                        greeting['sender'] != who['account'] or
+                        not isinstance(greeting['text'], str) or
+                        text_hash(greeting['text']) != legacy[0]):
+                    raise StateError('guided-history-not-verified')
+            else:
+                # Observe the greeting BEFORE any incoming reply. The native
+                # collection order and numeric message IDs are not timestamps.
+                if (len(messages) != 1 or messages[0]['sender'] != who['account'] or
+                        messages[0]['text'] not in greetings):
+                    raise StateError('start-before-peer-reply')
+                greeting = messages[0]
+                # Commit the baseline in the SAME transaction as consent. A
+                # crash cannot leave consent without a temporal greeting anchor.
+                salt = secrets.token_hex(32)
+                db.execute('INSERT INTO chain_dialogs VALUES(?,?,?,?,?,?)',
+                           (who['account'], who['peer'], who['chat'],
+                            greeting['id'], 'wait-reply', salt))
+                db.execute('INSERT INTO chain_seen VALUES(?,?,?)',
+                           (who['chat'], greeting['id'], fingerprint(greeting, salt)))
+            db.execute('INSERT INTO guided_bindings VALUES(?,?,?,?)',
+                       (who['account'], who['peer'], who['chat'], text_hash(greeting['text'])))
+
+    def proposal(self, snapshot):
+        who = snapshot['identity']
+        with self.store.connection() as db:
+            unapproved = {row[0] for row in db.execute(
+                "SELECT kind FROM chain_actions WHERE chat=? AND status='awaiting-approval'",
+                (who['chat'],))}
+        stage, action = self.consume(snapshot)
+        if ((stage == 'wait-mood' and 'question' in unapproved) or
+                (stage == 'wait-contact' and 'contact' in unapproved)):
+            self.mark_review(who)
+            return 'manual-review', None
+        with self.store.connection() as db:
+            if action is not None:
+                db.execute("UPDATE chain_actions SET status='awaiting-approval' "
+                           "WHERE chat=? AND kind=? AND status='reserved-unknown'",
+                           (who['chat'], action['kind']))
+            elif stage.startswith('pending-'):
+                kind = stage.removeprefix('pending-')
+                row = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?',
+                                 (who['chat'], kind)).fetchone()
+                if row and row[1] == 'awaiting-approval':
+                    text = next((t for t in REPLIES if text_hash(t) == row[0]), None)
+                    if text is None:
+                        raise StateError('guided-template-changed')
+                    action = dict(kind=kind, text=text)
+                elif not row or row[1] != 'handler-returned-unconfirmed':
+                    return 'submission-unknown', None
+            # An outgoing not submitted after this mode's consent is ambiguous.
+            if stage in ('wait-mood', 'wait-contact'):
+                kind = 'question' if stage == 'wait-mood' else 'contact'
+                row = db.execute('SELECT status FROM chain_actions WHERE chat=? AND kind=?',
+                                 (who['chat'], kind)).fetchone()
+                if not row or row[0] != 'outgoing-observed':
+                    raise StateError('guided-outgoing-not-verified')
+        return stage, action
+
+    def reserve_confirmed(self, who, action):
+        self.authorized(who)
+        with self.store.connection() as db:
+            stage = db.execute('SELECT stage FROM chain_dialogs WHERE chat=?',
+                               (who['chat'],)).fetchone()
+            if not stage or stage[0] != 'pending-' + action['kind']:
+                raise StateError('guided-stage-changed')
+            cur = db.execute("UPDATE chain_actions SET status='reserved-unknown' "
+                             "WHERE chat=? AND kind=? AND text_hash=? AND status='awaiting-approval'",
+                             (who['chat'], action['kind'], text_hash(action['text'])))
+            if cur.rowcount != 1:
+                raise StateError('guided-send-already-reserved')
+
+    def notice(self, who, notifier, cancelled):
+        self.notification_attempted = False
+        self.authorized(who)
+        if cancelled():
+            return 'cancelled'
+        with self.store.connection() as db:
+            row = db.execute("SELECT status FROM chain_actions WHERE chat=? AND kind='contact'",
+                             (who['chat'],)).fetchone()
+            if not row or row[0] != 'outgoing-observed':
+                raise StateError('guided-contact-not-observed')
+            if notifier is None:
+                return 'disabled'
+            db.execute("INSERT OR IGNORE INTO guided_notices VALUES(?,'pending')", (who['chat'],))
+            status = db.execute('SELECT status FROM guided_notices WHERE chat=?',
+                                (who['chat'],)).fetchone()[0]
+            if status != 'pending':
+                return 'already-accepted' if status == 'accepted' else 'unknown'
+            # Durable at-most-once attempt, including timeouts and crashes.
+            db.execute("UPDATE guided_notices SET status='attempted-unknown' WHERE chat=?",
+                       (who['chat'],))
+        if cancelled():
+            return 'cancelled'
+        try:
+            self.notification_attempted = True
+            status = 'accepted' if notifier() is True else 'unknown'
+        except Exception:
+            status = 'unknown'
+        with self.store.connection() as db:
+            db.execute('UPDATE guided_notices SET status=? WHERE chat=?', (status, who['chat']))
+        return status
+
+
+def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
+         greetings=(), notifier=None, progress=lambda _: None, pause=None,
+         max_polls=360, deadline=None):
+    """Monitor ONE open chat through both replies; all bodies remain in RAM."""
+    out = report()
+    if approved is not True:
+        out.update(reason='guided-consent-required')
+        return out
+    pause = stopped.wait if pause is None else pause
+    who = identity(who)
+    def read():
+        if stopped.is_set():
+            raise StateError('cancelled')
+        value = checked(reader(who))
+        if value['identity'] != who:
+            raise StateError('guided-binding-changed')
+        return value
+    try:
+        before = read()
+        chain.bind(before, greetings, approved=True)
+        pending_polls = 0
+        for _ in range(max_polls):
+            if stopped.is_set():
+                break
+            if deadline is not None and time.monotonic() >= deadline:
+                out.update(status='chain-paused', reason='wait-timeout')
+                return out
+            stage, action = chain.proposal(before)
+            out['stage'] = stage
+            out['stages']['greeting'] = True
+            with chain.store.connection() as db:
+                observed = dict(db.execute('SELECT kind,status FROM chain_actions WHERE chat=?',
+                                           (who['chat'],)))
+            out['stages']['peer_greeting'] = 'question' in observed
+            out['stages']['question'] = observed.get('question') == 'outgoing-observed'
+            out['stages']['peer_reply'] = 'contact' in observed
+            out['stages']['contact_request'] = observed.get('contact') == 'outgoing-observed'
+            out['outgoing_observed'] = sum(out['stages'][k] for k in ('question', 'contact_request'))
+            if stage == 'submission-unknown':
+                out.update(reason='send-outcome-unknown')
+                return out
+            if out['stages']['contact_request'] and stage in ('wait-contact', 'done'):
+                notification = chain.notice(who, notifier, stopped.is_set)
+                if notification == 'cancelled':
+                    break
+                if notification == 'already-accepted':
+                    notification = 'accepted'
+                out['notifications'][notification] += 1
+                out['telegram_used'] = chain.notification_attempted
+                out.update(status='chain-completed' if notification == 'accepted' else 'chain-needs-review',
+                           reason='contact-request-observed' if notification == 'accepted' else
+                           'telegram-disabled' if notification == 'disabled' else 'telegram-outcome-unknown')
+                return out
+            if stage in TERMINAL:
+                out.update(status='chain-needs-review', reason=stage)
+                return out
+            if action is not None:
+                progress('Подготовлен вопрос.' if action['kind'] == 'question' else
+                         'Подготовлено предложение перейти в мессенджер.')
+                if stopped.is_set():
+                    break
+                if approve(action['kind'], action['text'], stopped.is_set) is not True:
+                    out.update(status='chain-paused', reason='message-not-approved')
+                    return out
+                out['confirmations'] += 1
+                if stopped.is_set():
+                    break
+                fresh = read()
+                if not same_snapshot(before, fresh):
+                    chain.mark_review(who)
+                    out.update(reason='history-changed-during-approval')
+                    return out
+                chain.reserve_confirmed(who, action)
+                if stopped.is_set():
+                    break
+                out['submission_calls'] += 1
+                try:
+                    result = sender(fresh, action['text'])
+                    returned = (isinstance(result, dict) and result.get('attempted') is True
+                                and result.get('handler_returned') is True)
+                except Exception:
+                    returned = False
+                chain.finish(who, action, returned)
+                if not returned:
+                    out.update(reason='send-outcome-unknown')
+                    return out
+                pending_polls = 0
+            elif stage.startswith('pending-'):
+                pending_polls += 1
+                if pending_polls >= 3:
+                    out.update(reason='outgoing-not-observed')
+                    return out
+            else:
+                pending_polls = 0
+            progress({'wait-reply': 'Жду приветствие собеседника.',
+                      'wait-mood': 'Вопрос виден в истории. Жду ответ собеседника.',
+                      'pending-question': 'Проверяю появление вопроса. Повторной отправки нет.',
+                      'pending-contact': 'Проверяю появление предложения. Повторной отправки нет.'
+                      }.get(stage, 'Проверяю подтверждённое состояние чата.'))
+            if stopped.is_set() or pause(5):
+                break
+            before = read()
+        else:
+            out.update(status='chain-paused', reason='wait-timeout')
+            return out
+        out.update(status='chain-cancelled', reason='cancelled')
+    except ReviewRequired:
+        out.update(status='chain-needs-review', reason='greeting-not-verified')
+    except Exception as error:
+        # Only fixed, authored categories; no arbitrary native exception text.
+        allowed = {'start-before-peer-reply', 'guided-binding-changed',
+                   'guided-history-not-verified', 'guided-consent-required'}
+        reason = str(error) if isinstance(error, StateError) and str(error) in allowed else 'binding-or-history-check-stopped'
+        out.update(status='chain-cancelled' if stopped.is_set() else 'chain-stopped',
+                   reason='cancelled' if stopped.is_set() else reason)
+    return out
+
+
+def write_report(value):
+    folder = data_directory()
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / 'messages-chain-check.json'
+    temporary = path.with_suffix('.tmp')
+    try:
+        temporary.write_text(json.dumps(value, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return path.name
+
+
+def run(settings, stopped, approve, progress=lambda _: None, *, approved=False,
+        store=None, reader=None, sender=None, notifier=None, greetings=None):
+    from assistant_lock import operation_lock
+    from assistant_config import load
+    from one_chat_device import capture
+    from one_chat_send_device import submit
+    import telegram_notify
+    if approved is not True or stopped.is_set():
+        return dict(report(), reason='cancelled' if stopped.is_set() else 'guided-consent-required')
+    with operation_lock():
+        try:
+            if not settings.contacts_enabled:
+                raise StateError('telegram-disabled')
+            if notifier is None:
+                token, chat_id = telegram_notify.load()
+                notifier = lambda: telegram_notify.send(token, chat_id, NOTICE)
+            greetings = load().greetings if greetings is None else greetings
+            reader = capture if reader is None else reader
+            sender = submit if sender is None else sender
+            private = reader(settings.adb, settings.folder, stopped.is_set, None)
+            if set(private) != {'identity', 'messages'} or private['messages'] is not None:
+                raise StateError('guided-identity-not-verified')
+            who = identity(private['identity'])
+            chain = GuidedChain(Store() if store is None else store)
+            value = walk(chain, who, stopped, approve,
+                         lambda expected: reader(settings.adb, settings.folder, stopped.is_set, expected),
+                         lambda snapshot, text: sender(settings.adb, settings.folder, snapshot,
+                                                       stopped.is_set, text=text),
+                         approved=True, greetings=greetings, notifier=notifier, progress=progress,
+                         deadline=time.monotonic() + 1800)
+        except Exception as error:
+            value = report()
+            value.update(reason='telegram-disabled' if isinstance(error, StateError) and
+                         str(error) == 'telegram-disabled' else 'settings-or-device-check-stopped')
+        value['report_name'] = write_report(value)
+        return value
