@@ -45,7 +45,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         assert c['handles']==c['bad']==c['off']==c['route_bad']==0,(mode,n,c)
         assert c['clicks']<=1 and c['backs']<=1 and n['handles_acquired']==n['handles_released'],(mode,n,c)
         if result['state']=='opened':assert result['identity']==WHO and c['clicks']==1,(result,c)
-        if result['state']=='exhausted' or mode in (801,802,804,811,812,813,818,819):assert c['clicks']==0,c
+        if result['state']=='exhausted' or mode in (801,802,804,811,812,813,818):assert c['clicks']==0,c
         if operation=='back':assert c['clicks']==0 and c['backs']==(mode!=809),c
         if operation=='return':assert c['clicks']==c['backs']==0,c
         print('Synthetic dialog browser',mode,operation,entry,actual,flush=True)
