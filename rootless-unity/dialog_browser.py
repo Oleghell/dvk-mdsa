@@ -125,6 +125,14 @@ UTILS=r'''
    fail('view-parent-depth-limit');
   });
   const cellAt=(list,index)=>{const i=Memory.alloc(4);i.writeS32(index);const args=Memory.alloc(Process.pointerSize);args.writePointer(i);return call(s.visibleItem,list,args);};
+  const stableList=(table,count,index,cell)=>{
+   const list=call(s.visible,table);
+   if(list.isNull()||!f.objectClass(list).equals(s.visibleClass))fail('selection-list-changed');
+   own(list);
+   if(int32(s.visibleCount,list)!==count)fail('selection-count-changed');
+   if(index!==null&&cell!==null&&!cellAt(list,index).equals(cell))fail('selection-cell-changed');
+   return list;
+  };
   const finish=()=>{n.destination_verified=true;n.phase='done';n.stage='navigation-ready';};
   const scan=(current,candidate)=>{
    n.selection_checkpoint='table';const table=call(s.listScroll,current);if(table.isNull()||!f.assignable(s.table,f.objectClass(table)))fail('unexpected-object');own(table);
@@ -148,9 +156,7 @@ UTILS=r'''
      if(!checkView(current))fail('selection-screen-changed');
      if(!resolve(candidate).equals(current))fail('selection-controller-changed');
      if(!call(s.listScroll,current).equals(table))fail('selection-table-changed');
-     if(!call(s.visible,table).equals(list))fail('selection-list-changed');
-     if(int32(s.visibleCount,list)!==count)fail('selection-count-changed');
-     if(!cellAt(list,state.scanIndex).equals(cell))fail('selection-cell-changed');
+     stableList(table,count,state.scanIndex,cell);
      if(!call(s.cellChat,cell).equals(chat))fail('selection-chat-changed');
      if(!attached(cell,table))fail('selection-detached');
      const again=modelIdentity(chat);if(again===null||!same(model.who,again.who)||!again.user.equals(model.user)||!permitted(again.who))fail('identity-changed');
@@ -163,8 +169,7 @@ UTILS=r'''
    }
    if(state.scanIndex>=count){
     if(!call(s.listScroll,current).equals(table))fail('selection-table-changed');
-    if(!call(s.visible,table).equals(list))fail('selection-list-changed');
-    if(int32(s.visibleCount,list)!==count)fail('selection-count-changed');
+    stableList(table,count,null,null);
     n.exhausted=true;n.selection_checkpoint='exhausted';finish();
    }
   };

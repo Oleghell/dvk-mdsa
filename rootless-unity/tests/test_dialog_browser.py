@@ -56,6 +56,10 @@ class BrowserSchema(unittest.TestCase):
         self.assertNotIn("fail('selection-changed')",source)
         self.assertLess(source.index("fail('selection-chat-changed')"),source.index('call(s.openCell,current,args)'))
         self.assertLess(source.index("fail('selection-detached')"),source.index('call(s.openCell,current,args)'))
+        self.assertIn('const stableList=(table,count,index,cell)=>{',source)
+        self.assertIn('stableList(table,count,state.scanIndex,cell);',source)
+        self.assertIn('stableList(table,count,null,null);',source)
+        self.assertNotIn("if(!call(s.visible,table).equals(list))fail('selection-list-changed');",source)
 
     def test_back_requires_exact_binding_and_has_no_cell_selection(self):
         for op,expected in [('back',None),('return',WHO),('open',WHO)]:
