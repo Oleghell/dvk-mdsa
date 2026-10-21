@@ -61,7 +61,8 @@ static Object browser_manager={&bc[2],0},browser_long_box={NULL,0};
 static int64_t browser_long;
 static int browser_clicks,browser_backs,browser_cell_reads,browser_count_reads,browser_visible_reads,browser_start;
 static Object *browser_selected;
-static void browser_init(void){int i;for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_start=0;browser_selected=&browser_chats[1];}
+static Object browser_parents[31];
+static void browser_init(void){int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_start=0;browser_selected=&browser_chats[1];}
 API int fixture_browser_clicks(void){return browser_clicks;}
 API int fixture_browser_backs(void){return browser_backs;}
 API void fixture_browser_entry(int entry){phase=entry;browser_start=entry;}
@@ -117,7 +118,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  managed_calls++;if(TID()!=main_id)off_thread_calls++;
  switch(m->action){
  case 800:return &browser_table;
- case 801:browser_visible_reads++;return mode==819&&browser_visible_reads>=2?&browser_list_alt:&browser_list;
+ case 801:browser_visible_reads++;return (mode==819||mode==820||mode==821)&&browser_visible_reads>=2?&browser_list_alt:&browser_list;
  case 802:browser_count_reads++;modal_count=mode==818?129:mode==811&&browser_count_reads>=2?1:2;return &countbox;
  case 803:if(!args||!args[0]||*(int *)args[0]<0||*(int *)args[0]>1){route_bad++;return NULL;}return &browser_cells[*(int *)args[0]];
  case 804:browser_cell_reads++;return mode==802&&((Object *)obj)->value==1&&browser_cell_reads>=3?&browser_chats[0]:&browser_chats[((Object *)obj)->value];
@@ -144,6 +145,11 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 15:return &view;
  case 16:case 17:case 26:case 30:case 31:case 32:boolbox.value=0;return &boolbox;
  case 18:
+  if(mode==820||mode==821){
+   int length=mode==820?24:31;
+   if(obj==&view)return &browser_parents[0];
+   for(int i=0;i<length;i++)if(obj==&browser_parents[i])return i+1<length?&browser_parents[i+1]:&window;
+  }
   if(obj==&browser_table)return mode==813?NULL:&view;
   if(obj==&browser_cells[0]||obj==&browser_cells[1])return &browser_table;
   return mode==711&&phase==1?NULL:&window;

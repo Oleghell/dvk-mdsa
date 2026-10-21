@@ -61,6 +61,18 @@ class BrowserSchema(unittest.TestCase):
         self.assertIn('stableList(table,count,null,null);',source)
         self.assertNotIn("if(!call(s.visible,table).equals(list))fail('selection-list-changed');",source)
 
+    def test_traversal_handles_are_scoped_without_relaxing_live_limit(self):
+        source=b.build('open',allowed=[TARGET])
+        for text in ('const scope=(body,retainResult=false)=>{',
+                     'const current=scope(()=>resolve(candidate),true);',
+                     'scope(()=>checkView(current))',
+                     'scope(()=>resolve(candidate).equals(current))',
+                     'if(retained!==null)held.push(retained);',
+                     "if(held.length>=64)fail('handle-limit')"):
+            self.assertIn(text,source)
+        self.assertNotIn('if(!checkView(current))',source)
+        self.assertNotIn('if(!resolve(candidate).equals(current))',source)
+
     def test_back_requires_exact_binding_and_has_no_cell_selection(self):
         for op,expected in [('back',None),('return',WHO),('open',WHO)]:
             with self.assertRaises(ValueError):b.build(op,expected=expected)

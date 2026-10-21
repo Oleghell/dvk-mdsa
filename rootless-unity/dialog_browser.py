@@ -92,9 +92,18 @@ PREPARE=r'''
 '''
 UTILS=r'''
   const save=(key,obj)=>{if(state[key]&&!state[key].isNull())fail('identity-changed');state[key]=own(obj);held.splice(held.indexOf(state[key]),1);};
-  const scope=body=>{
-   const start=held.length;
-   try{return body();}finally{while(held.length>start){const h=held.pop();try{f.release(h);n.handles_released++;}catch(_){n.cleanup_failed=true;}}}
+  // Release temporary traversal handles before the next independent check.
+  // A returned controller needs its own handle before traversal roots are freed.
+  const scope=(body,retainResult=false)=>{
+   const start=held.length;let retained=null;
+   try{
+    const result=body();
+    if(retainResult&&!result.isNull()){retained=own(result);held.splice(held.indexOf(retained),1);}
+    return result;
+   }finally{
+    while(held.length>start){const h=held.pop();try{f.release(h);n.handles_released++;}catch(_){n.cleanup_failed=true;}}
+    if(retained!==null)held.push(retained);
+   }
   };
   const int32=(entry,obj)=>{const box=call(entry,obj);if(box.isNull())fail('signature-mismatch');const p=f.unbox(box);if(p.isNull())fail('signature-mismatch');return p.readS32();};
   const id64=(entry,obj)=>{const box=call(entry,obj);if(box.isNull())fail('identity-not-bound');const p=f.unbox(box);if(p.isNull())fail('identity-not-bound');const v=p.readS64();if(v.compare(0)<=0)fail('identity-not-bound');return v.toString();};
@@ -237,9 +246,14 @@ def build(operation, *, allowed=(), expected=None, entry='search'):
     s=replace_once(s,"if(k==='search'||k==='dialogs'){", "if(k==='search'||k==='dialogs'||k==='chat'){")
     s=s.replace("n.phase==='search'?'wrong-screen'", "n.phase==='entry'?'wrong-screen'")
     s=replace_once(s,'  try {\n   const root=call',UTILS+'  try {\n   const root=call')
+    s=replace_once(s,'const current=resolve(candidate);if(current.isNull())return;',
+                   'const current=scope(()=>resolve(candidate),true);if(current.isNull())return;')
+
     start=s.index("   if(n.phase==='search'&&k!=='search')")
     end=s.index('\n  } catch(e)',start)
     s=s[:start]+TICK+s[end:]
+    s=s.replace('checkView(current)', 'scope(()=>checkView(current))')
+    s=s.replace('resolve(candidate).equals(current)', 'scope(()=>resolve(candidate).equals(current))')
     s=replace_once(s,"['card','origin','tabs']", "['card','origin','tabs','selectedChat','selectedUser']")
     s=replace_once(s,json.dumps(sorted(nav.ERRORS)),json.dumps(sorted(ERRORS)))
     return s
