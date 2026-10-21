@@ -22,7 +22,7 @@ def launch(self_check=False):
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Общий цикл требует подключения лички. «Старт» подготовит технические сведения без сообщений.')
+    status = tk.StringVar(value='Открой анкеты в MuMu №4. «Старт» проверит переход в личку и обратно — без сообщений.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
@@ -153,16 +153,19 @@ def launch(self_check=False):
             busy = False
             if kind == 'error':
                 status.set(value)
-            elif value['status'] == 'navigation-required':
-                status.set('Общий цикл ещё не включён. Пришли messages-navigation-definitions.json из открывшейся папки. Отправок не было.')
+            elif value.get('report_name'):
+                if value['status'] == 'dialog-route-ready':
+                    status.set('Личка открыта, возврат к анкетам подтверждён. Пришли messages-navigation-check.json. Общий цикл пока выключен.')
+                else:
+                    status.set('Переход остановлен: ' + value['reason'] + '. Пришли messages-navigation-check.json. Отправок не было; экран мог остаться в личке.')
                 try:
                     os.startfile(str(data_directory()))
                 except (OSError, AttributeError):
-                    status.set('Сведения готовы: %LOCALAPPDATA%/DvkAssistant/messages-navigation-definitions.json. Отправок не было.')
+                    status.set('Отчёт: %LOCALAPPDATA%/DvkAssistant/messages-navigation-check.json. Общий цикл выключен. Отправок не было.')
             elif value['status'] == 'cancelled':
                 status.set('Остановлено. Отправок не было.')
             else:
-                status.set('Подготовка лички остановлена: ' + value['reason'] + '. Проверь папку test-apks. Отправок не было.')
+                status.set('Проверка лички остановлена: ' + value['reason'] + '. Проверь папку test-apks. Отправок не было.')
             refresh()
         root.after(100, poll)
 
