@@ -14,13 +14,14 @@ from version import VERSION
 from assistant_authorization import flags
 
 MAX_LIMIT = 20
-MAX_CITY_CHANGES = 3
+MAX_SEARCH_CYCLES = 200
 MAX_SCANNED = 200
 
 
 def report(limit):
     return dict(tool_version=VERSION, mode='new-profiles-pass', status='profiles-stopped',
                 reason='not-started', profile_limit=limit, profiles_checked=0, qualified_profiles=0, scan_limit=MAX_SCANNED,
+                search_cycles=0, search_cycle_limit=MAX_SEARCH_CYCLES,
                 skipped_friends=0, skipped_existing_chat=0, greetings_offered=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
                 greetings_declined=0, city_changes=0,
@@ -96,8 +97,8 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
     cycle_pending = False
     try:
         def new_city(text):
-            if out['city_changes'] >= MAX_CITY_CHANGES:
-                raise StateError('city-change-limit')
+            if stopped.is_set():
+                raise StateError('cancelled')
             progress(text)
             city = change_city(settings, stopped, store, config.cities, city_next=city_next, diagnostics=out)
             out['city_changes'] += 1
@@ -112,6 +113,8 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 raise StateError('profile-scan-limit')
             if stopped.is_set():
                 raise StateError('cancelled')
+            if out['search_cycles'] >= MAX_SEARCH_CYCLES:
+                raise StateError('search-cycle-limit')
             greeting = config.greeting()
             progress(f'Новые анкеты: {out["qualified_profiles"] + 1}/{limit}. ' +
                      ('Друзей меньше 50 → пустой чат → автоматическое приветствие.' if out['automatic_send'] else
@@ -123,6 +126,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 return approve('greeting', text, cancelled)
 
             cycle_pending = True
+            out['search_cycles'] += 1
             value = cycle(settings.adb, settings.folder, greeting, ask, stopped.is_set, store=store)
             n = value['navigation']
             cycle_pending = False
@@ -135,6 +139,8 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             if offered:
                 out['greetings_offered'] += 1
             if n['error'] == 'selection-unavailable' and not n['open_attempted']:
+                if out['search_cycles'] >= MAX_SEARCH_CYCLES:
+                    raise StateError('search-cycle-limit')
                 new_city('Новых анкет в этом городе нет. Меняю город и проверяю «Только онлайн».')
                 continue
             out['profiles_checked'] += 1
@@ -162,7 +168,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
         if cycle_pending:
             out.update(send_attempts_unknown=True, greetings_sent=None)
         known = {'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
-                 'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'city-change-limit', 'profile-scan-limit'}
+                 'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'search-cycle-limit', 'profile-scan-limit'}
         reason = 'cancelled' if stopped.is_set() else (
             str(error) if isinstance(error, StateError) and str(error) in known else 'device-or-journal-check-stopped')
         status = ('profiles-cancelled' if reason == 'cancelled' else

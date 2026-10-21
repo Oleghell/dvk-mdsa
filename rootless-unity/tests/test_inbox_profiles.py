@@ -357,12 +357,45 @@ class Profiles(Base):
         self.assertEqual(out['reason'], 'profile-check-stopped')
         self.assertEqual(out['last_error'], 'screen-not-ready')
 
-    def test_city_change_limit(self):
+    def test_more_than_three_city_changes_continue_until_target(self):
         exhausted = cycle_result(stage='navigation-stopped', error='selection-unavailable', open_attempted=False)
         profiles.Session(self.store).set('city', 'Псков')
-        out = self.go([exhausted] * 5, [self.city_value()] * 5, limit=2)
-        self.assertEqual(out['reason'], 'city-change-limit')
-        self.assertEqual(out['city_changes'], profiles.MAX_CITY_CHANGES)
+        cities = [self.city_value(name) for name in ('Орск','Псков','Орск','Псков','Орск')]
+        out = self.go([exhausted] * 5 + [cycle_result(send_attempted=True, send_handler_returned=True)],
+                      cities, limit=1)
+        self.assertEqual(out['status'], 'profiles-completed')
+        self.assertEqual(out['reason'], 'profile-limit')
+        self.assertEqual(out['city_changes'], 5)
+        self.assertEqual(out['qualified_profiles'], 1)
+        self.assertEqual(out['profiles_checked'], 1)
+        self.assertEqual(out['search_cycles'], 6)
+        self.assertEqual(self.city.call_count, 5)
+
+    def test_empty_cities_do_not_spin_forever_or_change_unused_city(self):
+        exhausted = cycle_result(stage='navigation-stopped', error='selection-unavailable', open_attempted=False)
+        profiles.Session(self.store).set('city', 'Псков')
+        with unittest.mock.patch.object(profiles, 'MAX_SEARCH_CYCLES', 4):
+            out = self.go([exhausted] * 4,
+                          [self.city_value(n) for n in ('Орск','Псков','Орск')], limit=1)
+        self.assertEqual(out['reason'], 'search-cycle-limit')
+        self.assertEqual(out['search_cycles'], 4)
+        self.assertEqual(out['profiles_checked'], 0)
+        self.assertEqual(out['qualified_profiles'], 0)
+        self.assertEqual(out['city_changes'], 3)
+        self.assertEqual(self.city.call_count, 3)
+        self.assertEqual(self.cycle.call_count, 4)
+
+    def test_stop_prevents_next_city_selection(self):
+        profiles.Session(self.store).set('city', 'Псков')
+        def exhausted(*args, **kwargs):
+            self.stop.set()
+            return cycle_result(stage='navigation-stopped', error='selection-unavailable', open_attempted=False)
+        self.cycle = MagicMock(side_effect=exhausted)
+        city = MagicMock()
+        out = profiles.walk(self.settings, self.stop, self.approve, lambda _: None, self.store,
+                            cycle=self.cycle, city_next=city, config=Config(), limit=1)
+        self.assertEqual(out['status'], 'profiles-cancelled')
+        city.assert_not_called()
 
     def test_interrupted_native_cycle_does_not_claim_zero_sends(self):
         profiles.Session(self.store).set('city', 'Псков')
