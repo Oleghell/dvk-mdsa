@@ -1,5 +1,6 @@
 """No real account: verify the GUI diagnostic cannot read/send or mutate journals."""
 import json,sqlite3,tempfile,threading,unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import MagicMock,patch
 
@@ -13,7 +14,7 @@ class NavigationCheck(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.path=Path(self.temp.name)/'journal.sqlite3'
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute('CREATE TABLE manual_actions(id INTEGER,account TEXT,peer TEXT,initial_chat TEXT,status TEXT)')
             db.execute("INSERT INTO manual_actions VALUES(1,'100','200','-1','handler-returned-unconfirmed')")
         self.stop=threading.Event()
@@ -83,15 +84,15 @@ class NavigationCheck(unittest.TestCase):
         self.assertEqual([c.args[0] for c in self.nav.call_args_list],['open','return'])
 
     def test_terminal_and_not_invoked_bindings_are_excluded_read_only(self):
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute('CREATE TABLE chain_dialogs(account TEXT,peer TEXT,chat TEXT,stage TEXT)')
             db.execute("INSERT INTO chain_dialogs VALUES('100','200','300','declined')")
         before=self.path.read_bytes();self.assertEqual(n.read_targets(self.path),[])
         self.assertEqual(self.path.read_bytes(),before)
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE chain_dialogs SET stage='wait-reply'")
         self.assertEqual(n.read_targets(self.path),[WHO])
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE manual_actions SET status='not-invoked'")
         self.assertEqual(n.read_targets(self.path),[])
 
