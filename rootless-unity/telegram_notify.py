@@ -69,7 +69,7 @@ def send_contact(token, chat_id, payload):
         data = validate(payload['name'], payload['contacts'])
     except Exception:
         raise TelegramError('Непроверенные данные контакта: отправка запрещена.') from None
-    return send(token, chat_id, '🔥 Собеседник поделился контактом\nИмя: ' + data['name'] + '\nКонтакт: ' + ', '.join(data['contacts']))
+    return send(token, chat_id, 'Новый контакт!\nИмя: ' + data['name'] + '\nКонтакт: ' + ', '.join(data['contacts']))
 
 
 def contact_notification(payload):

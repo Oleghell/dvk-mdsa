@@ -1,5 +1,6 @@
 import json,tempfile,unittest
 from pathlib import Path
+from urllib.parse import parse_qs
 from unittest.mock import patch
 import telegram_notify as p
 TOKEN='123456:'+('a'*35)
@@ -30,6 +31,19 @@ class Telegram(unittest.TestCase):
             def open(self,r,timeout):requests.append(r);return Response()
         self.assertTrue(p.send(TOKEN,'98765','<b>Name</b>',opener=Opener()))
         self.assertEqual(len(requests),1);self.assertNotIn(b'parse_mode',requests[0].data)
+    def test_contact_notification_has_required_text(self):
+        requests=[]
+        class Response:
+            def __enter__(self):return self
+            def __exit__(self,*a):pass
+            def read(self,n):return b'{"ok":true,"result":{"message_id":1}}'
+        class Opener:
+            def open(self,r,timeout):requests.append(r);return Response()
+        with patch.object(p.urllib.request,'build_opener',return_value=Opener()):
+            self.assertTrue(p.send_contact(TOKEN,'98765',
+                                           {'name':'Александр','contacts':['@alex_test']}))
+        body=parse_qs(requests[0].data.decode())
+        self.assertEqual(body['text'],['Новый контакт!\nИмя: Александр\nКонтакт: @alex_test'])
     def test_no_redirect(self):self.assertIsNone(p.NoRedirect().redirect_request(None,None,None,None,None,None))
     def test_invalid_credentials(self):
         for token,chat in [('bad','1'),(TOKEN,'0'),(TOKEN,'https://evil'),(TOKEN+'\n','1')]:

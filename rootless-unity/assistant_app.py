@@ -24,14 +24,14 @@ def launch(self_check=False):
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Сборка 0.4.7. «Старт» — прежнее чтение непрочитанных без отправки. «Вся цепочка» — один открытый чат, оба ответа с отдельными подтверждениями и уведомление в Telegram.')
+    status = tk.StringVar(value='Сборка 0.4.8. «Старт» — прежнее чтение непрочитанных без отправки. «Вся цепочка» — один открытый чат; уведомление в Telegram только после контакта от собеседника.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
         settings = Settings()
         status.set(str(error))
     ttk.Label(frame, textvariable=status, wraplength=520).pack(anchor='w', pady=(18, 12))
-    ttk.Label(frame, text='«Старт» ничего не отправляет. В режиме цепочки не переключай открытый чат.\nПереписка, имена и контакты в Telegram и отчёт не передаются.', wraplength=600).pack(anchor='w')
+    ttk.Label(frame, text='«Старт» ничего не отправляет. В режиме цепочки не переключай открытый чат.\nВ Telegram передаются только имя и добровольно присланный контакт.', wraplength=600).pack(anchor='w')
     controls = ttk.Frame(frame)
     controls.pack(fill='x', pady=(18, 0))
     events = queue.Queue()
@@ -142,8 +142,8 @@ def launch(self_check=False):
                 'При первом запуске вручную отправь приветствие из config/greetings.json '
                 'и запусти цепочку до ответа собеседника.\n\n'
                 'Разрешить чтение этого открытого чата и подготовку обоих следующих сообщений?\n'
-                'Каждая отправка потребует отдельного подтверждения. После появления предложения '
-                'перейти в мессенджер будет одно уведомление боту без переписки и контактов.\n'
+                'Каждая отправка потребует отдельного подтверждения. Уведомление боту будет только '
+                'после следующего ответа, если собеседник сам пришлёт свой контакт.\n'
                 'Не переключай чат. Ожидание ограничено 30 минутами.', parent=root):
             return
         stopped.clear()
@@ -225,7 +225,7 @@ def launch(self_check=False):
             ttk.Button(row, text='Выбрать', command=choose).pack(side='right', padx=(8, 0))
         ttk.Label(box, text='Проверять старые диалоги каждые N секунд (для будущего общего цикла)').pack(anchor='w')
         ttk.Entry(box, textvariable=interval, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Checkbutton(box, variable=enabled, text='Telegram для «Вся цепочка»: уведомление без переписки и контактов').pack(anchor='w', pady=8)
+        ttk.Checkbutton(box, variable=enabled, text='Telegram для «Вся цепочка»: имя и добровольно присланный контакт').pack(anchor='w', pady=8)
         for label, var, mask in (('Токен бота', token, '*'), ('Chat ID получателя', recipient, '')):
             ttk.Label(box, text=label).pack(anchor='w')
             ttk.Entry(box, textvariable=var, show=mask, width=58).pack(fill='x', pady=(3, 8))

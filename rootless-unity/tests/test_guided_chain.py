@@ -14,13 +14,15 @@ from conversation_engine import QUESTIONS, CONTACT_TEXT
 
 WHO = dict(account='100', peer='200', chat='300')
 GREETING = 'Привет 🙂'
+PEER_NAME = 'Александр'
+CONTACT = '@alex_test'
 
 
 def snapshot(*extra):
     messages = [dict(id='1001', sender='100', text=GREETING)]
     for number, (text, own) in enumerate(extra, 1002):
         messages.append(dict(id=str(number), sender='100' if own else '200', text=text))
-    return dict(identity=dict(WHO), messages=messages)
+    return dict(identity=dict(WHO), messages=messages, peer_name=PEER_NAME)
 
 
 def sequence(choice=0):
@@ -30,7 +32,8 @@ def sequence(choice=0):
     contact = (CONTACT_TEXT, True)
     return [snapshot(), snapshot(hello), snapshot(hello),
             snapshot(hello, question), snapshot(hello, question, mood),
-            snapshot(hello, question, mood), snapshot(hello, question, mood, contact)]
+            snapshot(hello, question, mood), snapshot(hello, question, mood, contact),
+            snapshot(hello, question, mood, contact, (CONTACT, False))]
 
 
 class WholeChain(unittest.TestCase):
@@ -40,7 +43,8 @@ class WholeChain(unittest.TestCase):
         self.path = Path(self.temp.name) / 'assistant.sqlite3'
         self.store = Store(self.path, Path(self.temp.name) / 'old')
         self.stop = threading.Event()
-        self.chain = guided.GuidedChain(self.store, choose=lambda: 0)
+        self.chain = guided.GuidedChain(self.store, choose=lambda: 0,
+                                        seal=lambda value: value, unseal=lambda value: value)
         self.approve = MagicMock(return_value=True)
         self.notifier = MagicMock(return_value=True)
         self.sent = []
@@ -66,7 +70,8 @@ class WholeChain(unittest.TestCase):
             with self.subTest(choice=choice):
                 path = Path(self.temp.name) / f'variant-{choice}.sqlite3'
                 store = Store(path, Path(self.temp.name) / 'old')
-                chain = guided.GuidedChain(store, choose=lambda: choice)
+                chain = guided.GuidedChain(store, choose=lambda: choice,
+                                           seal=lambda value: value, unseal=lambda value: value)
                 order = []
                 def confirm(kind, text, cancelled):
                     order.append(('approved', kind))
@@ -78,13 +83,14 @@ class WholeChain(unittest.TestCase):
                         self.assertEqual(db.execute('SELECT status FROM chain_actions WHERE kind=?',
                                                     (kind,)).fetchone()[0], 'reserved-unknown')
                     return dict(attempted=True, handler_returned=True)
-                def notify():
+                def notify(payload):
                     with store.connection() as db:
                         self.assertEqual(db.execute("SELECT status FROM chain_actions WHERE kind='contact'").fetchone()[0],
                                          'outgoing-observed')
-                        self.assertEqual(db.execute('SELECT status FROM guided_notices').fetchone()[0],
+                        self.assertEqual(db.execute('SELECT status FROM chain_contact_outbox').fetchone()[0],
                                          'attempted-unknown')
-                    order.append(('notified', 'generic'))
+                    self.assertEqual(payload, dict(name=PEER_NAME, contacts=[CONTACT]))
+                    order.append(('notified', 'contact'))
                     return True
                 out = guided.walk(chain, WHO, self.stop, confirm,
                                   MagicMock(side_effect=sequence(choice)), send,
@@ -98,14 +104,15 @@ class WholeChain(unittest.TestCase):
                 self.assertEqual(out['notifications']['accepted'], 1)
                 self.assertEqual(order, [('approved', 'question'), ('submitted', 'question'),
                                          ('approved', 'contact'), ('submitted', 'contact'),
-                                         ('notified', 'generic')])
+                                         ('notified', 'contact')])
                 exported = json.dumps(out, ensure_ascii=False)
                 for private in ('Привет', 'Отлично', '1001', '300', '"peer":', 'text_hash', 'salt'):
                     self.assertNotIn(private, exported)
-                self.assertFalse(out['personal_data_exported'])
+                self.assertTrue(out['personal_data_exported'])
                 self.assertFalse(out['delivery_confirmed'])
                 with store.connection() as db:
-                    self.assertEqual(db.execute('SELECT COUNT(*) FROM chain_contact_outbox').fetchone()[0], 0)
+                    self.assertEqual(db.execute("SELECT status FROM chain_contact_outbox").fetchone()[0],
+                                     'accepted')
                     self.assertEqual(db.execute('SELECT COUNT(*) FROM manual_actions').fetchone()[0], 0)
 
     def test_full_transport_entrypoint_uses_identity_then_bound_reads_never_names(self):
@@ -122,16 +129,18 @@ class WholeChain(unittest.TestCase):
                              notifier=self.notifier, greetings=(GREETING,))
         self.assertEqual(out['status'], 'chain-completed')
         self.assertIsNone(reader.call_args_list[0].args[3])
-        self.assertTrue(all(call.args[3] == WHO and not call.kwargs for call in reader.call_args_list[1:]))
+        self.assertTrue(all(call.args[3] == WHO and call.kwargs == {'read_name': True}
+                            for call in reader.call_args_list[1:]))
         self.assertEqual(sender.call_count, 2)
-        self.notifier.assert_called_once_with()
+        self.notifier.assert_called_once_with(dict(name=PEER_NAME, contacts=[CONTACT]))
         self.assertEqual(out['report_name'], 'messages-chain-check.json')
         saved = json.loads((Path(self.temp.name) / out['report_name']).read_text())
         self.assertEqual(saved['status'], 'chain-completed')
 
     @staticmethod
     def initialize(obj, store):
-        ORIGINAL_INIT(obj, store, choose=lambda: 0)
+        ORIGINAL_INIT(obj, store, choose=lambda: 0,
+                      seal=lambda value: value, unseal=lambda value: value)
 
     def test_no_approval_no_device_credentials_or_store(self):
         with patch('one_chat_device.capture') as read, patch('telegram_notify.load') as credentials, \
@@ -166,7 +175,8 @@ class WholeChain(unittest.TestCase):
             self.assertEqual(db.execute('SELECT greeting,stage FROM chain_dialogs').fetchone(),
                              ('1001', 'wait-reply'))
             self.assertEqual(db.execute('SELECT message FROM chain_seen').fetchone()[0], '1001')
-        self.chain = guided.GuidedChain(self.store, choose=lambda: 0)
+        self.chain = guided.GuidedChain(self.store, choose=lambda: 0,
+                                        seal=lambda value: value, unseal=lambda value: value)
         out = self.walk(sequence()[1:])
         self.assertEqual(out['status'], 'chain-completed')
         self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
@@ -178,7 +188,8 @@ class WholeChain(unittest.TestCase):
         self.assertFalse(self.sent)
         self.approve.return_value = True
         # Resume the same reserved proposal; do not choose another variant.
-        self.chain = guided.GuidedChain(self.store, choose=lambda: 1)
+        self.chain = guided.GuidedChain(self.store, choose=lambda: 1,
+                                        seal=lambda value: value, unseal=lambda value: value)
         out = self.walk(sequence()[1:])
         self.assertEqual(out['status'], 'chain-completed')
         self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
@@ -228,7 +239,8 @@ class WholeChain(unittest.TestCase):
         with patch.object(self, 'send', side_effect=unknown):
             out = self.walk()
         self.assertEqual(out['reason'], 'send-outcome-unknown')
-        self.chain = guided.GuidedChain(self.store)
+        self.chain = guided.GuidedChain(self.store,
+                                        seal=lambda value: value, unseal=lambda value: value)
         out = self.walk([snapshot(('Привет!', False))])
         self.assertEqual(out['reason'], 'send-outcome-unknown')
         self.assertEqual(len(self.sent), 1)
@@ -236,19 +248,52 @@ class WholeChain(unittest.TestCase):
         self.assertNotIn('PRIVATE', json.dumps(out))
 
     def test_contact_handler_return_without_observed_message_does_not_notify(self):
-        values = sequence()[:-1]
+        values = sequence()[:-2]
         values += [values[-1]] * 4
         out = self.walk(values)
         self.assertEqual(out['reason'], 'outgoing-not-observed')
         self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
         self.notifier.assert_not_called()
 
+    def test_observed_request_waits_for_contact_and_does_not_notify(self):
+        values = sequence()[:-1]
+        values += [values[-1]] * 20
+        out = self.walk(values)
+        self.assertEqual(out['reason'], 'wait-timeout')
+        self.assertTrue(out['stages']['contact_request'])
+        self.assertFalse(out['stages']['peer_contact'])
+        self.notifier.assert_not_called()
+
+    def test_plain_reply_or_refusal_after_request_never_notifies(self):
+        for reply, expected in [('Потом напишу', 'manual-review'),
+                                ('Не дам контакт', 'declined')]:
+            with self.subTest(reply=reply):
+                path = Path(self.temp.name) / ('after-request-' + expected + '.sqlite3')
+                store = Store(path, Path(self.temp.name) / 'old')
+                chain = guided.GuidedChain(store, choose=lambda: 0,
+                                           seal=lambda value: value, unseal=lambda value: value)
+                history = sequence()[:-1]
+                history.append(snapshot(('Привет!', False), (QUESTIONS[0], True),
+                                        ('Отлично!', False), (CONTACT_TEXT, True),
+                                        (reply, False)))
+                notice = MagicMock(return_value=True)
+                out = guided.walk(chain, WHO, self.stop, self.approve,
+                                  MagicMock(side_effect=history),
+                                  lambda before, text: dict(attempted=True,
+                                                            handler_returned=True),
+                                  approved=True, greetings=(GREETING,), notifier=notice,
+                                  pause=lambda _: False, max_polls=12)
+                self.assertEqual(out['reason'], expected)
+                self.assertFalse(out['stages']['peer_contact'])
+                notice.assert_not_called()
+
     def test_telegram_failure_and_restart_never_retry_notification_or_messages(self):
         self.notifier.side_effect = TimeoutError('PRIVATE_BOT_TOKEN')
         out = self.walk()
         self.assertEqual(out['reason'], 'telegram-outcome-unknown')
         self.assertEqual(self.notifier.call_count, 1)
-        self.chain = guided.GuidedChain(self.store)
+        self.chain = guided.GuidedChain(self.store,
+                                        seal=lambda value: value, unseal=lambda value: value)
         out = self.walk([sequence()[-1]])
         self.assertEqual(out['reason'], 'telegram-outcome-unknown')
         self.assertEqual(self.notifier.call_count, 1)
@@ -257,7 +302,8 @@ class WholeChain(unittest.TestCase):
 
     def test_successful_restart_never_resends_messages_or_notification(self):
         self.assertEqual(self.walk()['status'], 'chain-completed')
-        self.chain = guided.GuidedChain(self.store)
+        self.chain = guided.GuidedChain(self.store,
+                                        seal=lambda value: value, unseal=lambda value: value)
         out = self.walk([sequence()[-1]])
         self.assertEqual(out['status'], 'chain-completed')
         self.assertEqual(len(self.sent), 2)
@@ -269,7 +315,8 @@ class WholeChain(unittest.TestCase):
             with self.subTest(reply=reply):
                 store = Store(Path(self.temp.name) / f'case-{expected}-{len(str(reply))}.sqlite3',
                               Path(self.temp.name) / 'old')
-                chain = guided.GuidedChain(store)
+                chain = guided.GuidedChain(store, seal=lambda value: value,
+                                           unseal=lambda value: value)
                 send, notice = MagicMock(), MagicMock()
                 out = guided.walk(chain, WHO, self.stop, self.approve,
                                   MagicMock(side_effect=[snapshot(), snapshot((reply, False))]), send,
