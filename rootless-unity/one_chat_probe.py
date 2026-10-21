@@ -15,7 +15,7 @@ VERSION = '0.3.35'
 MAX_MESSAGES = 20
 MAX_TEXT = 2048
 STATE_FIELDS = {'read_checkpoint','wait_reason','model_actual','model_draft','model_has_cm','cm_present','loaded_field_present','metadata_checkpoint','loaded_value_method_found','loaded_value_return_kind','loaded_value_byref','loaded_value_owner_verified','loaded_value_owner_inherited','loaded_value_owner_scope','loaded_value_static','loaded_value_abstract','loaded_value_arity','history_status','message_count','history_fully_loaded','history_loading','last_message_present','samples','sample_interval_ms','chat_identity_verified','app_actions_attempted','messages_sent'}
-ERRORS = state.ERRORS | {'identity-not-bound', 'snapshot-too-large', 'message-invalid', 'snapshot-changing', 'nonpositive-message-id', 'nonpositive-message-sender-id', 'nonpositive-message-chat-id'}
+ERRORS = state.ERRORS | {'identity-not-bound', 'snapshot-too-large', 'message-invalid', 'snapshot-changing', 'nonpositive-message-id', 'nonpositive-message-sender-id', 'nonpositive-message-chat-id', 'local-own-message-unanchored'}
 
 
 def identity(value):
@@ -80,12 +80,12 @@ PREPARE = r'''
  }
 '''
 BIND = r'''
-   const id64=(entry,obj,label)=>{
+   const id64=(entry,obj,label,allowLocalChat=false)=>{
     n.scalar_checkpoint=label;n.scalar_state='not-read';
     const box=call(entry,obj);if(box.isNull()){n.scalar_state='missing-box';fail('signature-mismatch');}
     const p=f.unbox(box);if(p.isNull()){n.scalar_state='missing-unbox';fail('signature-mismatch');}
     const value=p.readS64(),sign=value.compare(0);n.scalar_state=sign===0?'zero':sign<0?'negative':'positive';
-    if(sign<=0)fail(label.startsWith('message-')?'nonpositive-'+label:'identity-not-bound');
+    if(sign<=0&&!(sign<0&&allowLocalChat&&label==='message-chat-id'))fail(label.startsWith('message-')?'nonpositive-'+label:'identity-not-bound');
     return value.toString();
    };
    n.identity_checkpoint='initial-ids';
@@ -111,23 +111,49 @@ COLLECT = r'''
    // Only exact bound IDs reach this point. No collection-order assumption.
    if(first>20)fail('snapshot-too-large');
    const messages=[],seenIds=new Set();let totalText=0;
+   const headers=[],messageBindings=[];let localOwn=0,peerAnchors=0;
    const releaseOne=h=>{f.release(h);n.handles_released++;held.splice(held.indexOf(h),1);};
+   const messageAt=i=>{
+    const index=Memory.alloc(4);index.writeS32(i);const args=Memory.alloc(Process.pointerSize);args.writePointer(index);
+    const message=call(s.messageItem,cm,args);
+    if(message.isNull()||!f.assignable(s.message,f.objectClass(message)))fail('message-invalid');
+    return message;
+   };
+   const messageHeader=message=>{
+    n.message_kind=f.assignable(s.textMessage,f.objectClass(message))?'text':'non-text';
+    const mine=bool(s.messageMine,message);n.message_direction=mine?'own':'not-own';
+    const id=id64(s.messageId,message,'message-id'),sender=id64(s.messageSender,message,'message-sender-id');
+    // A negative per-message ChatId is not the actual dialog ID. Accept it only
+    // for our own message in this exact CM, with an independent positive peer
+    // anchor below. Zero, foreign positive IDs and negative incoming IDs STOP.
+    const chatId=id64(s.messageChat,message,'message-chat-id',mine&&sender===who.account);
+    if(![who.account,who.peer].includes(sender)||mine!==(sender===who.account)||
+       (!chatId.startsWith('-')&&chatId!==who.chat))fail('message-invalid');
+    return {id,sender,chatId,mine};
+   };
+   // Validate ALL identity headers before reading any message body.
    for(let i=0;i<first;i++){
     n.message_slot=i;
-    const index=Memory.alloc(4);index.writeS32(i);const args=Memory.alloc(8);args.writePointer(index);
-    const message=call(s.messageItem,cm,args);if(message.isNull()||!f.assignable(s.message,f.objectClass(message)))fail('message-invalid');
-    const mh=own(message);n.message_kind=f.assignable(s.textMessage,f.objectClass(message))?'text':'non-text';
-    const mine=bool(s.messageMine,message);n.message_direction=mine?'own':'not-own';
-    const id=id64(s.messageId,message,'message-id'),sender=id64(s.messageSender,message,'message-sender-id'),chatId=id64(s.messageChat,message,'message-chat-id');
-    if(seenIds.has(id)||chatId!==who.chat||![who.account,who.peer].includes(sender)||mine!==(sender===who.account))fail('message-invalid');seenIds.add(id);
-    let text=null;
+    const message=messageAt(i),handle=own(message),bits=messageHeader(message);
+    if(seenIds.has(bits.id))fail('message-invalid');seenIds.add(bits.id);
+    if(bits.chatId.startsWith('-'))localOwn++;
+    else if(bits.sender===who.peer&&!bits.mine&&bits.chatId===who.chat)peerAnchors++;
+    headers.push({message,handle,bits});messageBindings.push(bits);
+   }
+   if(localOwn>0&&peerAnchors===0)fail('local-own-message-unanchored');
+   verifyWho();
+   if(!call(s.messages,chat).equals(cm)||integer(s.count,cm)!==first)fail('identity-changed');
+   for(let i=0;i<headers.length;i++){
+    n.message_slot=i;const row=headers[i],message=messageAt(i);
+    if(!message.equals(row.message)||JSON.stringify(messageHeader(message))!==JSON.stringify(row.bits))fail('message-invalid');
+    const {id,sender}=row.bits;let text=null;
     if(f.assignable(s.textMessage,f.objectClass(message))){
      const value=call(s.messageText,message);if(value.isNull()||!f.objectClass(value).equals(s.stringClass))fail('message-invalid');const sh=own(value);
      const length=f.stringLength(value);if(length<0||length>2048||(totalText+=length)>16384)fail('snapshot-too-large');
      const chars=f.stringChars(value);if(chars.isNull()&&length!==0)fail('message-invalid');
      text=length===0?'':chars.readUtf16String(length);if(text===null||text.includes('\u0000'))fail('message-invalid');releaseOne(sh);
     }
-    messages.push({id,sender,text});releaseOne(mh);
+    messages.push({id,sender,text});releaseOne(row.handle);
    }
    verifyWho();
 '''
@@ -151,7 +177,7 @@ def build(expected=None, *, read_name=False, scoped_traversal=False):
     source = replace_once(source, "messages_sent:0};}", "messages_sent:0,private_result:null,scalar_checkpoint:'not-read',scalar_state:'not-read',identity_checkpoint:'not-checked',message_slot:-1,message_kind:'not-read',message_direction:'not-read'};}")
     source = replace_once(source, "save('origin',current);save('card',chat);save('user',user);n.chat_identity_verified=true;", "save('origin',current);save('card',chat);save('user',user);n.chat_identity_verified=true;" + BIND)
     source = replace_once(source, "n.read_checkpoint='recheck';", COLLECT + "\n   n.read_checkpoint='recheck';")
-    source = replace_once(source, "const sample={count:first,last:!lastMessage.isNull(),draft:n.model_draft};", "verifyWho();\n   const sample={count:first,last:!lastMessage.isNull(),draft:n.model_draft,identity:who,messages};")
+    source = replace_once(source, "const sample={count:first,last:!lastMessage.isNull(),draft:n.model_draft};", "verifyWho();\n   const sample={count:first,last:!lastMessage.isNull(),draft:n.model_draft,identity:who,messages,messageBindings};")
     source = replace_once(source, "state.sample.draft!==sample.draft", "state.sample.draft!==sample.draft||JSON.stringify(state.sample)!==JSON.stringify(sample)")
     source = replace_once(source, "n.read_checkpoint='complete';n.samples=2;", "n.private_result={identity:who,messages};n.read_checkpoint='complete';n.samples=2;")
     source = replace_once(source, "if(n.stage!=='navigation-ready'){n.history_status=", "if(n.stage!=='navigation-ready'){n.private_result=null;n.history_status=")
@@ -170,7 +196,7 @@ def build(expected=None, *, read_name=False, scoped_traversal=False):
    releaseOne(displayHandle);verifyWho();
 """
         source = replace_once(source, "   n.read_checkpoint='recheck';", name_read + "   n.read_checkpoint='recheck';")
-        source = replace_once(source, 'draft:n.model_draft,identity:who,messages};', 'draft:n.model_draft,identity:who,messages,peer_name:peerName};')
+        source = replace_once(source, 'draft:n.model_draft,identity:who,messages,messageBindings};', 'draft:n.model_draft,identity:who,messages,peer_name:peerName};')
         source = replace_once(source, 'n.private_result={identity:who,messages};', 'n.private_result={identity:who,messages,peer_name:peerName};')
     if scoped_traversal:
         from navigation_handles import scoped_traversals

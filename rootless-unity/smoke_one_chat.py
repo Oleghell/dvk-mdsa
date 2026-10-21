@@ -32,15 +32,21 @@ def one(library, mode, expected=None):
         if expected is None and mode!=509:
             assert private==dict(identity=dict(account='100',peer='200',chat='300'),messages=None),(mode,out)
             assert counts['bodies']==counts['items']==0
-        elif mode in (500,507,550) and expected['peer']=='200':
+        elif mode in (500,507,550,560,567,568) and expected['peer']=='200':
             assert private is not None,(mode,out,counts)
             assert len(private['messages'])==(0 if mode==507 else 2)
-            if mode in (500,550):
-                assert private['messages'][1]==dict(id='1002',sender='200',text='Reply')
+            if mode in (500,550,560,567,568):
+                assert private['messages'][0 if mode==568 else 1]==dict(id='1002',sender='200',text='Reply')
         else:
             assert private is None,(mode,out,counts)
             if mode==551:
                 assert out['navigation']['error']=='view-parent-depth-limit' and counts['bodies']==0,(mode,out,counts)
+            if mode in (561,562,563,564,566):
+                assert counts['bodies']==0,(mode,out,counts)
+            if mode==564:
+                assert out['navigation']['error']=='local-own-message-unanchored',(mode,out)
+            if mode==565:
+                assert out['navigation']['error'] in ('frame-limit','frame-budget','transition-timeout'),(mode,out)
             if 520<=mode<=531:
                 label=['message-id','message-sender-id','message-chat-id','account-id','peer-id','chat-id'][(mode-520)//2]
                 n=out['navigation']
@@ -67,6 +73,6 @@ if __name__=='__main__':
     lib=Path(sys.argv[1]).resolve(strict=True)
     one(lib,500)
     who=dict(account='100',peer='200',chat='300')
-    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551):one(lib,mode,who)
+    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568):one(lib,mode,who)
     one(lib,500,dict(account='100',peer='201',chat='300'))
     print('Synthetic read-only ABI passed; live Android has not been tested.')

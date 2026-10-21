@@ -29,7 +29,7 @@ def one(library,mode,before=None,*,text=QUESTIONS[0]):
         script.load();out=script.exports_sync.root()
         result=sender.validate(out,before);sender.diagnostic(out);counts=script.exports_sync.counts()
         assert counts['handles']==counts['bad']==counts['off']==counts['wrong']==counts['opens']==counts['closes']==0,(mode,out,counts)
-        expected_send=mode in (600,603) and before==BEFORE
+        expected_send=mode in (600,603,650) and before==BEFORE
         assert counts['sends']==int(expected_send),(mode,out,counts)
         assert result['attempted']==expected_send,(mode,out,counts)
         assert result['handler_returned']==(expected_send and mode!=603),(mode,out,counts)
@@ -52,7 +52,7 @@ def one(library,mode,before=None,*,text=QUESTIONS[0]):
 
 if __name__=='__main__':
     library=Path(sys.argv[1]).resolve(strict=True)
-    for mode in (600,602,603,604,605,606,501,502,503,506,520,521):one(library,mode)
+    for mode in (600,602,603,604,605,606,501,502,503,506,520,521,650,651):one(library,mode)
     one(library,600,dict(identity=dict(WHO,peer='201'),messages=[BEFORE['messages'][0],dict(BEFORE['messages'][1],sender='201')]))
     one(library,600,dict(identity=WHO,messages=[dict(BEFORE['messages'][0],text='changed'),BEFORE['messages'][1]]))
     for text in (QUESTIONS[1],CONTACT_TEXT):one(library,600,text=text)

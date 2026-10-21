@@ -68,6 +68,22 @@ class Schema(unittest.TestCase):
             with self.assertRaises(ValueError):p.build(who)
         p.build(dict(account='9007199254740993',peer='9007199254740994',chat='9223372036854775807'))
 
+    def test_negative_own_chat_requires_peer_anchor_and_stable_collection_headers(self):
+        source=p.build(WHO)
+        self.assertIn("if(localOwn>0&&peerAnchors===0)fail('local-own-message-unanchored')", source)
+        self.assertIn("(!chatId.startsWith('-')&&chatId!==who.chat)", source)
+        self.assertIn("bits.sender===who.peer&&!bits.mine&&bits.chatId===who.chat", source)
+        self.assertLess(source.index('if(localOwn>0&&peerAnchors===0)'),
+                        source.index('const value=call(s.messageText,message)'))
+        self.assertIn("message.equals(row.message)", source)
+        self.assertIn("JSON.stringify(messageHeader(message))!==JSON.stringify(row.bits)", source)
+        self.assertIn("identity:who,messages,messageBindings", source)
+        self.assertNotIn("Math.abs", source)
+        # Local per-message marks never change the positive public identity schema.
+        with self.assertRaises(ValueError):
+            p.identity(dict(WHO,chat='-1'))
+        self.assertIn("id64(s.chatId,chat,'chat-id')", source)
+
     def test_report_accepts_only_fixed_counters(self):
         for data in (dict(status='PRIVATE'),dict(status='read-complete',observed_messages=True,incoming_messages=0,new_incoming=0,baseline_recorded=True)):
             with self.assertRaises(ValueError):device.report(data)
@@ -237,6 +253,7 @@ class ScalarDiagnostics(unittest.TestCase):
 
     def test_diagnostic_fields_never_allow_unsafe_history_or_weaker_identity(self):
         source=p.build(WHO)
-        self.assertIn("if(sign<=0)fail(label.startsWith('message-')?'nonpositive-'+label:'identity-not-bound')",source)
+        self.assertIn("if(sign<=0&&!(sign<0&&allowLocalChat&&label==='message-chat-id'))fail",source)
+        self.assertIn("message-chat-id',mine&&sender===who.account)",source)
         self.assertIn("if(expectedIdentity!==null&&JSON.stringify(who)!==JSON.stringify(expectedIdentity))fail('identity-not-bound')",source)
         self.assertIn("value=p.readS64()",source)

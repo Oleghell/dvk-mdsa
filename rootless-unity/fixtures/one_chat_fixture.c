@@ -25,7 +25,7 @@ static int64_t long_value;
 typedef struct Text {Object header;int length;uint16_t chars[16];} Text;
 static Text text_a={{&greeting_string_class,0},5,{'H','e','l','l','o'}},text_b={{&greeting_string_class,0},5,{'R','e','p','l','y'}};
 static Object outgoing={&text_class,0},incoming={&text_class,0};
-static int body_reads,items,name_reads;
+static int body_reads,items,name_reads,own_chat_reads;
 static Object read_parents[31];
 static Text display_name={{&greeting_string_class,0},4,{0x410,0x43d,0x43d,0x430}}, changed_name={{&greeting_string_class,0},4,{0x418,0x43d,0x43d,0x430}};
 static Method extra[]={
@@ -80,7 +80,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   if(mode==603)*exc=&exception;return NULL;
  }
  if(mode==602&&m->action==61){managed_calls++;if(TID()!=main_id)off_thread_calls++;boolbox.value=0;return &boolbox;}
- if(m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=mode==507?0:2;return &integer_box;}
+ if(m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=mode==507?0:mode==564?1:2;return &integer_box;}
  if((mode==550||mode==551)&&m->action==18){
   managed_calls++;if(TID()!=main_id)off_thread_calls++;
   int length=mode==550?24:31;
@@ -97,11 +97,18 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 103:long_value=mode==530?0:mode==531?-1:300;break;
  case 104:long_value=mode==520?0:mode==521?-1:in&&mode!=503?1002:1001;break;
  case 105:long_value=mode==522?0:mode==523?-1:in?(mode==501?999:200):100;break;
- case 106:long_value=mode==524?0:mode==525?-1:mode==502?301:300;break;
+ case 106:
+  if(!in)own_chat_reads++;
+  long_value=mode==524||(!in&&mode==563)?0:mode==525||(in&&mode==562)?-1:
+   !in&&(mode==560||mode==561||mode==564||mode==568||mode==650||mode==651)?-1:
+   !in&&mode==565?(((own_chat_reads-1)/2)%2?-2:-1):
+   !in&&mode==566?(own_chat_reads%2?-1:-2):
+   !in&&mode==567?(-INT64_C(9223372036854775807)-1):
+   mode==502||(in&&(mode==561||mode==651))?301:300;break;
  case 107:boolbox.value=!in;return &boolbox;
  case 108:body_reads++;return (Object *)(in?&text_b:&text_a);
  case 110:name_reads++;return (Object *)(mode==542&&name_reads%2==0?&changed_name:&display_name);
- case 109:items++;if(!args||!args[0]){*exc=&exception;return NULL;}return *(int *)args[0]?&incoming:&outgoing;
+ case 109:items++;if(!args||!args[0]){*exc=&exception;return NULL;}if(mode==568)return *(int *)args[0]?&outgoing:&incoming;return *(int *)args[0]?&incoming:&outgoing;
  }
  return &long_object;
 }
