@@ -20,7 +20,7 @@ from assistant_authorization import flags
 
 PROFILE_INTERVAL = 120
 REPORT = 'last-monitor.json'
-COUNTERS = ('submission_calls', 'handler_returns', 'outgoing_observed', 'contacts_forwarded', 'groq_requests')
+COUNTERS = ('submission_calls', 'handler_returns', 'outgoing_observed', 'contacts_forwarded', 'groq_requests', 'openrouter_requests', 'ai_requests')
 
 
 def write_report(value):
@@ -44,7 +44,8 @@ def report(mode):
                 per_message_confirmation=True, automatic_send=False,
                 automatic_profile_repeat=False, profile_interval_seconds=PROFILE_INTERVAL,
                 profile_batches_completed=0, profile_next_in_seconds=None, last_profile_run=None, error_notification='not-needed',
-                groq_enabled=False, groq_context_export_enabled=False, chat_content_exported=False, delivery_confirmed=False,
+                groq_enabled=False, ai_enabled=False, ai_provider='groq', ai_model=None,
+                groq_context_export_enabled=False, openrouter_context_export_enabled=False, chat_content_exported=False, delivery_confirmed=False,
                 all_dialogs_covered=False, report_name=None)
 
 
@@ -58,13 +59,15 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
     out = report(mode)
     out.update(flags(approve))
     out.update(automatic_profile_repeat=mode == 'full', groq_enabled=settings.groq_enabled,
-               groq_context_export_enabled=settings.groq_enabled)
+               ai_enabled=settings.groq_enabled, ai_provider=settings.ai_provider, ai_model=settings.ai_model,
+               groq_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'groq',
+               openrouter_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'openrouter')
     wait = stopped.wait if wait is None else wait
     phase = 'settings-check-stopped'
 
     def add_counters(value):
         for key in COUNTERS:
-            number = value.get(key, 0) if key == 'groq_requests' else value[key]
+            number = value.get(key, 0) if key in ('groq_requests', 'openrouter_requests', 'ai_requests') else value[key]
             if type(number) is not int or number < 0:
                 raise ValueError('Invalid inbox counter')
             out['totals'][key] += number

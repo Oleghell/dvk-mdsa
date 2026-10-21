@@ -16,8 +16,10 @@ class Settings:
     reply_interval: int = 30
     profile_limit: int = 5
     groq_enabled: bool = False
-    groq_model: str = 'llama-3.3-70b-versatile'
+    groq_model: str = 'qwen/qwen3.8-27b'
     errors_enabled: bool = True
+    ai_provider: str = 'groq'
+    openrouter_model: str = 'minimax/minimax-m3.1-flash:free'
 
     def check(self):
         if any(not isinstance(x, str) or not 1 <= len(x) <= 4096 or x != x.strip()
@@ -29,10 +31,20 @@ class Settings:
             raise StateError('Анкет за одну порцию: от 1 до 20.')
         import re
         if type(self.groq_enabled) is not bool or type(self.errors_enabled) is not bool:
-            raise StateError('Проверь переключатели Groq и уведомлений об ошибках.')
+            raise StateError('Проверь переключатели ИИ и уведомлений об ошибках.')
         if not isinstance(self.groq_model, str) or not re.fullmatch(r'[A-Za-z0-9_./-]{1,100}', self.groq_model):
             raise StateError('Укажи корректный ID модели Groq.')
+        if self.ai_provider not in ('groq', 'openrouter'):
+            raise StateError('Выбери Groq или OpenRouter.')
+        if (not isinstance(self.openrouter_model, str) or
+                len(self.openrouter_model) > 150 or
+                not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:free', self.openrouter_model)):
+            raise StateError('OpenRouter: разрешены только ID моделей с суффиксом :free.')
         return self
+
+    @property
+    def ai_model(self):
+        return self.groq_model if self.ai_provider == 'groq' else self.openrouter_model
 
 
 def load(directory=None):
@@ -56,13 +68,15 @@ def load(directory=None):
                 raise ValueError()
             config = json.loads(options.read_text(encoding='utf-8'))
             schema = config.pop('settings_version', 1)
-            if type(schema) is not int or schema not in (1, 2, 3):
+            if type(schema) is not int or schema not in (1, 2, 3, 4):
                 raise ValueError()
             if schema == 1 and type(config.get('reply_interval')) is int and config['reply_interval'] == 120:
                 config['reply_interval'] = 30
             # 0.4.x files have no profile_limit; keep reading them.
             required = {'contacts_enabled', 'reply_interval'}
-            allowed = required | {'profile_limit'} | ({'groq_enabled', 'groq_model', 'errors_enabled'} if schema == 3 else set())
+            allowed = required | {'profile_limit'} | ({'groq_enabled', 'groq_model', 'errors_enabled'} if schema >= 3 else set()) | ({'ai_provider', 'openrouter_model'} if schema >= 4 else set())
+            if schema < 4 and config.get('groq_model') == 'llama-3.3-70b-versatile':
+                config['groq_model'] = 'qwen/qwen3.8-27b'
             if not required <= set(config) or not set(config) <= allowed:
                 raise ValueError()
         return Settings(saved['adb'], saved['test_apks'], **config).check()
@@ -75,9 +89,10 @@ def save(settings, directory=None):
     directory = data_directory() if directory is None else Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     values = {'settings.json': dict(adb=settings.adb, test_apks=settings.folder),
-              'workflow-settings.json': dict(settings_version=3, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
+              'workflow-settings.json': dict(settings_version=4, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
                                             profile_limit=settings.profile_limit, groq_enabled=settings.groq_enabled,
-                                            groq_model=settings.groq_model, errors_enabled=settings.errors_enabled)}
+                                            groq_model=settings.groq_model, errors_enabled=settings.errors_enabled,
+                                            ai_provider=settings.ai_provider, openrouter_model=settings.openrouter_model)}
     for filename, value in values.items():
         path = directory / filename
         temp = path.with_suffix('.tmp')

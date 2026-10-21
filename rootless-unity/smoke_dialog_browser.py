@@ -74,7 +74,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         except subprocess.TimeoutExpired:child.kill();child.wait(timeout=3)
         child.stdout.close();child.stderr.close()
 
-def integration(library,mode=800,ai=False):
+def integration(library,mode=800,ai=False,provider='groq'):
     # Keep one owned process alive through open -> real Chain reservation ->
     # outgoing observation -> back -> search. Bodies and transport are synthetic.
     import tempfile
@@ -153,13 +153,15 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
             class SyntheticAIChain(assistant_inbox.InboxChain):
                 def __init__(self,store,**kwargs):
                     super().__init__(store,seal=lambda b:b'E'+b[::-1],unseal=lambda b:b[1:][::-1],**kwargs)
-            with (patch('groq_reply.Responder',SyntheticAI) if ai else nullcontext()), \
+            with (patch(('groq_reply' if provider=='groq' else 'openrouter_reply')+'.Responder',SyntheticAI) if ai else nullcontext()), \
                  (patch('assistant_inbox.InboxChain',SyntheticAIChain) if ai else nullcontext()):
-                monitored=assistant_monitor.run(Settings(groq_enabled=ai),stop,approve,mode='inbox',
+                monitored=assistant_monitor.run(Settings(groq_enabled=ai,ai_provider=provider),stop,approve,mode='inbox',
                     inbox=inbox,navigator=navigator,lock=nullcontext,
                     write=lambda _: 'last-monitor.json',wait=wait)
             if ai:
-                assert monitored['totals']['groq_requests']==1,monitored
+                assert monitored['totals']['groq_requests' if provider=='groq' else 'openrouter_requests']==1,monitored
+                assert monitored['totals']['ai_requests']==1,monitored
+                assert monitored['ai_provider']==provider,monitored
                 assert monitored['chat_content_exported'],monitored
 
             assert monitored['status']=='cancelled' and monitored['dialogs_verified'],monitored
@@ -200,4 +202,5 @@ if __name__=='__main__':
     integration(lib,836)
     integration(lib,836,ai=True)
     integration(lib,843,ai=True)
+    integration(lib,843,ai=True,provider='openrouter')
     print('55 synthetic browser cases and fixed/AI-chain integrations passed. No live dialog selection verified.')

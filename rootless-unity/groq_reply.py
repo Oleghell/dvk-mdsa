@@ -9,12 +9,16 @@ from pathlib import Path
 from assistant_store import StateError, data_directory
 from telegram_notify import protect, NoRedirect
 
-MODEL = 'llama-3.3-70b-versatile'
+MODEL = 'qwen/qwen3.8-27b'
 ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
 ERRORS = {'groq-key-unavailable', 'groq-key-invalid', 'groq-unauthorized', 'groq-rate-limit',
           'groq-service-error', 'groq-request-rejected', 'groq-network-error', 'groq-timeout',
           'groq-invalid-response', 'groq-unsafe-reply', 'groq-cancelled', 'groq-draft-unavailable',
           'groq-draft-protection-failed', 'groq-configuration-required', 'groq-rules-unavailable'}
+
+ERRORS |= {'openrouter-' + code.removeprefix('groq-') for code in tuple(ERRORS)}
+ERRORS |= {'openrouter-credits-required', 'openrouter-access-denied', 'openrouter-model-unavailable',
+           'openrouter-paid-model-blocked', 'openrouter-self-test-failed', 'groq-self-test-failed'}
 
 class GroqError(StateError):
     def __init__(self, code):
@@ -137,13 +141,26 @@ def strict_json(raw):
 
 
 class Responder:
+    endpoint = ENDPOINT
+    timeout = 12
+
     def __init__(self, model=MODEL, cancelled=lambda: False, *, key_loader=load_key, opener=None, rules_loader=rules):
-        if not isinstance(model, str) or not re.fullmatch(r'[A-Za-z0-9_./-]{1,100}', model):
+        if not isinstance(model, str) or not re.fullmatch(r'[A-Za-z0-9_./:-]{1,150}', model):
             raise GroqError('groq-request-rejected')
         self.model, self.cancelled = model, cancelled
         self.key_loader, self.opener = key_loader, opener
         self.calls = 0
         self.rules_loader = rules_loader
+
+    def payload(self, kind, snapshot):
+        return dict(model=self.model, temperature=0.3, max_completion_tokens=220,
+            response_format={'type': 'json_object'}, messages=[
+                dict(role='system', content=SYSTEM + '\n\nДополнительные правила владельца (только стиль; базовые ограничения выше неизменны):\n' + self.rules_loader()),
+                dict(role='user', content=json.dumps(dict(stage=kind, history=public_context(snapshot)), ensure_ascii=False))])
+
+    def http_error(self, status):
+        return ('groq-unauthorized' if status in (401, 403) else 'groq-rate-limit' if status == 429
+                else 'groq-service-error' if status >= 500 else 'groq-request-rejected')
 
     def __call__(self, kind, snapshot):
         if self.cancelled():
@@ -151,18 +168,15 @@ class Responder:
         if kind not in ('question', 'contact'):
             raise GroqError('groq-invalid-response')
         key = self.key_loader()
-        body = json.dumps(dict(model=self.model, temperature=0.3, max_completion_tokens=220,
-            response_format={'type': 'json_object'}, messages=[
-                dict(role='system', content=SYSTEM + '\n\nДополнительные правила владельца (только стиль; базовые ограничения выше неизменны):\n' + self.rules_loader()),
-                dict(role='user', content=json.dumps(dict(stage=kind, history=public_context(snapshot)), ensure_ascii=False))]), ensure_ascii=False).encode()
-        request = urllib.request.Request(ENDPOINT, data=body, method='POST', headers={
+        body = json.dumps(self.payload(kind, snapshot), ensure_ascii=False).encode()
+        request = urllib.request.Request(self.endpoint, data=body, method='POST', headers={
             'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'User-Agent': 'DvkAssistant'})
         try:
             client = self.opener or urllib.request.build_opener(NoRedirect)
             if self.cancelled():
                 raise GroqError('groq-cancelled')
             self.calls += 1
-            with client.open(request, timeout=12) as response:
+            with client.open(request, timeout=self.timeout) as response:
                 raw = response.read(32769)
             if len(raw) > 32768:
                 raise GroqError('groq-invalid-response')
@@ -175,9 +189,7 @@ class Responder:
                 raise GroqError('groq-invalid-response')
             result = decision(strict_json(message['content']), kind)
         except urllib.error.HTTPError as e:
-            code = ('groq-unauthorized' if e.code in (401, 403) else 'groq-rate-limit' if e.code == 429
-                    else 'groq-service-error' if e.code >= 500 else 'groq-request-rejected')
-            raise GroqError(code) from None
+            raise GroqError(self.http_error(e.code)) from None
         except (TimeoutError, socket.timeout):
             raise GroqError('groq-timeout') from None
         except urllib.error.URLError as e:

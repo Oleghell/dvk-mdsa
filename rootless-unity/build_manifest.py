@@ -19,6 +19,7 @@ LIVE_VERIFIED = {
     'city_rotation_and_online_filter_in_start': False,
     'read_tracked_dialog_recovery': False,
     'groq_live_replies': False,
+    'openrouter_live_device_replies': False,
     'repeated_profile_batches': False,
 }
 
@@ -40,6 +41,9 @@ def main(folder):
                       telegram_error_alerts=True, profile_interval_seconds=120,
                       default_dialog_interval_seconds=30, read_tracked_dialog_recovery=True,
                       groq_opt_in=True, groq_rules_file='config/groq-rules.txt',
+                      openrouter_opt_in=True, openrouter_only_free=True,
+                      openrouter_paid_fallback=False, provider_auto_switch=False,
+                      entered_key_test=True, independent_ai_key_save=True,
                       telegram_test_message=True, clear_profile_history=True),
         live_verified=LIVE_VERIFIED,
         production_ready=all(LIVE_VERIFIED.values()))
