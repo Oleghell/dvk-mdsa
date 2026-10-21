@@ -15,6 +15,9 @@ class Settings:
     contacts_enabled: bool = False
     reply_interval: int = 30
     profile_limit: int = 5
+    groq_enabled: bool = False
+    groq_model: str = 'llama-3.3-70b-versatile'
+    errors_enabled: bool = True
 
     def check(self):
         if any(not isinstance(x, str) or not 1 <= len(x) <= 4096 or x != x.strip()
@@ -23,7 +26,12 @@ class Settings:
         if type(self.contacts_enabled) is not bool or type(self.reply_interval) is not int or not 30 <= self.reply_interval <= 3600:
             raise StateError('Интервал проверки: от 30 до 3600 секунд.')
         if type(self.profile_limit) is not int or not 1 <= self.profile_limit <= 20:
-            raise StateError('Анкет за один «Старт»: от 1 до 20.')
+            raise StateError('Анкет за одну порцию: от 1 до 20.')
+        import re
+        if type(self.groq_enabled) is not bool or type(self.errors_enabled) is not bool:
+            raise StateError('Проверь переключатели Groq и уведомлений об ошибках.')
+        if not isinstance(self.groq_model, str) or not re.fullmatch(r'[A-Za-z0-9_./-]{1,100}', self.groq_model):
+            raise StateError('Укажи корректный ID модели Groq.')
         return self
 
 
@@ -48,13 +56,14 @@ def load(directory=None):
                 raise ValueError()
             config = json.loads(options.read_text(encoding='utf-8'))
             schema = config.pop('settings_version', 1)
-            if type(schema) is not int or schema not in (1, 2):
+            if type(schema) is not int or schema not in (1, 2, 3):
                 raise ValueError()
             if schema == 1 and type(config.get('reply_interval')) is int and config['reply_interval'] == 120:
                 config['reply_interval'] = 30
             # 0.4.x files have no profile_limit; keep reading them.
-            if set(config) not in ({'contacts_enabled', 'reply_interval'},
-                                   {'contacts_enabled', 'reply_interval', 'profile_limit'}):
+            required = {'contacts_enabled', 'reply_interval'}
+            allowed = required | {'profile_limit'} | ({'groq_enabled', 'groq_model', 'errors_enabled'} if schema == 3 else set())
+            if not required <= set(config) or not set(config) <= allowed:
                 raise ValueError()
         return Settings(saved['adb'], saved['test_apks'], **config).check()
     except Exception:
@@ -66,8 +75,9 @@ def save(settings, directory=None):
     directory = data_directory() if directory is None else Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     values = {'settings.json': dict(adb=settings.adb, test_apks=settings.folder),
-              'workflow-settings.json': dict(settings_version=2, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
-                                            profile_limit=settings.profile_limit)}
+              'workflow-settings.json': dict(settings_version=3, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
+                                            profile_limit=settings.profile_limit, groq_enabled=settings.groq_enabled,
+                                            groq_model=settings.groq_model, errors_enabled=settings.errors_enabled)}
     for filename, value in values.items():
         path = directory / filename
         temp = path.with_suffix('.tmp')

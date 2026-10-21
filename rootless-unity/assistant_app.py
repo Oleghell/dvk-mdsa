@@ -12,6 +12,7 @@ from assistant_store import StateError, data_directory
 from assistant_settings import Settings, load, save
 from assistant_monitor import run as monitor, summary as monitor_summary
 import telegram_notify
+import groq_reply
 from version import VERSION
 
 
@@ -26,7 +27,7 @@ def launch(self_check=False):
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
     status = tk.StringVar(value='Версия ' + VERSION + '. «Старт»: сначала ответы в непрочитанных чатах, '
-                          'затем одна порция анкет и мониторинг отслеживаемых диалогов. Сообщения цепочки отправляются автоматически после явного запуска.')
+                          'затем порции анкет с паузой 2 минуты и мониторинг диалогов. Groq включается в настройках; автоматическая отправка — после явного запуска.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
@@ -35,7 +36,7 @@ def launch(self_check=False):
     ttk.Label(frame, textvariable=status, wraplength=520).pack(anchor='w', pady=(18, 12))
     ttk.Label(frame, text='Цепочка: приветствие → ответ → «Как дела?)»/«Как настроение?)» → ответ → '
               'предложение Telegram/WhatsApp → контакт → уведомление боту.\n'
-              'В Telegram уходят только имя и контакт, который человек прислал сам.',
+              'В Telegram уходят добровольно присланные контакты и коды ошибок. При включённом Groq часть переписки передаётся Groq.',
               wraplength=640).pack(anchor='w')
     controls = ttk.Frame(frame)
     controls.pack(fill='x', pady=(18, 0))
@@ -81,7 +82,9 @@ def launch(self_check=False):
                 'Открою непрочитанные чаты, где уже идёт цепочка, и отправлю следующее сообщение цепочки.\n\n')
         if not messagebox.askyesno('Старт' if mode == 'full' else 'Только ответы', text +
                                    'После прохода останусь в диалогах и буду проверять отслеживаемые чаты каждые '
-                                   + str(settings.reply_interval) + ' сек. Новые анкеты повторно не запускаются.\n'
+                                   + str(settings.reply_interval) + ' сек. ' +
+                                   ('В полном режиме: следующая порция в другом случайном городе через 120 секунд после предыдущей.\n' if mode == 'full' else 'Новые анкеты в режиме «Только ответы» не запускаются.\n') +
+                                   ('Groq: до 12 коротких фрагментов переписки будут переданы Groq для ответа.\n' if settings.groq_enabled else 'Groq выключен: используются шаблоны цепочки.\n') +
                                    'Этот запуск разрешает автоматические приветствия и ответы цепочки без отдельных окон. '
                                    'Не трогай MuMu №4 во время работы.\n\nНачать?', parent=root):
             return
@@ -102,13 +105,22 @@ def launch(self_check=False):
         w = tk.Toplevel(root)
         dialog = w
         w.title('Настройки')
-        box = ttk.Frame(w, padding=16)
-        box.pack(fill='both', expand=True)
+        container = ttk.Frame(w, padding=12)
+        container.pack(fill='both', expand=True)
+        tabs = ttk.Notebook(container)
+        tabs.pack(fill='both', expand=True)
+        box, ai_box, tg_box = (ttk.Frame(tabs, padding=12) for _ in range(3))
+        for tab, title in ((box, 'Поиск и ответы'), (ai_box, 'Groq'), (tg_box, 'Telegram')):
+            tabs.add(tab, text=title)
         adb = tk.StringVar(value=settings.adb)
         folder = tk.StringVar(value=settings.folder)
         limit = tk.StringVar(value=str(settings.profile_limit))
         interval = tk.StringVar(value=str(settings.reply_interval))
         enabled = tk.BooleanVar(value=settings.contacts_enabled)
+        errors_enabled = tk.BooleanVar(value=settings.errors_enabled)
+        ai_enabled = tk.BooleanVar(value=settings.groq_enabled)
+        ai_model = tk.StringVar(value=settings.groq_model)
+        ai_key = tk.StringVar(value='')
         token = tk.StringVar(value='')
         recipient = tk.StringVar(value='')
         note = tk.StringVar(value='Токен не попадает в исходники и отчёты. Пустой токен сохраняет прежние настройки бота.')
@@ -130,31 +142,44 @@ def launch(self_check=False):
                 if value:
                     v.set(value)
             ttk.Button(row, text='Выбрать', command=choose).pack(side='right', padx=(8, 0))
-        ttk.Label(box, text='Анкет за один «Старт» (1–20)').pack(anchor='w')
+        ttk.Label(box, text='Подходящих анкет за одну порцию (1–20)').pack(anchor='w')
         ttk.Entry(box, textvariable=limit, width=8).pack(anchor='w', pady=(3, 10))
         ttk.Label(box, text='Проверка непрочитанных (30–3600 секунд)').pack(anchor='w')
         ttk.Entry(box, textvariable=interval, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Checkbutton(box, variable=enabled, text='Telegram: уведомлять, когда человек сам прислал контакт').pack(anchor='w', pady=8)
+        ttk.Label(box, text='Полный режим: новая порция и случайный город через 120 секунд после предыдущей.\nДиалоги и поиск выполняются последовательно; пропущенные интервалы не накапливаются.', wraplength=500).pack(anchor='w', pady=8)
+        ttk.Checkbutton(ai_box, variable=ai_enabled, text='Groq: короткие смысловые ответы по структуре цепочки').pack(anchor='w', pady=8)
+        ttk.Label(ai_box, text='До 12 фрагментов по 300 символов из проверенного чата передаются Groq. ID и имя профиля не передаются; ссылки/номера маскируются. Не включай без согласия на такую передачу.', wraplength=500).pack(anchor='w')
+        for label, var, mask in (('Модель Groq', ai_model, ''), ('API-ключ Groq (gsk_…) — пустое поле сохраняет прежний', ai_key, '*')):
+            ttk.Label(ai_box, text=label).pack(anchor='w', pady=(10, 0))
+            ttk.Entry(ai_box, textvariable=var, show=mask, width=58).pack(fill='x', pady=(3, 8))
+        ttk.Label(ai_box, text='Ключ и готовые ИИ-черновики защищаются Windows DPAPI. Ошибка API останавливает цикл без шаблонного запасного ответа.', wraplength=500).pack(anchor='w', pady=8)
+        ttk.Checkbutton(tg_box, variable=errors_enabled, text='Telegram: уведомлять о причинах остановок и ошибок').pack(anchor='w', pady=8)
+        ttk.Checkbutton(tg_box, variable=enabled, text='Telegram: уведомлять, когда человек сам прислал контакт').pack(anchor='w', pady=8)
         for label, var, mask in (('Токен бота', token, '*'), ('Chat ID получателя', recipient, '')):
-            ttk.Label(box, text=label).pack(anchor='w')
-            ttk.Entry(box, textvariable=var, show=mask, width=58).pack(fill='x', pady=(3, 8))
+            ttk.Label(tg_box, text=label).pack(anchor='w')
+            ttk.Entry(tg_box, textvariable=var, show=mask, width=58).pack(fill='x', pady=(3, 8))
         def store():
             nonlocal settings
             try:
                 current = Settings(adb.get(), folder.get(), enabled.get(), int(interval.get()),
-                                   int(limit.get())).check()
+                                   int(limit.get()), ai_enabled.get(), ai_model.get().strip(), errors_enabled.get()).check()
+                if ai_key.get().strip():
+                    groq_reply.save_key(ai_key.get())
+                elif current.groq_enabled:
+                    groq_reply.load_key()
                 if token.get().strip():
                     telegram_notify.save(token.get(), recipient.get())
-                elif current.contacts_enabled:
+                elif current.contacts_enabled or current.errors_enabled:
                     _, previous = telegram_notify.load()
                     if recipient.get().strip() != previous:
                         raise StateError('Для смены получателя укажи токен бота заново.')
                 save(current)
                 settings = current
                 token.set('')
+                ai_key.set('')
                 note.set('Сохранено. Проверок и тестовых отправок не выполнялось.')
             except Exception as error:
-                note.set(str(error) if isinstance(error, (StateError, telegram_notify.TelegramError)) else 'Не удалось сохранить настройки. Проверь поля.')
+                note.set(str(error) if isinstance(error, (StateError, telegram_notify.TelegramError, groq_reply.GroqError)) else 'Не удалось сохранить настройки. Проверь поля.')
         def test_telegram():
             try:
                 saved_token, saved_chat = telegram_notify.load()
@@ -179,15 +204,43 @@ def launch(self_check=False):
                 note.set('История анкет и городов очищена. Журнал отправок сохранён.')
             except Exception:
                 note.set('Не удалось очистить историю. Закрой другие окна программы.')
-        actions = ttk.Frame(box)
+        def test_groq():
+            test_ai_button.configure(state='disabled')
+            note.set('Проверяю Groq на вымышленном примере, без переписки из MuMu…')
+            results = queue.Queue()
+            model = ai_model.get().strip()
+            def work():
+                try:
+                    sample = dict(identity=dict(account='100', peer='200', chat='300'), messages=[
+                        dict(id='1', sender='100', text='Привет'), dict(id='2', sender='200', text='Взаимно')])
+                    response = groq_reply.Responder(model=model)('question', sample)
+                    results.put('Groq подключён, формат ответа проверен.' if response['decision'] == 'reply' else 'Groq доступен; тестовый ответ не выбран.')
+                except groq_reply.GroqError as error:
+                    results.put('Groq: ' + str(error))
+                except Exception:
+                    results.put('Groq: проверка не выполнена.')
+            def poll_test():
+                if not w.winfo_exists():
+                    return
+                try:
+                    note.set(results.get_nowait())
+                    test_ai_button.configure(state='normal')
+                except queue.Empty:
+                    w.after(100, poll_test)
+            threading.Thread(target=work, daemon=True).start()
+            w.after(100, poll_test)
+        test_ai_button = ttk.Button(ai_box, text='Тест Groq (сначала сохрани ключ)', command=test_groq)
+        test_ai_button.pack(anchor='w', pady=8)
+        actions = ttk.Frame(container)
         actions.pack(fill='x', pady=8)
         ttk.Button(actions, text='Сохранить', command=store).pack(side='left')
         ttk.Button(actions, text='Тест Telegram', command=test_telegram).pack(side='left', padx=8)
         ttk.Button(actions, text='Очистить историю анкет', command=clear).pack(side='left')
-        ttk.Label(box, textvariable=note, wraplength=520).pack(anchor='w')
+        ttk.Label(container, textvariable=note, wraplength=520).pack(anchor='w')
         def close_settings():
             nonlocal dialog
             token.set('')
+            ai_key.set('')
             dialog = None
             w.destroy()
         w.protocol('WM_DELETE_WINDOW', close_settings)

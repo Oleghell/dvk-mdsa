@@ -74,7 +74,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         except subprocess.TimeoutExpired:child.kill();child.wait(timeout=3)
         child.stdout.close();child.stderr.close()
 
-def integration(library,mode=800):
+def integration(library,mode=800,ai=False):
     # Keep one owned process alive through open -> real Chain reservation ->
     # outgoing observation -> back -> search. Bodies and transport are synthetic.
     import tempfile
@@ -143,9 +143,25 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
                 waits.append(seconds)
                 if len(waits)==2:stop.set();return True
                 return False
-            monitored=assistant_monitor.run(Settings(),stop,approve,mode='inbox',
-                inbox=inbox,navigator=navigator,lock=nullcontext,
-                write=lambda _: 'last-monitor.json',wait=wait)
+            from unittest.mock import patch
+            class SyntheticAI:
+                def __init__(self, **kwargs):self.calls=0
+                def __call__(self,kind,snapshot):
+                    assert kind=='contact'
+                    self.calls+=1
+                    return dict(decision='reply',text='Понимаю. Удобнее в Telegram или WhatsApp?')
+            class SyntheticAIChain(assistant_inbox.InboxChain):
+                def __init__(self,store,**kwargs):
+                    super().__init__(store,seal=lambda b:b'E'+b[::-1],unseal=lambda b:b[1:][::-1],**kwargs)
+            with (patch('groq_reply.Responder',SyntheticAI) if ai else nullcontext()), \
+                 (patch('assistant_inbox.InboxChain',SyntheticAIChain) if ai else nullcontext()):
+                monitored=assistant_monitor.run(Settings(groq_enabled=ai),stop,approve,mode='inbox',
+                    inbox=inbox,navigator=navigator,lock=nullcontext,
+                    write=lambda _: 'last-monitor.json',wait=wait)
+            if ai:
+                assert monitored['totals']['groq_requests']==1,monitored
+                assert monitored['chat_content_exported'],monitored
+
             assert monitored['status']=='cancelled' and monitored['dialogs_verified'],monitored
             assert monitored['passes_completed']==2 and approvals==['contact'],monitored
             assert monitored['totals']['submission_calls']==1,monitored
@@ -181,4 +197,5 @@ if __name__=='__main__':
         one(lib,mode,'list',entry='either',start_override=1)
     integration(lib)
     integration(lib,836)
-    print('55 synthetic browser cases and chain integration passed. No live dialog selection verified.')
+    integration(lib,836,ai=True)
+    print('55 synthetic browser cases and fixed/AI-chain integrations passed. No live dialog selection verified.')

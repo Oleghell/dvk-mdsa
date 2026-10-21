@@ -1,12 +1,13 @@
 """Explicitly started, serial monitoring of journal-authorized dialogs.
 
-The existing full pass runs at most once. Subsequent passes ONLY inspect the
-tracked inbox, with explicit run or per-message permission, no city timer and no new profiles.
-One OS device lock is held until Stop, failure or a declined approval. Reports
-contain counters/categories only; unknown sends are never retried.
+Full mode repeats qualified-profile batches with a 120-second idle interval,
+serially between tracked inbox passes. Reply-only mode never starts profiles.
+One device lock and durable send journals survive all batches. Unknown sends stop.
 """
 from contextlib import nullcontext
 import json
+import time
+import math
 
 from assistant_lock import operation_lock
 from assistant_store import StateError, data_directory
@@ -17,8 +18,9 @@ from dialog_browser import perform
 from version import VERSION
 from assistant_authorization import flags
 
+PROFILE_INTERVAL = 120
 REPORT = 'last-monitor.json'
-COUNTERS = ('submission_calls', 'handler_returns', 'outgoing_observed', 'contacts_forwarded')
+COUNTERS = ('submission_calls', 'handler_returns', 'outgoing_observed', 'contacts_forwarded', 'groq_requests')
 
 
 def write_report(value):
@@ -40,27 +42,34 @@ def report(mode):
                 totals={key: 0 for key in COUNTERS}, dialogs_verified=False,
                 ui_may_remain_open=False, last_navigation=None,
                 per_message_confirmation=True, automatic_send=False,
-                automatic_profile_repeat=False, delivery_confirmed=False,
+                automatic_profile_repeat=False, profile_interval_seconds=PROFILE_INTERVAL,
+                profile_batches_completed=0, profile_next_in_seconds=None, last_profile_run=None, error_notification='not-needed',
+                groq_enabled=False, groq_context_export_enabled=False, chat_content_exported=False, delivery_confirmed=False,
                 all_dialogs_covered=False, report_name=None)
 
 
 def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         fresh_session=False, initial=initial_pass, inbox=inbox_pass,
-        navigator=perform, lock=operation_lock, write=write_report, wait=None):
+        navigator=perform, lock=operation_lock, write=write_report, wait=None,
+        clock=time.monotonic, repeat=initial_pass, alert=None):
     """No startup/resume actions without an explicit UI Start. Begin on search or dialogs; unknown screens are rejected."""
     if mode not in ('full', 'inbox'):
         raise ValueError('Invalid monitor mode')
     out = report(mode)
     out.update(flags(approve))
+    out.update(automatic_profile_repeat=mode == 'full', groq_enabled=settings.groq_enabled,
+               groq_context_export_enabled=settings.groq_enabled)
     wait = stopped.wait if wait is None else wait
     phase = 'settings-check-stopped'
 
     def add_counters(value):
         for key in COUNTERS:
-            number = value[key]
+            number = value.get(key, 0) if key == 'groq_requests' else value[key]
             if type(number) is not int or number < 0:
                 raise ValueError('Invalid inbox counter')
             out['totals'][key] += number
+        if value.get('chat_content_exported'):
+            out['chat_content_exported'] = True
 
     def publish():
         try:
@@ -117,6 +126,8 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     raise StateError('initial-pass-stopped')
                 if first.get('report_name') is None:
                     raise StateError('report-write-failed')
+                out['profile_batches_completed'] = 1
+            next_profiles = clock() + PROFILE_INTERVAL
             entry = 'search' if mode == 'full' else 'either'
             while True:
                 check_stop()
@@ -141,24 +152,61 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     out.update(status='paused', reason='message-not-approved' if
                                'message-not-approved' in review else 'dialog-needs-review')
                     break
+                if mode == 'full' and clock() >= next_profiles:
+                    # Only between completed inbox passes; never overlap device work
+                    # or reset greeting reservations/profile/city history.
+                    phase = 'search-screen-not-verified'
+                    navigate('return', 'dialogs')
+                    check_stop()
+                    phase = 'profile-repeat-stopped'
+                    out.update(dialogs_verified=False, ui_may_remain_open=True)
+                    batch = repeat(settings, stopped, approve, progress, mode='profiles',
+                                   fresh_session=True, lock=nullcontext)
+                    out['last_profile_run'] = batch
+                    check_stop()
+                    if batch['status'] == 'paused':
+                        raise StateError('profile-pass-paused')
+                    if batch['status'] != 'completed':
+                        raise StateError('profile-pass-stopped')
+                    if batch.get('report_name') is None:
+                        raise StateError('report-write-failed')
+                    out['profile_batches_completed'] += 1
+                    phase = 'dialog-list-not-verified'
+                    navigate('list', 'search')
+                    next_profiles = clock() + PROFILE_INTERVAL
+                out['profile_next_in_seconds'] = math.ceil(max(0, next_profiles-clock())) if mode == 'full' else None
                 out.update(status='waiting', reason='next-inbox-pass')
                 publish()  # A failed report always stops further device work.
                 phase = 'monitor-check-stopped'
-                progress(summary(out) + f' Следующая проверка через {settings.reply_interval} сек.')
-                if wait(settings.reply_interval):
+                delay = min(settings.reply_interval, max(0.01, next_profiles-clock())) if mode == 'full' else settings.reply_interval
+                progress(summary(out) + f' Следующая проверка через {delay:g} сек.')
+                if wait(delay):
                     out.update(status='cancelled', reason='cancelled')
                     break
     except Exception as error:
         known = {'cancelled', 'report-write-failed', 'initial-pass-stopped',
-                 'inbox-pass-stopped', 'dialog-list-not-verified', 'initial-pass-paused'}
+                 'inbox-pass-stopped', 'dialog-list-not-verified', 'initial-pass-paused',
+                 'profile-pass-paused', 'profile-pass-stopped', 'profile-repeat-stopped'}
         out.update(status='cancelled' if stopped.is_set() else
-                   'paused' if isinstance(error, StateError) and str(error) == 'initial-pass-paused' else 'stopped',
+                   'paused' if isinstance(error, StateError) and str(error) in ('initial-pass-paused', 'profile-pass-paused') else 'stopped',
                    reason='cancelled' if stopped.is_set() else
                    str(error) if isinstance(error, StateError) and str(error) in known else phase)
     try:
         publish()
     except StateError:
         out.update(status='stopped', reason='report-write-failed')
+    if settings.errors_enabled and out['status'] in ('stopped', 'paused'):
+        from assistant_error_notify import notify
+        try:
+            out['error_notification'] = (notify if alert is None else alert)(out)
+            if out['error_notification'] not in ('accepted', 'unknown', 'not-configured', 'not-needed'):
+                out['error_notification'] = 'unknown'
+        except Exception:
+            out['error_notification'] = 'unknown'
+        try:
+            publish()
+        except StateError:
+            out.update(status='stopped', reason='report-write-failed')
     return out
 
 
@@ -184,11 +232,18 @@ def summary(result):
     if read:
         text += f"Чтение истории: {read['error']}, этап {read.get('read_checkpoint', 'unknown')}, ожидание {read.get('wait_reason', 'unknown')}. "
     if result['status'] == 'waiting':
-        text += 'Остаюсь в диалогах. Новые анкеты повторно не запускаются.'
+        text += (f'Остаюсь в диалогах. До следующей порции и случайного города: {result.get("profile_next_in_seconds", 120)} сек. ' +
+                 f'Порций завершено: {result.get("profile_batches_completed", 0)}.' if result.get('automatic_profile_repeat') else
+                 'Остаюсь в диалогах. Режим «Только ответы»: новые анкеты не запускаются.')
     elif result['status'] == 'cancelled':
         text += 'Мониторинг остановлен. Выполненные действия не откатываются.'
     elif result['status'] == 'paused':
         text += 'Мониторинг на паузе: сообщение не подтверждено или нужна ручная проверка. Для продолжения нужен новый «Старт».'
     else:
         text += 'Мониторинг остановлен: ' + result['reason'] + '. Проверь экран; неизвестные отправки не повторяются.'
+    notification = result.get('error_notification')
+    if notification == 'accepted':
+        text += ' Причина остановки передана Telegram.'
+    elif notification in ('unknown', 'not-configured'):
+        text += ' Ошибку не удалось подтвердить в Telegram; проверь настройки бота и локальный отчёт.'
     return text + ' Отчёт: ' + (result.get('report_name') or 'не удалось сохранить') + '.'

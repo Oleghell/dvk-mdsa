@@ -56,7 +56,7 @@ def extends_snapshot(previous, current):
 class GuidedChain(Chain):
     any_replies = True
 
-    def __init__(self, store, choose=None, seal=None, unseal=None):
+    def __init__(self, store, choose=None, seal=None, unseal=None, responder=None):
         kwargs = {} if choose is None else dict(choose=choose)
         if seal is not None:
             kwargs['seal'] = seal
@@ -65,6 +65,9 @@ class GuidedChain(Chain):
         # A notification is created only after a new incoming message is
         # conservatively verified as the peer's self-shared contact.
         super().__init__(store, contact_notifications=True, **kwargs)
+        self.responder = responder
+        from assistant_ai_drafts import initialize
+        initialize(store)
         with self.store.connection() as db:
             db.execute('''CREATE TABLE IF NOT EXISTS guided_bindings(
                 account TEXT, peer TEXT, chat TEXT UNIQUE, greeting_hash TEXT,
@@ -189,6 +192,9 @@ class GuidedChain(Chain):
             unapproved = {row[0] for row in db.execute(
                 "SELECT kind FROM chain_actions WHERE chat=? AND status='awaiting-approval'",
                 (who['chat'],))}
+        with self.store.connection() as db:
+            seen = {r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?', (who['chat'],))}
+        reply_ids = [m['id'] for m in snapshot['messages'] if m['sender'] == who['peer'] and m['id'] not in seen]
         stage, action = self.consume(snapshot)
         if ((stage == 'wait-mood' and 'question' in unapproved) or
                 (stage == 'wait-contact' and 'contact' in unapproved)):
@@ -199,12 +205,20 @@ class GuidedChain(Chain):
                 db.execute("UPDATE chain_actions SET status='awaiting-approval' "
                            "WHERE chat=? AND kind=? AND status='reserved-unknown'",
                            (who['chat'], action['kind']))
+                if self.responder is not None:
+                    # Atomically require AI BEFORE the draft can be resumed.
+                    db.execute("INSERT OR IGNORE INTO ai_drafts VALUES(?,?,NULL,'needed')", (who['chat'], action['kind']))
+                    for message in reply_ids:
+                        db.execute('INSERT OR IGNORE INTO ai_draft_inputs VALUES(?,?,?)', (who['chat'],action['kind'],message))
             elif stage.startswith('pending-'):
                 kind = stage.removeprefix('pending-')
                 row = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?',
                                  (who['chat'], kind)).fetchone()
                 if row and row[1] == 'awaiting-approval':
-                    text = next((t for t in REPLIES if text_hash(t) == row[0]), None)
+                    from assistant_ai_drafts import restore
+                    text = restore(self, who['chat'], kind, row[0], connection=db)
+                    if text is None:
+                        text = next((t for t in REPLIES if text_hash(t) == row[0]), None)
                     if text is None:
                         raise StateError('guided-template-changed')
                     action = dict(kind=kind, text=text)
@@ -217,6 +231,11 @@ class GuidedChain(Chain):
                                  (who['chat'], kind)).fetchone()
                 if not row or row[0] != 'outgoing-observed':
                     raise StateError('guided-outgoing-not-verified')
+        if action is not None:
+            from assistant_ai_drafts import prepare
+            terminal, action = prepare(self, snapshot, action)
+            if terminal is not None:
+                stage = terminal
         return stage, action
 
     def reserve_confirmed(self, who, action):
@@ -432,6 +451,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     'contact-protection-failed', 'contact-payload-invalid',
                     'contact-limit-exceeded', 'guided-binding-not-authorized',
                     'guided-outgoing-not-verified'}
+        from groq_reply import ERRORS as GROQ_ERRORS
+        allowed |= GROQ_ERRORS
         reason = str(error) if isinstance(error, StateError) and str(error) in allowed else 'binding-or-history-check-stopped'
         # Fixed, non-private categories distinguish transport from contact storage.
         if reason == 'binding-or-history-check-stopped':

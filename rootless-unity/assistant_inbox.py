@@ -86,7 +86,7 @@ def report():
                 reason='not-started', dialog_limit=LIMIT, dialogs_opened=0,
                 dialogs_processed=0, read_rows_skipped=0, confirmations=0, automatic_authorizations=0,
                 submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0,
-                outcomes={}, per_message_confirmation=True, automatic_send=False,
+                groq_requests=0, groq_context_export_enabled=False, outcomes={}, per_message_confirmation=True, automatic_send=False,
                 return_verified=False, dialogs_verified=False, delivery_confirmed=False,
                 all_dialogs_covered=False, ui_may_remain_open=False,
                 personal_data_exported=False, chat_content_exported=False,
@@ -226,10 +226,18 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     if notifier is None and settings.contacts_enabled:
         token, chat_id = telegram_notify.load()
         notifier = lambda payload: telegram_notify.send_contact(token, chat_id, payload)
-    chain = InboxChain(Store() if store is None else store)
-    return walk(settings, stopped, approve, progress, chain,
+    from groq_reply import Responder
+    responder = Responder(model=settings.groq_model, cancelled=stopped.is_set) if settings.groq_enabled else None
+    chain = InboxChain(Store() if store is None else store, responder=responder)
+    result = walk(settings, stopped, approve, progress, chain,
                 navigator=perform if navigator is None else navigator,
                 reader=capture if reader is None else reader,
                 sender=submit if sender is None else sender,
                 notifier=notifier, pause=pause, entry=entry, return_to=return_to,
                 greetings=load().greetings if greetings is None else greetings)
+
+    result['groq_requests'] = responder.calls if responder is not None else 0
+    result['groq_context_export_enabled'] = settings.groq_enabled
+    if result['groq_requests']:
+        result.update(chat_content_exported=True, personal_data_exported=True)
+    return result

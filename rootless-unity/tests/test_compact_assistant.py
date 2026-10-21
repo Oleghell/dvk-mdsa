@@ -180,3 +180,20 @@ class RunAuthorization(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+
+class GroqSettings(unittest.TestCase):
+    def test_new_fields_roundtrip_without_key(self):
+        with tempfile.TemporaryDirectory() as temp:
+            value=cfg.Settings(groq_enabled=True,groq_model='llama-3.3-70b-versatile',errors_enabled=True)
+            cfg.save(value,temp);self.assertEqual(cfg.load(temp),value)
+            saved=Path(temp,'workflow-settings.json').read_text()
+            self.assertNotIn('gsk_',saved);self.assertNotIn('api_key',saved)
+            self.assertEqual(json.loads(saved)['settings_version'],3)
+    def test_old_settings_migrate_with_ai_off_and_error_notifications_on(self):
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp,'workflow-settings.json').write_text(json.dumps(dict(settings_version=2,contacts_enabled=True,reply_interval=30,profile_limit=5)))
+            value=cfg.load(temp);self.assertFalse(value.groq_enabled);self.assertTrue(value.errors_enabled)
+    def test_bad_model_or_toggle_rejected(self):
+        for changes in (dict(groq_enabled=1),dict(errors_enabled='yes'),dict(groq_model='model\nPRIVATE'),dict(groq_model='https://PRIVATE:123')):
+            with self.assertRaises(StateError):cfg.Settings(**changes).check()

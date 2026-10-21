@@ -1,0 +1,71 @@
+"""Durable encrypted AI drafts; network outside SQLite and never after send reservation."""
+import json
+from contextlib import nullcontext
+from assistant_chain import text_hash
+from groq_reply import GroqError, decision
+
+
+def initialize(store):
+    with store.connection() as db:
+        db.execute('CREATE TABLE IF NOT EXISTS ai_drafts(chat TEXT,kind TEXT,payload BLOB,status TEXT NOT NULL,PRIMARY KEY(chat,kind))')
+        db.execute('CREATE TABLE IF NOT EXISTS ai_draft_inputs(chat TEXT,kind TEXT,message TEXT,PRIMARY KEY(chat,kind,message))')
+
+
+def restore(chain, chat, kind, expected_hash, connection=None):
+    with (chain.store.connection() if connection is None else nullcontext(connection)) as db:
+        row = db.execute('SELECT payload,status FROM ai_drafts WHERE chat=? AND kind=?', (chat, kind)).fetchone()
+    if row is None or row[1] == 'needed':
+        return None
+    try:
+        if row[1] != 'ready' or not isinstance(row[0], bytes) or len(row[0]) > 8192:
+            raise ValueError()
+        value = decision(json.loads(chain.unseal(row[0])), kind)
+        if value['decision'] != 'reply' or text_hash(value['text']) != expected_hash:
+            raise ValueError()
+        return value['text']
+    except Exception:
+        raise GroqError('groq-draft-unavailable') from None
+
+
+def prepare(chain, snapshot, action):
+    chat, kind = snapshot['identity']['chat'], action['kind']
+    with chain.store.connection() as db:
+        row = db.execute('SELECT status FROM ai_drafts WHERE chat=? AND kind=?', (chat, kind)).fetchone()
+        if row is None:
+            if chain.responder is None:
+                return None, action
+            db.execute("INSERT INTO ai_drafts VALUES(?,?,NULL,'needed')", (chat, kind))
+            trigger = db.execute('SELECT trigger FROM chain_actions WHERE chat=? AND kind=?', (chat,kind)).fetchone()
+            if trigger:
+                db.execute('INSERT OR IGNORE INTO ai_draft_inputs VALUES(?,?,?)', (chat,kind,trigger[0]))
+    if row is not None and chain.responder is None:
+        raise GroqError('groq-configuration-required')
+    text = restore(chain, chat, kind, text_hash(action['text']))
+    if text is not None:
+        return None, dict(kind=kind, text=text)
+    if chain.responder is None:
+        raise GroqError('groq-configuration-required')
+    # Only generated drafts may be retried after an API failure, not sends.
+    with chain.store.connection() as db:
+        reply_ids = [r[0] for r in db.execute('SELECT message FROM ai_draft_inputs WHERE chat=? AND kind=?', (chat,kind))]
+    context = dict(snapshot, _reply_ids=reply_ids)
+    value = decision(chain.responder(kind, context), kind)
+    if value['decision'] != 'reply':
+        stage = 'declined' if value['decision'] == 'decline' else 'manual-review'
+        with chain.store.connection() as db:
+            db.execute("UPDATE chain_dialogs SET stage=? WHERE chat=? AND stage=?", (stage, chat, 'pending-' + kind))
+            db.execute("UPDATE ai_drafts SET status='blocked' WHERE chat=? AND kind=?", (chat, kind))
+        return stage, None
+    try:
+        payload = chain.seal(json.dumps(value, ensure_ascii=False).encode())
+        if not isinstance(payload, bytes) or not payload or len(payload) > 8192:
+            raise ValueError()
+    except Exception:
+        raise GroqError('groq-draft-protection-failed') from None
+    with chain.store.connection() as db:
+        cur = db.execute("UPDATE chain_actions SET text_hash=? WHERE chat=? AND kind=? AND text_hash=? AND status='awaiting-approval'",
+                         (text_hash(value['text']), chat, kind, text_hash(action['text'])))
+        if cur.rowcount != 1:
+            raise GroqError('groq-draft-unavailable')
+        db.execute("UPDATE ai_drafts SET payload=?,status='ready' WHERE chat=? AND kind=? AND status='needed'", (payload, chat, kind))
+    return None, dict(kind=kind, text=value['text'])

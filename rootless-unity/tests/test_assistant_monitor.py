@@ -87,7 +87,7 @@ class Monitor(unittest.TestCase):
                          ['list', 'return', 'list', 'list', 'list'])
         self.assertEqual(out['totals']['outgoing_observed'], 3)
         self.assertFalse(self.held)
-        self.assertFalse(out['automatic_profile_repeat'])
+        self.assertTrue(out['automatic_profile_repeat'])
         self.assertFalse(out['delivery_confirmed'])
         self.assertFalse(out['all_dialogs_covered'])
         self.assertIs(self.inbox.call_args.args[2], self.approve)
@@ -230,3 +230,61 @@ class Monitor(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RepeatedProfiles(Monitor):
+    def test_two_minute_timer_rotates_without_repeating_full_initial_or_clearing_journal(self):
+        now=[0.0];waits=[];batches=[]
+        def repeat(*args,**kwargs):
+            self.assertTrue(self.held)
+            batches.append(now[0]);self.assertEqual(kwargs['mode'],'profiles')
+            self.assertTrue(kwargs['fresh_session']);self.assertIs(kwargs['lock'],__import__('contextlib').nullcontext)
+            return dict(status='completed',report_name='last-run.json',profiles=profiles_report(5))
+        def wait(seconds):
+            waits.append(seconds);now[0]+=seconds
+            if len(waits)==10:self.stop.set();return True
+            return False
+        out=self.run_monitor(clock=lambda:now[0],wait=wait,repeat=repeat)
+        self.assertEqual(batches,[120,240]);self.assertEqual(out['profile_batches_completed'],3)
+        self.assertEqual(out['profile_interval_seconds'],120)
+        self.assertEqual(self.initial.call_count,1);self.assertEqual(self.inbox.call_count,10)
+        operations=[c.args[0] for c in self.navigator.call_args_list]
+        self.assertEqual(operations.count('return'),3)
+        self.assertTrue(out['dialogs_verified'])
+
+    def test_inbox_only_never_repeats_even_after_due_time(self):
+        now=[0];repeat=MagicMock()
+        def wait(seconds):
+            now[0]+=1000
+            if now[0]>=3000:self.stop.set();return True
+            return False
+        out=self.run_monitor(mode='inbox',clock=lambda:now[0],repeat=repeat,wait=wait)
+        repeat.assert_not_called();self.assertFalse(out['automatic_profile_repeat'])
+
+    def test_long_batch_does_not_create_catchup_storm(self):
+        now=[0];calls=[]
+        def repeat(*a,**kw):
+            calls.append(now[0]);now[0]+=300
+            return dict(status='completed',report_name='last-run.json',profiles=profiles_report(5))
+        def wait(seconds):
+            now[0]+=seconds
+            if now[0]>=450:self.stop.set();return True
+            return False
+        out=self.run_monitor(clock=lambda:now[0],repeat=repeat,wait=wait)
+        self.assertEqual(calls,[120]);self.assertEqual(out['profile_batches_completed'],2)
+
+    def test_unknown_repeated_profile_send_stops_and_alerts_once(self):
+        now=[0];alert=MagicMock(return_value='accepted')
+        repeat=MagicMock(return_value=dict(status='stopped',reason='profiles-not-finished',profiles=dict(reason='send-outcome-unknown')))
+        def wait(seconds):now[0]+=seconds;return False
+        out=self.run_monitor(clock=lambda:now[0],repeat=repeat,wait=wait,alert=alert)
+        self.assertEqual(out['reason'],'profile-pass-stopped')
+        repeat.assert_called_once();alert.assert_called_once()
+        self.assertEqual(out['error_notification'],'accepted')
+        self.assertNotIn('sendMessage',json.dumps(out))
+
+    def test_fatal_report_failure_also_alerts_once(self):
+        alert=MagicMock(return_value='unknown')
+        out=self.run_monitor(write=MagicMock(side_effect=OSError('PRIVATE')),alert=alert)
+        self.assertEqual(out['reason'],'report-write-failed');alert.assert_called_once()
+        self.assertNotIn('PRIVATE',json.dumps(out))
