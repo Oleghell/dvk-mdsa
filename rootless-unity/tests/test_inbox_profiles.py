@@ -90,6 +90,10 @@ class Inbox(Base):
         self.assertEqual(self.sent, [QUESTIONS[0]])
         self.assertEqual(self.approve.call_count, 1)
         self.assertEqual(out['outcomes'], {'chain-waiting:wait-mood': 1})
+        self.assertEqual(out['submission_calls'], 1)
+        self.assertEqual(out['handler_returns'], 1)
+        self.assertEqual(out['outgoing_observed'], 1)
+        self.assertFalse(out['delivery_confirmed'])
         self.assertEqual([c.args[0] for c in self.nav.call_args_list], ['open', 'back', 'return'])
         self.assertTrue(self.nav.call_args_list[0].kwargs['unread_only'])
 
@@ -133,6 +137,42 @@ class Inbox(Base):
                         [snap(hello), snap(hello), snap(hello, msg(1003, QUESTIONS[0], True))])
         self.assertFalse(self.nav.call_args_list[0].kwargs['unread_only'])
         self.assertEqual(self.sent, [QUESTIONS[0]])
+
+    def test_monitor_pass_stays_in_dialogs_and_never_returns_to_search(self):
+        self.journal()
+        out = self.walk([nav('exhausted')], [], entry='dialogs', return_to='dialogs')
+        self.assertEqual(out['status'], 'inbox-completed')
+        self.assertTrue(out['dialogs_verified'])
+        self.assertFalse(out['return_verified'])
+        self.assertEqual(self.nav.call_count, 1)
+        self.assertEqual(self.nav.call_args.kwargs['entry'], 'dialogs')
+        self.assertEqual(self.nav.call_args.args[0], 'open')
+
+    def test_observed_outgoing_is_counted_once_across_passes(self):
+        self.journal()
+        hello = msg(1002, 'Привет')
+        question = msg(1003, QUESTIONS[0], True)
+        route = lambda: [nav('opened', WHO), nav('returned', WHO), nav('search-ready')]
+        first = self.walk(route(), [snap(hello), snap(hello), snap(hello, question)])
+        second = self.walk(route(), [snap(hello, question)])
+        self.assertEqual((first['outgoing_observed'], second['outgoing_observed']), (1, 0))
+        self.assertEqual((second['submission_calls'], second['handler_returns']), (0, 0))
+
+    def test_invalid_monitor_screen_is_rejected(self):
+        for kwargs in ({'entry': 'chat'}, {'return_to': 'chat'}):
+            with self.assertRaises(ValueError):
+                self.walk([], [], **kwargs)
+
+    def test_declining_approval_does_not_open_the_next_dialog(self):
+        self.journal()
+        self.journal(OTHER)
+        self.approve.return_value = False
+        out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
+                        [snap(msg(1002, 'Привет'))])
+        self.assertEqual(out['dialogs_opened'], 1)
+        self.assertEqual(out['reason'], 'needs-review')
+        self.assertEqual(self.approve.call_count, 1)
+        self.assertEqual(self.sent, [])
 
     def test_unknown_send_stops_pass_in_open_chat(self):
         self.journal()
@@ -217,7 +257,10 @@ class Profiles(Base):
                                 cycle=cycle, city_next=MagicMock(return_value=self.city_value()),
                                 config=Config(), limit=3, fresh_session=True)
         self.assertEqual(out['status'], 'profiles-completed')
-        self.assertEqual((out['greetings_sent'], out['skipped_friends'], out['skipped_existing_chat']), (1, 1, 1))
+        self.assertEqual((out['send_attempts'], out['handlers_returned'], out['skipped_friends'], out['skipped_existing_chat']), (1, 1, 1, 1))
+        self.assertIsNone(out['greetings_sent'])
+        self.assertIsNone(out['outgoing_observed'])
+        self.assertFalse(out['delivery_confirmed'])
         self.assertEqual(out['current_city'], 'Псков')
         self.assertTrue(out['online_verified'])
         self.approve.assert_called_once()
@@ -248,6 +291,9 @@ class Profiles(Base):
         profiles.Session(self.store).set('city', 'Псков')
         out = self.go([cycle_result(send_attempted=True)], limit=3)
         self.assertEqual(out['reason'], 'send-outcome-unknown')
+        self.assertEqual(out['send_attempts'], 1)
+        self.assertEqual(out['handlers_returned'], 0)
+        self.assertIsNone(out['greetings_sent'])
 
     def test_unreadable_profile_stops(self):
         profiles.Session(self.store).set('city', 'Псков')
@@ -261,6 +307,14 @@ class Profiles(Base):
         out = self.go([exhausted] * 5, [self.city_value()] * 5, limit=2)
         self.assertEqual(out['reason'], 'city-change-limit')
         self.assertEqual(out['city_changes'], profiles.MAX_CITY_CHANGES)
+
+    def test_interrupted_native_cycle_does_not_claim_zero_sends(self):
+        profiles.Session(self.store).set('city', 'Псков')
+        out = self.go([RuntimeError('PRIVATE transport')], limit=1)
+        self.assertEqual(out['status'], 'profiles-stopped')
+        self.assertTrue(out['send_attempts_unknown'])
+        self.assertIsNone(out['greetings_sent'])
+        self.assertNotIn('PRIVATE', json.dumps(out))
 
     def test_limit_validation(self):
         for limit in (0, 21, '5'):
@@ -301,6 +355,16 @@ class Start(unittest.TestCase):
         self.assertEqual(out['reason'], 'inbox-not-finished')
         self.profiles.assert_not_called()
         self.assertIn('Проверь экран', run.summary(out))
+
+    def test_declined_inbox_approval_prevents_new_profiles(self):
+        reply = dict(inbox.report(), status='inbox-completed', outcomes={'message-not-approved': 1})
+        new_profiles = MagicMock()
+        result = run.start(Settings(), threading.Event(), MagicMock(),
+                           inbox=MagicMock(return_value=reply), profiles=new_profiles,
+                           lock=MagicMock(), write=lambda value: 'last-run.json')
+        self.assertEqual(result['status'], 'paused')
+        self.assertEqual(result['reason'], 'inbox-needs-review')
+        new_profiles.assert_not_called()
 
     def test_modes(self):
         self.go(mode='inbox')

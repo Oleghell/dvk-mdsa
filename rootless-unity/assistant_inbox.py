@@ -13,6 +13,8 @@ from one_chat_probe import identity
 from version import VERSION
 
 LIMIT = 10
+PAUSE_OUTCOMES = {'message-not-approved', 'manual-review', 'telegram-disabled',
+                  'telegram-outcome-unknown', 'contact-payload-blocked'}
 CONTINUE = {'chain-waiting', 'chain-completed', 'chain-needs-review', 'chain-paused'}
 
 
@@ -82,16 +84,19 @@ def report():
     return dict(tool_version=VERSION, mode='inbox-chain-pass', status='inbox-stopped',
                 reason='not-started', dialog_limit=LIMIT, dialogs_opened=0,
                 dialogs_processed=0, read_rows_skipped=0, confirmations=0,
-                submission_calls=0, outgoing_observed=0, contacts_forwarded=0,
+                submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0,
                 outcomes={}, per_message_confirmation=True, automatic_send=False,
-                return_verified=False, ui_may_remain_open=False,
+                return_verified=False, dialogs_verified=False, delivery_confirmed=False,
+                all_dialogs_covered=False, ui_may_remain_open=False,
                 personal_data_exported=False, chat_content_exported=False,
                 device_scope='MuMu-4-only', last_navigation=None)
 
 
 def walk(settings, stopped, approve, progress, chain, *, navigator, reader, sender,
-         notifier=None, greetings=(), pause=None):
+         notifier=None, greetings=(), pause=None, entry='search', return_to='search'):
     from assistant_navigation_check import safe_diagnostic
+    if entry not in ('search', 'dialogs') or return_to not in ('search', 'dialogs'):
+        raise ValueError('Invalid inbox screen')
     out = report()
     attention, unread = inbox_targets(chain)
     if not attention and not unread:
@@ -133,7 +138,6 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
 
     phase = 'navigation'
     try:
-        entry = 'search'
         reason = 'visible-pass-limit'
         groups = [(attention, False), (unread, True)]
         while out['dialogs_opened'] < LIMIT and groups:
@@ -161,8 +165,9 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 pause=pause, max_polls=8, until_waiting=True,
                 contact_reader=lambda expected: reader(settings.adb, settings.folder,
                                                        stopped.is_set, expected, read_name=True))
-            for key in ('confirmations', 'submission_calls'):
+            for key in ('confirmations', 'submission_calls', 'handler_returns'):
                 out[key] += result[key]
+            out['outgoing_observed'] += result['outgoing_observed_this_run']
             out['contacts_forwarded'] += result['notifications']['accepted']
             if result['telegram_used']:
                 out['personal_data_exported'] = True
@@ -179,11 +184,16 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             out['dialogs_processed'] += 1
             for group in groups:
                 group[0][:] = [x for x in group[0] if (x['account'], x['peer']) != (who['account'], who['peer'])]
+            if result['reason'] in PAUSE_OUTCOMES:
+                reason = 'needs-review'
+                break  # No further approval prompts in this pass after No/timeout.
         else:
             reason = 'visible-exhausted' if not groups else 'visible-pass-limit'
         phase = 'navigation'
-        call('return')
-        out.update(status='inbox-completed', reason=reason, return_verified=True,
+        if return_to == 'search':
+            call('return')
+        out.update(status='inbox-completed', reason=reason, return_verified=return_to == 'search',
+                   dialogs_verified=return_to == 'dialogs',
                    ui_may_remain_open=False)
     except Exception as error:
         n = out['last_navigation']
@@ -197,7 +207,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
 
 
 def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navigator=None,
-        reader=None, sender=None, notifier=None, greetings=None, pause=None):
+        reader=None, sender=None, notifier=None, greetings=None, pause=None,
+        entry='search', return_to='search'):
     """Caller must hold the shared device lock."""
     from assistant_config import load
     from assistant_store import Store
@@ -215,5 +226,5 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
                 navigator=perform if navigator is None else navigator,
                 reader=capture if reader is None else reader,
                 sender=submit if sender is None else sender,
-                notifier=notifier, pause=pause,
+                notifier=notifier, pause=pause, entry=entry, return_to=return_to,
                 greetings=load().greetings if greetings is None else greetings)

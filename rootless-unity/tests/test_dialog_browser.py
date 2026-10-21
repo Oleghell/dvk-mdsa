@@ -107,6 +107,34 @@ class BrowserSchema(unittest.TestCase):
         value['navigation']['unread_verified']=True
         with self.assertRaises(ValueError):b.validate(value,'open',allowed=[TARGET],unread_only=True)
 
+    def test_dialog_list_verification_never_selects_or_exposes_a_chat(self):
+        for acted in (False, True):
+            value = raw_open()
+            n = value['navigation']
+            n.update(chat_verified=False, private_identity=None, selection_verified=False,
+                     rows_scanned=0, scan_batches=0, selection_checkpoint='not-checked',
+                     action_attempted=acted, action_completed=acted,
+                     root_top_kind='dialogs', controller_path=['dialogs'])
+            result = b.validate(value, 'list')
+            self.assertEqual(result['state'], 'dialogs-ready')
+            self.assertIsNone(result['identity'])
+            for field, bad in (('rows_scanned', 1), ('scan_batches', 1),
+                               ('chat_verified', True), ('list_verified', False),
+                               ('private_identity', WHO), ('selection_verified', True)):
+                invalid = copy.deepcopy(value)
+                invalid['navigation'][field] = bad
+                with self.assertRaises(ValueError):
+                    b.validate(invalid, 'list')
+        for entry in ('search', 'dialogs', 'either'):
+            source = b.build('list', entry=entry)
+            self.assertIn("if(operation==='list'&&k==='dialogs')", source)
+            self.assertIn("if(operation==='list'){finish();return;}", source)
+        with self.assertRaises(ValueError):
+            b.build('open', allowed=[TARGET], entry='either')
+        for options in ({'allowed': [TARGET]}, {'expected': WHO}, {'unread_only': True}):
+            with self.assertRaises(ValueError):
+                b.build('list', **options)
+
     def test_back_requires_exact_binding_and_has_no_cell_selection(self):
         for op,expected in [('back',None),('return',WHO),('open',WHO)]:
             with self.assertRaises(ValueError):b.build(op,expected=expected)

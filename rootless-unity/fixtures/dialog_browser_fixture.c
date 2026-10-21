@@ -189,10 +189,11 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 36:return &other;
  case 700:
   route_calls++;if(obj!=&tabs||!args||!args[1]||*(unsigned char *)args[1]!=0)route_bad++;
-  if(!args||args[0]!=(phase==0?&type_messages:&type_search))route_bad++;
+  /* Search is phase 0 initially, phase 2 after a verified return. */
+  if(!args||args[0]!=((phase==0||phase==2)?&type_messages:&type_search))route_bad++;
   if((mode==702&&phase==0)||(mode==713&&phase==1)){*exc=&exception;return NULL;}
   boolbox.value=!((mode==703&&phase==0)||(mode==704&&phase==1));
-  if(boolbox.value)phase=phase==0?1:2;
+  if(boolbox.value)phase=(phase==0||phase==2)?1:2;
   if(mode==714&&phase==1)slow();
   return &boolbox;
  }

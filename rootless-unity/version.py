@@ -1,2 +1,2 @@
 """Single source of the packaged DvkAssistant version."""
-VERSION = '1.0.0'
+VERSION = '1.0.1'

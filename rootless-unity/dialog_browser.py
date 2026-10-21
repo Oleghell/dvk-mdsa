@@ -208,7 +208,8 @@ TICK=r'''
    if(!checkView(current))return;
    if(n.phase==='entry'){
     const required=operation==='back'?'chat':operation==='return'?'dialogs':entryScreen;
-    if(k!==required)fail('wrong-screen');n.entry_verified=true;
+    if(required==='either'?(k!=='search'&&k!=='dialogs'):k!==required)fail('wrong-screen');n.entry_verified=true;
+    if(operation==='list'&&k==='dialogs'){n.list_verified=true;finish();return;}
     if(operation==='return'){
      n.list_verified=true;n.selection_checkpoint='search';n.action_attempted=true;switchTab(s.search);n.action_completed=true;n.phase='wait-search';return;
     }
@@ -224,7 +225,8 @@ TICK=r'''
     n.list_verified=true;n.phase='scan';return;
    }
    if(n.phase==='wait-list'){
-    if(k==='search')return;if(k!=='dialogs')fail('unexpected-screen');n.list_verified=true;n.phase='scan';return;
+    if(k==='search')return;if(k!=='dialogs')fail('unexpected-screen');n.list_verified=true;
+    if(operation==='list'){finish();return;}n.phase='scan';return;
    }
    if(n.phase==='scan'){
     if(k!=='dialogs')fail('unexpected-screen');scan(current,candidate);return;
@@ -247,7 +249,7 @@ TICK=r'''
 
 
 def build(operation, *, allowed=(), expected=None, entry='search', unread_only=False):
-    if operation not in ('open','back','return') or entry not in ('search','dialogs'):raise ValueError('Invalid fixed operation')
+    if operation not in ('open','back','return','list') or entry not in ('search','dialogs','either') or (entry=='either' and operation!='list'):raise ValueError('Invalid fixed operation')
     if type(unread_only) is not bool or (unread_only and operation!='open'):raise ValueError('Invalid unread filter')
     allowed=targets(allowed);expected=identity(expected) if expected is not None else None
     if (operation=='back')!=(expected is not None) or (operation!='open' and allowed):raise ValueError('Invalid operation binding')
@@ -282,8 +284,10 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
 
 
 def validate(value,operation, *, allowed=(), expected=None, unread_only=False):
+    if operation not in ('open','back','return','list'):raise ValueError('Invalid fixed operation')
     if type(unread_only) is not bool or (unread_only and operation!='open'):raise ValueError('Invalid unread filter')
     allowed=targets(allowed);expected=identity(expected) if expected is not None else None
+    if (operation=='back')!=(expected is not None) or (operation!='open' and allowed):raise ValueError('Invalid operation binding')
     if not isinstance(value,dict) or not isinstance(value.get('navigation'),dict):raise ValueError('Missing dialog evidence')
     n=value['navigation']
     if set(n)!=EXTRAS or n['phase'] not in PHASES or n['error'] not in ERRORS:raise ValueError('Invalid dialog evidence')
@@ -308,12 +312,17 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False):
             if n['exhausted']:
                 if private is not None or n['chat_verified']:raise ValueError('Identity on exhaustion')
             elif not (n['selection_verified'] and n['chat_verified'] and n['action_completed'] and private is not None):raise ValueError('Missing opened binding')
+        elif operation=='list':
+            if (not n['list_verified'] or n['chat_verified'] or private is not None
+                    or n['rows_scanned'] or n['scan_batches'] or n['selection_verified']
+                    or n['selection_checkpoint']!='not-checked' or n['action_attempted']!=n['action_completed']):
+                raise ValueError('Invalid dialog-list evidence')
         elif not n['action_completed'] or (operation=='back' and (not n['chat_verified'] or not n['list_verified'] or private!=expected)) or (operation=='return' and (not n['list_verified'] or private is not None)):
             raise ValueError('Missing return evidence')
     if private is not None:
         if operation=='open' and not any(x['account']==private['account'] and x['peer']==private['peer'] and (int(x['chat'])<=0 or x['chat']==private['chat']) for x in allowed):raise ValueError('Untracked private binding')
         if operation=='back' and private!=expected:raise ValueError('Different back binding')
-        if operation=='return' or not n['chat_verified']:raise ValueError('Unexpected identity')
+        if operation in ('return','list') or not n['chat_verified']:raise ValueError('Unexpected identity')
     # Reuse the verified thread/root/handle/modal/readiness validator without
     # pretending our actual flags describe a search/filter/cancel operation.
     base=copy.deepcopy(value);bn=base['navigation']
@@ -329,7 +338,7 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False):
     bn['controller_path']=[old(k) for k in bn['controller_path']]
     nav.validate(base,errors=ERRORS)
     diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped')}
-    return dict(state=('exhausted' if n['exhausted'] else 'opened' if operation=='open' else 'returned' if operation=='back' else 'search-ready') if ready else 'stopped',identity=private,diagnostic=diagnostic)
+    return dict(state=('exhausted' if n['exhausted'] else 'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready') if ready else 'stopped',identity=private,diagnostic=diagnostic)
 
 
 def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),expected=None,entry='search',unread_only=False):

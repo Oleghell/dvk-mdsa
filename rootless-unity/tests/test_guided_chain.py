@@ -106,6 +106,8 @@ class WholeChain(unittest.TestCase):
                 self.assertEqual(out['confirmations'], 2)
                 self.assertEqual(out['submission_calls'], 2)
                 self.assertEqual(out['outgoing_observed'], 2)
+                self.assertEqual(out['outgoing_observed_this_run'], 2)
+                self.assertEqual(out['handler_returns'], 2)
                 self.assertEqual(out['notifications']['accepted'], 1)
                 self.assertEqual(order, [('approved', 'question'), ('submitted', 'question'),
                                          ('approved', 'contact'), ('submitted', 'contact'),

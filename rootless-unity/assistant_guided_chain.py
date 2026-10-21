@@ -23,7 +23,8 @@ def report():
                 stages=dict(greeting=False, peer_greeting=False, question=False,
                             peer_reply=False, contact_request=False,
                             peer_contact=False),
-                confirmations=0, submission_calls=0, outgoing_observed=0,
+                confirmations=0, submission_calls=0, handler_returns=0, outgoing_observed=0,
+                outgoing_observed_this_run=0,
                 notifications=dict(accepted=0, unknown=0, disabled=0, blocked=0),
                 device_scope='MuMu-4-only', per_message_confirmation=True,
                 automatic_send=False, delivery_confirmed=False,
@@ -244,6 +245,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         return out
     pause = stopped.wait if pause is None else pause
     who = identity(who)
+    with chain.store.connection() as db:
+        observed_at_start = {row[0] for row in db.execute(
+            "SELECT kind FROM chain_actions WHERE chat=? AND status='outgoing-observed'",
+            (who['chat'],))}
     def read(source=reader):
         if stopped.is_set():
             raise StateError('cancelled')
@@ -310,6 +315,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             out['stages']['contact_request'] = observed.get('contact') == 'outgoing-observed'
             out['stages']['peer_contact'] = stage == 'done'
             out['outgoing_observed'] = sum(out['stages'][k] for k in ('question', 'contact_request'))
+            out['outgoing_observed_this_run'] = len(
+                {kind for kind, status in observed.items() if status == 'outgoing-observed'}
+                - observed_at_start)
             if stage == 'submission-unknown':
                 out.update(reason='send-outcome-unknown')
                 return out
@@ -374,6 +382,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                                 and result.get('handler_returned') is True)
                 except Exception:
                     returned = False
+                out['handler_returns'] += int(returned)
                 chain.finish(who, action, returned)
                 if not returned:
                     out.update(reason='send-outcome-unknown')

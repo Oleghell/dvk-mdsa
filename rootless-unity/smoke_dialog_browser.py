@@ -7,7 +7,7 @@ WHO=dict(account='100',peer='200',chat='300')
 TARGET=dict(WHO,chat='-1')
 
 
-def one(library,mode,operation='open',entry='search',unread_only=False):
+def one(library,mode,operation='open',entry='search',unread_only=False,start_override=None):
     code='''import ctypes,sys,time
 lib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)
 lib.fixture_init(int(sys.argv[2]));lib.fixture_browser_entry(int(sys.argv[3]))
@@ -19,6 +19,7 @@ for _ in range(12000):
     if mode in (829,832):allowed=[dict(account='100',peer='201',chat='301'),TARGET]
     expected=(dict(WHO,peer='201') if mode==809 else WHO) if operation=='back' else None
     start=3 if operation=='back' else 1 if operation=='return' or entry=='dialogs' else 0
+    if start_override is not None:start=start_override
     child=subprocess.Popen([sys.executable,'-u','-c',code,str(library),str(mode),str(start)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     session=script=monitor=None
     try:
@@ -40,7 +41,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         raw=script.exports_sync.probe();result=validate(raw,operation,allowed=allowed,expected=expected,unread_only=unread_only)
         if monitor:monitor.join(timeout=6)
         c=script.exports_sync.counts();n=raw['navigation']
-        expected_status={800:'opened' if operation=='open' else 'returned' if operation=='back' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted'}[mode]
+        expected_status={800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted'}[mode]
         actual=result['state'] if result['state']!='stopped' else n['stage'] if n['stage']=='not-attempted' else n['error']
         assert actual==expected_status,(mode,operation,actual,n,c)
         assert c['handles']==c['bad']==c['off']==c['route_bad']==0,(mode,n,c)
@@ -56,7 +57,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         if result['state']=='opened':assert result['identity']==WHO and c['clicks']==1,(result,c)
         if result['state']=='exhausted' or mode in (801,802,804,811,812,813,818,821):assert c['clicks']==0,c
         if operation=='back':assert c['clicks']==0 and c['backs']==(mode!=809),c
-        if operation=='return':assert c['clicks']==c['backs']==0,c
+        if operation in ('return','list'):assert c['clicks']==c['backs']==0,c
         print('Synthetic dialog browser',mode,operation,entry,actual,flush=True)
     finally:
         if script:
@@ -88,13 +89,14 @@ for _ in range(12000):
     try:
         q=queue.Queue();threading.Thread(target=lambda:q.put(child.stdout.readline()),daemon=True).start();assert q.get(timeout=10).strip()=='ready'
         def navigator(operation,*args,allowed=(),expected=None,entry='search',**kwargs):
+            unread_only=kwargs.get('unread_only',False)
             session=frida.get_local_device().attach(child.pid);script=None
             try:
-                script=session.create_script(build(operation,allowed=allowed,expected=expected,entry=entry)+'''
+                script=session.create_script(build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only)+'''
 rpc.exports={probe(){return probeUIKitRoot();},counts(){
  const read=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
  return [read('fixture_handles'),read('fixture_bad_frees'),read('fixture_off_thread_calls'),read('fixture_route_bad')];}};''')
-                script.load();result=validate(script.exports_sync.probe(),operation,allowed=allowed,expected=expected)
+                script.load();result=validate(script.exports_sync.probe(),operation,allowed=allowed,expected=expected,unread_only=unread_only)
                 assert script.exports_sync.counts()==[0,0,0,0]
                 return result
             finally:
@@ -112,14 +114,42 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
                 return dict(identity=dict(WHO),messages=[dict(m) for m in messages])
             def sender(*args,**kwargs):
                 with store.connection() as db:
-                    assert db.execute('SELECT status FROM chain_actions').fetchone()[0]=='reserved-unknown'
-                messages.append(dict(id='1003',sender='100',text=kwargs['text']))
+                    assert db.execute("SELECT status FROM chain_actions WHERE status='reserved-unknown'").fetchone()[0]=='reserved-unknown'
+                messages.append(dict(id=str(1001+len(messages)),sender='100',text=kwargs['text']))
                 return dict(attempted=True,handler_returned=True)
             result=walk(Settings(),threading.Event(),lambda _:None,chain,navigator=navigator,reader=reader,sender=sender,pause=lambda _:False)
             assert result['status']=='dialogs-completed' and result['return_verified'],result
             assert result['dialogs_processed']==result['reply_submission_calls']==result['reply_handler_returns']==result['outgoing_observed']==1,result
             assert result['new_greetings']==result['city_changes']==0
+            # Continue the SAME owned journal through the real monitoring and
+            # approval layers; only the message transport is synthetic.
+            from contextlib import nullcontext
+            import assistant_inbox
+            import assistant_monitor
+            messages.append(dict(id='1004',sender='200',text='Хорошо'))
+            stop=threading.Event();waits=[];approvals=[]
+            def approve(kind,text,cancelled):
+                approvals.append(kind);return not cancelled()
+            def inbox(settings,stopped,confirm,progress,**kwargs):
+                return assistant_inbox.run(settings,stopped,confirm,progress,store=store,
+                    navigator=navigator,reader=reader,sender=sender,greetings=(greeting,),
+                    pause=lambda _:False,**kwargs)
+            def wait(seconds):
+                waits.append(seconds)
+                if len(waits)==2:stop.set();return True
+                return False
+            monitored=assistant_monitor.run(Settings(),stop,approve,mode='inbox',
+                inbox=inbox,navigator=navigator,lock=nullcontext,
+                write=lambda _: 'last-monitor.json',wait=wait)
+            assert monitored['status']=='cancelled' and monitored['dialogs_verified'],monitored
+            assert monitored['passes_completed']==2 and approvals==['contact'],monitored
+            assert monitored['totals']['submission_calls']==1,monitored
+            assert monitored['totals']['handler_returns']==1,monitored
+            assert monitored['totals']['outgoing_observed']==1,monitored
+            assert monitored['totals']['contacts_forwarded']==0,monitored
+            assert not monitored['automatic_profile_repeat'] and not monitored['delivery_confirmed']
         print('Synthetic browser + durable chain + outgoing observation + return passed.',flush=True)
+        print('Synthetic monitor: two serial inbox passes, one approval, no duplicate counters, stays in dialogs.',flush=True)
     finally:
         child.terminate()
         try:child.wait(timeout=3)
@@ -137,5 +167,10 @@ if __name__=='__main__':
     for mode in (800,808,809):one(lib,mode,'back')
     one(lib,800,'return')
     for mode in (822,823,824,825,826,827,828,829,831,832,833,834,835):one(lib,mode,unread_only=True)
+    for mode in (800,820):
+        one(lib,mode,'list')
+        one(lib,mode,'list',entry='dialogs')
+        one(lib,mode,'list',entry='either')
+        one(lib,mode,'list',entry='either',start_override=1)
     integration(lib)
-    print('40 synthetic browser cases and chain integration passed. No live dialog selection verified.')
+    print('48 synthetic browser cases and chain integration passed. No live dialog selection verified.')

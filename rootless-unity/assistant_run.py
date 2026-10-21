@@ -4,6 +4,7 @@ import json
 from assistant_lock import operation_lock
 from assistant_store import StateError, data_directory
 from version import VERSION
+from assistant_inbox import PAUSE_OUTCOMES
 
 MODES = ('full', 'inbox', 'profiles')
 REPORT = 'last-run.json'
@@ -40,6 +41,8 @@ def start(settings, stopped, approve, progress=lambda _: None, *, mode='full', f
                 result['inbox'] = inbox(settings, stopped, approve, progress)
                 if result['inbox']['status'] not in ('inbox-completed', 'inbox-empty'):
                     raise StateError('inbox-not-finished')
+                if set(result['inbox']['outcomes']) & PAUSE_OUTCOMES:
+                    raise StateError('inbox-needs-review')
             if mode in ('full', 'profiles'):
                 result['profiles'] = profiles(settings, stopped, approve, progress,
                                               limit=settings.profile_limit,
@@ -48,10 +51,11 @@ def start(settings, stopped, approve, progress=lambda _: None, *, mode='full', f
                     raise StateError('profiles-not-finished')
         result.update(status='completed', reason='none')
     except Exception as error:
-        result.update(status='cancelled' if stopped.is_set() else 'stopped',
+        result.update(status='cancelled' if stopped.is_set() else
+                      'paused' if isinstance(error, StateError) and str(error) == 'inbox-needs-review' else 'stopped',
                       reason='cancelled' if stopped.is_set() else
                       str(error) if isinstance(error, StateError) and str(error) in
-                      ('inbox-not-finished', 'profiles-not-finished', 'cancelled') else
+                      ('inbox-not-finished', 'inbox-needs-review', 'profiles-not-finished', 'cancelled') else
                       'device-busy-or-start-check-stopped')
     try:
         result['report_name'] = write(result)
@@ -68,19 +72,24 @@ def summary(result):
         if inbox['status'] == 'inbox-empty':
             parts.append('Ответы: чатов цепочки пока нет.')
         else:
-            parts.append(f"Ответы: открыто чатов {inbox['dialogs_opened']}, отправлено после подтверждения "
-                         f"{inbox['submission_calls']}, контактов в Telegram {inbox['contacts_forwarded']}.")
+            parts.append(f"Ответы: открыто чатов {inbox['dialogs_opened']}, попыток отправки "
+                         f"{inbox['submission_calls']}, новых исходящих замечено {inbox['outgoing_observed']}, контактов в Telegram {inbox['contacts_forwarded']}.")
             if inbox['status'] != 'inbox-completed':
                 parts.append(INBOX_REASONS.get(inbox['reason'], 'Ответы остановлены: ' + inbox['reason'] + '.'))
     profiles = result.get('profiles')
     if profiles:
         city = profiles['current_city']
         parts.append(f"Анкеты{(' (' + city + ')') if city else ''}: проверено {profiles['profiles_checked']}, "
-                     f"приветствий отправлено {profiles['greetings_sent']}, "
+                     f"попыток приветствия {profiles['send_attempts']}, возвратов обработчика {profiles['handlers_returned']}, "
                      f"пропущено (50+ друзей) {profiles['skipped_friends']}, "
                      f"пропущено (уже есть переписка) {profiles['skipped_existing_chat']}.")
+        if profiles.get('send_attempts_unknown'):
+            parts.append('Цикл оборвался: число дополнительных попыток приветствия неизвестно.')
         if profiles['status'] != 'profiles-completed':
             parts.append(PROFILE_REASONS.get(profiles['reason'], 'Анкеты остановлены: ' + profiles['reason'] + '.'))
+    if inbox or profiles:
+        parts.append('Доставка собеседнику не подтверждена; появление приветствий в истории не проверялось.'
+                     if profiles else 'Появление исходящего в истории не подтверждает доставку собеседнику.')
     if result['status'] == 'completed':
         parts.append('Готово. Возврат к анкетам подтверждён.')
     elif result['status'] == 'cancelled':

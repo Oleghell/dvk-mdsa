@@ -20,7 +20,8 @@ def report(limit):
     return dict(tool_version=VERSION, mode='new-profiles-pass', status='profiles-stopped',
                 reason='not-started', profile_limit=limit, profiles_checked=0,
                 skipped_friends=0, skipped_existing_chat=0, greetings_offered=0,
-                greetings_sent=0, greetings_declined=0, city_changes=0,
+                greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
+                greetings_declined=0, city_changes=0,
                 current_city=None, online_verified=False, per_message_confirmation=True,
                 automatic_send=False, delivery_confirmed=False, return_verified=False,
                 personal_data_exported=False, device_scope='MuMu-4-only', last_error=None)
@@ -82,6 +83,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
     config = load() if config is None else config
     session = Session(store)
     out['current_city'] = session.get('city')
+    cycle_pending = False
     try:
         def new_city(text):
             if out['city_changes'] >= MAX_CITY_CHANGES:
@@ -107,8 +109,15 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 offered.append(True)
                 return approve('greeting', text, cancelled)
 
+            cycle_pending = True
             value = cycle(settings.adb, settings.folder, greeting, ask, stopped.is_set, store=store)
             n = value['navigation']
+            cycle_pending = False
+            if n['send_attempted']:
+                out['send_attempts'] += 1
+                out['greetings_sent'] = None
+            if n['send_handler_returned']:
+                out['handlers_returned'] += 1
             session.set('checked_at', datetime.now(timezone.utc).isoformat(timespec='seconds'))
             if offered:
                 out['greetings_offered'] += 1
@@ -119,7 +128,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             if n['send_attempted'] and not n['send_handler_returned']:
                 raise StateError('send-outcome-unknown')
             if n['send_handler_returned']:
-                out['greetings_sent'] += 1
+                pass
             elif value.get('declined'):
                 out['greetings_declined'] += 1
                 out.update(reason='greeting-not-approved')
@@ -135,6 +144,8 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 raise StateError('return-not-verified')
         out.update(status='profiles-completed', reason='profile-limit', return_verified=True)
     except Exception as error:
+        if cycle_pending:
+            out.update(send_attempts_unknown=True, greetings_sent=None)
         known = {'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
                  'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'city-change-limit'}
         reason = 'cancelled' if stopped.is_set() else (

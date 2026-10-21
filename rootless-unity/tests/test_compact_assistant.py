@@ -48,21 +48,46 @@ class CompactWindow(unittest.TestCase):
         tk.ttk=ttk
         with patch.dict(sys.modules,{'tkinter':tk,'tkinter.ttk':ttk,'tkinter.filedialog':tk.filedialog}), \
              patch.object(app,'load',return_value=cfg.Settings()), \
-             patch.object(app,'start_cycle') as start, \
-             patch.object(app,'run_guided_chain') as guided, \
-             patch.object(app,'run_reset') as reset, \
+             patch.object(app,'monitor') as start, \
              patch.object(app.telegram_notify,'load') as credentials, \
              patch.object(app.telegram_notify,'send') as telegram, \
              patch.object(app.threading,'Thread') as thread:
             app.launch()
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
-            self.assertEqual(labels,['Старт','Только ответы','Стоп',
-                                     'Вся цепочка · открытый чат',
-                                     'Начать цепочку заново · открытый чат',
-                                     'Настройки'])
+            self.assertEqual(labels,['Старт','Только ответы','Стоп','Настройки'])
             start.assert_not_called();credentials.assert_not_called();telegram.assert_not_called();thread.assert_not_called()
-            guided.assert_not_called()
-            reset.assert_not_called()
+
+
+    def test_start_is_single_flight_and_stop_requires_explicit_restart(self):
+        import sys
+        import assistant_app as app
+        import assistant_monitor
+        tk, ttk = MagicMock(), MagicMock()
+        tk.ttk = ttk
+        tk.messagebox.askyesno.return_value = True
+        stopped_result = dict(assistant_monitor.report('full'), status='cancelled')
+        with patch.dict(sys.modules, {'tkinter': tk, 'tkinter.ttk': ttk,
+                                     'tkinter.filedialog': tk.filedialog}), \
+             patch.object(app, 'load', return_value=cfg.Settings()), \
+             patch.object(app, 'save'), \
+             patch.object(app, 'monitor', return_value=stopped_result) as monitor, \
+             patch.object(app.threading, 'Thread') as thread:
+            app.launch()
+            commands = {c.kwargs['text']: c.kwargs['command'] for c in ttk.Button.call_args_list}
+            poll = tk.Tk.return_value.after.call_args.args[1]
+            commands['Старт']()
+            commands['Старт']()
+            commands['Только ответы']()
+            self.assertEqual(thread.call_count, 1)
+            commands['Стоп']()
+            call = thread.call_args
+            call.kwargs['target'](*call.kwargs['args'])
+            self.assertTrue(monitor.call_args.args[1].is_set())
+            poll()
+            self.assertEqual(thread.call_count, 1)  # No auto-restart on completion.
+            commands['Только ответы']()
+            self.assertEqual(thread.call_count, 2)
+            self.assertEqual(thread.call_args.kwargs['args'][1], 'inbox')
 
 
 class NavigationReadiness(unittest.TestCase):
