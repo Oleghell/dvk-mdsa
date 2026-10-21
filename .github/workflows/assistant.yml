@@ -1,7 +1,7 @@
 name: Build DvkAssistant
 "on":
   push:
-    branches: [feature/android-ui-hierarchy]
+    branches: [feature/android-ui-hierarchy, fix/dialog-selection-diagnostics]
     paths:
       - 'rootless-unity/**'
       - 'config/**'
@@ -141,7 +141,7 @@ jobs:
           $root='out/DvkAssistant-windows-x64'
           Copy-Item rootless-unity/ASSISTANT.md "$root/README.md"
           Copy-Item START_ASSISTANT.bat "$root/START_ASSISTANT.bat"
-          @{source_commit=$env:GITHUB_SHA;entry_mode='compact-visible-dialog-reply-pass';readiness_only=$false;live_cycle_available=$false;automatic_send=$true;new_greetings_available=$false;city_cycle_available=$false;dialog_navigation_available=$true;dialog_navigation_live_verified=$true;dialog_traversal_available=$true;dialog_traversal_live_verified=$false;contact_forwarding_library_available=$true;contact_forwarding_live_verified=$false;device_scope='MuMu-4-only';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
+          @{source_commit=$env:GITHUB_SHA;entry_mode='single-dialog-navigation-check';readiness_only=$true;live_cycle_available=$false;automatic_send=$false;chat_content_read=$false;telegram_used=$false;new_greetings_available=$false;city_cycle_available=$false;dialog_navigation_available=$true;dialog_navigation_live_verified=$true;dialog_traversal_available=$true;dialog_traversal_live_verified=$false;contact_forwarding_library_available=$true;contact_forwarding_enabled=$false;contact_forwarding_live_verified=$false;device_scope='MuMu-4-only';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
       - uses: actions/upload-artifact@v4
         with:
           name: DvkAssistant-windows-x64

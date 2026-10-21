@@ -22,14 +22,14 @@ def launch(self_check=False):
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Открой анкеты на MuMu №4. «Старт» проверит видимые диалоги из журнала и автоматически продолжит цепочку при новых ответах.')
+    status = tk.StringVar(value='Проверочная сборка 0.4.3. Открой анкеты на MuMu №4. «Старт» проверит открытие одного диалога и возврат. Сообщения не отправляются.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
         settings = Settings()
         status.set(str(error))
     ttk.Label(frame, textvariable=status, wraplength=520).pack(anchor='w', pady=(18, 12))
-    ttk.Label(frame, text='Сейчас: один проход по диалогам, без новых приветствий и смены города.\nTelegram — только имя и добровольно присланный свой контакт.', wraplength=520).pack(anchor='w')
+    ttk.Label(frame, text='Только проверка переходов. Переписка не читается, Telegram не используется.\nСтарые журналы сохраняются. Не управляй экраном во время проверки.', wraplength=520).pack(anchor='w')
     controls = ttk.Frame(frame)
     controls.pack(fill='x', pady=(18, 0))
     events = queue.Queue()
@@ -106,7 +106,7 @@ def launch(self_check=False):
             ttk.Button(row, text='Выбрать', command=choose).pack(side='right', padx=(8, 0))
         ttk.Label(box, text='Проверять старые диалоги каждые N секунд (для будущего общего цикла)').pack(anchor='w')
         ttk.Entry(box, textvariable=interval, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Checkbutton(box, variable=enabled, text='Telegram: имя и свой контакт, без остальных сообщений').pack(anchor='w', pady=8)
+        ttk.Checkbutton(box, variable=enabled, text='Telegram (в этой проверочной сборке не используется)').pack(anchor='w', pady=8)
         for label, var, mask in (('Токен бота', token, '*'), ('Chat ID получателя', recipient, '')):
             ttk.Label(box, text=label).pack(anchor='w')
             ttk.Entry(box, textvariable=var, show=mask, width=58).pack(fill='x', pady=(3, 8))
@@ -155,13 +155,13 @@ def launch(self_check=False):
                 status.set(value)
             elif value.get('report_name'):
                 if value['status'] == 'dialogs-completed':
-                    status.set(f"Обработано диалогов: {value['dialogs_processed']}. Попыток ответа: {value['reply_submission_calls']}. Возврат к анкетам подтверждён. Отчёт: messages-pass-check.json.")
+                    status.set(f"Проверено переходов в диалог: {value['navigation_dialogs_checked']}. Сообщения не отправлялись. Возврат к анкетам подтверждён. Пришли messages-pass-check.json.")
                 elif value['status'] == 'dialogs-empty':
-                    status.set('В журнале нет активных привязанных диалогов. Посторонним не отвечаю. Отчёт: messages-pass-check.json.')
+                    status.set('В журнале нет подходящих диалогов для проверки. Сообщения не отправлялись. Пришли messages-pass-check.json.')
                 elif value['status'] == 'dialogs-cancelled':
                     status.set('Проход остановлен. Уже выполненные действия не откатываются. Отчёт: messages-pass-check.json.')
                 else:
-                    status.set('Проход остановлен: ' + value['reason'] + '. Пришли messages-pass-check.json. Проверь экран вручную; неизвестные попытки не повторяются.')
+                    status.set('Проверка остановлена: ' + value['reason'] + '. Сообщения не отправлялись. Пришли messages-pass-check.json. Проверь экран вручную.')
                 try:
                     os.startfile(str(data_directory()))
                 except (OSError, AttributeError):

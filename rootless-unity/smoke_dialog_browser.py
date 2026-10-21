@@ -39,13 +39,13 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         raw=script.exports_sync.probe();result=validate(raw,operation,allowed=allowed,expected=expected)
         if monitor:monitor.join(timeout=6)
         c=script.exports_sync.counts();n=raw['navigation']
-        expected_status={800:'opened' if operation=='open' else 'returned' if operation=='back' else 'search-ready',801:'not-attempted',802:'selection-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large'}[mode]
+        expected_status={800:'opened' if operation=='open' else 'returned' if operation=='back' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'selection-list-changed'}[mode]
         actual=result['state'] if result['state']!='stopped' else n['stage'] if n['stage']=='not-attempted' else n['error']
         assert actual==expected_status,(mode,operation,actual,n,c)
         assert c['handles']==c['bad']==c['off']==c['route_bad']==0,(mode,n,c)
         assert c['clicks']<=1 and c['backs']<=1 and n['handles_acquired']==n['handles_released'],(mode,n,c)
         if result['state']=='opened':assert result['identity']==WHO and c['clicks']==1,(result,c)
-        if result['state']=='exhausted' or mode in (801,802,804,811,812,813,818):assert c['clicks']==0,c
+        if result['state']=='exhausted' or mode in (801,802,804,811,812,813,818,819):assert c['clicks']==0,c
         if operation=='back':assert c['clicks']==0 and c['backs']==(mode!=809),c
         if operation=='return':assert c['clicks']==c['backs']==0,c
         print('Synthetic dialog browser',mode,operation,entry,actual,flush=True)
@@ -120,9 +120,9 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
 
 if __name__=='__main__':
     lib=Path(sys.argv[1]).resolve(strict=True)
-    for mode in (800,801,802,803,804,805,807,810,811,812,813,814,815,816,817,818):one(lib,mode)
+    for mode in (800,801,802,803,804,805,807,810,811,812,813,814,815,816,817,818,819):one(lib,mode)
     one(lib,800,entry='dialogs')
     for mode in (800,808,809):one(lib,mode,'back')
     one(lib,800,'return')
     integration(lib)
-    print('21 synthetic browser cases and chain integration passed. No live dialog selection verified.')
+    print('22 synthetic browser cases and chain integration passed. No live dialog selection verified.')

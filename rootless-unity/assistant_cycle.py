@@ -44,17 +44,16 @@ def check_navigation(settings, stopped, progress=lambda text: None):
 
 
 def start(settings, stopped, progress=lambda text: None):
-    from assistant_dialogs import run_pass
+    from assistant_navigation_check import run_navigation_check
     if stopped.is_set():
         return dict(status='cancelled',reason='cancelled',live_cycle_available=False)
     try:
-        result=run_pass(settings,stopped,progress)
+        result=run_navigation_check(settings,stopped,progress)
     except Exception as error:
-        from assistant_dialogs import report
-        from telegram_notify import TelegramError
+        from assistant_navigation_check import report
         result=report()
         result.update(status='dialogs-cancelled' if stopped.is_set() else 'dialogs-stopped',
-                      reason='cancelled' if stopped.is_set() else 'telegram-settings-unavailable' if isinstance(error,TelegramError) else 'journal-or-device-start-stopped')
+                      reason='cancelled' if stopped.is_set() else 'journal-or-device-start-stopped')
     directory=data_directory();directory.mkdir(parents=True,exist_ok=True)
     target=directory/'messages-pass-check.json';temporary=target.with_suffix('.tmp')
     try:
@@ -64,4 +63,5 @@ def start(settings, stopped, progress=lambda text: None):
         temporary.unlink(missing_ok=True)
     return dict(status=result['status'],reason=result['reason'],live_cycle_available=False,report_name=target.name,
                 dialogs_processed=result['dialogs_processed'],reply_submission_calls=result['reply_submission_calls'],
-                reply_handler_returns=result['reply_handler_returns'],return_verified=result['return_verified'])
+                reply_handler_returns=result['reply_handler_returns'],return_verified=result['return_verified'],
+                navigation_dialogs_checked=result.get('navigation_dialogs_checked',0))

@@ -11,10 +11,14 @@ import uikit_navigation as nav
 from one_chat_probe import identity
 from uikit_profile_navigation import replace_once
 
-VERSION='0.4.2'
+VERSION='0.4.3'
 LIMIT=32
 MAX_TARGETS=1000
-ERRORS=nav.ERRORS|{'identity-not-bound','selection-changed','collection-too-large','binding-unavailable'}
+# Fixed categories only: never export object pointers, IDs or text.
+SELECTION_ERRORS={'selection-screen-changed','selection-controller-changed','selection-table-changed',
+                  'selection-list-changed','selection-count-changed','selection-cell-changed',
+                  'selection-chat-changed','selection-detached'}
+ERRORS=nav.ERRORS|SELECTION_ERRORS|{'identity-not-bound','selection-changed','collection-too-large','binding-unavailable'}
 KINDS=route.KINDS|{'chat'}
 PHASES={'entry','wait-list','scan','wait-chat','wait-back','wait-search','done'}
 CHECKPOINTS={'not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','chat-controller','open-handler','back-handler','ready'}
@@ -127,7 +131,7 @@ UTILS=r'''
    const view=call(s.viewOf,current);if(view.isNull())fail('unexpected-object');own(view);if(!attached(table,view))fail('screen-not-ready');
    n.selection_checkpoint='visible';const list=call(s.visible,table);if(list.isNull()||!f.objectClass(list).equals(s.visibleClass))fail('unexpected-object');own(list);
    const count=int32(s.visibleCount,list);if(count<0||count>128)fail('collection-too-large');
-   if(state.scanCount!==undefined&&state.scanCount!==count)fail('selection-changed');state.scanCount=count;
+   if(state.scanCount!==undefined&&state.scanCount!==count)fail('selection-count-changed');state.scanCount=count;
    if(state.scanIndex===undefined)state.scanIndex=0;
    n.scan_batches++;
    for(let batch=0;batch<4&&state.scanIndex<count;batch++,state.scanIndex++){
@@ -140,8 +144,15 @@ UTILS=r'''
      const model=modelIdentity(chat);if(model===null)return false;
      n.selection_checkpoint='filter';if(!permitted(model.who))return false;
      n.selection_checkpoint='stability';
-     if(!checkView(current)||!resolve(candidate).equals(current)||!call(s.listScroll,current).equals(table)||!call(s.visible,table).equals(list)||int32(s.visibleCount,list)!==count||
-        !cellAt(list,state.scanIndex).equals(cell)||!call(s.cellChat,cell).equals(chat)||!attached(cell,table))fail('selection-changed');
+     // Preserve every original guard and its order; only explain WHICH one failed.
+     if(!checkView(current))fail('selection-screen-changed');
+     if(!resolve(candidate).equals(current))fail('selection-controller-changed');
+     if(!call(s.listScroll,current).equals(table))fail('selection-table-changed');
+     if(!call(s.visible,table).equals(list))fail('selection-list-changed');
+     if(int32(s.visibleCount,list)!==count)fail('selection-count-changed');
+     if(!cellAt(list,state.scanIndex).equals(cell))fail('selection-cell-changed');
+     if(!call(s.cellChat,cell).equals(chat))fail('selection-chat-changed');
+     if(!attached(cell,table))fail('selection-detached');
      const again=modelIdentity(chat);if(again===null||!same(model.who,again.who)||!again.user.equals(model.user)||!permitted(again.who))fail('identity-changed');
      save('selectedChat',chat);save('selectedUser',model.user);state.selectedIdentity=model.who;
      const args=Memory.alloc(Process.pointerSize*2);args.writePointer(cell);args.add(Process.pointerSize).writePointer(chat);
@@ -151,7 +162,9 @@ UTILS=r'''
     if(opened)return;
    }
    if(state.scanIndex>=count){
-    if(!call(s.listScroll,current).equals(table)||!call(s.visible,table).equals(list)||int32(s.visibleCount,list)!==count)fail('selection-changed');
+    if(!call(s.listScroll,current).equals(table))fail('selection-table-changed');
+    if(!call(s.visible,table).equals(list))fail('selection-list-changed');
+    if(int32(s.visibleCount,list)!==count)fail('selection-count-changed');
     n.exhausted=true;n.selection_checkpoint='exhausted';finish();
    }
   };

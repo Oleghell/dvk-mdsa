@@ -49,6 +49,14 @@ class BrowserSchema(unittest.TestCase):
         self.assertLess(s.index('if(!permitted(model.who))'),s.index('call(s.openCell,current,args)'))
         self.assertIn('if(!bound.chat.equals(target(state.selectedChat))',s)
 
+    def test_stability_guards_all_have_body_free_fixed_categories(self):
+        source=b.build('open',allowed=[TARGET])
+        for error in b.SELECTION_ERRORS:
+            self.assertIn("fail('"+error+"')",source)
+        self.assertNotIn("fail('selection-changed')",source)
+        self.assertLess(source.index("fail('selection-chat-changed')"),source.index('call(s.openCell,current,args)'))
+        self.assertLess(source.index("fail('selection-detached')"),source.index('call(s.openCell,current,args)'))
+
     def test_back_requires_exact_binding_and_has_no_cell_selection(self):
         for op,expected in [('back',None),('return',WHO),('open',WHO)]:
             with self.assertRaises(ValueError):b.build(op,expected=expected)
