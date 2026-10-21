@@ -165,12 +165,12 @@ class Inbox(Base):
 
     def test_monitor_pass_stays_in_dialogs_and_never_returns_to_search(self):
         self.journal()
-        out = self.walk([nav('exhausted')], [], entry='dialogs', return_to='dialogs')
+        out = self.walk([nav('exhausted'), nav('exhausted', unread=False)], [], entry='dialogs', return_to='dialogs')
         self.assertEqual(out['status'], 'inbox-completed')
         self.assertTrue(out['dialogs_verified'])
         self.assertFalse(out['return_verified'])
-        self.assertEqual(self.nav.call_count, 1)
-        self.assertEqual(self.nav.call_args.kwargs['entry'], 'dialogs')
+        self.assertEqual(self.nav.call_count, 2)
+        self.assertTrue(all(c.kwargs['entry'] == 'dialogs' for c in self.nav.call_args_list))
         self.assertEqual(self.nav.call_args.args[0], 'open')
 
     def test_observed_outgoing_is_counted_once_across_passes(self):
@@ -220,12 +220,62 @@ class Inbox(Base):
         self.assertEqual(out['outcomes'], {'declined': 1})
         self.assertEqual(inbox.inbox_targets(self.chain()), ([], []))
 
-    def test_nothing_unread_returns_to_search(self):
+    def test_no_visible_unread_or_read_tracked_dialog_returns_to_search(self):
         self.journal()
-        out = self.walk([nav('exhausted'), nav('search-ready')], [])
+        out = self.walk([nav('exhausted'), nav('exhausted', unread=False), nav('search-ready')], [])
         self.assertEqual(out['status'], 'inbox-completed')
         self.assertEqual(out['reason'], 'visible-exhausted')
         self.reader.assert_not_called()
+
+    def test_read_reply_without_badge_continues_once_and_never_resends(self):
+        self.journal()
+        hello, question = msg(1002, 'Взаимно'), msg(1003, QUESTIONS[0], True)
+        route = lambda: [nav('exhausted'), nav('opened', WHO, unread=False),
+                         nav('returned', WHO), nav('search-ready')]
+        first = self.walk(route(), [snap(hello), snap(hello), snap(hello, question)])
+        self.assertEqual(first['status'], 'inbox-completed')
+        self.assertEqual(first['read_dialogs_checked'], 1)
+        self.assertEqual([c.kwargs['unread_only'] for c in self.nav.call_args_list if c.args[0]=='open'], [True, False])
+        second = self.walk(route(), [snap(hello, question)])
+        self.assertEqual(second['submission_calls'], 0)
+        self.assertEqual(self.sent, [QUESTIONS[0]])
+
+    def test_read_mood_without_badge_continues_contact_step(self):
+        self.journal()
+        hello, question = msg(1002, 'Привет'), msg(1003, QUESTIONS[0], True)
+        mood, contact = msg(1004, 'Хорошо'), msg(1005, CONTACT_TEXT, True)
+        self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
+                  [snap(hello), snap(hello), snap(hello, question)])
+        out = self.walk([nav('exhausted'), nav('opened', WHO, unread=False),
+                         nav('returned', WHO), nav('search-ready')],
+                        [snap(hello, question, mood), snap(hello, question, mood),
+                         snap(hello, question, mood, contact)])
+        self.assertEqual(out['status'], 'inbox-completed')
+        self.assertEqual(out['read_dialogs_checked'], 1)
+        self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
+
+    def test_manually_answered_read_chat_is_not_answered_again(self):
+        self.journal()
+        hello, manual = msg(1002, 'Привет'), msg(1003, 'Это мой ручной ответ', True)
+        chain=self.chain(); chain.consume(snap())
+        out = self.walk([nav('exhausted'), nav('opened', WHO, unread=False),
+                         nav('returned', WHO), nav('search-ready')], [snap(hello, manual)], chain=chain)
+        self.assertEqual(out['outcomes'], {'manual-review': 1})
+        self.assertEqual(out['submission_calls'], 0)
+        self.assertFalse(self.sent)
+
+    def test_read_round_rotates_across_bounded_passes_and_restarts(self):
+        chain = self.chain()
+        active = [dict(account='100', peer=str(200+i), chat=str(300+i)) for i in range(25)]
+        self.assertEqual(inbox.read_round(chain, active), active)
+        for who in active[:10]: inbox.record_checked(chain, who)
+        self.assertEqual(inbox.read_round(chain, active), active[10:])
+        for who in active[10:20]: inbox.record_checked(chain, who)
+        self.assertEqual(inbox.read_round(chain, active), active[20:])
+        for who in active[20:]: inbox.record_checked(chain, who)
+        self.assertEqual(inbox.read_round(chain, active), active)
+        inbox.record_checked(chain, active[0]); inbox.reset_read_round(chain)
+        self.assertEqual(inbox.read_round(chain, active), active)
 
     def test_foreign_chat_is_never_read(self):
         self.journal()

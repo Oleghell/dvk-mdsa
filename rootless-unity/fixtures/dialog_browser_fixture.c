@@ -158,7 +158,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   if(mode==827)return NULL;
   if(mode==828){*exc=&exception;return NULL;}
   browser_unread=1;
-  if(mode==822||mode==832||(mode==829&&((Object *)obj)->value==0))browser_unread=0;
+  if(mode==822||mode==832||mode==843||(mode==829&&((Object *)obj)->value==0))browser_unread=0;
   if(mode==824&&browser_unread_reads>=2)browser_unread=0;
   if(mode==831&&browser_unread_reads>=2)browser_unread=2;
   if(mode==826)browser_unread=-1;
@@ -167,7 +167,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   if(mode==842&&!browser_backs)slow();
   if(browser_backs){
    browser_back_checks++;
-   if((mode==836||mode==838||mode==839||mode==841)&&browser_back_checks==1)slow();
+   if((mode==836||mode==843||mode==838||mode==839||mode==841)&&browser_back_checks==1)slow();
    if(mode==837)slow();
    if(mode==838&&browser_back_checks>=2)browser_selected=&browser_chats[0];
    if(mode==840){*exc=&exception;return NULL;}

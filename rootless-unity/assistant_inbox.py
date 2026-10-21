@@ -1,9 +1,9 @@
-"""«Старт», step 1: unread chats that already belong to the message chain.
+"""«Старт», step 1: active tracked chats, unread first then read-chat recovery.
 
 Only chats with OUR greeting are eligible: an explicit guided binding or a
 greeting recorded in the send journal. Outgoing messages need run-scoped
 or per-message permission; unknown sends and notifications are never retried. Message
-bodies stay in RAM; the report holds counters only.
+bodies stay in RAM (optional bounded Groq export); reports contain counters only.
 """
 from assistant_chain import Chain, TERMINAL
 from assistant_guided_chain import GuidedChain, walk as walk_chat
@@ -81,10 +81,33 @@ def inbox_targets(chain):
     return targets(attention), targets(unread)
 
 
+
+def read_round(chain, active):
+    """Fair read-chat fallback across bounded passes; no badge/history inference."""
+    with chain.store.connection() as db:
+        db.execute('CREATE TABLE IF NOT EXISTS inbox_read_round(account TEXT,peer TEXT,PRIMARY KEY(account,peer))')
+        seen=set(db.execute('SELECT account,peer FROM inbox_read_round'))
+        remaining=[dict(who) for who in active if (who['account'],who['peer']) not in seen]
+        if active and not remaining:
+            db.execute('DELETE FROM inbox_read_round')
+            remaining=[dict(who) for who in active]
+    return remaining
+
+
+def record_checked(chain, who):
+    with chain.store.connection() as db:
+        db.execute('INSERT OR IGNORE INTO inbox_read_round VALUES(?,?)', (who['account'],who['peer']))
+
+
+def reset_read_round(chain):
+    with chain.store.connection() as db:
+        db.execute('DELETE FROM inbox_read_round')
+
+
 def report():
     return dict(tool_version=VERSION, mode='inbox-chain-pass', status='inbox-stopped',
                 reason='not-started', dialog_limit=LIMIT, dialogs_opened=0,
-                dialogs_processed=0, read_rows_skipped=0, confirmations=0, automatic_authorizations=0,
+                dialogs_processed=0, read_dialogs_checked=0, read_recovery_enabled=True, read_rows_skipped=0, confirmations=0, automatic_authorizations=0,
                 submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0,
                 groq_requests=0, groq_context_export_enabled=False, outcomes={}, per_message_confirmation=True, automatic_send=False,
                 return_verified=False, dialogs_verified=False, delivery_confirmed=False,
@@ -141,23 +164,27 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     phase = 'navigation'
     try:
         reason = 'visible-pass-limit'
-        groups = [(attention, False), (unread, True)]
+        groups = [(attention, False, 'pending'), (list(unread), True, 'unread'),
+                  (read_round(chain, unread), False, 'read')]
         while out['dialogs_opened'] < LIMIT and groups:
-            allowed, unread_only = groups[0]
+            allowed, unread_only, group_kind = groups[0]
             if not allowed:
                 groups.pop(0)
                 continue
             phase = 'navigation'
-            progress(f'Ответы: открываю чат {out["dialogs_opened"] + 1}. ' +
-                     ('Автоматическая отправка разрешена этим запуском.' if out['automatic_send'] else
-                      'Каждое сообщение — только после твоего подтверждения.'))
+            progress(f'Диалоги • чат {out["dialogs_opened"] + 1}/{LIMIT}' +
+                     (' • проверка прочитанного' if group_kind == 'read' else ''))
             selected = call('open', allowed=allowed, entry=entry, unread_only=unread_only)
             entry = 'dialogs'
             if selected['state'] == 'exhausted':
+                if group_kind == 'read':
+                    reset_read_round(chain)  # Remaining targets may be offscreen.
                 groups.pop(0)
                 continue
             who = identity(selected['identity'])
             out['dialogs_opened'] += 1
+            if group_kind == 'read':
+                out['read_dialogs_checked'] += 1
             phase = 'chat'
             result = walk_chat(
                 chain, who, stopped, approve,
@@ -187,6 +214,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             phase = 'navigation'
             call('back', expected=who)
             out['dialogs_processed'] += 1
+            record_checked(chain, who)
             for group in groups:
                 group[0][:] = [x for x in group[0] if (x['account'], x['peer']) != (who['account'], who['peer'])]
             if result['reason'] in PAUSE_OUTCOMES:

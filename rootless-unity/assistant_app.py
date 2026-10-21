@@ -26,18 +26,14 @@ def launch(self_check=False):
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Версия ' + VERSION + '. «Старт»: сначала ответы в непрочитанных чатах, '
-                          'затем порции анкет с паузой 2 минуты и мониторинг диалогов. Groq включается в настройках; автоматическая отправка — после явного запуска.')
+    status = tk.StringVar(value='Готово • версия ' + VERSION)
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
         settings = Settings()
         status.set(str(error))
     ttk.Label(frame, textvariable=status, wraplength=520).pack(anchor='w', pady=(18, 12))
-    ttk.Label(frame, text='Цепочка: приветствие → ответ → «Как дела?)»/«Как настроение?)» → ответ → '
-              'предложение Telegram/WhatsApp → контакт → уведомление боту.\n'
-              'В Telegram уходят добровольно присланные контакты и коды ошибок. При включённом Groq часть переписки передаётся Groq.',
-              wraplength=640).pack(anchor='w')
+    ttk.Label(frame, text='Старт: анкеты + ответы. Только ответы: без поиска анкет.\nGroq получает контекст чата; Telegram — контакты и коды ошибок.', wraplength=640).pack(anchor='w')
     controls = ttk.Frame(frame)
     controls.pack(fill='x', pady=(18, 0))
     events = queue.Queue()
@@ -75,11 +71,11 @@ def launch(self_check=False):
         except Exception as error:
             status.set(str(error) if isinstance(error, StateError) else 'Не удалось сохранить настройки. Запуск отменён.')
             return
-        text = ('1) Открою непрочитанные чаты, где уже идёт цепочка, и отправлю следующее сообщение цепочки.\n'
+        text = ('1) Проверю отслеживаемые чаты, включая прочитанные без ответа, и отправлю следующее сообщение цепочки.\n'
                 '2) Затем наберу ' + str(settings.profile_limit) + ' подходящих анкет: только онлайн, '
                 'друзей меньше 50, пустой чат — отправлю приветствие.\n\n'
                 if mode == 'full' else
-                'Открою непрочитанные чаты, где уже идёт цепочка, и отправлю следующее сообщение цепочки.\n\n')
+                'Проверю отслеживаемые чаты, включая прочитанные без ответа, и отправлю следующее сообщение цепочки.\n\n')
         if not messagebox.askyesno('Старт' if mode == 'full' else 'Только ответы', text +
                                    'После прохода останусь в диалогах и буду проверять отслеживаемые чаты каждые '
                                    + str(settings.reply_interval) + ' сек. ' +
@@ -94,7 +90,7 @@ def launch(self_check=False):
         stopped.clear()
         busy = True
         refresh()
-        status.set('Работаю. Отправка автоматическая в рамках этого запуска; «Стоп» завершает мониторинг.')
+        status.set('Запуск • проверяю диалоги')
         threading.Thread(target=worker, args=(settings, mode, fresh), daemon=True).start()
 
     def configure():
@@ -144,7 +140,7 @@ def launch(self_check=False):
             ttk.Button(row, text='Выбрать', command=choose).pack(side='right', padx=(8, 0))
         ttk.Label(box, text='Подходящих анкет за одну порцию (1–20)').pack(anchor='w')
         ttk.Entry(box, textvariable=limit, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Label(box, text='Проверка непрочитанных (30–3600 секунд)').pack(anchor='w')
+        ttk.Label(box, text='Проверка диалогов (30–3600 секунд)').pack(anchor='w')
         ttk.Entry(box, textvariable=interval, width=8).pack(anchor='w', pady=(3, 10))
         ttk.Label(box, text='Полный режим: новая порция и случайный город через 120 секунд после предыдущей.\nДиалоги и поиск выполняются последовательно; пропущенные интервалы не накапливаются.', wraplength=500).pack(anchor='w', pady=8)
         ttk.Checkbutton(ai_box, variable=ai_enabled, text='Groq: короткие смысловые ответы по структуре цепочки').pack(anchor='w', pady=8)
@@ -229,6 +225,17 @@ def launch(self_check=False):
                     w.after(100, poll_test)
             threading.Thread(target=work, daemon=True).start()
             w.after(100, poll_test)
+        def edit_rules():
+            try:
+                from assistant_config import config_directory
+                path=config_directory()/'groq-rules.txt'
+                if not path.is_file():
+                    raise OSError()
+                os.startfile(str(path))
+                note.set('Правила открыты. Сохрани файл UTF-8; новые ответы прочитают изменения.')
+            except Exception:
+                note.set('Открой config/groq-rules.txt рядом с EXE. Файл должен быть в UTF-8.')
+        ttk.Button(ai_box, text='Открыть правила Groq', command=edit_rules).pack(anchor='w', pady=8)
         test_ai_button = ttk.Button(ai_box, text='Тест Groq (сначала сохрани ключ)', command=test_groq)
         test_ai_button.pack(anchor='w', pady=8)
         actions = ttk.Frame(container)

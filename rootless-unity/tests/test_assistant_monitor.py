@@ -219,8 +219,9 @@ class Monitor(unittest.TestCase):
             self.assertFalse((Path(temp) / 'last-monitor.tmp').exists())
             self.assertEqual(saved['status'], 'cancelled')
         text = monitor.summary(out)
-        self.assertIn('не подтверждает доставку', text)
-        self.assertIn('попыток приветствия', text)
+        self.assertIn('Остановлено', text)
+        self.assertLess(len(text), 240)
+        self.assertNotIn('доставлено', text)
         self.assertNotIn('отправлено', text)
 
     def test_invalid_mode_cannot_repeat_profile_only_passes(self):

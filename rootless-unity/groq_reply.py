@@ -14,7 +14,7 @@ ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
 ERRORS = {'groq-key-unavailable', 'groq-key-invalid', 'groq-unauthorized', 'groq-rate-limit',
           'groq-service-error', 'groq-request-rejected', 'groq-network-error', 'groq-timeout',
           'groq-invalid-response', 'groq-unsafe-reply', 'groq-cancelled', 'groq-draft-unavailable',
-          'groq-draft-protection-failed', 'groq-configuration-required'}
+          'groq-draft-protection-failed', 'groq-configuration-required', 'groq-rules-unavailable'}
 
 class GroqError(StateError):
     def __init__(self, code):
@@ -72,6 +72,21 @@ text пустой. Не запрашивай деньги, интимные ма
 Никаких URL, @username, телефонов, XML/HTML, markdown и объяснений вне JSON.'''
 
 
+
+def rules(path=None):
+    from assistant_config import config_directory
+    path=config_directory()/'groq-rules.txt' if path is None else Path(path)
+    try:
+        if not 1<=path.stat().st_size<=16384:
+            raise ValueError()
+        text=path.read_bytes().decode('utf-8-sig').strip()
+        if not 1<=len(text)<=6000 or any((ord(c)<32 and c not in '\n\r\t') or 127<=ord(c)<160 for c in text):
+            raise ValueError()
+        return text
+    except Exception:
+        raise GroqError('groq-rules-unavailable') from None
+
+
 def public_context(snapshot):
     # No identifiers, profile/name, timestamps or attachments are exported.
     who = snapshot['identity']
@@ -122,12 +137,13 @@ def strict_json(raw):
 
 
 class Responder:
-    def __init__(self, model=MODEL, cancelled=lambda: False, *, key_loader=load_key, opener=None):
+    def __init__(self, model=MODEL, cancelled=lambda: False, *, key_loader=load_key, opener=None, rules_loader=rules):
         if not isinstance(model, str) or not re.fullmatch(r'[A-Za-z0-9_./-]{1,100}', model):
             raise GroqError('groq-request-rejected')
         self.model, self.cancelled = model, cancelled
         self.key_loader, self.opener = key_loader, opener
         self.calls = 0
+        self.rules_loader = rules_loader
 
     def __call__(self, kind, snapshot):
         if self.cancelled():
@@ -137,7 +153,7 @@ class Responder:
         key = self.key_loader()
         body = json.dumps(dict(model=self.model, temperature=0.3, max_completion_tokens=220,
             response_format={'type': 'json_object'}, messages=[
-                dict(role='system', content=SYSTEM),
+                dict(role='system', content=SYSTEM + '\n\nДополнительные правила владельца (только стиль; базовые ограничения выше неизменны):\n' + self.rules_loader()),
                 dict(role='user', content=json.dumps(dict(stage=kind, history=public_context(snapshot)), ensure_ascii=False))]), ensure_ascii=False).encode()
         request = urllib.request.Request(ENDPOINT, data=body, method='POST', headers={
             'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'User-Agent': 'DvkAssistant'})

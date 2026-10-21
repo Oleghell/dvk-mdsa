@@ -169,7 +169,8 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
             assert monitored['totals']['outgoing_observed']==1,monitored
             assert monitored['totals']['contacts_forwarded']==0,monitored
             assert not monitored['automatic_profile_repeat'] and not monitored['delivery_confirmed']
-            if mode==836:assert recovered and all(r==1 for r in recovered),recovered
+            if mode==843:assert monitored['last_pass']['read_dialogs_checked']==1,monitored
+            if mode in (836,843):assert recovered and all(r==1 for r in recovered),recovered
             assert sum(m['sender']=='100' for m in messages)==3,messages
         print('Synthetic browser + durable chain + outgoing observation + return passed.',flush=True)
         print('Synthetic monitor: two serial inbox passes, one approval, no duplicate counters, stays in dialogs.',flush=True)
@@ -198,4 +199,5 @@ if __name__=='__main__':
     integration(lib)
     integration(lib,836)
     integration(lib,836,ai=True)
+    integration(lib,843,ai=True)
     print('55 synthetic browser cases and fixed/AI-chain integrations passed. No live dialog selection verified.')

@@ -197,3 +197,25 @@ class GroqSettings(unittest.TestCase):
     def test_bad_model_or_toggle_rejected(self):
         for changes in (dict(groq_enabled=1),dict(errors_enabled='yes'),dict(groq_model='model\nPRIVATE'),dict(groq_model='https://PRIVATE:123')):
             with self.assertRaises(StateError):cfg.Settings(**changes).check()
+
+
+class PackagedConfiguration(unittest.TestCase):
+    def test_manifest_checks_all_external_configuration_and_current_features(self):
+        import hashlib
+        import build_manifest
+        with tempfile.TemporaryDirectory() as temp:
+            folder=Path(temp);(folder/'DvkAssistant.exe').write_bytes(b'synthetic exe')
+            (folder/'config').mkdir()
+            names=('cities.json', 'greetings.json', 'groq-rules.txt')
+            source=Path(__file__).resolve().parents[2]/'config'
+            for name in names: (folder/'config'/name).write_bytes((source/name).read_bytes())
+            build_manifest.main(folder)
+            value=json.loads((folder/'build-manifest.json').read_text())
+            self.assertEqual(value['config_sha256'], {name:hashlib.sha256((source/name).read_bytes()).hexdigest() for name in names})
+            self.assertFalse(value['auto_start']); self.assertTrue(value['explicit_run_confirmation'])
+            self.assertFalse(value['per_message_confirmation']); self.assertTrue(value['automatic_send'])
+            self.assertTrue(value['features']['read_tracked_dialog_recovery'])
+            self.assertEqual(value['features']['profile_interval_seconds'], 120)
+            self.assertFalse(value['production_ready'])
+            (folder/'config'/'groq-rules.txt').unlink()
+            with self.assertRaises(FileNotFoundError): build_manifest.main(folder)

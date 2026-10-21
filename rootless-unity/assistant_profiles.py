@@ -107,7 +107,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             session.set('city_changed_at', datetime.now(timezone.utc).isoformat(timespec='seconds'))
 
         if fresh_session or out['current_city'] is None:
-            new_city('Настраиваю поиск: случайный город из списка и «Только онлайн».')
+            new_city('Поиск • выбираю город и «Только онлайн»')
         while out['qualified_profiles'] < limit:
             if out['profiles_checked'] >= MAX_SCANNED:
                 raise StateError('profile-scan-limit')
@@ -116,9 +116,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             if out['search_cycles'] >= MAX_SEARCH_CYCLES:
                 raise StateError('search-cycle-limit')
             greeting = config.greeting()
-            progress(f'Новые анкеты: {out["qualified_profiles"] + 1}/{limit}. ' +
-                     ('Друзей меньше 50 → пустой чат → автоматическое приветствие.' if out['automatic_send'] else
-                      'Друзей меньше 50 → пустой чат → приветствие после подтверждения.'))
+            progress(f'Анкеты • подходящих {out["qualified_profiles"]}/{limit} • просмотрено {out["profiles_checked"]}')
             offered = []
 
             def ask(pending, text, cancelled):
@@ -141,7 +139,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             if n['error'] == 'selection-unavailable' and not n['open_attempted']:
                 if out['search_cycles'] >= MAX_SEARCH_CYCLES:
                     raise StateError('search-cycle-limit')
-                new_city('Новых анкет в этом городе нет. Меняю город и проверяю «Только онлайн».')
+                new_city('Поиск • анкеты закончились, меняю город')
                 continue
             out['profiles_checked'] += 1
             if n['send_attempted'] and not n['send_handler_returned']:

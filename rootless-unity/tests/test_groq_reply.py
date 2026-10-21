@@ -52,6 +52,31 @@ class Adapter(unittest.TestCase):
             self.assertNotIn(private, content)
         self.assertEqual(responder.calls, 1)
 
+    def test_owner_rules_reload_for_each_new_generation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'groq-rules.txt'
+            client=self.client()
+            responder=g.Responder(key_loader=lambda:KEY, opener=client, rules_loader=lambda:g.rules(path))
+            for text in ('Пиши кратко.', 'Без эмодзи.'):
+                path.write_text(text, encoding='utf-8-sig')
+                responder('question', snapshot())
+                body=json.loads(client.open.call_args.args[0].data)
+                self.assertIn(text, body['messages'][0]['content'])
+                self.assertNotIn(text, body['messages'][1]['content'])
+            self.assertEqual(responder.calls, 2)
+
+    def test_unavailable_invalid_or_oversized_rules_never_make_http_request(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'groq-rules.txt'; client=self.client()
+            responder=g.Responder(key_loader=lambda:KEY, opener=client, rules_loader=lambda:g.rules(path))
+            for raw in (None, b'', b'   ', b'\xff', b'x'*16385, ('я'*6001).encode(), b'abc\x00'):
+                if raw is None: path.unlink(missing_ok=True)
+                else: path.write_bytes(raw)
+                with self.assertRaises(g.GroqError) as e: responder('question', snapshot())
+                self.assertEqual(str(e.exception), 'groq-rules-unavailable')
+            client.open.assert_not_called()
+            self.assertEqual(responder.calls, 0)
+
     def test_context_bounded_to_twelve_fragments(self):
         v=snapshot(*[('x'*500, False) for _ in range(50)])
         history = g.public_context(v)

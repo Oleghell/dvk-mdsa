@@ -211,39 +211,26 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
 
 
 def summary(result):
-    totals = result['totals']
-    text = (f"Мониторинг: проходов {result['passes_completed']}, попыток отправки {totals['submission_calls']}, "
-            f"возвратов обработчика {totals['handler_returns']}, новых исходящих в истории "
-            f"{totals['outgoing_observed']}, контактов в Telegram {totals['contacts_forwarded']}. "
-            'Появление исходящего в истории не подтверждает доставку собеседнику. ')
-    first = result.get('initial_run') or {}
-    profiles = first.get('profiles')
-    if profiles:
-        text += (f"Начальная порция: подходящих {profiles.get('qualified_profiles', 0)}/{profiles['profile_limit']}, просмотрено {profiles['profiles_checked']}, "
-                 f"попыток приветствия {profiles['send_attempts']}, возвратов обработчика "
-                 f"{profiles['handlers_returned']}. Появление приветствий в истории не проверялось. ")
-        city = profiles.get('last_city_navigation')
-        if city and city['stage'] != 'navigation-ready':
-            text += f"Выбор города остановлен: {city['error']}, этап {city['city_checkpoint']}. "
-        if profiles.get('send_attempts_unknown'):
-            text += 'Цикл оборвался: число дополнительных попыток приветствия неизвестно. '
-    last = (result.get('last_pass') or first.get('inbox') or {}).get('last_chat_diagnostics') or {}
-    read = last.get('last_read_failure')
-    if read:
-        text += f"Чтение истории: {read['error']}, этап {read.get('read_checkpoint', 'unknown')}, ожидание {read.get('wait_reason', 'unknown')}. "
-    if result['status'] == 'waiting':
-        text += (f'Остаюсь в диалогах. До следующей порции и случайного города: {result.get("profile_next_in_seconds", 120)} сек. ' +
-                 f'Порций завершено: {result.get("profile_batches_completed", 0)}.' if result.get('automatic_profile_repeat') else
-                 'Остаюсь в диалогах. Режим «Только ответы»: новые анкеты не запускаются.')
-    elif result['status'] == 'cancelled':
-        text += 'Мониторинг остановлен. Выполненные действия не откатываются.'
-    elif result['status'] == 'paused':
-        text += 'Мониторинг на паузе: сообщение не подтверждено или нужна ручная проверка. Для продолжения нужен новый «Старт».'
-    else:
-        text += 'Мониторинг остановлен: ' + result['reason'] + '. Проверь экран; неизвестные отправки не повторяются.'
-    notification = result.get('error_notification')
-    if notification == 'accepted':
-        text += ' Причина остановки передана Telegram.'
-    elif notification in ('unknown', 'not-configured'):
-        text += ' Ошибку не удалось подтвердить в Telegram; проверь настройки бота и локальный отчёт.'
-    return text + ' Отчёт: ' + (result.get('report_name') or 'не удалось сохранить') + '.'
+    """Compact status only. Detailed counters/reasons remain in last-monitor.json."""
+    totals=result['totals']
+    status=result['status']
+    if status=='waiting':
+        text=f"Диалоги • проходов {result['passes_completed']} • в истории {totals['outgoing_observed']} • контактов TG {totals['contacts_forwarded']}"
+        if result.get('automatic_profile_repeat'):
+            text+=f"\nАнкеты • порций {result.get('profile_batches_completed',0)} • следующая через {result.get('profile_next_in_seconds',120)} с"
+        else:
+            text+='\nТолько ответы • без новых анкет'
+        return text
+    if status=='cancelled':
+        return 'Остановлено • действия не откатываются. Отчёт: last-monitor.json'
+    from assistant_error_notify import reasons
+    from groq_reply import ERRORS as GROQ_ERRORS
+    codes=reasons(result)
+    reason=next((c for c in codes if c in GROQ_ERRORS),result['reason'])
+    text=('Пауза' if status=='paused' else 'Ошибка')+' • '+reason
+    notification=result.get('error_notification')
+    if notification=='accepted':
+        text+=' • причина передана в TG'
+    elif notification in ('unknown','not-configured'):
+        text+=' • TG не подтверждён'
+    return text+'\nПроверь экран. Отчёт: last-monitor.json'
