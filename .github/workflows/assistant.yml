@@ -7,6 +7,7 @@ name: Build DvkAssistant
       - 'config/**'
       - 'START_ASSISTANT.bat'
       - 'README.md'
+      - 'RELEASE_NOTES.md'
       - '.github/workflows/assistant.yml'
   workflow_dispatch:
 permissions:
@@ -144,10 +145,37 @@ jobs:
           $root='out/DvkAssistant-windows-x64'
           Copy-Item rootless-unity/ASSISTANT.md "$root/README.md"
           Copy-Item START_ASSISTANT.bat "$root/START_ASSISTANT.bat"
-          @{source_commit=$env:GITHUB_SHA;entry_mode='visible-journal-dialog-read-check';tool_version='0.4.12';read_module_version='0.4.6';unread_only=$true;unread_filter_live_verified=$false;read_only_chat_binding_available=$true;binding_grants_send_authorization=$false;dialog_limit=5;read_only_check=$true;journal_read_only=$true;analysis_in_memory=$true;live_cycle_available=$false;automatic_send=$false;guided_chain_available=$true;guided_chain_live_verified=$false;guided_chain_reset_available=$true;guided_chain_per_message_confirmation=$true;guided_chain_notification_available=$true;guided_chain_notification_live_verified=$false;guided_chain_name_read_deferred_until_contact=$true;chat_content_read_available=$true;chat_content_exported=$false;telegram_used=$false;new_greetings_available=$false;city_cycle_available=$false;dialog_navigation_available=$true;dialog_navigation_live_verified=$true;dialog_traversal_available=$true;dialog_traversal_live_verified=$false;contact_forwarding_library_available=$true;contact_forwarding_enabled=$true;contact_forwarding_live_verified=$false;device_scope='MuMu-4-only';sha256=(Get-FileHash "$root/DvkAssistant.exe" -Algorithm SHA256).Hash.ToLower()} | ConvertTo-Json | Set-Content "$root/build-manifest.json" -Encoding UTF8
+          Copy-Item RELEASE_NOTES.md "$root/RELEASE_NOTES.md"
+          python rootless-unity/build_manifest.py $root
+          if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
       - uses: actions/upload-artifact@v4
         with:
           name: DvkAssistant-windows-x64
           path: out/DvkAssistant-windows-x64/
           if-no-files-found: error
           retention-days: 14
+  release:
+    # Publishes a GitHub Release only for an explicit [release] commit or a manual run.
+    needs: package
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: DvkAssistant-windows-x64
+          path: DvkAssistant-windows-x64
+      - name: Publish the Windows build as a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 -c "import sys;sys.path.insert(0,'rootless-unity');from version import VERSION;print(VERSION)")
+          archive="DvkAssistant-$version-windows-x64.zip"
+          (cd DvkAssistant-windows-x64 && zip -qr "../$archive" .)
+          gh release create "v$version" "$archive" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "DvkAssistant $version" --notes-file RELEASE_NOTES.md --latest

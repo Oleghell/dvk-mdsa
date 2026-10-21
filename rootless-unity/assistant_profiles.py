@@ -1,0 +1,170 @@
+"""«Старт», step 2: new profiles, friends < 50, greeting only after confirmation.
+
+Each profile cycle is the existing native one-profile cycle (assistant_pass):
+it opens one new visible profile, reads the friend count, opens the chat only
+when friends < 50, re-checks that the history is empty and asks for an explicit
+confirmation of ONE greeting. When the visible list is exhausted, the city is
+changed to another configured city and «Только онлайн» is re-verified.
+"""
+from datetime import datetime, timezone
+import secrets
+
+from assistant_store import StateError
+from version import VERSION
+
+MAX_LIMIT = 20
+MAX_CITY_CHANGES = 3
+
+
+def report(limit):
+    return dict(tool_version=VERSION, mode='new-profiles-pass', status='profiles-stopped',
+                reason='not-started', profile_limit=limit, profiles_checked=0,
+                skipped_friends=0, skipped_existing_chat=0, greetings_offered=0,
+                greetings_sent=0, greetings_declined=0, city_changes=0,
+                current_city=None, online_verified=False, per_message_confirmation=True,
+                automatic_send=False, delivery_confirmed=False, return_verified=False,
+                personal_data_exported=False, device_scope='MuMu-4-only', last_error=None)
+
+
+class Session:
+    """Current search city and the time of the last check (TZ §3, §10)."""
+
+    def __init__(self, store):
+        self.store = store
+        with store.connection() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS search_session(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+
+    def get(self, key):
+        with self.store.connection() as db:
+            row = db.execute('SELECT value FROM search_session WHERE key=?', (key,)).fetchone()
+        return None if row is None else row[0]
+
+    def set(self, key, value):
+        with self.store.connection() as db:
+            db.execute('INSERT INTO search_session VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                       (key, value))
+
+
+def clear_history(store):
+    """Forget viewed profiles and city rotation. Send journals are kept on purpose:
+    they are the protection against a second greeting to the same person."""
+    with store.connection() as db:
+        for table in ('profile_visits', 'city_rotation_used', 'search_session'):
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                db.execute(f'DELETE FROM {table}')
+    return True
+
+
+def change_city(settings, stopped, store, cities, *, city_next=None):
+    """Return the verified city name or raise StateError; never retries."""
+    import search_city
+    from assistant_rotation import History
+    city_next = search_city._capture_next if city_next is None else city_next
+    cities = search_city.check_cities(list(cities))
+    history = History(store)
+    used = history.used(cities)
+    secrets.SystemRandom().shuffle(cities)
+    value = city_next(settings.adb, settings.folder, cities, used, stopped.is_set)
+    search_city.validate_next(value, cities)
+    n = value['navigation']
+    if n['stage'] != 'navigation-ready':
+        raise StateError('city-no-alternative' if n['error'] == 'city-no-alternative' else 'city-not-verified')
+    history.record(cities, value)
+    return n['city_selected_name']
+
+
+def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, config=None,
+         limit=5, fresh_session=False):
+    from assistant_config import load
+    if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
+        raise ValueError('Invalid profile limit')
+    out = report(limit)
+    config = load() if config is None else config
+    session = Session(store)
+    out['current_city'] = session.get('city')
+    try:
+        def new_city(text):
+            if out['city_changes'] >= MAX_CITY_CHANGES:
+                raise StateError('city-change-limit')
+            progress(text)
+            city = change_city(settings, stopped, store, config.cities, city_next=city_next)
+            out['city_changes'] += 1
+            out.update(current_city=city, online_verified=True)
+            session.set('city', city)
+            session.set('city_changed_at', datetime.now(timezone.utc).isoformat(timespec='seconds'))
+
+        if fresh_session or out['current_city'] is None:
+            new_city('Настраиваю поиск: случайный город из списка и «Только онлайн».')
+        while out['profiles_checked'] < limit:
+            if stopped.is_set():
+                raise StateError('cancelled')
+            greeting = config.greeting()
+            progress(f'Новые анкеты: {out["profiles_checked"] + 1}/{limit}. '
+                     'Друзей меньше 50 → пустой чат → приветствие после подтверждения.')
+            offered = []
+
+            def ask(pending, text, cancelled):
+                offered.append(True)
+                return approve('greeting', text, cancelled)
+
+            value = cycle(settings.adb, settings.folder, greeting, ask, stopped.is_set, store=store)
+            n = value['navigation']
+            session.set('checked_at', datetime.now(timezone.utc).isoformat(timespec='seconds'))
+            if offered:
+                out['greetings_offered'] += 1
+            if n['error'] == 'selection-unavailable' and not n['open_attempted']:
+                new_city('Новых анкет в этом городе нет. Меняю город и проверяю «Только онлайн».')
+                continue
+            out['profiles_checked'] += 1
+            if n['send_attempted'] and not n['send_handler_returned']:
+                raise StateError('send-outcome-unknown')
+            if n['send_handler_returned']:
+                out['greetings_sent'] += 1
+            elif value.get('declined'):
+                out['greetings_declined'] += 1
+                out.update(reason='greeting-not-approved')
+                raise StateError('greeting-not-approved')
+            elif n['stage'] != 'navigation-ready':
+                out['last_error'] = n['error'] if isinstance(n['error'], str) else 'unknown'
+                raise StateError('profile-check-stopped')
+            elif not n['friends_eligible']:
+                out['skipped_friends'] += 1
+            else:
+                out['skipped_existing_chat'] += 1
+            if not n['return_verified']:
+                raise StateError('return-not-verified')
+        out.update(status='profiles-completed', reason='profile-limit', return_verified=True)
+    except Exception as error:
+        known = {'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
+                 'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'city-change-limit'}
+        reason = 'cancelled' if stopped.is_set() else (
+            str(error) if isinstance(error, StateError) and str(error) in known else 'device-or-journal-check-stopped')
+        status = ('profiles-cancelled' if reason == 'cancelled' else
+                  'profiles-paused' if reason == 'greeting-not-approved' else 'profiles-stopped')
+        out.update(status=status, reason=reason)
+    return out
+
+
+def run(settings, stopped, approve, progress=lambda _: None, *, store=None, cycle=None,
+        city_next=None, config=None, limit=5, fresh_session=False):
+    """Caller must hold the shared device lock (assistant_pass.run re-enters it)."""
+    from assistant_store import Store
+    if stopped.is_set():
+        return dict(report(limit), status='profiles-cancelled', reason='cancelled')
+    if cycle is None:
+        from assistant_pass import inspect as native_cycle
+        from assistant_config import check_text
+        from one_chat_device import capture
+        from pathlib import Path
+
+        def cycle(executable, folder, text, ask, cancelled, *, store):
+            folder = Path(folder).resolve(strict=True)
+            for name in ('.dvk-ten-profile-pass.lock', '.dvk-one-greeting.lock'):
+                if (folder / name).exists():
+                    raise StateError('legacy-reservation-present')
+            text = check_text(text)
+            return capture(executable, folder, cancelled, inspector=lambda port, token, cancel, expected:
+                           native_cycle(port, token, cancel, text, store, ask))
+    return walk(settings, stopped, approve, progress, Store() if store is None else store,
+                cycle=cycle, city_next=city_next, config=config, limit=limit,
+                fresh_session=fresh_session)

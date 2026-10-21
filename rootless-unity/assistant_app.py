@@ -1,4 +1,7 @@
-"""Compact EXE entry: Start / Stop / Settings. No automatic startup actions."""
+"""DvkAssistant window: Start / Replies / Stop / Settings + one-open-chat tools.
+
+No automatic startup actions. Every outgoing message needs its own confirmation.
+"""
 import json
 import os
 import queue
@@ -9,29 +12,34 @@ from pathlib import Path
 
 from assistant_store import StateError, data_directory
 from assistant_settings import Settings, load, save
-from assistant_cycle import start as start_cycle
+from assistant_run import start as start_cycle, summary as run_summary
 from assistant_guided_chain import run as run_guided_chain, run_reset
 import telegram_notify
+from version import VERSION
 
 
 def launch(self_check=False):
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox
     root = tk.Tk()
-    root.title('ДругВокруг · MuMu №4')
-    root.geometry('680x470')
-    root.minsize(680, 470)
+    root.title('DvkAssistant ' + VERSION + ' · ДругВокруг · MuMu №4')
+    root.geometry('700x520')
+    root.minsize(700, 520)
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Сборка 0.4.12. Любой ответ продолжает цепочку; явный отказ прекращает общение. Остановленную цепочку можно начать заново.')
+    status = tk.StringVar(value='Версия ' + VERSION + '. «Старт»: сначала ответы в непрочитанных чатах, '
+                          'затем новые анкеты. Каждое сообщение — только после твоего подтверждения.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
         settings = Settings()
         status.set(str(error))
     ttk.Label(frame, textvariable=status, wraplength=520).pack(anchor='w', pady=(18, 12))
-    ttk.Label(frame, text='«Старт» ничего не отправляет. В режиме цепочки не переключай открытый чат.\nВ Telegram передаются только имя и добровольно присланный контакт.', wraplength=600).pack(anchor='w')
+    ttk.Label(frame, text='Цепочка: приветствие → ответ → «Как дела?)»/«Как настроение?)» → ответ → '
+              'предложение Telegram/WhatsApp → контакт → уведомление боту.\n'
+              'В Telegram уходят только имя и контакт, который человек прислал сам.',
+              wraplength=640).pack(anchor='w')
     controls = ttk.Frame(frame)
     controls.pack(fill='x', pady=(18, 0))
     events = queue.Queue()
@@ -39,11 +47,12 @@ def launch(self_check=False):
     busy = False
     dialog = None
     approval_window = None
+    first_profiles_run = True
 
     def refresh():
         start.configure(state='disabled' if busy else 'normal')
         options.configure(state='disabled' if busy else 'normal')
-        bind.configure(state='disabled' if busy else 'normal')
+        replies.configure(state='disabled' if busy else 'normal')
         guided.configure(state='disabled' if busy else 'normal')
         reset_chain.configure(state='disabled' if busy else 'normal')
         stop.configure(state='normal' if busy else 'disabled')
@@ -52,16 +61,17 @@ def launch(self_check=False):
         stopped.set()
         status.set('Останавливаю. Выполненные действия не откатываются.')
 
-    def worker(current):
+    def worker(current, mode, fresh):
         try:
-            result = start_cycle(current, stopped, lambda text: events.put(('progress', text)))
-            events.put(('result', result))
-        except Exception as error:
-            text = str(error) if isinstance(error, StateError) else 'Остановлено до продолжения. Проверь пути и локальные файлы.'
-            events.put(('error', text))
+            result = start_cycle(current, stopped, ask_send,
+                                 lambda text: events.put(('progress', text)),
+                                 mode=mode, fresh_session=fresh)
+            events.put(('start-result', result))
+        except Exception:
+            events.put(('error', 'Остановлено до продолжения. Проверь пути и локальные файлы.'))
 
-    def begin():
-        nonlocal busy
+    def begin(mode='full'):
+        nonlocal busy, first_profiles_run
         if busy:
             return
         try:
@@ -70,10 +80,23 @@ def launch(self_check=False):
         except Exception as error:
             status.set(str(error) if isinstance(error, StateError) else 'Не удалось сохранить настройки. Запуск отменён.')
             return
+        text = ('1) Открою непрочитанные чаты, где уже идёт цепочка, и предложу следующее сообщение.\n'
+                '2) Затем проверю до ' + str(settings.profile_limit) + ' новых анкет: только онлайн, '
+                'друзей меньше 50, пустой чат — и предложу приветствие.\n\n'
+                if mode == 'full' else
+                'Открою непрочитанные чаты, где уже идёт цепочка, и предложу следующее сообщение.\n\n')
+        if not messagebox.askyesno('Старт' if mode == 'full' else 'Только ответы', text +
+                                   'Каждое сообщение отправляется только после кнопки «Отправить». '
+                                   'Не трогай MuMu №4 во время работы.\n\nНачать?', parent=root):
+            return
+        fresh = first_profiles_run and mode == 'full'
+        if mode == 'full':
+            first_profiles_run = False
         stopped.clear()
         busy = True
         refresh()
-        threading.Thread(target=worker, args=(settings,), daemon=True).start()
+        status.set('Работаю. Жди окон подтверждения.')
+        threading.Thread(target=worker, args=(settings, mode, fresh), daemon=True).start()
 
     def ask_send(kind, text, cancelled):
         request = dict(kind=kind, text=text, done=threading.Event(), accepted=False,
@@ -94,7 +117,9 @@ def launch(self_check=False):
         w.title('Подтвердить одно сообщение')
         box = ttk.Frame(w, padding=16)
         box.pack(fill='both', expand=True)
-        ttk.Label(box, text='Отправить в тот же открытый чат MuMu №4?',
+        ttk.Label(box, text=('Отправить приветствие в этот пустой чат MuMu №4?'
+                             if request['kind'] == 'greeting' else
+                             'Отправить в открытый чат MuMu №4?'),
                   wraplength=480).pack(anchor='w')
         ttk.Label(box, text=request['text'], wraplength=480,
                   font=('Segoe UI', 12)).pack(anchor='w', pady=16)
@@ -113,7 +138,7 @@ def launch(self_check=False):
         def stop_all():
             cancel()
             finish()
-        ttk.Button(box, text='Остановить всю цепочку', command=stop_all).pack(anchor='w')
+        ttk.Button(box, text='Остановить всё', command=stop_all).pack(anchor='w')
         w.protocol('WM_DELETE_WINDOW', finish)
         def tick():
             seconds = max(0, int(request['expires'] - time.monotonic()))
@@ -192,35 +217,6 @@ def launch(self_check=False):
                 events.put(('error', 'Перезапуск не выполнен. Проверь открытый чат. Отправки не было.'))
         threading.Thread(target=reset_worker, daemon=True).start()
 
-    def bind_current():
-        nonlocal busy
-        if busy:
-            return
-        if not messagebox.askyesno('Привязка только для чтения',
-                'Вручную открой нужную переписку в MuMu №4.\n'
-                'Разрешить чтение именно этого открытого чата?\n'
-                'Отправка не разрешается. Текст сообщений при привязке не читается.\n'
-                'Не переключай чат до завершения.', parent=root):
-            return
-        try:
-            settings.check()
-        except Exception:
-            status.set('Проверь пути в настройках. Привязка не выполнена.')
-            return
-        stopped.clear()
-        busy = True
-        refresh()
-        status.set('Проверяю открытый чат без чтения сообщений. Не переключай экран.')
-        current = settings
-        def binding_worker():
-            from assistant_read_binding import bind_open_chat
-            try:
-                result = bind_open_chat(current, stopped, approved=True)
-                events.put(('binding', result))
-            except Exception:
-                events.put(('error', 'Привязка не подтверждена. Проверь открытый чат и MuMu №4. Отправки не было.'))
-        threading.Thread(target=binding_worker, daemon=True).start()
-
     def configure():
         nonlocal dialog
         if dialog is not None:
@@ -233,7 +229,7 @@ def launch(self_check=False):
         box.pack(fill='both', expand=True)
         adb = tk.StringVar(value=settings.adb)
         folder = tk.StringVar(value=settings.folder)
-        interval = tk.StringVar(value=str(settings.reply_interval))
+        limit = tk.StringVar(value=str(settings.profile_limit))
         enabled = tk.BooleanVar(value=settings.contacts_enabled)
         token = tk.StringVar(value='')
         recipient = tk.StringVar(value='')
@@ -256,16 +252,17 @@ def launch(self_check=False):
                 if value:
                     v.set(value)
             ttk.Button(row, text='Выбрать', command=choose).pack(side='right', padx=(8, 0))
-        ttk.Label(box, text='Проверять старые диалоги каждые N секунд (для будущего общего цикла)').pack(anchor='w')
-        ttk.Entry(box, textvariable=interval, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Checkbutton(box, variable=enabled, text='Telegram для «Вся цепочка»: имя и добровольно присланный контакт').pack(anchor='w', pady=8)
+        ttk.Label(box, text='Анкет за один «Старт» (1–20)').pack(anchor='w')
+        ttk.Entry(box, textvariable=limit, width=8).pack(anchor='w', pady=(3, 10))
+        ttk.Checkbutton(box, variable=enabled, text='Telegram: уведомлять, когда человек сам прислал контакт').pack(anchor='w', pady=8)
         for label, var, mask in (('Токен бота', token, '*'), ('Chat ID получателя', recipient, '')):
             ttk.Label(box, text=label).pack(anchor='w')
             ttk.Entry(box, textvariable=var, show=mask, width=58).pack(fill='x', pady=(3, 8))
         def store():
             nonlocal settings
             try:
-                current = Settings(adb.get(), folder.get(), enabled.get(), int(interval.get())).check()
+                current = Settings(adb.get(), folder.get(), enabled.get(), settings.reply_interval,
+                                   int(limit.get())).check()
                 if token.get().strip():
                     telegram_notify.save(token.get(), recipient.get())
                 elif current.contacts_enabled:
@@ -278,7 +275,35 @@ def launch(self_check=False):
                 note.set('Сохранено. Проверок и тестовых отправок не выполнялось.')
             except Exception as error:
                 note.set(str(error) if isinstance(error, (StateError, telegram_notify.TelegramError)) else 'Не удалось сохранить настройки. Проверь поля.')
-        ttk.Button(box, text='Сохранить', command=store).pack(anchor='w', pady=8)
+        def test_telegram():
+            try:
+                saved_token, saved_chat = telegram_notify.load()
+                ok = telegram_notify.send(saved_token, saved_chat,
+                                          '✅ DvkAssistant: тестовое уведомление. Бот настроен.')
+                note.set('Telegram принял тестовое сообщение.' if ok else
+                         'Telegram не подтвердил отправку. Проверь токен и Chat ID.')
+            except telegram_notify.TelegramError as error:
+                note.set(str(error))
+            except Exception:
+                note.set('Тест не выполнен. Сначала сохрани токен и Chat ID.')
+        def clear():
+            if not messagebox.askyesno('Очистить историю анкет',
+                    'Забыть просмотренные анкеты и использованные города?\n'
+                    'Журнал отправленных сообщений сохранится — это защита от повторных приветствий.',
+                    parent=w):
+                return
+            try:
+                from assistant_profiles import clear_history
+                from assistant_store import Store
+                clear_history(Store())
+                note.set('История анкет и городов очищена. Журнал отправок сохранён.')
+            except Exception:
+                note.set('Не удалось очистить историю. Закрой другие окна программы.')
+        actions = ttk.Frame(box)
+        actions.pack(fill='x', pady=8)
+        ttk.Button(actions, text='Сохранить', command=store).pack(side='left')
+        ttk.Button(actions, text='Тест Telegram', command=test_telegram).pack(side='left', padx=8)
+        ttk.Button(actions, text='Очистить историю анкет', command=clear).pack(side='left')
         ttk.Label(box, textvariable=note, wraplength=520).pack(anchor='w')
         def close_settings():
             nonlocal dialog
@@ -289,12 +314,13 @@ def launch(self_check=False):
 
     start = ttk.Button(controls, text='Старт', command=begin)
     start.pack(side='left')
+    replies = ttk.Button(controls, text='Только ответы', command=lambda: begin('inbox'))
+    replies.pack(side='left', padx=10)
     stop = ttk.Button(controls, text='Стоп', command=cancel, state='disabled')
-    stop.pack(side='left', padx=10)
-    bind = ttk.Button(controls, text='Привязать чат для чтения', command=bind_current)
-    bind.pack(side='left', padx=(0, 10))
+    stop.pack(side='left')
+    ttk.Label(frame, text='Один открытый чат (ручной режим):').pack(anchor='w', pady=(20, 0))
     guided = ttk.Button(frame, text='Вся цепочка · открытый чат', command=begin_guided)
-    guided.pack(anchor='w', pady=(16, 0))
+    guided.pack(anchor='w', pady=(6, 0))
     reset_chain = ttk.Button(frame, text='Начать цепочку заново · открытый чат',
                              command=begin_reset)
     reset_chain.pack(anchor='w', pady=(8, 0))
@@ -338,8 +364,6 @@ def launch(self_check=False):
                         'snapshot-validation-failed': 'Данные открытого чата не прошли проверку. Контакт не передан.',
                     }.get(reason, 'Цепочка остановлена: ' + reason + '. Проверь чат вручную; неизвестные отправки не повторяются.')
                 status.set(text + ' Отчёт: messages-chain-check.json. Чат остаётся открытым.')
-            elif kind == 'binding':
-                status.set('Чат привязан только для чтения. Вернись к анкетам и нажми «Старт». Разрешения на отправку нет.')
             elif kind == 'reset-result':
                 if value['status'] == 'reset-completed':
                     status.set('Цепочка начата заново. Теперь нажми «Вся цепочка · открытый чат», затем собеседник может ответить на приветствие.')
@@ -351,26 +375,13 @@ def launch(self_check=False):
                     status.set('Перезапуск не выполнен: ' + value['reason'] + '. Ничего не отправлялось.')
             elif kind == 'error':
                 status.set(value)
-            elif value.get('report_name'):
-                if value['status'] == 'dialogs-completed':
-                    count = value['dialogs_read']
-                    text = (f'Прочитано чатов с непрочитанными сообщениями: {count}.' if count else
-                            'Среди видимых привязанных чатов непрочитанных нет.')
-                    status.set(text + ' Сообщения не отправлялись. Возврат к анкетам подтверждён. Пришли messages-pass-check.json.')
-                elif value['status'] == 'dialogs-empty':
-                    status.set('В журнале нет подходящих диалогов для проверки. Сообщения не отправлялись. Пришли messages-pass-check.json.')
-                elif value['status'] == 'dialogs-cancelled':
-                    status.set('Проход остановлен. Уже выполненные действия не откатываются. Отчёт: messages-pass-check.json.')
-                else:
-                    status.set('Проверка остановлена: ' + value['reason'] + '. Сообщения не отправлялись. Пришли messages-pass-check.json. Проверь экран вручную.')
-                try:
-                    os.startfile(str(data_directory()))
-                except (OSError, AttributeError):
-                    status.set(status.get() + ' Папка: %LOCALAPPDATA%/DvkAssistant/.')
-            elif value['status'] == 'cancelled':
-                status.set('Остановлено до запуска прохода.')
-            else:
-                status.set('Проход остановлен. Проверь экран и журнал. Неизвестные попытки не повторяются.')
+            elif kind == 'start-result':
+                status.set(run_summary(value))
+                if value['status'] != 'completed':
+                    try:
+                        os.startfile(str(data_directory()))
+                    except (OSError, AttributeError):
+                        pass
             refresh()
         root.after(100, poll)
 
@@ -383,7 +394,7 @@ def launch(self_check=False):
     if self_check:
         root.update()
         assert root.winfo_viewable() and all(b.winfo_viewable() for b in
-                                             (start, stop, bind, guided,
+                                             (start, stop, replies, guided,
                                               reset_chain, options))
         assert not busy and not stopped.is_set() and events.empty()
         assert str(stop.cget('state')) == 'disabled'

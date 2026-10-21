@@ -14,6 +14,7 @@ class Settings:
     folder: str = DEFAULT_TEST_APKS
     contacts_enabled: bool = False
     reply_interval: int = 120
+    profile_limit: int = 5
 
     def check(self):
         if any(not isinstance(x, str) or not 1 <= len(x) <= 4096 or x != x.strip()
@@ -21,6 +22,8 @@ class Settings:
             raise StateError('Укажи корректные пути ADB и test-apks.')
         if type(self.contacts_enabled) is not bool or type(self.reply_interval) is not int or not 30 <= self.reply_interval <= 3600:
             raise StateError('Интервал проверки: от 30 до 3600 секунд.')
+        if type(self.profile_limit) is not int or not 1 <= self.profile_limit <= 20:
+            raise StateError('Анкет за один «Старт»: от 1 до 20.')
         return self
 
 
@@ -44,7 +47,9 @@ def load(directory=None):
             if options.stat().st_size > 8192:
                 raise ValueError()
             config = json.loads(options.read_text(encoding='utf-8'))
-            if set(config) != {'contacts_enabled', 'reply_interval'}:
+            # 0.4.x files have no profile_limit; keep reading them.
+            if set(config) not in ({'contacts_enabled', 'reply_interval'},
+                                   {'contacts_enabled', 'reply_interval', 'profile_limit'}):
                 raise ValueError()
         return Settings(saved['adb'], saved['test_apks'], **config).check()
     except Exception:
@@ -56,7 +61,8 @@ def save(settings, directory=None):
     directory = data_directory() if directory is None else Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     values = {'settings.json': dict(adb=settings.adb, test_apks=settings.folder),
-              'workflow-settings.json': dict(contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval)}
+              'workflow-settings.json': dict(contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
+                                            profile_limit=settings.profile_limit)}
     for filename, value in values.items():
         path = directory / filename
         temp = path.with_suffix('.tmp')

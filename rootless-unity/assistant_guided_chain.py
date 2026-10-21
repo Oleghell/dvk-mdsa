@@ -14,7 +14,7 @@ from one_chat_send import checked
 from conversation_engine import CONTACT_TEXT
 from shared_contact import display_name
 
-VERSION = '0.4.12'
+from version import VERSION
 
 
 def report():
@@ -232,8 +232,12 @@ class GuidedChain(Chain):
 
 def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
          greetings=(), notifier=None, progress=lambda _: None, pause=None,
-         max_polls=360, deadline=None, contact_reader=None):
-    """Monitor ONE open chat through both replies; all bodies remain in RAM."""
+         max_polls=360, deadline=None, contact_reader=None, until_waiting=False):
+    """Monitor ONE open chat through both replies; all bodies remain in RAM.
+
+    until_waiting=True is used by the inbox pass: once the chat needs a NEW
+    peer message, leave it (status chain-waiting) instead of polling it.
+    """
     out = report()
     if approved is not True:
         out.update(reason='guided-consent-required')
@@ -339,6 +343,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 return out
             if stage in TERMINAL:
                 out.update(status='chain-needs-review', reason=stage)
+                return out
+            if (until_waiting and action is None and
+                    stage in ('wait-reply', 'wait-mood', 'wait-contact')):
+                out.update(status='chain-waiting', reason=stage)
                 return out
             if action is not None:
                 progress('Подготовлен вопрос.' if action['kind'] == 'question' else

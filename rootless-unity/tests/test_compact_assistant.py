@@ -56,7 +56,7 @@ class CompactWindow(unittest.TestCase):
              patch.object(app.threading,'Thread') as thread:
             app.launch()
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
-            self.assertEqual(labels,['Старт','Стоп','Привязать чат для чтения',
+            self.assertEqual(labels,['Старт','Только ответы','Стоп',
                                      'Вся цепочка · открытый чат',
                                      'Начать цепочку заново · открытый чат',
                                      'Настройки'])
