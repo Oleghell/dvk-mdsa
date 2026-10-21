@@ -14,15 +14,15 @@ import telegram_notify
 
 def launch(self_check=False):
     import tkinter as tk
-    from tkinter import ttk, filedialog
+    from tkinter import ttk, filedialog, messagebox
     root = tk.Tk()
     root.title('ДругВокруг · MuMu №4')
-    root.geometry('580x300')
-    root.minsize(560, 300)
+    root.geometry('640x340')
+    root.minsize(640, 340)
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
-    status = tk.StringVar(value='Проверочная сборка 0.4.4. Открой анкеты на MuMu №4. «Старт» прочитает до пяти диалогов из журнала и вернётся. Сообщения не отправляются.')
+    status = tk.StringVar(value='Проверочная сборка 0.4.5. Открой анкеты на MuMu №4. «Старт» прочитает до пяти привязанных диалогов и вернётся. Сообщения не отправляются.')
     try:
         settings = Settings() if self_check else load()
     except StateError as error:
@@ -40,6 +40,7 @@ def launch(self_check=False):
     def refresh():
         start.configure(state='disabled' if busy else 'normal')
         options.configure(state='disabled' if busy else 'normal')
+        bind.configure(state='disabled' if busy else 'normal')
         stop.configure(state='normal' if busy else 'disabled')
 
     def cancel():
@@ -68,6 +69,35 @@ def launch(self_check=False):
         busy = True
         refresh()
         threading.Thread(target=worker, args=(settings,), daemon=True).start()
+
+    def bind_current():
+        nonlocal busy
+        if busy:
+            return
+        if not messagebox.askyesno('Привязка только для чтения',
+                'Вручную открой нужную переписку в MuMu №4.\n'
+                'Разрешить чтение именно этого открытого чата?\n'
+                'Отправка не разрешается. Текст сообщений при привязке не читается.\n'
+                'Не переключай чат до завершения.', parent=root):
+            return
+        try:
+            settings.check()
+        except Exception:
+            status.set('Проверь пути в настройках. Привязка не выполнена.')
+            return
+        stopped.clear()
+        busy = True
+        refresh()
+        status.set('Проверяю открытый чат без чтения сообщений. Не переключай экран.')
+        current = settings
+        def binding_worker():
+            from assistant_read_binding import bind_open_chat
+            try:
+                result = bind_open_chat(current, stopped, approved=True)
+                events.put(('binding', result))
+            except Exception:
+                events.put(('error', 'Привязка не подтверждена. Проверь открытый чат и MuMu №4. Отправки не было.'))
+        threading.Thread(target=binding_worker, daemon=True).start()
 
     def configure():
         nonlocal dialog
@@ -139,6 +169,8 @@ def launch(self_check=False):
     start.pack(side='left')
     stop = ttk.Button(controls, text='Стоп', command=cancel, state='disabled')
     stop.pack(side='left', padx=10)
+    bind = ttk.Button(controls, text='Привязать чат для чтения', command=bind_current)
+    bind.pack(side='left', padx=(0, 10))
     options = ttk.Button(controls, text='Настройки', command=configure)
     options.pack(side='right')
 
@@ -151,7 +183,9 @@ def launch(self_check=False):
                     status.set(value)
                 continue
             busy = False
-            if kind == 'error':
+            if kind == 'binding':
+                status.set('Чат привязан только для чтения. Вернись к анкетам и нажми «Старт». Разрешения на отправку нет.')
+            elif kind == 'error':
                 status.set(value)
             elif value.get('report_name'):
                 if value['status'] == 'dialogs-completed':
@@ -181,7 +215,7 @@ def launch(self_check=False):
     root.protocol('WM_DELETE_WINDOW', close)
     if self_check:
         root.update()
-        assert root.winfo_viewable() and all(b.winfo_viewable() for b in (start, stop, options))
+        assert root.winfo_viewable() and all(b.winfo_viewable() for b in (start, stop, bind, options))
         assert not busy and not stopped.is_set() and events.empty()
         assert str(stop.cget('state')) == 'disabled'
         configure()

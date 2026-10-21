@@ -229,7 +229,7 @@ class ReadCheck(unittest.TestCase):
             out=cycle.start(Settings(contacts_enabled=True),self.stop)
         run.assert_called_once();automatic.assert_not_called();nav.assert_not_called();self.assertEqual(out['dialogs_read'],3)
         saved=json.loads((Path(self.tmp.name)/'messages-pass-check.json').read_text())
-        self.assertEqual(saved['tool_version'],'0.4.4');self.assertEqual(saved['dialog_limit'],5)
+        self.assertEqual(saved['tool_version'],'0.4.5');self.assertEqual(saved['dialog_limit'],5)
         self.assertTrue(saved['read_only_check']);self.assertFalse(saved['telegram_used'])
 
     def test_native_read_uses_scoped_handles_and_retains_guards(self):

@@ -15,8 +15,9 @@ from assistant_chain import Chain, ReviewRequired, TERMINAL
 from dialog_browser import perform
 from one_chat_device import capture
 from one_chat_probe import identity
+from assistant_read_binding import read_bindings
 
-VERSION='0.4.4'
+VERSION='0.4.5'
 LIMIT=5
 MAX_JOURNAL_BYTES=64*1024*1024
 STAGES=TERMINAL|{'wait-reply','wait-mood','wait-contact','pending-question','pending-contact'}
@@ -65,7 +66,13 @@ def preview_chain(path=None):
             if pages*size>MAX_JOURNAL_BYTES:
                 raise StateError('journal-size-limit')
             source.backup(memory,pages=256)
-        allowed=read_targets_from_db(memory)
+        bindings=read_bindings(memory)
+        has_manual=memory.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_actions'").fetchone()
+        legacy=read_targets_from_db(memory) if has_manual else []
+        # Explicit read-only binding takes precedence and never enters the Chain.
+        pairs={(x['account'],x['peer']) for x in bindings}
+        from dialog_browser import targets
+        allowed=targets(bindings+[x for x in legacy if (x['account'],x['peer']) not in pairs])
         # consume() may reserve hypothetical actions ONLY inside this disposable
         # clone. Never call step(), finish(), notify() or any external adapter.
         chain=Chain(MemoryStore(memory),choose=lambda:0,contact_notifications=False)
@@ -136,7 +143,10 @@ def walk(settings,stopped,progress=lambda _:None, *, navigator=perform,reader=ca
                 if selected['state']=='exhausted':
                     reason='visible-exhausted';break
                 who=identity(selected['identity']);out['dialogs_opened']+=1
-                phase='authorization';check_stop();chain.authorized(who)
+                phase='authorization';check_stop()
+                readonly=any(x==who for x in read_bindings(chain.store.db))
+                if not readonly:
+                    chain.authorized(who)
                 phase='reader';check_stop();out['chat_content_read_attempted']=True
                 snapshot=checked_snapshot(reader(settings.adb,settings.folder,stopped.is_set,who),who)
                 out['chat_content_read']=True;out['dialogs_read']+=1
@@ -145,7 +155,7 @@ def walk(settings,stopped,progress=lambda _:None, *, navigator=perform,reader=ca
                 out['outgoing_messages']+=sum(m['sender']==who['account'] for m in messages)
                 out['nontext_messages']+=sum(m['text'] is None for m in messages)
                 phase='analysis';check_stop()
-                if not 1<=len(messages)<20:
+                if readonly or not 1<=len(messages)<20:
                     stage,action='manual-review',None
                 else:
                     try:

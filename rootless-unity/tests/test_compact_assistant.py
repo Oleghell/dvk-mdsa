@@ -41,7 +41,7 @@ class Settings(unittest.TestCase):
 
 
 class CompactWindow(unittest.TestCase):
-    def test_only_three_main_buttons_and_no_startup_activity(self):
+    def test_four_main_buttons_and_no_startup_activity(self):
         import sys
         import assistant_app as app
         tk,ttk=MagicMock(),MagicMock()
@@ -54,7 +54,7 @@ class CompactWindow(unittest.TestCase):
              patch.object(app.threading,'Thread') as thread:
             app.launch()
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
-            self.assertEqual(labels,['Старт','Стоп','Настройки'])
+            self.assertEqual(labels,['Старт','Стоп','Привязать чат для чтения','Настройки'])
             start.assert_not_called();credentials.assert_not_called();telegram.assert_not_called();thread.assert_not_called()
 
 
