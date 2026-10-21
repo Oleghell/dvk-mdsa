@@ -37,6 +37,9 @@ def text_hash(text):
 
 
 class Chain:
+    # Only the explicitly selected, per-message-approved guided mode opts in.
+    any_replies = False
+
     def __init__(self, store, choose=lambda: secrets.randbelow(2), *, contact_notifications=False,
                  seal=protect, unseal=lambda data: protect(data, decrypt=True)):
         self.store, self.choose = store, choose
@@ -136,6 +139,25 @@ class Chain:
                         db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind=?", (chat, kind))
             elif outgoing:
                 stage = 'manual-review'
+            elif incoming and self.any_replies:
+                if stage == 'wait-contact':
+                    # Ordinary replies are observed but do not fabricate a contact
+                    # or trigger another request. Keep waiting for voluntary sharing.
+                    pass
+                else:
+                    # Any newly observed reply (including media or a burst of
+                    # messages) advances exactly one stage. Explicit refusal and
+                    # uncertain outgoing/history are handled above.
+                    kind = 'question' if stage == 'wait-reply' else 'contact'
+                    choice = self.choose() if kind == 'question' else 0
+                    if type(choice) is not int or choice not in (0, 1):
+                        raise StateError('Неверный вариант вопроса.')
+                    reply = QUESTIONS[choice] if kind == 'question' else CONTACT_TEXT
+                    # FULL commit finishes before the caller can send.
+                    db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
+                               (chat, kind, incoming[0]['id'], text_hash(reply)))
+                    stage = 'pending-' + kind
+                    action = dict(kind=kind, text=reply)
             elif incoming:
                 if len(incoming) != 1 or not incoming[0]['text'] or NEGATIVE.search(normalized(incoming[0]['text'])):
                     stage = 'manual-review'

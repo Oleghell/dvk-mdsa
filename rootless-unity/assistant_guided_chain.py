@@ -13,7 +13,7 @@ from one_chat_probe import identity
 from one_chat_send import checked
 from conversation_engine import CONTACT_TEXT
 
-VERSION = '0.4.10'
+VERSION = '0.4.11'
 
 
 def report():
@@ -40,6 +40,8 @@ def same_snapshot(left, right):
 
 
 class GuidedChain(Chain):
+    any_replies = True
+
     def __init__(self, store, choose=None, seal=None, unseal=None):
         kwargs = {} if choose is None else dict(choose=choose)
         if seal is not None:

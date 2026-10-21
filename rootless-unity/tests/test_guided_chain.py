@@ -343,7 +343,7 @@ class WholeChain(unittest.TestCase):
         self.notifier.assert_not_called()
 
     def test_plain_reply_or_refusal_after_request_never_notifies(self):
-        for reply, expected in [('Потом напишу', 'manual-review'),
+        for reply, expected in [('Потом напишу', 'wait-timeout'),
                                 ('Не дам контакт', 'declined')]:
             with self.subTest(reply=reply):
                 path = Path(self.temp.name) / ('after-request-' + expected + '.sqlite3')
@@ -354,6 +354,7 @@ class WholeChain(unittest.TestCase):
                 history.append(snapshot(('Привет!', False), (QUESTIONS[0], True),
                                         ('Отлично!', False), (CONTACT_TEXT, True),
                                         (reply, False)))
+                history += [history[-1]] * 12
                 notice = MagicMock(return_value=True)
                 out = guided.walk(chain, WHO, self.stop, self.approve,
                                   MagicMock(side_effect=history),
@@ -387,9 +388,8 @@ class WholeChain(unittest.TestCase):
         self.assertEqual(len(self.sent), 2)
         self.assertEqual(self.notifier.call_count, 1)
 
-    def test_ambiguous_negative_or_refusal_stops_whole_chain(self):
-        for reply, expected in [('Не пиши мне', 'declined'), ('Кто ты?', 'manual-review'),
-                                ('Мне плохо', 'manual-review'), (None, 'manual-review')]:
+    def test_explicit_refusal_stops_whole_chain(self):
+        for reply, expected in [('Не пиши мне', 'declined')]:
             with self.subTest(reply=reply):
                 store = Store(Path(self.temp.name) / f'case-{expected}-{len(str(reply))}.sqlite3',
                               Path(self.temp.name) / 'old')
@@ -403,6 +403,60 @@ class WholeChain(unittest.TestCase):
                 self.assertEqual(out['reason'], expected)
                 send.assert_not_called()
                 notice.assert_not_called()
+
+    def test_arbitrary_replies_complete_whole_chain_both_questions(self):
+        for choice in (0, 1):
+            for reply in ('Рабочее', 'Кто ты?', 'Мне плохо', '🙂', 'Нет настроения', None):
+                with self.subTest(choice=choice, reply=reply):
+                    store = Store(Path(self.temp.name) / f'any-{choice}-{len(str(reply))}-{str(reply)[:2]}.sqlite3',
+                                  Path(self.temp.name) / 'old')
+                    chain = guided.GuidedChain(store, choose=lambda: choice,
+                                               seal=lambda value: value, unseal=lambda value: value)
+                    values = sequence(choice)
+                    for value in values:
+                        for message in value['messages']:
+                            if message['id'] == '1002':
+                                message['text'] = 'Здарова'
+                            elif message['id'] == '1004':
+                                message['text'] = reply
+                    notice = MagicMock(return_value=True)
+                    sent = []
+                    out = guided.walk(chain, WHO, self.stop, self.approve,
+                                      MagicMock(side_effect=values),
+                                      lambda before, text: (sent.append(text) or dict(attempted=True, handler_returned=True)),
+                                      approved=True, greetings=(GREETING,), notifier=notice,
+                                      pause=lambda _: False, max_polls=12)
+                    self.assertEqual(out['status'], 'chain-completed')
+                    self.assertEqual(sent, [QUESTIONS[choice], CONTACT_TEXT])
+                    self.assertEqual(notice.call_count, 1)
+
+    def test_multiple_incoming_messages_advance_only_one_stage(self):
+        values = sequence()
+        for index, value in enumerate(values):
+            if index >= 1:
+                value['messages'].append(dict(id='1998', sender='200', text='Как сам?'))
+            if index >= 4:
+                value['messages'].append(dict(id='1999', sender='200', text='Рабочее'))
+        out = self.walk(values)
+        self.assertEqual(out['status'], 'chain-completed')
+        self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
+        self.assertEqual(self.notifier.call_count, 1)
+
+    def test_ordinary_reply_then_voluntary_contact_notifies_only_on_contact(self):
+        values = sequence()[:-1]
+        base = [('Привет!', False), (QUESTIONS[0], True),
+                ('Отлично!', False), (CONTACT_TEXT, True)]
+        ordinary = snapshot(*base, ('Сейчас найду', False))
+        values += [ordinary, ordinary,
+                   snapshot(*base, ('Сейчас найду', False), (CONTACT, False))]
+        def notify(payload):
+            self.assertEqual(payload, dict(name=PEER_NAME, contacts=[CONTACT]))
+            return True
+        self.notifier.side_effect = notify
+        out = self.walk(values)
+        self.assertEqual(out['status'], 'chain-completed')
+        self.assertEqual(self.notifier.call_count, 1)
+        self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
 
     def test_unapproved_manually_added_outgoing_does_not_advance_chain(self):
         self.approve.return_value = False
