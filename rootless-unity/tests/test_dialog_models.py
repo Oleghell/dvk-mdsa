@@ -1,6 +1,6 @@
 """Cached model navigation, private evidence and production wiring; no device."""
 from pathlib import Path
-import copy,threading,unittest
+import copy,json,threading,unittest
 from unittest.mock import patch
 import dialog_models as models
 import assistant_inbox as inbox
@@ -12,14 +12,16 @@ from test_inbox_profiles import Base,WHO,GREETING,nav
 class Models(unittest.TestCase):
  def test_fixed_route_no_visible_cells_or_screen_paging(self):
   source=models.build(allowed=[WHO],needs_reply_only=True)
-  for text in ('m_MessagesManager','get_Chats','get_MessagesRouter','ShowChat','EventSourcesContext','OpenChatMethod','modelOffset=0','headerOrSkip','stableModels'):
+  for text in ('m_MessagesManager','get_Chats','get_MessagesRouter','ShowChat','EventSourcesContext','OpenChatMethod','modelOffset=0','headerOrSkip','stableModels','DV.Analytics','MESSAGES','LIST_ITEM_CLICK'):
    self.assertIn(text,source)
   for text in ('get_VisibleCells','OnCellDidClicked','input swipe','get_Text','GetLoadCommand'):
    self.assertNotIn(text,source)
   self.assertIn('fieldFlags(s.managerField)&16',source)
   self.assertIn('f.fieldOwner(s.managerField).equals(s.filters)',source)
-  self.assertIn('f.isValueType(s.contextClass)',source)
-  self.assertIn('f.isEnum(s.methodClass)',source)
+  self.assertIn("enumType(s.contextClass,'EventSourcesContext')",source)
+  self.assertIn("enumType(s.methodClass,'OpenChatMethod')",source)
+  self.assertIn('f.declaring(klass).equals(s.statClass)',source)
+  self.assertNotIn("getClass('DV.dll','','EventSourcesContext')",source)
   self.assertIn('if(error!==\'identity-not-bound\')throw error',source)
   self.assertLess(source.index('const model=modelIdentity(chat)'),source.index('header=headerOrSkip(chat'))
   self.assertLess(source.index('stableModels(current,manager,cm,count,state.scanIndex,chat)'),source.index('n.action_attempted=true;call(s.openModel'))
@@ -79,3 +81,23 @@ class Production(Base):
  def test_production_source_does_not_instantiate_scroll_backend(self):
   source=(Path(__file__).resolve().parents[1]/'assistant_inbox.py').read_text(encoding='utf-8')
   self.assertNotIn('Pager(',source);self.assertNotIn('from assistant_dialog_pages',source)
+
+class NestedRouteRegression(unittest.TestCase):
+ def test_apk_evidence_and_no_default_zero(self):
+  path=Path(__file__).resolve().parents[1]/'DIALOG-ROUTE-APK-EVIDENCE.json'
+  evidence=json.loads(path.read_text(encoding='utf-8'))
+  self.assertEqual(evidence['declaring_namespace'],'DV.Analytics')
+  self.assertEqual(evidence['declaring_type'],'Stat')
+  self.assertEqual([p['value'] for p in evidence['parameters']],[58,4])
+  source=models.build(allowed=[WHO],needs_reply_only=True)
+  for p in evidence['parameters']:
+   self.assertIn(p['literal'],source)
+   self.assertNotIn("getClass('DV.dll','','"+p['type']+"')",source)
+  self.assertIn("s.contextClass=f.classFromType(ct)",source)
+  self.assertIn('context.writeS32(s.contextValue)',source)
+  self.assertIn('method.writeS32(s.methodValue)',source)
+  self.assertNotIn('method.writeS32(0)',source)
+ def test_enum_owner_in_offline_catalog_roots(self):
+  from dialog_catalog import ROOTS
+  for root in (('DV.dll','DV.Analytics','Stat'),('DV.dll','','EventSourcesContext'),('DV.dll','','OpenChatMethod')):
+   self.assertIn(root,ROOTS)

@@ -12,12 +12,15 @@ MAX_MODELS=100000
 SLICE=64
 EXTRA_APIS=['il2cpp_class_get_field_from_name','il2cpp_field_get_parent',
  'il2cpp_field_get_type','il2cpp_field_get_flags','il2cpp_field_get_value',
- 'il2cpp_class_value_size','il2cpp_class_is_enum','il2cpp_class_enum_basetype']
+ 'il2cpp_class_value_size','il2cpp_class_is_enum','il2cpp_class_enum_basetype',
+ 'il2cpp_class_get_declaring_type','il2cpp_field_static_get_value']
 BINDINGS="""field:bind('class_get_field_from_name','pointer',['pointer','pointer']),
  fieldOwner:bind('field_get_parent','pointer',['pointer']),fieldType:bind('field_get_type','pointer',['pointer']),
  fieldFlags:bind('field_get_flags','uint32',['pointer']),fieldValue:bind('field_get_value','void',['pointer','pointer','pointer']),
  valueSize:bind('class_value_size','int',['pointer','pointer']),isEnum:bind('class_is_enum','bool',['pointer']),
- enumBase:bind('class_enum_basetype','pointer',['pointer']),"""
+ enumBase:bind('class_enum_basetype','pointer',['pointer']),
+ declaring:bind('class_get_declaring_type','pointer',['pointer']),
+ staticFieldValue:bind('field_static_get_value','void',['pointer','pointer']),"""
 PREPARE=r'''
   n.metadata_checkpoint='model-manager';
   s.managerField=f.field(s.filters,Memory.allocUtf8String('m_MessagesManager'));
@@ -34,20 +37,43 @@ PREPARE=r'''
   s.modelItem=checked(s.chatsClass,'get_Item',18,s.chatModel,[{kind:8}],true);
   s.router=checked(s.manager,'get_MessagesRouter',18,s.routerClass);
   n.metadata_checkpoint='model-route';
-  s.contextClass=getClass('DV.dll','','EventSourcesContext');s.methodClass=getClass('DV.dll','','OpenChatMethod');
-  if(s.contextClass.isNull()||s.methodClass.isNull())throw new Error('metadata');
+  // APK v31: both enums are nested inside DV.Analytics.Stat, not top-level
+  // types. Resolve them from the actual ShowChat parameters, then prove owner.
+  n.metadata_checkpoint='model-route-owner';
+  s.statClass=getClass('DV.dll','DV.Analytics','Stat');
+  if(s.statClass.isNull()||f.isValueType(s.statClass))throw new Error('metadata');
+  n.metadata_checkpoint='model-route-parameters';
   const show=f.method(s.routerClass,Memory.allocUtf8String('ShowChat'),3);
   if(show.isNull())throw new Error('signature');
   const ct=f.param(show,1),mt=f.param(show,2);
-  // Only a real default value-type context and Int32 enum are supported. Never
-  // invent reference objects, constructors, enum values, field offsets or routes.
-  if(ct.isNull()||mt.isNull()||f.byref(ct)||f.byref(mt)||!f.isValueType(s.contextClass)||
-     !f.isEnum(s.methodClass)||!f.classFromType(ct).equals(s.contextClass)||
-     !f.classFromType(mt).equals(s.methodClass)||f.typeKind(f.enumBase(s.methodClass))!==8)throw new Error('signature');
-  const align=Memory.alloc(4);align.writeU32(0);const size=f.valueSize(s.contextClass,align);
-  if(size<1||size>256||![1,2,4,8,16].includes(align.readU32()))throw new Error('signature');
-  s.contextBytes=size;s.contextKind=f.typeKind(ct);s.methodKind=f.typeKind(mt);
+  if(ct.isNull()||mt.isNull()||f.byref(ct)||f.byref(mt))throw new Error('signature');
+  s.contextClass=f.classFromType(ct);s.methodClass=f.classFromType(mt);
+  const text=p=>{if(p.isNull())throw new Error('metadata');let out='';for(let i=0;i<96;i++){
+   const c=p.add(i).readU8();if(c===0)return out;if(c<32||c>126)throw new Error('metadata');out+=String.fromCharCode(c);}throw new Error('metadata');};
+  const enumType=(klass,label)=>{
+   if(klass.isNull()||!f.isValueType(klass)||!f.isEnum(klass)||!f.declaring(klass).equals(s.statClass)||
+      text(f.className(klass))!==label||text(f.classNamespace(klass))!==''||
+      text(f.imageName(f.classImage(klass)))!=='DV.dll')throw new Error('signature');
+   const base=f.enumBase(klass);if(base.isNull()||f.typeKind(base)!==8)throw new Error('signature');
+   const align=Memory.alloc(4);align.writeU32(0);
+   if(f.valueSize(klass,align)!==4||align.readU32()!==4)throw new Error('signature');
+  };
+  n.metadata_checkpoint='model-route-enums';
+  enumType(s.contextClass,'EventSourcesContext');enumType(s.methodClass,'OpenChatMethod');
+  s.contextKind=f.typeKind(ct);s.methodKind=f.typeKind(mt);
   if(![8,17].includes(s.contextKind)||![8,17].includes(s.methodKind))throw new Error('signature');
+  s.routeLiteral=(klass,label)=>{
+   const field=f.field(klass,Memory.allocUtf8String(label));
+   if(field.isNull()||!f.fieldOwner(field).equals(klass)||(f.fieldFlags(field)&80)!==80)throw new Error('signature');
+   const t=f.fieldType(field);
+   if(t.isNull()||f.byref(t)||![8,17].includes(f.typeKind(t))||!f.classFromType(t).equals(klass))throw new Error('signature');
+   const value=Memory.alloc(4);value.writeS32(-2147483648);f.staticFieldValue(field,value);return value.readS32();
+  };
+  // Named immutable enum literals: never synthesize a context or guess default0.
+  n.metadata_checkpoint='model-route-literals';
+  s.contextValue=s.routeLiteral(s.contextClass,'MESSAGES');
+  s.methodValue=s.routeLiteral(s.methodClass,'LIST_ITEM_CLICK');
+  n.metadata_checkpoint='model-route-signature';
   s.openModel=checked(s.routerClass,'ShowChat',1,null,[{kind:18,klass:s.chatModel},
     {kind:s.contextKind,klass:s.contextClass},{kind:s.methodKind,klass:s.methodClass}]);
 '''
@@ -109,7 +135,8 @@ UTILS=r'''
      if(needsReplyOnly){const fresh=headerOrSkip(chat,model.who);if(fresh===null)return false;
       if(!fresh.last.equals(header.last)||fresh.id!==header.id||fresh.sender!==header.sender||fresh.mine!==header.mine||fresh.chat!==header.chat)fail('selection-last-message-changed');}
      const router=call(s.router,manager);if(router.isNull()||!f.objectClass(router).equals(s.routerClass))fail('identity-not-bound');own(router);
-     const context=Memory.alloc(s.contextBytes),method=Memory.alloc(4);method.writeS32(0);
+     if(s.routeLiteral(s.contextClass,'MESSAGES')!==s.contextValue||s.routeLiteral(s.methodClass,'LIST_ITEM_CLICK')!==s.methodValue)fail('signature-mismatch');
+     const context=Memory.alloc(4),method=Memory.alloc(4);context.writeS32(s.contextValue);method.writeS32(s.methodValue);
      const args=Memory.alloc(Process.pointerSize*3);args.writePointer(chat);args.add(Process.pointerSize).writePointer(context);args.add(Process.pointerSize*2).writePointer(method);
      save('selectedChat',chat);save('selectedUser',model.user);state.selectedIdentity=model.who;
      n.selection_verified=true;n.unread_verified=unreadOnly;n.reply_needed_verified=needsReplyOnly;

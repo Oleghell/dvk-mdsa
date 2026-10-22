@@ -51,7 +51,7 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFun
   child.stdout.close();child.stderr.close()
 if __name__=='__main__':
  library=Path(sys.argv[1]).resolve(strict=True)
- for mode in range(870,885):one(library,mode)
+ for mode in range(870,890):one(library,mode)
 
  from smoke_dialog_browser import integration
  integration(library,872,cached_models=True)

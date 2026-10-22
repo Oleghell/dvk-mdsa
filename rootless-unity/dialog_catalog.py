@@ -5,7 +5,10 @@ from assistant_store import data_directory
 from friends_catalog import inspect_bundle
 from search_catalog import collect as collect_definitions, CatalogCancelled, MAX_REPORT_BYTES
 
-ROOTS = (('DV.Messages.dll', 'DV.Messages', 'ChatsViewController'),
+ROOTS = (('DV.dll', 'DV.Analytics', 'Stat'),
+         ('DV.dll', '', 'EventSourcesContext'),
+         ('DV.dll', '', 'OpenChatMethod'),
+         ('DV.Messages.dll', 'DV.Messages', 'ChatsViewController'),
          ('DV.Messages.dll', 'DV.Messages', 'MessagesViewController'),
          ('DV.Messages.dll', 'DV.Routers.Messages', 'MessagesRouter'))
 WORDS = ('chat', 'message', 'conversation', 'tabbar', 'tabcontroller', 'mainmenu', 'mainview', 'navigation', 'unread')

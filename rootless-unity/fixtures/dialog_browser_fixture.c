@@ -11,6 +11,7 @@
 #define il2cpp_object_unbox browser_base_unbox
 #define il2cpp_type_is_byref browser_base_byref
 #define il2cpp_class_is_valuetype model_base_value_type
+#define il2cpp_class_get_image model_base_image
 #include "navigation_fixture.c"
 #undef il2cpp_domain_get_assemblies
 #undef il2cpp_class_from_name
@@ -24,6 +25,7 @@
 #undef il2cpp_object_unbox
 #undef il2cpp_type_is_byref
 #undef il2cpp_class_is_valuetype
+#undef il2cpp_class_get_image
 static Image messages_image={"DV.Messages.dll"},system_image={"mscorlib.dll"};
 static Class message_tab={"DV","MessagesTabController"},chats_class={"DV.Messages","ChatsViewController"};
 static Class system_type={"System","Type"},runtime_type={"System","RuntimeType"};
@@ -87,6 +89,8 @@ static Method contact_active={"get_CurrentProfileController",&contact_queue,0,&c
 static Method contact_user={"get_User",&contact_content,0,&bt[3],901};
 static int contact_user_reads;
 static Class model_cm_class={"DV.CMs","ChatsCM"},model_router_class={"DV.Routers.Messages","MessagesRouter"};
+static Class model_stat_class={"DV.Analytics","Stat"};
+static int model_context_field,model_method_field;
 static Class model_context_class={"","EventSourcesContext"},model_method_class={"","OpenChatMethod"};
 static Type model_cm_type={18,&model_cm_class},model_router_type={18,&model_router_class},model_context_type={17,&model_context_class},model_method_type={17,&model_method_class};
 static Object model_cm={&model_cm_class,0},model_router={&model_router_class,0},model_other_manager={&bc[2],0};
@@ -116,7 +120,8 @@ API Image **il2cpp_domain_get_assemblies(void *d,size_t *n){
 }
 API Class *il2cpp_class_from_name(Image *im,const char *ns,const char *name){
  if(im==&messages_image){if(!strcmp(ns,"DV.CMs")&&!strcmp(name,"ChatsCM"))return &model_cm_class;if(!strcmp(ns,"DV.Routers.Messages")&&!strcmp(name,"MessagesRouter"))return &model_router_class;}
- if(im==&images[3]&&!strcmp(ns,"")){if(!strcmp(name,"EventSourcesContext"))return &model_context_class;if(!strcmp(name,"OpenChatMethod"))return &model_method_class;}
+ // Real APK enums are nested; top-level lookups must fail.
+ if(im==&images[3]&&!strcmp(ns,"DV.Analytics")&&!strcmp(name,"Stat"))return &model_stat_class;
 
  if(im==&contact_profile_image&&!strcmp(ns,"DV.Profiles")){if(!strcmp(name,contact_queue.name))return &contact_queue;if(!strcmp(name,contact_content.name))return &contact_content;}
  if(im==&messages_image&&!strcmp(ns,message_tab.ns)&&!strcmp(name,message_tab.name))return &message_tab;
@@ -188,7 +193,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 922:return &model_cm;
  case 923:return &model_router;
  case 924:
-  model_clicks++;if(obj!=&model_router||!args||args[0]!=&browser_chats[1]||!args[1]||!args[2]||*(int *)args[2]!=0)route_bad++;
+  model_clicks++;if(obj!=&model_router||!args||args[0]!=&browser_chats[1]||!args[1]||!args[2]||*(int *)args[1]!=58||*(int *)args[2]!=4)route_bad++;
   browser_selected=mode==877?&browser_chats[0]:args[0];browser_seen=1;phase=3;return NULL;
 
  case 900:return &contact_content_obj;
@@ -285,16 +290,24 @@ API void fixture_tick(void){void *exc=NULL;il2cpp_runtime_invoke(&methods[3],&ru
 
 /* Fixed owned field/type metadata used only by the model adapter. */
 static int model_manager_field;
-API void *il2cpp_class_get_field_from_name(Class *k,const char *name){return k==&chats_class&&!strcmp(name,"m_MessagesManager")?&model_manager_field:NULL;}
-API Class *il2cpp_field_get_parent(void *field){return field==&model_manager_field?&chats_class:NULL;}
-API Type *il2cpp_field_get_type(void *field){return field==&model_manager_field?(mode==878?&tbool:&bt[2]):NULL;}
-API uint32_t il2cpp_field_get_flags(void *field){(void)field;return 0;}
+API void *il2cpp_class_get_field_from_name(Class *k,const char *name){
+ if(k==&chats_class&&!strcmp(name,"m_MessagesManager"))return &model_manager_field;
+ if(k==&model_context_class&&!strcmp(name,"MESSAGES"))return mode==886?NULL:&model_context_field;
+ if(k==&model_method_class&&!strcmp(name,"LIST_ITEM_CLICK"))return &model_method_field;
+ return NULL;
+}
+API Class *il2cpp_field_get_parent(void *field){return field==&model_manager_field?&chats_class:field==&model_context_field?&model_context_class:field==&model_method_field?&model_method_class:NULL;}
+API Type *il2cpp_field_get_type(void *field){return field==&model_manager_field?(mode==878?&tbool:&bt[2]):field==&model_context_field?(mode==889?&model_method_type:&model_context_type):field==&model_method_field?&model_method_type:NULL;}
+API uint32_t il2cpp_field_get_flags(void *field){return field==&model_manager_field?0:mode==887?16:80;}
+API void il2cpp_field_static_get_value(void *field,void *out){*(int *)out=field==&model_context_field?58:field==&model_method_field?4:-1;}
+API Class *il2cpp_class_get_declaring_type(Class *k){return (k==&model_context_class||k==&model_method_class)&&mode!=885?&model_stat_class:NULL;}
+API Image *il2cpp_class_get_image(Class *k){return k==&model_context_class||k==&model_method_class||k==&model_stat_class?&images[3]:model_base_image(k);}
 API void il2cpp_field_get_value(void *object,void *field,void *value){
  model_field_reads++;if(TID()!=main_id)off_thread_calls++;
  if(object!=&chats_obj||field!=&model_manager_field){route_bad++;*(void **)value=NULL;return;}
  *(void **)value=mode==881?NULL:&browser_manager;
 }
-API int il2cpp_class_value_size(Class *k,uint32_t *align){*align=4;return k==&model_context_class?8:4;}
-API unsigned char il2cpp_class_is_enum(Class *k){return k==&model_method_class;}
-API Type *il2cpp_class_enum_basetype(Class *k){return k==&model_method_class?&tint:NULL;}
+API int il2cpp_class_value_size(Class *k,uint32_t *align){*align=4;return 4;}
+API unsigned char il2cpp_class_is_enum(Class *k){return k==&model_method_class||k==&model_context_class;}
+API Type *il2cpp_class_enum_basetype(Class *k){return k==&model_method_class||k==&model_context_class?(mode==888?&tbool:&tint):NULL;}
 API unsigned char il2cpp_class_is_valuetype(Class *k){if(k==&model_context_class)return mode!=879;if(k==&model_method_class)return 1;return model_base_value_type(k);}

@@ -1,0 +1,32 @@
+{
+  "source": "User-supplied pinned APKs; IL2CPP metadata v31 definitions only",
+  "apk_sha256": {
+    "base.apk": "c80c992beaea72912e1fdc4a57011d2c8d7567fe9bea31f4d94acb9ccd7575b5",
+    "split-001.apk": "2bcda72196ee83ff4513a3477cbf791788b9a951a90c8c5cffea8f14982772a6"
+  },
+  "image": "DV.dll",
+  "declaring_namespace": "DV.Analytics",
+  "declaring_type": "Stat",
+  "declaring_byval_type_index": 18290,
+  "parameters": [
+    {
+      "type": "EventSourcesContext",
+      "namespace": "",
+      "byval_type_index": 24810,
+      "parent": "System.Enum",
+      "literal": "MESSAGES",
+      "value": 58
+    },
+    {
+      "type": "OpenChatMethod",
+      "namespace": "",
+      "byval_type_index": 24949,
+      "parent": "System.Enum",
+      "literal": "LIST_ITEM_CLICK",
+      "value": 4
+    }
+  ],
+  "literal_encoding": "v31 compressed signed integers; runtime reads named enum literals",
+  "chat_content_read": false,
+  "device_verified": false
+}
