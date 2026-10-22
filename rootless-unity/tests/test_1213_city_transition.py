@@ -47,6 +47,6 @@ class CityTransitions(unittest.TestCase):
   sample=ready_city();sample['navigation']['open_completed']=False;sample['navigation']['city_transition_overruns']=1
   with self.assertRaises(ValueError):city.validate(sample)
  def test_report_preserves_action_evidence_without_private_values(self):
-  source=(Path(__file__).resolve().parents[1]/'assistant_profiles.py').read_text()
+  source=(Path(__file__).resolve().parents[1]/'assistant_profiles.py').read_text(encoding='utf-8')
   for key in ('city_transition_overruns','city_open_attempted','city_open_completed','open_completed','settings_checkpoint','apply_completed'):
    self.assertIn("'"+key+"'",source)
