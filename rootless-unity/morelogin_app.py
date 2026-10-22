@@ -5,6 +5,7 @@ No startup actions. Explicit Start authorizes this run; Stop revokes it.
 import os
 # Scope is selected before importing the engine. Workers use a separate process.
 os.environ['DVK_MORELOGIN'] = '1'
+os.environ.pop('DVK_MORELOGIN_PHONE_ID',None)
 import sys
 if __name__ == '__main__' and sys.argv[1:] == ['--cloud-worker']:
     from morelogin_worker import main
@@ -143,6 +144,9 @@ def launch(self_check=False):
             from morelogin_supervisor import run as cloud_run
             values=fresh
             entries=api_entries(values)
+            # Initialize global WAL schema once before concurrent process startup.
+            from morelogin_store import SharedStore
+            SharedStore(cloud_id=values[0])
             cloud_run(current,values,dict(pins),entries,mode,stopped,
                       lambda cloud_id,kind,text:events.put(('phone',(cloud_id,kind,text))))
             events.put(('cloud-done',None))

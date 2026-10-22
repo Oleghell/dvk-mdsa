@@ -306,3 +306,38 @@ class AdditionalIsolation(unittest.TestCase):
             self.assertEqual(cloud_label('Контакт'),'Cloud Phone 101\nКонтакт')
         with patch.dict(os.environ,{'DVK_MORELOGIN':'0'}):
             self.assertEqual(cloud_label('Контакт'),'Контакт')
+
+class IndependentProcesses(unittest.TestCase):
+    def test_two_os_processes_one_sqlite_atomic_claim(self):
+        code="""import sys
+sys.path.insert(0,sys.argv[1])
+from morelogin_store import SharedStore,SharedPeerClaimed
+store=SharedStore(sys.argv[2],cloud_id=sys.argv[3])
+print('ready',flush=True)
+sys.stdin.readline()
+try:
+ store.reserve(dict(attempt=1,account=sys.argv[3],peer='2',chat='55',variant=0),'Привет',approved=True)
+ print('reserved',flush=True)
+except SharedPeerClaimed:print('conflict',flush=True)
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'shared.sqlite3'
+            SharedStore(path,cloud_id='101')
+            processes=[]
+            try:
+                for cloud_id in ('101','202'):
+                    processes.append(subprocess.Popen([sys.executable,'-c',code,str(Path(__file__).resolve().parents[1]),str(path),cloud_id],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding='utf-8'))
+                for proc in processes:self.assertEqual(proc.stdout.readline().strip(),'ready')
+                for proc in processes:proc.stdin.write('go\n');proc.stdin.flush()
+                values=[]
+                for proc in processes:
+                    out,err=proc.communicate(timeout=20)
+                    self.assertEqual(proc.returncode,0,err)
+                    values.append(out.strip())
+                self.assertEqual(sorted(values),['conflict','reserved'])
+                with closing(sqlite3.connect(path)) as db:
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM global_peer_claims').fetchone()[0],1)
+            finally:
+                for proc in processes:
+                    if proc.poll() is None:proc.kill();proc.wait(timeout=5)
+                    for stream in (proc.stdin,proc.stdout,proc.stderr):stream.close()

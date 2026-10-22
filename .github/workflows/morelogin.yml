@@ -314,7 +314,9 @@ jobs:
 
         old=$(gh api "$base/git/ref/heads/main" --jq .object.sha)
 
-        test "$old" = d413e5dd82a355fdcb6bae381d4bcc4121ad781a
+        latest=$(gh api "$base/git/ref/heads/morelogin" --jq .object.sha)
+
+        if [ "$latest" != "$GITHUB_SHA" ]; then echo ''Superseded build: no promotion''; exit 0; fi
 
         mumu=$(gh api "$base/git/ref/heads/mumu" --jq .object.sha)
 
