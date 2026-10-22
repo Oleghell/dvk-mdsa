@@ -302,10 +302,15 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                          'Контакт получен • результат передачи в Telegram требует проверки')
             if result['telegram_used']:
                 out['personal_data_exported'] = True
-            deferred = result['reason'] == 'history-loading-timeout'
-            if deferred and not (result['status'] == 'chain-waiting'
-                    and result['diagnostics'].get('history_wait_exhausted') is True
-                    and history_wait.verified_loading(result['diagnostics'].get('last_read_failure'))):
+            deferred = result['reason'] in ('history-loading-timeout','history-read-budget-timeout')
+            evidence = result['diagnostics']
+            deferred_valid = ((result['reason'] == 'history-loading-timeout'
+                    and evidence.get('history_wait_exhausted') is True
+                    and history_wait.verified_loading(evidence.get('last_read_failure')))
+                or (result['reason'] == 'history-read-budget-timeout'
+                    and evidence.get('history_budget_exhausted') is True
+                    and history_wait.verified_read_budget(evidence.get('last_read_failure'))))
+            if deferred and not (result['status'] == 'chain-waiting' and deferred_valid):
                 out.update(status='inbox-stopped', reason='chat-bound-chat-read-failed')
                 return out
             isolated_code = isolation_reason(result)
@@ -323,12 +328,12 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if isolated:
                 chain.mark_review(who)
             call('back', expected=who)
-            # Only a successful, SAME-chat back may make a loading failure local.
+            # Only a successful, SAME-chat back may make a read failure local.
             # Do not change chain stage, reservations, consumed messages or review state.
             if deferred:
                 history_wait.defer(chain.store,who,clock=clock)
                 out['history_deferred'] += 1
-                progress('История не загрузилась. Вернулся в личку; проверю этот чат позже.')
+                progress('Не удалось дочитать историю. Вернулся в личку; проверю этот чат позже.')
             else:
                 history_wait.clear(chain.store,who)
             if (not result['notifications']['accepted']

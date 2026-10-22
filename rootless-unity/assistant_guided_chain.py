@@ -17,7 +17,8 @@ from shared_contact import display_name
 from version import VERSION
 from assistant_authorization import flags
 from assistant_history_wait import (verified_loading, HistoryWaitExpired, WAIT_SECONDS,
-                                    WAIT_INTERVAL, MAX_READ_ATTEMPTS)
+                                    WAIT_INTERVAL, MAX_READ_ATTEMPTS, verified_read_budget,
+                                    HistoryReadBudgetExpired, BUDGET_READ_ATTEMPTS, BUDGET_RETRY_INTERVAL)
 
 
 def report():
@@ -33,7 +34,7 @@ def report():
                 automatic_send=False, delivery_confirmed=False,
                 personal_data_exported=False, chat_content_exported=False,
                 diagnostics=dict(name_source='not-requested', name_read='not-attempted',
-                                 failure_point='none', read_retries=0, last_read_failure=None, history_wait_exhausted=False),
+                                 failure_point='none', read_retries=0, last_read_failure=None, history_wait_exhausted=False, history_budget_exhausted=False),
                 telegram_used=False, ui_may_remain_open=True,
                 live_cycle_available=False)
 
@@ -331,6 +332,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         from one_chat_device import ReadStopped, safe_read_failure, transient_read_failure
         started = read_clock()
         soft_retries = 0
+        budget_failures = 0
         for attempt in range(MAX_READ_ATTEMPTS):
             try:
                 private = source(who)  # Every native read independently rechecks the SAME bound identity.
@@ -340,7 +342,13 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 if stopped.is_set():
                     raise StateError('cancelled')
                 loading = verified_loading(failure)
-                if loading:
+                if verified_read_budget(failure):
+                    budget_failures += 1
+                    if budget_failures >= BUDGET_READ_ATTEMPTS or attempt == MAX_READ_ATTEMPTS-1:
+                        out['diagnostics']['history_budget_exhausted'] = True
+                        raise HistoryReadBudgetExpired() from None
+                    delay = BUDGET_RETRY_INTERVAL
+                elif loading:
                     remaining = WAIT_SECONDS - (read_clock()-started)
                     if remaining <= 0 or attempt == MAX_READ_ATTEMPTS-1:
                         out['diagnostics']['history_wait_exhausted'] = True
@@ -354,7 +362,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     soft_retries += 1
                     delay = .5
                 out['diagnostics']['read_retries'] += 1
-                progress('История ещё загружается. Жду тот же чат; отправки нет.')
+                progress('Повторяю только чтение того же чата; отправки нет.' if verified_read_budget(failure) else
+                         'История ещё загружается. Жду тот же чат; отправки нет.')
                 if pause(delay) or stopped.is_set():
                     raise StateError('cancelled')
                 if loading and read_clock()-started >= WAIT_SECONDS:
@@ -563,6 +572,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             out.update(status='chain-paused', reason='wait-timeout')
             return out
         out.update(status='chain-cancelled', reason='cancelled')
+    except HistoryReadBudgetExpired:
+        out['diagnostics']['failure_point'] = 'history-read-budget-timeout'
+        out.update(status='chain-cancelled' if stopped.is_set() else 'chain-waiting',
+                   reason='cancelled' if stopped.is_set() else 'history-read-budget-timeout')
     except HistoryWaitExpired:
         out['diagnostics']['failure_point'] = 'history-loading-timeout'
         out.update(status='chain-cancelled' if stopped.is_set() else 'chain-waiting',

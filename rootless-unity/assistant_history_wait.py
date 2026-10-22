@@ -7,9 +7,31 @@ WAIT_SECONDS = 15.0
 WAIT_INTERVAL = 1.0
 MAX_READ_ATTEMPTS = 16
 COOLDOWN_SECONDS = 60.0
+BUDGET_READ_ATTEMPTS = 4
+BUDGET_RETRY_INTERVAL = 0.5
 
 class HistoryWaitExpired(Exception):
     """Only the fixed bound reader's verified loading state may raise this."""
+
+
+class HistoryReadBudgetExpired(Exception):
+    """Read-only frame budget exhausted; SAME-chat back is still mandatory."""
+
+
+def verified_read_budget(value):
+    # Only authored failures during message traversal after the initial bound
+    # identity check. This evidence is NOT permission to navigate or send.
+    return (isinstance(value, dict)
+        and value.get("error") == "frame-budget"
+        and value.get("stage") == "navigation-stopped"
+        and value.get("metadata_checkpoint") == "ready"
+        and value.get("read_checkpoint") == "last-message"
+        and value.get("identity_checkpoint") == "recheck"
+        and value.get("scalar_checkpoint") in ("message-id", "message-sender-id", "message-chat-id")
+        and value.get("scalar_state") == "positive"
+        and value.get("wait_reason") == "none"
+        and type(value.get("message_slot")) is int
+        and 0 <= value["message_slot"] < 20)
 
 
 def verified_loading(value):
