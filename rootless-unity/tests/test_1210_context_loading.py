@@ -259,7 +259,10 @@ class Gates(unittest.TestCase):
         from version import VERSION
         root=Path(__file__).resolve().parents[2]
         guide=(root/'rootless-unity/ASSISTANT.md').read_text(encoding='utf-8')
-        self.assertEqual(guide,(root/'README.md').read_text(encoding='utf-8'))
+        from morelogin_version import VERSION as CLOUD_VERSION
+        cloud=(root/'rootless-unity/MORELOGIN.md').read_text(encoding='utf-8')
+        self.assertEqual(cloud,(root/'README.md').read_text(encoding='utf-8'))
+        self.assertTrue(cloud.startswith('# DvkAssistant MoreLogin '+CLOUD_VERSION+'\n'))
         self.assertTrue(guide.startswith('# DvkAssistant '+VERSION+' '))
 
     def test_clarification_rejects_sensitive_requests_and_second_greeting(self):

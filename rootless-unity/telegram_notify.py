@@ -25,6 +25,9 @@ def protect(data,*,decrypt=False):
 def settings_path():
     root=os.environ.get('LOCALAPPDATA')
     if not root:raise TelegramError('Нет папки настроек Windows.')
+    if os.environ.get('DVK_MORELOGIN') == '1':
+        from morelogin_common import root_directory
+        return root_directory()/'telegram.dpapi'
     return Path(root)/'DvkRootless'/'telegram.dpapi'
 
 def save(token,chat_id,path=None,encoder=protect):
@@ -49,9 +52,16 @@ def load(path=None,decoder=lambda data:protect(data,decrypt=True)):
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs):return None
 
+def cloud_label(text):
+    if os.environ.get('DVK_MORELOGIN') == '1' and os.environ.get('DVK_MORELOGIN_PHONE_ID'):
+        from morelogin_common import phone_id
+        return 'Cloud Phone ' + phone_id(os.environ['DVK_MORELOGIN_PHONE_ID']) + '\n' + text
+    return text
+
 def send(token,chat_id,text,opener=None):
     token,chat_id=credentials(token,chat_id)
     if not isinstance(text,str) or not 1<=len(text)<=3500:raise TelegramError('Слишком длинное уведомление.')
+    text=cloud_label(text)
     body=urlencode({'chat_id':chat_id,'text':text,'disable_web_page_preview':'true'}).encode()
     request=urllib.request.Request('https://api.telegram.org/bot'+token+'/sendMessage',data=body,method='POST',headers={'Content-Type':'application/x-www-form-urlencoded'})
     try:
@@ -83,6 +93,8 @@ def send_photo(token,chat_id,caption,image,opener=None):
     from assistant_contact_photo import png_size
     png_size(image)
     if not isinstance(caption,str) or not 1<=len(caption)<=1024:raise TelegramError('Недопустимая подпись фото.')
+    caption=cloud_label(caption)
+    if len(caption)>1024:raise TelegramError('Недопустимая подпись фото.')
     import secrets
     boundary='DvkPhoto'+secrets.token_hex(24);parts=[]
     for key,value in (('chat_id',chat_id),('caption',caption)):

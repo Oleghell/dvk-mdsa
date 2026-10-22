@@ -1,7 +1,7 @@
 name: Build DvkAssistant
 "on":
   push:
-    branches: [feature/android-ui-hierarchy, fix/dialog-selection-diagnostics]
+    branches: [mumu]
     paths:
       - 'rootless-unity/**'
       - 'config/**'

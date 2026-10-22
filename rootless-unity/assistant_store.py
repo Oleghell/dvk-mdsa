@@ -18,6 +18,10 @@ def data_directory():
     base = os.environ.get('LOCALAPPDATA')
     if not base:
         raise StateError('Не найдена папка данных Windows.')
+    if os.environ.get('DVK_MORELOGIN') == '1':
+        from morelogin_common import root_directory, phone_directory
+        cloud_id = os.environ.get('DVK_MORELOGIN_PHONE_ID')
+        return phone_directory(cloud_id) if cloud_id else root_directory()
     return Path(base) / 'DvkAssistant'
 
 
@@ -126,3 +130,10 @@ class Store:
         with self.connection() as db:
             rows = db.execute('SELECT status,COUNT(*) FROM manual_actions GROUP BY status').fetchall()
         return dict(reserved=sum(n for _, n in rows), statuses=dict(rows), delivery_confirmed=False)
+
+
+def credential_directory():
+    if os.environ.get('DVK_MORELOGIN') == '1':
+        from morelogin_common import root_directory
+        return root_directory()
+    return data_directory()
