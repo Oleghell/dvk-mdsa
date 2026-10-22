@@ -18,6 +18,11 @@ from shared_contact import self_shared, payload as contact_payload, display_name
 from telegram_notify import protect
 
 TERMINAL = {'done', 'declined', 'manual-review'}
+REVIEW_CAUSES = {'history-missing', 'history-edited', 'contact-batch-ambiguous',
+                 'incoming-during-pending', 'pending-outgoing-mismatch',
+                 'unjournalled-outgoing', 'legacy-incoming-ambiguous',
+                 'legacy-contact-not-shared', 'legacy-reply-unclassified',
+                 'review-cause-unavailable'}
 REPLIES = QUESTIONS + (CONTACT_TEXT,)
 POSITIVE = re.compile(r'^(?:вс[её]\s+)?(?:хорошо|отлично|нормально|норм|супер|прекрасно|замечательно|неплохо|класс)(?:\s+(?:спасибо|вс[её]\s+хорошо))?[\s!.,)🙂😊👍]*$', re.I)
 HELLO = re.compile(r'^(?:привет(?:ик)?|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|хай|hello|hi)[\s!.,)🙂😊👋]*$', re.I)
@@ -50,6 +55,7 @@ class Chain:
             for sql in (
                 'CREATE TABLE IF NOT EXISTS chain_contact_outbox(chat TEXT PRIMARY KEY,message TEXT,payload BLOB NOT NULL,status TEXT NOT NULL)',
                 'CREATE TABLE IF NOT EXISTS chain_dialogs(account TEXT,peer TEXT,chat TEXT UNIQUE,greeting TEXT,stage TEXT,salt TEXT,PRIMARY KEY(account,peer))',
+                'CREATE TABLE IF NOT EXISTS chain_review_reasons(chat TEXT PRIMARY KEY,reason TEXT NOT NULL)',
                 'CREATE TABLE IF NOT EXISTS chain_seen(chat TEXT,message TEXT,fingerprint TEXT,PRIMARY KEY(chat,message))',
                 'CREATE TABLE IF NOT EXISTS chain_actions(chat TEXT,kind TEXT,trigger TEXT,text_hash TEXT,status TEXT,PRIMARY KEY(chat,kind))',
                 'CREATE TABLE IF NOT EXISTS chain_notifications(chat TEXT,message TEXT,status TEXT,PRIMARY KEY(chat,message))',
@@ -76,6 +82,7 @@ class Chain:
         greeting_hash = self.authorized(who)
         chat = who['chat']
         action = None
+        review_cause = None
         with self.store.connection() as db:
             row = db.execute('SELECT greeting,stage,salt FROM chain_dialogs WHERE account=? AND peer=?',
                              (who['account'], who['peer'])).fetchone()
@@ -94,8 +101,12 @@ class Chain:
             old = dict(db.execute('SELECT message,fingerprint FROM chain_seen WHERE chat=?', (chat,)))
             now = {m['id']: fingerprint(m, salt) for m in messages}
             # A changed/truncated history is not an empty chat or a new reply.
-            if not set(old) <= set(now) or any(now[k] != v for k, v in old.items()):
-                stage = 'manual-review'
+            if not set(old) <= set(now):
+                stage, review_cause = 'manual-review', 'history-missing'
+            elif any(now[k] != v for k, v in old.items()):
+                stage, review_cause = 'manual-review', 'history-edited'
+            if review_cause:
+                db.execute('INSERT INTO chain_review_reasons VALUES(?,?) ON CONFLICT(chat) DO NOTHING', (chat, review_cause))
             if stage in TERMINAL:
                 db.execute('UPDATE chain_dialogs SET stage=? WHERE chat=?', (stage, chat))
                 return stage, None
@@ -109,7 +120,7 @@ class Chain:
             elif shared:
                 aggregate = self.any_replies and stage == 'wait-contact'
                 if outgoing or (not aggregate and (len(shared) != 1 or len(incoming) != 1)):
-                    stage = 'manual-review'
+                    stage, review_cause = 'manual-review', 'contact-batch-ambiguous'
                 else:
                     message, items = shared[0]
                     if aggregate:
@@ -142,17 +153,17 @@ class Chain:
                 if not reserved:
                     raise StateError('Не найден резерв этапа. Отправка запрещена.')
                 if incoming:
-                    stage = 'manual-review'
+                    stage, review_cause = 'manual-review', 'incoming-during-pending'
                 elif outgoing:
                     # Simultaneous peer/own deltas have no verified order.
                     if (len(outgoing) != 1 or incoming or not isinstance(outgoing[0]['text'], str)
                             or text_hash(outgoing[0]['text']) != reserved[0]):
-                        stage = 'manual-review'
+                        stage, review_cause = 'manual-review', 'pending-outgoing-mismatch'
                     else:
                         stage = 'wait-mood' if kind == 'question' else 'wait-contact'
                         db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind=?", (chat, kind))
             elif outgoing:
-                stage = 'manual-review'
+                stage, review_cause = 'manual-review', 'unjournalled-outgoing'
             elif incoming and self.any_replies:
                 if stage == 'wait-contact':
                     # Ordinary replies are observed but do not fabricate a contact
@@ -174,14 +185,14 @@ class Chain:
                     action = dict(kind=kind, text=reply)
             elif incoming:
                 if len(incoming) != 1 or not incoming[0]['text'] or NEGATIVE.search(normalized(incoming[0]['text'])):
-                    stage = 'manual-review'
+                    stage, review_cause = 'manual-review', 'legacy-incoming-ambiguous'
                 elif stage == 'wait-contact':
-                    stage = 'manual-review'  # No claimed contact, no Telegram notification.
+                    stage, review_cause = 'manual-review', 'legacy-contact-not-shared'  # No claimed contact, no Telegram notification.
                 else:
                     text = incoming[0]['text'].strip()
                     safe = HELLO.fullmatch(text) if stage == 'wait-reply' else POSITIVE.fullmatch(text)
                     if not safe:
-                        stage = 'manual-review'
+                        stage, review_cause = 'manual-review', 'legacy-reply-unclassified'
                     else:
                         kind = 'question' if stage == 'wait-reply' else 'contact'
                         choice = self.choose() if kind == 'question' else 0
@@ -193,10 +204,19 @@ class Chain:
                                    (chat, kind, incoming[0]['id'], text_hash(reply)))
                         stage = 'pending-' + kind
                         action = dict(kind=kind, text=reply)
+            if review_cause:
+                db.execute('INSERT INTO chain_review_reasons VALUES(?,?) ON CONFLICT(chat) DO NOTHING', (chat, review_cause))
             for m in new:
                 db.execute('INSERT INTO chain_seen VALUES(?,?,?)', (chat, m['id'], now[m['id']]))
             db.execute('UPDATE chain_dialogs SET stage=? WHERE chat=?', (stage, chat))
         return stage, action
+
+    def review_reason(self, who):
+        who=identity(who)
+        self.authorized(who)
+        with self.store.connection() as db:
+            row=db.execute('SELECT reason FROM chain_review_reasons WHERE chat=?', (who['chat'],)).fetchone()
+        return row[0] if row and row[0] in REVIEW_CAUSES else 'review-cause-unavailable'
 
     def mark_review(self, who):
         who=identity(who)

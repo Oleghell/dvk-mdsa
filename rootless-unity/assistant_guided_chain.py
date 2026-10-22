@@ -165,6 +165,7 @@ class GuidedChain(Chain):
             chats.update(row[0] for row in (old_guided, old_chain) if row)
             for chat in chats:
                 db.execute('DELETE FROM chain_contact_outbox WHERE chat=?', (chat,))
+                db.execute('DELETE FROM chain_review_reasons WHERE chat=?', (chat,))
                 db.execute('DELETE FROM chain_seen WHERE chat=?', (chat,))
                 db.execute('DELETE FROM chain_actions WHERE chat=?', (chat,))
                 db.execute('DELETE FROM chain_notifications WHERE chat=?', (chat,))
@@ -383,6 +384,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                                'telegram-outcome-unknown')
                 return out
             if stage in TERMINAL:
+                if stage == 'manual-review':
+                    out['diagnostics']['review_cause'] = chain.review_reason(who)
                 out.update(status='chain-needs-review', reason=stage)
                 return out
             if (until_waiting and action is None and

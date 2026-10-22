@@ -128,12 +128,23 @@ def reset_read_round(chain):
         db.execute('DELETE FROM inbox_read_round')
 
 
+def with_seen_ids(chain, allowed):
+    # Read fallback excludes already-consumed incoming messages BEFORE opening.
+    out=[]
+    with chain.store.connection() as db:
+        for who in allowed:
+            rows=db.execute('SELECT message FROM chain_seen WHERE chat=? LIMIT 21', (who['chat'],)).fetchall()
+            if len(rows)>20:raise StateError('observed-history-too-large')
+            out.append(dict(who,seen_ids=[r[0] for r in rows]))
+    return targets(out)
+
+
 def report():
     return dict(tool_version=VERSION, mode='inbox-chain-pass', status='inbox-stopped',
                 reason='not-started', dialog_limit=LIMIT, dialogs_opened=0,
-                dialogs_processed=0, read_dialogs_checked=0, read_recovery_enabled=True, read_rows_skipped=0, confirmations=0, automatic_authorizations=0,
+                dialogs_processed=0, read_dialogs_checked=0, read_recovery_enabled=True, reply_filter_enabled=True, read_rows_skipped=0, waiting_rows_skipped=0, handled_rows_skipped=0, confirmations=0, automatic_authorizations=0,
                 submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0,
-                isolated_dialogs=0, isolated_reasons={}, isolation_notification='not-needed', review_pending=0,
+                isolated_dialogs=0, isolated_reasons={}, review_causes={}, isolation_notification='not-needed', review_pending=0,
                 groq_requests=0, openrouter_requests=0, ai_requests=0, ai_provider='groq', ai_model=None,
                 groq_context_export_enabled=False, openrouter_context_export_enabled=False, outcomes={}, per_message_confirmation=True, automatic_send=False,
                 return_verified=False, dialogs_verified=False, delivery_confirmed=False,
@@ -169,6 +180,11 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         if value['state'] not in {'open': {'opened', 'exhausted'}, 'back': {'returned'},
                                   'return': {'search-ready'}}[operation]:
             raise ValueError('Unexpected navigation state')
+        if operation == 'open':
+            if not n.get('reply_filter_applied') or n.get('reply_needed_verified') != (value['state']=='opened'):
+                raise StateError('reply-selection-not-verified')
+            out['waiting_rows_skipped'] += n.get('waiting_rows_skipped',0)
+            out['handled_rows_skipped'] += n.get('handled_rows_skipped',0)
         if operation == 'open' and kwargs['unread_only']:
             if not n['unread_filter_applied'] or n['unread_verified'] != (value['state'] == 'opened'):
                 raise StateError('unread-selection-not-verified')
@@ -200,7 +216,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             phase = 'navigation'
             progress(f'Диалоги • чат {out["dialogs_opened"] + 1}/{LIMIT}' +
                      (' • проверка прочитанного' if group_kind == 'read' else ''))
-            selected = call('open', allowed=allowed, entry=entry, unread_only=unread_only)
+            selected = call('open', allowed=with_seen_ids(chain,allowed) if group_kind=='read' else allowed,
+                            entry=entry, unread_only=unread_only, needs_reply_only=True)
             entry = 'dialogs'
             if selected['state'] == 'exhausted':
                 if group_kind == 'read':
@@ -248,6 +265,10 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 out['isolated_dialogs'] += 1
                 code = isolated_code
                 out['isolated_reasons'][code] = out['isolated_reasons'].get(code, 0) + 1
+                cause = result['diagnostics'].get('review_cause')
+                from assistant_chain import REVIEW_CAUSES
+                if cause in REVIEW_CAUSES:
+                    out['review_causes'][cause] = out['review_causes'].get(cause, 0) + 1
                 count('isolated:' + code)
                 progress('Диалоги • один чат на проверке, продолжаю остальные')
             out['dialogs_processed'] += 1
@@ -270,7 +291,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         out.update(status='inbox-cancelled' if stopped.is_set() else 'inbox-stopped',
                    reason='cancelled' if stopped.is_set() else
                    str(error) if isinstance(error, StateError) and str(error) in
-                   {'unread-selection-not-verified', 'untracked-dialog', 'changed-dialog',
+                   {'unread-selection-not-verified', 'reply-selection-not-verified', 'untracked-dialog', 'changed-dialog',
                     'navigation-stopped'} else
                    n['error'] if n and n['error'] != 'none' else phase + '-check-stopped')
     return out

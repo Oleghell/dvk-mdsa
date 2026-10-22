@@ -58,7 +58,7 @@ def safe_diagnostic(value):
     keys={'stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned',
           'scan_batches','action_attempted','action_completed','destination_verified',
           'unread_filter_applied','unread_verified','read_rows_skipped'}
-    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries'}:
+    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped'}:
         raise ValueError('Invalid diagnostic')
     if (value['stage'] not in {'not-attempted','navigation-ready','navigation-stopped','cleanup-failed'}
             or value['error'] not in ERRORS or value['phase'] not in PHASES
@@ -78,6 +78,10 @@ def safe_diagnostic(value):
         raise ValueError('Invalid back recovery counter')
     if retries and (value['phase'] not in ('wait-back','done') or not value['action_completed']):
         raise ValueError('Invalid back recovery diagnostic')
+    for key in ('reply_filter_applied','reply_needed_verified'):
+        if key in value and type(value[key]) is not bool:raise ValueError('Invalid reply diagnostic')
+    for key in ('waiting_rows_skipped','handled_rows_skipped'):
+        if key in value and (type(value[key]) is not int or not 0<=value[key]<=value['rows_scanned']):raise ValueError('Invalid reply count')
     return dict(value)
 
 

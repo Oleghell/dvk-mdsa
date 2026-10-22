@@ -8,7 +8,7 @@ TARGET=dict(WHO,chat='-1')
 def raw_open():
     value=ready_route();n=value['navigation']
     for k in ('search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'):n.pop(k)
-    n.update(entry_verified=True,list_verified=True,chat_verified=True,destination_verified=True,action_attempted=True,action_completed=True,selection_verified=True,exhausted=False,private_identity=dict(WHO),metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,unread_filter_applied=False,unread_verified=False,read_rows_skipped=0,back_budget_retries=0)
+    n.update(entry_verified=True,list_verified=True,chat_verified=True,destination_verified=True,action_attempted=True,action_completed=True,selection_verified=True,exhausted=False,private_identity=dict(WHO),metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,unread_filter_applied=False,unread_verified=False,read_rows_skipped=0,back_budget_retries=0,reply_filter_applied=False,reply_needed_verified=False,waiting_rows_skipped=0,handled_rows_skipped=0)
     n['controller_path']=['chat'];n['root_top_kind']='chat'
     return value
 
@@ -42,7 +42,7 @@ class BrowserSchema(unittest.TestCase):
 
     def test_fixed_actions_and_no_body_read_send_or_scroll(self):
         s=b.build('open',allowed=[TARGET])
-        for text in ('OnCellDidClicked','OnBackButton','dialogSignature','cell-binding','get_DialogOpponent','permitted(again.who)','selectedChat','class_get_parent','for(let batch=0;batch<4'):
+        for text in ('OnCellDidClicked','OnBackButton','dialogSignature','cell-binding','get_DialogOpponent','permitted(again.who)','selectedChat','class_get_parent','for(let batch=0;batch<(needsReplyOnly?2:4)'):
             self.assertIn(text,s)
         for text in ('OnSend','get_Text','get_Name','set_Text','ShowChat','input tap','scrollTo','Memory.scan','il2cpp_field_', 'rpc.exports'):
             self.assertNotIn(text,s)
@@ -77,7 +77,7 @@ class BrowserSchema(unittest.TestCase):
         source=b.build('open',allowed=[TARGET],unread_only=True)
         self.assertIn('unreadOnly=true',source)
         self.assertIn("s.unreadCount=checked(s.chatModel,'get_UnreadCount',8)",source)
-        self.assertIn("if(unread===0){n.read_rows_skipped++;return false;}",source)
+        self.assertIn("if(unreadOnly&&unread===0){n.read_rows_skipped++;return false;}",source)
         first=source.index('unread=unreadCount(chat)')
         again=source.index('if(unreadCount(chat)!==unread)')
         self.assertLess(first,source.index("fail('selection-chat-changed')"))

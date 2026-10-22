@@ -7,7 +7,7 @@ WHO=dict(account='100',peer='200',chat='300')
 TARGET=dict(WHO,chat='-1')
 
 
-def one(library,mode,operation='open',entry='search',unread_only=False,start_override=None):
+def one(library,mode,operation='open',entry='search',unread_only=False,start_override=None,needs_reply_only=False):
     code='''import ctypes,sys,time
 lib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)
 lib.fixture_init(int(sys.argv[2]));lib.fixture_browser_entry(int(sys.argv[3]))
@@ -17,6 +17,7 @@ for _ in range(12000):
 '''
     allowed=[] if operation!='open' or mode==816 else [TARGET]
     if mode in (829,832):allowed=[dict(account='100',peer='201',chat='301'),TARGET]
+    if mode==852:allowed=[dict(TARGET,seen_ids=['1002'])]
     expected=(dict(WHO,peer='201') if mode==809 else WHO) if operation=='back' else None
     start=3 if operation=='back' else 1 if operation=='return' or entry=='dialogs' else 0
     if start_override is not None:start=start_override
@@ -25,7 +26,7 @@ for _ in range(12000):
     try:
         q=queue.Queue();threading.Thread(target=lambda:q.put(child.stdout.readline()),daemon=True).start();assert q.get(timeout=10).strip()=='ready'
         session=frida.get_local_device().attach(child.pid)
-        script=session.create_script(build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only)+'''
+        script=session.create_script(build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)+'''
 rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},counts(){
  const read=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
  return {handles:read('fixture_handles'),bad:read('fixture_bad_frees'),off:read('fixture_off_thread_calls'),
@@ -38,10 +39,10 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
                     if script.exports_sync.counts()['backs' if mode==839 else 'clicks']:script.exports_sync.cancel();return
                     time.sleep(.003)
             monitor=threading.Thread(target=stop,daemon=True);monitor.start()
-        raw=script.exports_sync.probe();result=validate(raw,operation,allowed=allowed,expected=expected,unread_only=unread_only)
+        raw=script.exports_sync.probe();result=validate(raw,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
         if monitor:monitor.join(timeout=6)
         c=script.exports_sync.counts();n=raw['navigation']
-        expected_status={800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget'}[mode]
+        expected_status={800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'opened',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
         actual=result['state'] if result['state']!='stopped' else n['stage'] if n['stage']=='not-attempted' else n['error']
         assert actual==expected_status,(mode,operation,actual,n,c)
         assert c['handles']==c['bad']==c['off']==c['route_bad']==0,(mode,n,c)
@@ -53,7 +54,13 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
             if mode==829:assert n['read_rows_skipped']==1 and c['unread_reads']==3,(n,c)
             if mode==832:assert n['read_rows_skipped']==2 and c['unread_reads']==2,(n,c)
             if result['state']!='opened':assert c['clicks']==0,(mode,n,c)
-        else:assert c['unread_reads']==0 and not n['unread_filter_applied'] and not n['unread_verified'],(mode,n,c)
+        elif not needs_reply_only:assert c['unread_reads']==0 and not n['unread_filter_applied'] and not n['unread_verified'],(mode,n,c)
+        if needs_reply_only:
+            if result['state']=='opened':assert n['reply_filter_applied'] and n['reply_needed_verified'] and c['unread_reads']>=2,(mode,n,c)
+            if result['state']=='exhausted':assert n['reply_filter_applied'] and not n['reply_needed_verified'] and c['clicks']==0,(mode,n,c)
+            if result['state']!='opened':assert c['clicks']==0,(mode,n,c)
+            if mode in (844,847):assert n['waiting_rows_skipped']==1,(n,c)
+            if mode==852:assert n['handled_rows_skipped']==1,(n,c)
         if result['state']=='opened':assert result['identity']==WHO and c['clicks']==1,(result,c)
         if result['state']=='exhausted' or mode in (801,802,804,811,812,813,818,821):assert c['clicks']==0,c
         if operation=='back':assert c['clicks']==0 and c['backs']==(mode not in (809,842)),c
@@ -92,15 +99,24 @@ for _ in range(12000):
     try:
         q=queue.Queue();threading.Thread(target=lambda:q.put(child.stdout.readline()),daemon=True).start();assert q.get(timeout=10).strip()=='ready'
         recovered=[]
-        def navigator(operation,*args,allowed=(),expected=None,entry='search',**kwargs):
-            unread_only=kwargs.get('unread_only',False)
+        def latest(message):
             session=frida.get_local_device().attach(child.pid);script=None
             try:
-                script=session.create_script(build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only)+'''
+                script=session.create_script("rpc.exports={setLast(id,mine){new NativeFunction(Module.getGlobalExportByName('fixture_browser_last_message'),'void',['int','int'])(id,mine);}};")
+                script.load();script.exports_sync.set_last(int(message['id']),int(message['sender']=='100'))
+            finally:
+                if script:script.unload()
+                session.detach()
+        def navigator(operation,*args,allowed=(),expected=None,entry='search',**kwargs):
+            unread_only=kwargs.get('unread_only',False)
+            needs_reply_only=kwargs.get('needs_reply_only',False)
+            session=frida.get_local_device().attach(child.pid);script=None
+            try:
+                script=session.create_script(build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)+'''
 rpc.exports={probe(){return probeUIKitRoot();},counts(){
  const read=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
  return [read('fixture_handles'),read('fixture_bad_frees'),read('fixture_off_thread_calls'),read('fixture_route_bad')];}};''')
-                script.load();result=validate(script.exports_sync.probe(),operation,allowed=allowed,expected=expected,unread_only=unread_only)
+                script.load();result=validate(script.exports_sync.probe(),operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
                 assert script.exports_sync.counts()==[0,0,0,0]
                 if operation=='back':recovered.append(result['diagnostic']['back_budget_retries'])
                 return result
@@ -121,6 +137,7 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
                 with store.connection() as db:
                     assert db.execute("SELECT status FROM chain_actions WHERE status='reserved-unknown'").fetchone()[0]=='reserved-unknown'
                 messages.append(dict(id=str(1001+len(messages)),sender='100',text=kwargs['text']))
+                latest(messages[-1])
                 return dict(attempted=True,handler_returned=True)
             result=walk(Settings(),threading.Event(),lambda _:None,chain,navigator=navigator,reader=reader,sender=sender,pause=lambda _:False)
             assert result['status']=='dialogs-completed' and result['return_verified'],result
@@ -132,6 +149,7 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
             import assistant_inbox
             import assistant_monitor
             messages.append(dict(id='1004',sender='200',text='Хорошо'))
+            latest(messages[-1])
             stop=threading.Event();waits=[];approvals=[]
             def approve(kind,text,cancelled):
                 approvals.append(kind);return not cancelled()
@@ -171,7 +189,7 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
             assert monitored['totals']['outgoing_observed']==1,monitored
             assert monitored['totals']['contacts_forwarded']==0,monitored
             assert not monitored['automatic_profile_repeat'] and not monitored['delivery_confirmed']
-            if mode==843:assert monitored['last_pass']['read_dialogs_checked']==1,monitored
+            if mode==843:assert monitored['last_pass']['dialogs_opened']==0 and monitored['last_pass']['waiting_rows_skipped']==1,monitored
             if mode in (836,843):assert recovered and all(r==1 for r in recovered),recovered
             assert sum(m['sender']=='100' for m in messages)==3,messages
         print('Synthetic browser + durable chain + outgoing observation + return passed.',flush=True)
@@ -198,9 +216,11 @@ if __name__=='__main__':
         one(lib,mode,'list',entry='dialogs')
         one(lib,mode,'list',entry='either')
         one(lib,mode,'list',entry='either',start_override=1)
+    for mode in range(844,856):one(lib,mode,needs_reply_only=True)
+    one(lib,846,unread_only=True,needs_reply_only=True)
     integration(lib)
     integration(lib,836)
     integration(lib,836,ai=True)
     integration(lib,843,ai=True)
     integration(lib,843,ai=True,provider='openrouter')
-    print('55 synthetic browser cases and fixed/AI-chain integrations passed. No live dialog selection verified.')
+    print('68 synthetic browser cases and fixed/AI-chain integrations passed. No live dialog selection verified.')

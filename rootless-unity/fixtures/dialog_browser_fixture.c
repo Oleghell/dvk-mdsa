@@ -55,6 +55,18 @@ static Method bm[]={
  {"OnCellDidClicked",&chats_class,64,&tvoid,815,2,&bt[4]},
  {"DV.Messages.BottomBarView.IDelegate.OnBackButton",&bc[0],0,&tvoid,816},
  {"get_UnreadCount",&bc[1],0,&tint,817}};
+static Class browser_message_class={"DV.Messages","Message"};
+static Type browser_message_type={18,&browser_message_class};
+static Object browser_messages[]={{&browser_message_class,0},{&browser_message_class,1},{&browser_message_class,2}};
+static Method browser_headers[]={
+ {"get_LastMessage",&bc[1],0,&browser_message_type,850},
+ {"get_Id",&browser_message_class,0,&blong,851},
+ {"get_SenderId",&browser_message_class,0,&blong,852},
+ {"get_ChatId",&browser_message_class,0,&blong,853},
+ {"get_IsMine",&browser_message_class,0,&tbool,854}};
+static int browser_last_reads,browser_message_id,browser_message_mine;
+API void fixture_browser_last_message(int id,int mine){browser_message_id=id;browser_message_mine=mine;}
+static Method browser_bad_header;
 static Method browser_bad_method,browser_unread_bad_method;
 static Object browser_vc={&bc[0],0},browser_table={&bc[5],0},browser_list={&bc[8],0},browser_list_alt={&bc[8],0};
 static Object browser_cells[]={{&bc[4],0},{&bc[4],1}},browser_chats[]={{&bc[1],0},{&bc[1],1}},browser_users[]={{&bc[3],0},{&bc[3],1}};
@@ -67,7 +79,7 @@ static int browser_clicks,browser_backs,browser_cell_reads,browser_count_reads,b
 static Object *browser_selected;
 static int browser_back_checks;
 static Object browser_parents[31];
-static void browser_init(void){int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_back_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
+static void browser_init(void){int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=0;browser_back_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
 API int fixture_browser_clicks(void){return browser_clicks;}
 API int fixture_browser_backs(void){return browser_backs;}
 API void fixture_browser_entry(int entry){phase=entry;browser_start=entry;}
@@ -82,6 +94,7 @@ API Class *il2cpp_class_from_name(Image *im,const char *ns,const char *name){
  if(im==&messages_image&&!strcmp(ns,message_tab.ns)&&!strcmp(name,message_tab.name))return &message_tab;
  if(im==&messages_image&&!strcmp(ns,chats_class.ns)&&!strcmp(name,chats_class.name))return &chats_class;
  if(im==&system_image&&!strcmp(ns,system_type.ns)&&!strcmp(name,system_type.name))return &system_type;
+ if(im==&messages_image&&!strcmp(ns,"DV.Messages")&&!strcmp(name,"Message"))return &browser_message_class;
  for(int i=0;i<10;i++){Image *want=i==3?&images[3]:(i>=5?&images[0]:&messages_image);if(im==want&&!strcmp(ns,bc[i].ns)&&!strcmp(name,bc[i].name))return &bc[i];}
  return old_class(im,ns,name);
 }
@@ -109,6 +122,9 @@ API Method *il2cpp_class_get_method_from_name(Class *k,const char *name,int arit
    }
   }
   return &bm[i];}
+ for(int i=0;i<5;i++)if(k==browser_headers[i].klass&&arity==0&&!strcmp(name,browser_headers[i].name)){
+  if(mode==853&&i==0){browser_bad_header=browser_headers[i];browser_bad_header.type=&tbool;return &browser_bad_header;}
+  return &browser_headers[i];}
  return old_method(k,name,arity);
 }
 API Type *il2cpp_method_get_param(Method *m,unsigned int i){
@@ -158,11 +174,19 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   if(mode==827)return NULL;
   if(mode==828){*exc=&exception;return NULL;}
   browser_unread=1;
-  if(mode==822||mode==832||mode==843||(mode==829&&((Object *)obj)->value==0))browser_unread=0;
+  if(mode==822||mode==832||mode==843||mode==844||mode==845||mode==847||mode==852||(mode==829&&((Object *)obj)->value==0))browser_unread=0;
   if(mode==824&&browser_unread_reads>=2)browser_unread=0;
-  if(mode==831&&browser_unread_reads>=2)browser_unread=2;
+  if((mode==831||mode==855)&&browser_unread_reads>=2)browser_unread=2;
   if(mode==826)browser_unread=-1;
   return &browser_unread_box;
+ case 850:
+  browser_last_reads++;
+  if(mode==847)return NULL;
+  return &browser_messages[mode==848&&browser_last_reads>=2?2:((Object *)obj)->value];
+ case 851:browser_long=browser_message_id?browser_message_id:mode==854?0:((Object *)obj)->value==0?1001:((Object *)obj)->value==2?1003:1002;return &browser_long_box;
+ case 852:browser_long=browser_message_id?(browser_message_mine?100:200):mode==850?999:(mode==844||mode==846)?100:(mode==849&&browser_last_reads>=2)?100:((Object *)obj)->value==0?201:200;return &browser_long_box;
+ case 853:browser_long=mode==851?999:mode==844?-1:((Object *)obj)->value==0?301:300;return &browser_long_box;
+ case 854:boolbox.value=browser_message_id?browser_message_mine:(mode==844||mode==846||(mode==849&&browser_last_reads>=2));return &boolbox;
  case 10:
   if(mode==842&&!browser_backs)slow();
   if(browser_backs){

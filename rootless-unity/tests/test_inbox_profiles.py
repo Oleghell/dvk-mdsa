@@ -22,6 +22,8 @@ GREETING = 'Привет 🙂'
 
 def nav(state, who=None, unread=True):
     value = plain_nav(state, who)
+    value['diagnostic'].update(reply_filter_applied=state in ('opened','exhausted'),
+                               reply_needed_verified=state=='opened', waiting_rows_skipped=0, handled_rows_skipped=0)
     if unread:
         value['diagnostic'].update(unread_filter_applied=state in ('opened', 'exhausted'),
                                    unread_verified=state == 'opened')
