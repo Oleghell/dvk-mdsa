@@ -35,158 +35,19 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.13'
+        cache: pip
+        cache-dependency-path: rootless-unity/morelogin-ci-requirements.txt
     - name: Install pinned SSH client for synthetic tests
       run: python -m pip install paramiko==4.0.0
     - name: Unit tests without accounts or Android
       run: python rootless-unity/run_unit_tests.py
-    - name: Install pinned native test client
-      run: python -m pip install frida==17.24.1
-    - uses: ilammy/msvc-dev-cmd@v1
-      if: runner.os == 'Windows'
-    - name: Native manual-approval integration on Linux
-      if: runner.os == 'Linux'
-      run: 'cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/automatic_fixture.c -o assistant_fixture.so
-
-        python rootless-unity/smoke_assistant_pass.py ./assistant_fixture.so
-
-        cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/profile_navigation_fixture.c -o preview_fixture.so
-
-        python rootless-unity/smoke_assistant_preview.py ./preview_fixture.so
-
-        cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/search_online_fixture.c -o search_online_fixture.so
-
-        python rootless-unity/smoke_search_online.py ./search_online_fixture.so
-
-        cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/search_city_fixture.c -o search_city_fixture.so
-
-        python rootless-unity/smoke_search_city.py ./search_city_fixture.so
-
-        '
-    - name: Native automatic-chain reply adapter on Linux
-      if: runner.os == 'Linux'
-      run: 'cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/one_chat_fixture.c -o one_chat_fixture.so
-
-        python rootless-unity/smoke_one_chat.py ./one_chat_fixture.so
-
-        python rootless-unity/smoke_one_chat_send.py ./one_chat_fixture.so
-
-        python rootless-unity/smoke_one_chat_name.py ./one_chat_fixture.so
-
-        cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/dialog_navigation_fixture.c -o dialog_fixture.so
-
-        python rootless-unity/smoke_dialog_navigation.py ./dialog_fixture.so
-
-        cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/dialog_browser_fixture.c -o browser_fixture.so
-
-        python rootless-unity/smoke_dialog_browser.py ./browser_fixture.so
-
-        python rootless-unity/smoke_contact_profile.py ./browser_fixture.so
-
-        python rootless-unity/smoke_dialog_models.py ./browser_fixture.so
-
-        '
-    - name: Native manual-approval and online-filter integration on Windows
+    - name: Standalone diagnostic syntax and sanitizer without credentials
       if: runner.os == 'Windows'
       shell: powershell
-      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/automatic_fixture.c /Fe:assistant_fixture.dll
+      run: 'powershell.exe -NoLogo -NoProfile -NonInteractive -File rootless-unity/tools/Check-MoreLogin-Format.ps1 -SelfTest
 
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_assistant_pass.py ./assistant_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        '
-    - name: Native online-only integration on Windows
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/search_online_fixture.c /Fe:search_online_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_search_online.py ./search_online_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        '
-    - name: Native profile-only preview on Windows
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/profile_navigation_fixture.c /Fe:preview_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_assistant_preview.py ./preview_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        '
-    - name: Native configured-city integration on Windows
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/search_city_fixture.c /Fe:search_city_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_search_city.py ./search_city_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        '
-    - name: Native automatic-chain reply adapter on Windows
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/one_chat_fixture.c /Fe:one_chat_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_one_chat.py ./one_chat_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_one_chat_send.py ./one_chat_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_one_chat_name.py ./one_chat_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        '
-    - name: Native dialog-list roundtrip on Windows
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/dialog_navigation_fixture.c /Fe:dialog_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_dialog_navigation.py ./dialog_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        '
-    - name: Native journal-filtered dialog selection on Windows
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/dialog_browser_fixture.c /Fe:browser_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_dialog_browser.py ./browser_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_contact_profile.py ./browser_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        python rootless-unity/smoke_dialog_models.py ./browser_fixture.dll
-
-        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-
-        '
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}'
   package:
-    needs: verify
     runs-on: windows-2022
     timeout-minutes: 18
     steps:
@@ -196,6 +57,8 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.13'
+        cache: pip
+        cache-dependency-path: rootless-unity/morelogin-ci-requirements.txt
     - name: Install pinned packaging dependencies
       run: python -m pip install frida==17.24.1 paramiko==4.0.0 pyinstaller==6.16.0
     - name: Build GUI and separate background worker
@@ -250,7 +113,10 @@ jobs:
         if-no-files-found: error
         retention-days: 14
   release:
-    needs: package
+    needs:
+    - verify
+    - native
+    - package
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[morelogin-release]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -275,10 +141,13 @@ jobs:
 
         sha256sum "$archive" > "$archive.sha256"
 
-        gh release create "morelogin-v$version" "$archive" "$archive.sha256" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "DvkAssistant MoreLogin
-        $version" --notes-file MORELOGIN_RELEASE_NOTES.md --prerelease --latest=false'
+        gh release create "morelogin-v$version" "$archive" "$archive.sha256" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "DvkAssistant
+        MoreLogin $version" --notes-file MORELOGIN_RELEASE_NOTES.md --prerelease --latest=false'
   archive-old-branches:
-    needs: package
+    needs:
+    - verify
+    - native
+    - package
     if: github.ref == 'refs/heads/main' && (inputs.maintenance == true || contains(github.event.head_commit.message, '[archive-old-branches]'))
     runs-on: ubuntu-24.04
     permissions:
@@ -293,7 +162,10 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: python3 rootless-unity/archive_old_branches.py
   promote-main:
-    needs: package
+    needs:
+    - verify
+    - native
+    - package
     if: github.ref == 'refs/heads/morelogin' && contains(github.event.head_commit.message, '[promote-main]')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -342,9 +214,177 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: "set -euo pipefail\nfor sha in 326904c4f89399fc245c6cc27385ca33d65b320d fd35b40968776d99fc0b83fa6c3619e04586ef94 cf3f17b2b086d8e7f60d5dabd205c03828303364\
-        \ 230b264b16e5db8bb1126fcca4129ecb93e15a73; do\n  runs=$(gh api \"repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$sha&per_page=50\" --jq '.workflow_runs[]\
-        \ | select(.name == \"Build DvkAssistant MoreLogin\" and .status != \"completed\") | .id')\n  for run in $runs; do gh api --method POST \"repos/$GITHUB_REPOSITORY/actions/runs/$run/cancel\"\
-        \ || true; done\ndone"
+        \ 230b264b16e5db8bb1126fcca4129ecb93e15a73; do\n  runs=$(gh api \"repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$sha&per_page=50\" --jq\
+        \ '.workflow_runs[] | select(.name == \"Build DvkAssistant MoreLogin\" and .status != \"completed\") | .id')\n  for run in $runs; do gh\
+        \ api --method POST \"repos/$GITHUB_REPOSITORY/actions/runs/$run/cancel\" || true; done\ndone"
+  native:
+    name: Native ${{ matrix.os }} / ${{ matrix.suite }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+        - ubuntu-24.04
+        - windows-2022
+        suite:
+        - profiles
+        - dialogs
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+        cache: pip
+        cache-dependency-path: rootless-unity/morelogin-ci-requirements.txt
+    - name: Install pinned native test client
+      run: python -m pip install frida==17.24.1
+    - uses: ilammy/msvc-dev-cmd@v1
+      if: runner.os == 'Windows'
+    - name: Native manual-approval integration on Linux
+      if: runner.os == 'Linux' && matrix.suite == 'profiles'
+      run: 'cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/automatic_fixture.c -o assistant_fixture.so
+
+        python rootless-unity/smoke_assistant_pass.py ./assistant_fixture.so
+
+        cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/profile_navigation_fixture.c -o preview_fixture.so
+
+        python rootless-unity/smoke_assistant_preview.py ./preview_fixture.so
+
+        cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/search_online_fixture.c -o search_online_fixture.so
+
+        python rootless-unity/smoke_search_online.py ./search_online_fixture.so
+
+        cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/search_city_fixture.c -o search_city_fixture.so
+
+        python rootless-unity/smoke_search_city.py ./search_city_fixture.so
+
+        '
+    - name: Native automatic-chain reply adapter on Linux
+      if: runner.os == 'Linux' && matrix.suite == 'dialogs'
+      run: 'cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/one_chat_fixture.c -o one_chat_fixture.so
+
+        python rootless-unity/smoke_one_chat.py ./one_chat_fixture.so
+
+        python rootless-unity/smoke_one_chat_send.py ./one_chat_fixture.so
+
+        python rootless-unity/smoke_one_chat_name.py ./one_chat_fixture.so
+
+        cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/dialog_navigation_fixture.c -o dialog_fixture.so
+
+        python rootless-unity/smoke_dialog_navigation.py ./dialog_fixture.so
+
+        cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/dialog_browser_fixture.c -o browser_fixture.so
+
+        python rootless-unity/smoke_dialog_browser.py ./browser_fixture.so
+
+        python rootless-unity/smoke_contact_profile.py ./browser_fixture.so
+
+        python rootless-unity/smoke_dialog_models.py ./browser_fixture.so
+
+        '
+    - name: Native manual-approval and online-filter integration on Windows
+      if: runner.os == 'Windows' && matrix.suite == 'profiles'
+      shell: powershell
+      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/automatic_fixture.c /Fe:assistant_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_assistant_pass.py ./assistant_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        '
+    - name: Native online-only integration on Windows
+      if: runner.os == 'Windows' && matrix.suite == 'profiles'
+      shell: powershell
+      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/search_online_fixture.c /Fe:search_online_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_search_online.py ./search_online_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        '
+    - name: Native profile-only preview on Windows
+      if: runner.os == 'Windows' && matrix.suite == 'profiles'
+      shell: powershell
+      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/profile_navigation_fixture.c /Fe:preview_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_assistant_preview.py ./preview_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        '
+    - name: Native configured-city integration on Windows
+      if: runner.os == 'Windows' && matrix.suite == 'profiles'
+      shell: powershell
+      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/search_city_fixture.c /Fe:search_city_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_search_city.py ./search_city_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        '
+    - name: Native automatic-chain reply adapter on Windows
+      if: runner.os == 'Windows' && matrix.suite == 'dialogs'
+      shell: powershell
+      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/one_chat_fixture.c /Fe:one_chat_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_one_chat.py ./one_chat_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_one_chat_send.py ./one_chat_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_one_chat_name.py ./one_chat_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        '
+    - name: Native dialog-list roundtrip on Windows
+      if: runner.os == 'Windows' && matrix.suite == 'dialogs'
+      shell: powershell
+      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/dialog_navigation_fixture.c /Fe:dialog_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_dialog_navigation.py ./dialog_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        '
+    - name: Native journal-filtered dialog selection on Windows
+      if: runner.os == 'Windows' && matrix.suite == 'dialogs'
+      shell: powershell
+      run: 'cl /nologo /LD /Od /std:c11 rootless-unity/fixtures/dialog_browser_fixture.c /Fe:browser_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_dialog_browser.py ./browser_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_contact_profile.py ./browser_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_dialog_models.py ./browser_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        '
 concurrency:
   group: morelogin-${{ github.ref }}
   cancel-in-progress: true
