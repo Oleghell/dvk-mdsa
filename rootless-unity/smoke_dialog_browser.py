@@ -81,7 +81,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         except subprocess.TimeoutExpired:child.kill();child.wait(timeout=3)
         child.stdout.close();child.stderr.close()
 
-def integration(library,mode=800,ai=False,provider='groq'):
+def integration(library,mode=800,ai=False,provider='groq',cached_models=False):
     # Keep one owned process alive through open -> real Chain reservation ->
     # outgoing observation -> back -> search. Bodies and transport are synthetic.
     import tempfile
@@ -112,11 +112,19 @@ for _ in range(12000):
             needs_reply_only=kwargs.get('needs_reply_only',False)
             session=frida.get_local_device().attach(child.pid);script=None
             try:
-                script=session.create_script(build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)+'''
+                if cached_models and operation=='open':
+                    import dialog_models
+                    source=dialog_models.build(allowed=allowed,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
+                else:source=build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
+                script=session.create_script(source+'''
 rpc.exports={probe(){return probeUIKitRoot();},counts(){
  const read=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
  return [read('fixture_handles'),read('fixture_bad_frees'),read('fixture_off_thread_calls'),read('fixture_route_bad')];}};''')
-                script.load();result=validate(script.exports_sync.probe(),operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
+                script.load();raw=script.exports_sync.probe()
+                if cached_models and operation=='open':
+                    result,nxt=dialog_models.validate(raw,allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only)
+                    assert nxt is None
+                else:result=validate(raw,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
                 assert script.exports_sync.counts()==[0,0,0,0]
                 if operation=='back':recovered.append(result['diagnostic']['back_budget_retries'])
                 return result
@@ -197,6 +205,11 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
             from unittest.mock import patch
             messages.append(dict(id='1006',sender='200',text='791234567890'))
             latest(messages[-1]);delivered=[]
+            if cached_models:
+                # Next cached chat has a bad header. Its own identity remains
+                # valid, so it must not stop the pass after the accepted photo.
+                a=store.reserve(dict(attempt=2,account='100',peer='201',chat='301',variant=0),greeting,approved=True)
+                store.finish(a,dict(send_attempted=True,send_handler_returned=True))
             import struct,zlib
             def chunk(kind,data):return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)
             photo=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',300,600,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\0'+b'\0'*900)*600))+chunk(b'IEND',b'')
@@ -209,7 +222,8 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
                 again=assistant_inbox.run(Settings(contacts_enabled=True),threading.Event(),approve,store=store,
                     navigator=navigator,reader=reader,sender=sender,notifier=lambda payload:delivered.append(payload) or True,
                     greetings=(greeting,),pause=lambda _:False,entry='dialogs',return_to='dialogs',contact_photo=lambda who:photo)
-                assert again['status']=='inbox-empty' and again['dialogs_opened']==0 and len(delivered)==1,again
+                assert again['status']==('inbox-completed' if cached_models else 'inbox-empty') and again['dialogs_opened']==0 and len(delivered)==1,again
+                if cached_models:assert contacted['header_rows_skipped']>0 and again['header_rows_skipped']>0,(contacted,again)
         print('Synthetic browser + durable chain + outgoing observation + return passed.',flush=True)
         print('Synthetic monitor: immediate inbox recheck, idle in dialogs, direct contact delivered once without reopening.',flush=True)
     finally:

@@ -22,8 +22,8 @@ SELECTION_ERRORS={'selection-screen-changed','selection-controller-changed','sel
 ERRORS=nav.ERRORS|SELECTION_ERRORS|{'identity-not-bound','selection-changed','collection-too-large','binding-unavailable','unread-count-invalid'}
 KINDS=route.KINDS|{'chat'}
 PHASES={'entry','wait-list','scan','wait-chat','wait-back','wait-search','done'}
-CHECKPOINTS={'not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','unread-count','chat-controller','open-handler','back-handler','ready'}
-SELECTION={'not-checked','table','visible','cell','binding','filter','unread','stability','open','verify-chat','back','search','exhausted'}
+CHECKPOINTS={'model-manager','model-collection','model-route','not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','unread-count','chat-controller','open-handler','back-handler','ready'}
+SELECTION={'model-list','model-stability','not-checked','table','visible','cell','binding','filter','unread','stability','open','verify-chat','back','search','exhausted'}
 FLAGS={'cleanup_failed','ui_text_read','entry_verified','list_verified','chat_verified','destination_verified','action_attempted','action_completed','selection_verified','exhausted','unread_filter_applied','unread_verified','reply_filter_applied','reply_needed_verified'}
 EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped','back_budget_retries','waiting_rows_skipped','handled_rows_skipped'}
 

@@ -58,7 +58,7 @@ def safe_diagnostic(value):
     keys={'stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned',
           'scan_batches','action_attempted','action_completed','destination_verified',
           'unread_filter_applied','unread_verified','read_rows_skipped'}
-    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped'}:
+    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','header_rows_skipped'}:
         raise ValueError('Invalid diagnostic')
     if (value['stage'] not in {'not-attempted','navigation-ready','navigation-stopped','cleanup-failed'}
             or value['error'] not in ERRORS or value['phase'] not in PHASES
@@ -82,6 +82,7 @@ def safe_diagnostic(value):
         if key in value and type(value[key]) is not bool:raise ValueError('Invalid reply diagnostic')
     for key in ('waiting_rows_skipped','handled_rows_skipped'):
         if key in value and (type(value[key]) is not int or not 0<=value[key]<=value['rows_scanned']):raise ValueError('Invalid reply count')
+    if 'header_rows_skipped' in value and (type(value['header_rows_skipped']) is not int or not 0<=value['header_rows_skipped']<=100000):raise ValueError('Invalid header count')
     return dict(value)
 
 

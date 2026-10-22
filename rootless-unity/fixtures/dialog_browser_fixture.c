@@ -10,6 +10,7 @@
 #define fixture_tick old_tick
 #define il2cpp_object_unbox browser_base_unbox
 #define il2cpp_type_is_byref browser_base_byref
+#define il2cpp_class_is_valuetype model_base_value_type
 #include "navigation_fixture.c"
 #undef il2cpp_domain_get_assemblies
 #undef il2cpp_class_from_name
@@ -22,6 +23,7 @@
 #undef fixture_tick
 #undef il2cpp_object_unbox
 #undef il2cpp_type_is_byref
+#undef il2cpp_class_is_valuetype
 static Image messages_image={"DV.Messages.dll"},system_image={"mscorlib.dll"};
 static Class message_tab={"DV","MessagesTabController"},chats_class={"DV.Messages","ChatsViewController"};
 static Class system_type={"System","Type"},runtime_type={"System","RuntimeType"};
@@ -84,10 +86,24 @@ static Object contact_queue_obj={&contact_queue,0},contact_content_obj={&contact
 static Method contact_active={"get_CurrentProfileController",&contact_queue,0,&contact_content_type,900};
 static Method contact_user={"get_User",&contact_content,0,&bt[3],901};
 static int contact_user_reads;
+static Class model_cm_class={"DV.CMs","ChatsCM"},model_router_class={"DV.Routers.Messages","MessagesRouter"};
+static Class model_context_class={"","EventSourcesContext"},model_method_class={"","OpenChatMethod"};
+static Type model_cm_type={18,&model_cm_class},model_router_type={18,&model_router_class},model_context_type={17,&model_context_class},model_method_type={17,&model_method_class};
+static Object model_cm={&model_cm_class,0},model_router={&model_router_class,0},model_other_manager={&bc[2],0};
+static Method model_methods[]={
+ {"get_Count",&model_cm_class,0,&tint,920},
+ {"get_Item",&model_cm_class,0,&bt[1],921,1,&tint},
+ {"get_Chats",&bc[2],0,&model_cm_type,922},
+ {"get_MessagesRouter",&bc[2],0,&model_router_type,923},
+ {"ShowChat",&model_router_class,0,&tvoid,924,3,&bt[1]}};
+static int model_count_reads,model_field_reads,model_clicks;
+API int fixture_model_clicks(void){return model_clicks;}
+API int fixture_model_visible_calls(void){return browser_visible_reads;}
+static int model_mode(void){return mode>=870&&mode<=889;}
 static Object *browser_selected;
 static int browser_back_checks;
 static Object browser_parents[31];
-static void browser_init(void){contact_user_reads=0;contact_user.type=mode==862?&tbool:&bt[3];int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
+static void browser_init(void){model_count_reads=model_field_reads=model_clicks=0;contact_user_reads=0;contact_user.type=mode==862?&tbool:&bt[3];int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
 API int fixture_browser_clicks(void){return browser_clicks;}
 API int fixture_browser_backs(void){return browser_backs;}
 API void fixture_browser_entry(int entry){phase=entry;browser_start=entry;}
@@ -99,6 +115,9 @@ API Image **il2cpp_domain_get_assemblies(void *d,size_t *n){
  (void)d;*n=8;return all;
 }
 API Class *il2cpp_class_from_name(Image *im,const char *ns,const char *name){
+ if(im==&messages_image){if(!strcmp(ns,"DV.CMs")&&!strcmp(name,"ChatsCM"))return &model_cm_class;if(!strcmp(ns,"DV.Routers.Messages")&&!strcmp(name,"MessagesRouter"))return &model_router_class;}
+ if(im==&images[3]&&!strcmp(ns,"")){if(!strcmp(name,"EventSourcesContext"))return &model_context_class;if(!strcmp(name,"OpenChatMethod"))return &model_method_class;}
+
  if(im==&contact_profile_image&&!strcmp(ns,"DV.Profiles")){if(!strcmp(name,contact_queue.name))return &contact_queue;if(!strcmp(name,contact_content.name))return &contact_content;}
  if(im==&messages_image&&!strcmp(ns,message_tab.ns)&&!strcmp(name,message_tab.name))return &message_tab;
  if(im==&messages_image&&!strcmp(ns,chats_class.ns)&&!strcmp(name,chats_class.name))return &chats_class;
@@ -120,6 +139,8 @@ API unsigned char il2cpp_class_is_assignable_from(Class *a,Class *b){
  return old_assignable(a,b);
 }
 API Method *il2cpp_class_get_method_from_name(Class *k,const char *name,int arity){
+ for(int i=0;i<5;i++)if(k==model_methods[i].klass&&arity==(int)model_methods[i].arity&&!strcmp(name,model_methods[i].name))return &model_methods[i];
+
  if(arity==0&&k==&contact_queue&&!strcmp(name,contact_active.name))return &contact_active;
  if(arity==0&&k==&contact_content&&!strcmp(name,contact_user.name))return &contact_user;
  if(k==&nc[8]&&arity==2&&!strcmp(name,route.name))return &route;
@@ -140,6 +161,8 @@ API Method *il2cpp_class_get_method_from_name(Class *k,const char *name,int arit
  return old_method(k,name,arity);
 }
 API Type *il2cpp_method_get_param(Method *m,unsigned int i){
+ if(m==&model_methods[4])return i==0?&bt[1]:i==1?&model_context_type:i==2?&model_method_type:NULL;
+
  if(m==&route||m==&bad_route)return i==0?&type_type:i==1?((mode==701||m==&bad_route)?&tint:&tbool):NULL;
  if(m==&bm[15]||m==&browser_bad_method)return i==0?&bt[4]:i==1?(m==&browser_bad_method?&bt[3]:&bt[1]):NULL;
  if(mode==804&&m==&bm[3])return &tbool;
@@ -160,6 +183,14 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  if(m->action<10)return old_invoke(m,obj,args,exc);
  managed_calls++;if(TID()!=main_id)off_thread_calls++;
  switch(m->action){
+ case 920:model_count_reads++;modal_count=mode==871?130:(mode==883&&model_count_reads>=2)?3:2;return &countbox;
+ case 921:{int index=*(int *)args[0];if(mode==880){*exc=&exception;return NULL;}if(mode==871)return index==129?&browser_chats[1]:NULL;return index>=0&&index<2?&browser_chats[index]:NULL;}
+ case 922:return &model_cm;
+ case 923:return &model_router;
+ case 924:
+  model_clicks++;if(obj!=&model_router||!args||args[0]!=&browser_chats[1]||!args[1]||!args[2]||*(int *)args[2]!=0)route_bad++;
+  browser_selected=mode==877?&browser_chats[0]:args[0];browser_seen=1;phase=3;return NULL;
+
  case 900:return &contact_content_obj;
  case 901:contact_user_reads++;return &browser_users[(mode==861||(mode==863&&contact_user_reads>=2))?0:1];
  case 800:return &browser_table;
@@ -171,10 +202,10 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 806:boolbox.value=!(mode==810&&((Object *)obj)->value==1);return &boolbox;
  case 807:boolbox.value=1;return &boolbox;
  case 808:boolbox.value=0;return &boolbox;
- case 809:return &browser_manager;
- case 810:browser_long=mode==805?101:100;return &browser_long_box;
+ case 809:return mode==884?&model_other_manager:&browser_manager;
+ case 810:browser_long=mode==876?0:mode==805?101:100;return &browser_long_box;
  case 811:browser_long=((Object *)obj)->value==1?200:201;return &browser_long_box;
- case 812:browser_long=((Object *)obj)->value==1?300:301;return &browser_long_box;
+ case 812:browser_long=mode==875?0:((Object *)obj)->value==1?300:301;return &browser_long_box;
  case 813:return mode==803?&browser_chats[0]:browser_selected;
  case 814:return mode==814?&browser_users[0]:&browser_users[browser_selected->value];
  case 815:
@@ -184,6 +215,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   browser_backs++;browser_back_checks=0;if(obj!=&browser_vc)route_bad++;
   if(mode==808){*exc=&exception;return NULL;}phase=mode==838||mode==841?3:1;return NULL;
  case 817:
+  if(mode==882){browser_unread=0;return &browser_unread_box;}
   browser_unread_reads++;
   if(mode==827)return NULL;
   if(mode==828){*exc=&exception;return NULL;}
@@ -198,9 +230,9 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   if(mode==847)return NULL;
   return &browser_messages[mode==848&&browser_last_reads>=2?2:((Object *)obj)->value];
  case 851:browser_long=browser_message_id?browser_message_id:mode==854?0:((Object *)obj)->value==0?1001:((Object *)obj)->value==2?1003:1002;return &browser_long_box;
- case 852:browser_long=browser_message_id?(browser_message_mine?100:200):mode==850?999:(mode==844||mode==846)?100:(mode==849&&browser_last_reads>=2)?100:((Object *)obj)->value==0?201:200;return &browser_long_box;
- case 853:browser_long=mode==851?999:mode==844?-1:((Object *)obj)->value==0?301:300;return &browser_long_box;
- case 854:boolbox.value=browser_message_id?browser_message_mine:(mode==844||mode==846||(mode==849&&browser_last_reads>=2));return &boolbox;
+ case 852:if(mode==873||mode==872&&((Object *)obj)->value==0){browser_long=999;return &browser_long_box;}if(mode==882){browser_long=100;return &browser_long_box;}browser_long=browser_message_id?(browser_message_mine?100:200):mode==850?999:(mode==844||mode==846)?100:(mode==849&&browser_last_reads>=2)?100:((Object *)obj)->value==0?201:200;return &browser_long_box;
+ case 853:if(mode==874){browser_long=999;return &browser_long_box;}browser_long=mode==851?999:mode==844?-1:((Object *)obj)->value==0?301:300;return &browser_long_box;
+ case 854:if(mode==882){boolbox.value=1;return &boolbox;}boolbox.value=browser_message_id?browser_message_mine:(mode==844||mode==846||(mode==849&&browser_last_reads>=2));return &boolbox;
  case 10:
   if(mode==842&&!browser_backs)slow();
   if(browser_backs){
@@ -250,3 +282,19 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  route_bad++;return NULL;
 }
 API void fixture_tick(void){void *exc=NULL;il2cpp_runtime_invoke(&methods[3],&runtime,NULL,&exc);}
+
+/* Fixed owned field/type metadata used only by the model adapter. */
+static int model_manager_field;
+API void *il2cpp_class_get_field_from_name(Class *k,const char *name){return k==&chats_class&&!strcmp(name,"m_MessagesManager")?&model_manager_field:NULL;}
+API Class *il2cpp_field_get_parent(void *field){return field==&model_manager_field?&chats_class:NULL;}
+API Type *il2cpp_field_get_type(void *field){return field==&model_manager_field?(mode==878?&tbool:&bt[2]):NULL;}
+API uint32_t il2cpp_field_get_flags(void *field){(void)field;return 0;}
+API void il2cpp_field_get_value(void *object,void *field,void *value){
+ model_field_reads++;if(TID()!=main_id)off_thread_calls++;
+ if(object!=&chats_obj||field!=&model_manager_field){route_bad++;*(void **)value=NULL;return;}
+ *(void **)value=mode==881?NULL:&browser_manager;
+}
+API int il2cpp_class_value_size(Class *k,uint32_t *align){*align=4;return k==&model_context_class?8:4;}
+API unsigned char il2cpp_class_is_enum(Class *k){return k==&model_method_class;}
+API Type *il2cpp_class_enum_basetype(Class *k){return k==&model_method_class?&tint:NULL;}
+API unsigned char il2cpp_class_is_valuetype(Class *k){if(k==&model_context_class)return mode!=879;if(k==&model_method_class)return 1;return model_base_value_type(k);}

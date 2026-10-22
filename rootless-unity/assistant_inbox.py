@@ -150,7 +150,7 @@ def report():
                 groq_context_export_enabled=False, openrouter_context_export_enabled=False, outcomes={}, per_message_confirmation=True, automatic_send=False,
                 return_verified=False, dialogs_verified=False, delivery_confirmed=False,
                 all_dialogs_covered=False, ui_may_remain_open=False,
-                personal_data_exported=False, chat_content_exported=False,
+                header_rows_skipped=0, personal_data_exported=False, chat_content_exported=False,
                 device_scope='MuMu-4-only', last_navigation=None, last_chat_diagnostics=None)
 
 
@@ -197,6 +197,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         if not isinstance(value, dict) or set(value) != {'state', 'identity', 'diagnostic'}:
             raise ValueError('Invalid navigation result')
         n = out['last_navigation'] = safe_diagnostic(value['diagnostic'])
+        out['header_rows_skipped']+=n.get('header_rows_skipped',0)
         if value['state'] == 'stopped':
             raise StateError('navigation-stopped')
         if n['stage'] != 'navigation-ready' or n['error'] != 'none' or not n['destination_verified']:
@@ -361,7 +362,6 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     """Caller must hold the shared device lock."""
     from assistant_config import load
     from assistant_store import Store
-    from dialog_browser import perform
     from one_chat_device import capture
     from one_chat_send_device import submit
     import telegram_notify
@@ -383,16 +383,12 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
             exit_notifier = lambda text: telegram_notify.send(exit_token, exit_chat, text)
         except telegram_notify.TelegramError:
             pass
-    if navigator is None and pager is None:
-        from assistant_dialog_pages import Pager
-        # The initial full pass may still be on search. Verify the list before
-        # any paging gesture; this route never opens a conversation.
-        prepared=perform('list',settings.adb,settings.folder,stopped.is_set,entry=entry)
-        if prepared['state']!='dialogs-ready':raise StateError('dialog-list-not-verified')
-        entry='dialogs'
-        pager=Pager(settings,stopped.is_set)
+    if navigator is None:
+        from dialog_models import perform as model_navigation
+        navigator=model_navigation
+    # No screen paging, automatic swipes or return-to-top scan.
     result = walk(settings, stopped, approve, progress, chain,
-                navigator=perform if navigator is None else navigator,
+                navigator=navigator,
                 reader=capture if reader is None else reader,
                 sender=submit if sender is None else sender,
                 notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,
