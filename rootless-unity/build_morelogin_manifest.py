@@ -15,7 +15,7 @@ def main(folder):
         features=dict(explicit_cloud_ids=True,parallel_phone_processes=True,
             common_local_sqlite=True,shared_atomic_peer_claims=True,phone_isolated_journals=True,
             app_id_secret_key=True,windows_dpapi=True,ssh_host_key_pinning=True,
-            auto_start=False,unknown_send_auto_retry=False,automatic_app_install=False,explicit_single_phone_installer=True,typed_delete_confirmation=True,apk_only_backup=True,read_only_installed_gadget_check=True,post_install_apk_hash_check=True,
+            auto_start=False,unknown_send_auto_retry=False,automatic_app_install=False,explicit_single_phone_installer=True,typed_delete_confirmation=True,apk_only_backup=True,read_only_installed_gadget_check=True,post_install_apk_hash_check=True,file_first_package_session=True,remote_apk_sha256_check=True,commit_auto_retry=False,
             compatible_gadget_bundle_required=True,stock_apk_supported=False,
             direct_adb_fallback=False,direct_adb_supported=True,direct_adb_code_via_argv=False,automatic_phone_power_on=False),
         live_verified=dict(cloud_api=False,cloud_installer=False,direct_adb_android15=False,ssh_android14=False,ssh_android15=False,

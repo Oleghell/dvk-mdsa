@@ -7,6 +7,7 @@ from pathlib import Path
 import queue
 import sys
 import threading
+import time
 from morelogin_common import root_directory,phone_directory,phone_id
 from morelogin_version import VERSION
 from morelogin_install import run,check_installed,InstallError
@@ -34,6 +35,11 @@ MESSAGES={
  'different-bundle':'Установленные APK отличаются от нашего комплекта. Это не подтверждённый комплект Gadget.',
  'app-absent':'ДругВокруг (drug.vokrug) не установлен.',
  'check-failed':'Проверка APK не завершена. Нужно 2 ГБ свободного места; см. last-gadget-check.json.',
+ 'transfer-failed':'Не удалось подготовить передачу APK. Приложение не удалялось.',
+ 'transfer-timeout':'Передача APK не завершилась за 10 минут. Установка не начиналась. См. last-install.json.',
+ 'transfer-hash-mismatch':'Переданный APK не прошёл проверку SHA256. Установка запрещена.',
+ 'session-create-failed':'Android не подтвердил создание сессии. См. last-install.json.',
+ 'session-write-failed':'Android не подтвердил подготовку APK в сессии. См. last-install.json.',
  'installed-unverified':'Android сообщил об установке, но APK не совпали с комплектом. Автоповтора нет.',
 }
 
@@ -68,6 +74,8 @@ def launch(self_check=False):
     path_row('Путь к adb.exe',adb,False);path_row('Папка test-apks (оба APK внутри)',folder,True)
     ttk.Label(box,textvariable=status,wraplength=730).pack(anchor='w',pady=12)
     events=queue.Queue();stopped=threading.Event();busy=False;pending=[]
+    stage_started=time.monotonic();clock=tk.StringVar(value='')
+    ttk.Label(box,textvariable=clock).pack(anchor='w')
     def ask(kind,*args):
         reply=queue.Queue(maxsize=1);events.put(('ask',(kind,args,reply)))
         while not stopped.is_set():
@@ -80,13 +88,13 @@ def launch(self_check=False):
         for widget in controls+[choice,begin,inspect]:widget.configure(state='normal')
         cancel.configure(state='disabled')
     def start(check_only=False):
-        nonlocal busy
+        nonlocal busy,stage_started
         if busy:return
         try:identifier=phone_id(cloud.get().strip())
         except Exception:status.set('Укажи один числовой Cloud Phone ID.');return
         executable=adb.get();source=folder.get()
         if not executable or (not check_only and not source):status.set('Выбери adb.exe'+('.' if check_only else ' и папку test-apks.'));return
-        busy=True;stopped.clear()
+        busy=True;stopped.clear();stage_started=time.monotonic()
         for widget in controls+[choice,begin,inspect]:widget.configure(state='disabled')
         cancel.configure(state='normal');status.set('Проверяю установленные APK. Установка, удаление и отправка сообщений запрещены.' if check_only else 'Проверяю комплект и подключение. На телефоне пока ничего не меняется.')
         def work():
@@ -112,13 +120,18 @@ def launch(self_check=False):
         except Exception:status.set('Отчёт: %LOCALAPPDATA%\\DvkAssistantMoreLogin\\phones\\<ID>\\last-install.json')
     ttk.Button(box,text='Открыть папку отчёта',command=show_report).pack(side='right')
     def poll():
+        nonlocal stage_started
+        if busy:
+            elapsed=int(time.monotonic()-stage_started);clock.set("На текущем этапе: %d мин %02d сек"%(elapsed//60,elapsed%60))
+        else:clock.set('')
         while not events.empty():
             kind,value=events.get_nowait()
-            if kind=='status':status.set(value)
+            if kind=='status':status.set(value);stage_started=time.monotonic()
             elif kind=='done':status.set(MESSAGES.get(value,'Операция остановлена ('+value+'). См. last-install.json.'));finish()
             elif kind=='ask':
                 action,args,reply=value
                 if stopped.is_set():reply.put(False);continue
+                stage_started=time.monotonic()
                 if action=='install':
                     identifier,sdk,exists=args
                     text=('Cloud Phone ID: '+identifier+'\nAndroid SDK: '+sdk+' · ARM64\n\nБудут установлены два APK с Gadget.\n'+

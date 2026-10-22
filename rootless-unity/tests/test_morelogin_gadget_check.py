@@ -7,7 +7,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import morelogin_install as install
 import morelogin_ssh as ssh
 from morelogin_common import CloudError
-from test_morelogin_install import Adb,BOOT,no_lock
+from test_morelogin_install import Adb,BOOT,no_lock,legacy_install
 
 def apk_bytes(label):
     f=io.BytesIO()
@@ -80,7 +80,7 @@ class InstalledCheck(unittest.TestCase):
         with patch.dict(os.environ,{'LOCALAPPDATA':str(self.folder)}):
             with self.assertRaisesRegex(install.InstallError,'installed-unverified'):
                 install.install_connected(a,'101',self.folder,self.stopped,lambda *_:True,lambda *_:None,lambda _:None,
-                    verify_bundle=lambda _:None,lock=no_lock,inspect_fn=lambda *_:dict(known_bundle=False))
+                    verify_bundle=lambda _:None,lock=no_lock,transfer_fn=lambda *_:None,install_fn=legacy_install,inspect_fn=lambda *_:dict(known_bundle=False))
         self.assertEqual(a.installs,1);self.assertNotIn(('uninstall',install.PACKAGE),a.calls)
     def test_post_install_timeout_no_retry_or_false_success(self):
         a=Adb(self.folder);records=[]
@@ -88,7 +88,7 @@ class InstalledCheck(unittest.TestCase):
         with patch.dict(os.environ,{'LOCALAPPDATA':str(self.folder)}):
             with self.assertRaisesRegex(install.InstallError,'operation-uncertain'):
                 install.install_connected(a,'101',self.folder,self.stopped,lambda *_:True,lambda *_:None,lambda _:None,
-                    verify_bundle=lambda _:None,lock=no_lock,inspect_fn=inspect,record=lambda **x:records.append(x))
+                    verify_bundle=lambda _:None,lock=no_lock,transfer_fn=lambda *_:None,install_fn=legacy_install,inspect_fn=inspect,record=lambda **x:records.append(x))
         self.assertEqual(a.installs,1);self.assertEqual(records[-1]['stage'],'verify-installed')
         self.assertNotIn(('uninstall',install.PACKAGE),a.calls)
 

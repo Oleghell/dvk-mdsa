@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 import zipfile
 from morelogin_common import CloudError, phone_id, fingerprint, root_directory, phone_directory, atomic_json
@@ -24,12 +25,14 @@ ANDROID_CODES = {'INSTALL_FAILED_UPDATE_INCOMPATIBLE','INSTALL_FAILED_VERSION_DO
 CODES={'configuration','bundle-required','cancelled','device-busy','device-not-ready','wrong-abi',
  'wrong-android','identity-changed','adb-failed','operation-uncertain','backup-failed','declined','install-failed',
  'delete-failed','not-installed','installed','installed-after-replacement',
- 'known-bundle','different-bundle','app-absent','check-failed','installed-unverified'}
+ 'known-bundle','different-bundle','app-absent','check-failed','installed-unverified',
+ 'transfer-failed','transfer-timeout','transfer-hash-mismatch','session-create-failed','session-write-failed'}
 BOOT=re.compile(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}')
 class InstallError(RuntimeError):
     def __init__(self,code,android_code=None):
         self.code=code if code in CODES else 'adb-failed'
         self.android_code=android_code if android_code in ANDROID_CODES else None
+        self.reason=None;self.operation=None;self.elapsed_seconds=None
         super().__init__(self.code)
 
 class OwnedAdb:
@@ -41,6 +44,7 @@ class OwnedAdb:
             raise InstallError('configuration')
         self.executable=str(path);self.serial=serial;self.folder=Path(folder).resolve(strict=True)
         self.runner=runner;self.backup_dir=None;self.read_only=read_only
+        self.upload_dir=None;self.session_ids=set();self.committed_sessions=set();self.audit=lambda **kw:None
     def validate(self,args):
         if args in (['connect',self.serial],['disconnect',self.serial]):return
         if args[:2]!=['-s',self.serial]:raise InstallError('configuration')
@@ -51,8 +55,24 @@ class OwnedAdb:
           ['shell','pm','path',PACKAGE]]
         if op in read:return
         if not self.read_only and op==['uninstall',PACKAGE]:return
-        if not self.read_only and op in (['install-multiple','-r',str(self.folder/'base.apk'),str(self.folder/'split-001.apk')],
-                  ['install-multiple',str(self.folder/'base.apk'),str(self.folder/'split-001.apk')]):return
+        if not self.read_only and self.upload_dir is not None:
+            remote=self.upload_dir
+            if not re.fullmatch(r'/data/local/tmp/dvk-install-[0-9a-f]{32}',remote):raise InstallError('configuration')
+            sizes={name:(self.folder/name).stat().st_size for name in HASHES}
+            total=str(sum(sizes.values()))
+            if op in (['shell','mkdir',remote],['shell','rmdir',remote],
+                      ['shell','rm',remote+'/base.apk',remote+'/split-001.apk']):return
+            for name in HASHES:
+                if op in (['push',str(self.folder/name),remote+'/'+name],
+                          ['shell','toybox','sha256sum',remote+'/'+name]):return
+            if op in (['shell','pm','install-create','--pkg',PACKAGE,'-S',total],
+                      ['shell','pm','install-create','--pkg',PACKAGE,'-r','-S',total]):return
+            for session in self.session_ids:
+                if op==['shell','pm','install-abandon',session]:return
+                if session not in self.committed_sessions:
+                    if op==['shell','pm','install-commit',session]:return
+                    for name,size in sizes.items():
+                        if op==['shell','pm','install-write','-S',str(size),session,name,remote+'/'+name]:return
         if len(op)==3 and op[0]=='pull' and self.backup_dir is not None:
             remote=op[1];base=remote.rsplit('/',1)[0]+'/base.apk'
             parse_apk_paths('package:'+remote+ ('\npackage:'+base if not remote.endswith('/base.apk') else ''))
@@ -61,23 +81,46 @@ class OwnedAdb:
         raise InstallError('configuration')
     def run(self,args,timeout=30):
         self.validate(args)
+        op=args[2:] if args[:2]==['-s',self.serial] else args
+        operation=(op[2] if op[:2]==['shell','pm'] else
+                   ('sha256sum' if op[:3]==['shell','toybox','sha256sum'] else op[0]))
+        if op[:3]==['shell','pm','install-commit']:
+            # Reserve before executing. Unknown commit is never submitted twice.
+            self.committed_sessions.add(op[3])
+        self.audit(adb_operation=operation,operation_status='started',timeout_seconds=timeout)
         env=os.environ.copy()
         for key in ('ADB_SERVER_SOCKET','ANDROID_ADB_SERVER_PORT','ANDROID_SERIAL'):env.pop(key,None)
         env['ADB_SERVER_SOCKET']='tcp:localhost:5037'
+        started=time.monotonic()
         try:
             with tempfile.TemporaryFile() as out:
                 result=self.runner([self.executable,*args],shell=False,stdin=subprocess.DEVNULL,
                     stdout=out,stderr=subprocess.STDOUT,timeout=timeout,env=env,
                     creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
                 out.seek(0);value=out.read(65537)
-            if len(value)>65536:raise InstallError('operation-uncertain')
+            if len(value)>65536:
+                error=InstallError('operation-uncertain');error.reason='output-limit';raise error
             text=value.decode('utf-8',errors='replace').strip()
             match=re.search(r'Failure \[([A-Z_]+)',text)
             if result.returncode or match:
-                raise InstallError('adb-failed',match.group(1) if match else None)
+                error=InstallError('adb-failed',match.group(1) if match else None)
+                error.reason='android-failure' if match else 'nonzero-exit';raise error
+            self.audit(adb_operation=operation,operation_status='completed',elapsed_seconds=round(time.monotonic()-started,1))
             return text
-        except subprocess.TimeoutExpired:raise InstallError('operation-uncertain') from None
-        except OSError:raise InstallError('adb-failed') from None
+        except subprocess.TimeoutExpired:
+            error=InstallError('transfer-timeout' if operation=='push' else 'operation-uncertain')
+            error.reason='timeout';error.operation=operation;error.elapsed_seconds=round(time.monotonic()-started,1)
+            self.audit(adb_operation=operation,operation_status='failed',reason=error.reason,elapsed_seconds=error.elapsed_seconds)
+            raise error from None
+        except OSError:
+            error=InstallError('adb-failed');error.reason='process-start-failed'
+            error.operation=operation;error.elapsed_seconds=round(time.monotonic()-started,1)
+            self.audit(adb_operation=operation,operation_status='failed',reason=error.reason,elapsed_seconds=error.elapsed_seconds)
+            raise error from None
+        except InstallError as error:
+            error.operation=operation;error.elapsed_seconds=round(time.monotonic()-started,1)
+            self.audit(adb_operation=operation,operation_status='failed',reason=error.reason,elapsed_seconds=error.elapsed_seconds)
+            raise
     def op(self,*args,timeout=30):return self.run(['-s',self.serial,*args],timeout)
 
 def boot(adb):
@@ -150,7 +193,9 @@ def verify_installed(adb,directory,identity,stopped,progress=lambda _:None):
 
 
 def install_connected(adb,cloud_id,directory,stopped,confirm_install,confirm_delete,progress,
-                      *,backup_fn=backup,verify_bundle=bundle_token,lock=operation_lock,record=lambda **kw:None,inspect_fn=verify_installed):
+                      *,backup_fn=backup,verify_bundle=bundle_token,lock=operation_lock,record=lambda **kw:None,inspect_fn=verify_installed,transfer_fn=None,install_fn=None):
+    from morelogin_package_session import transfer_apks, install_session, cleanup_upload, verify_upload
+    transfer_fn=transfer_fn or transfer_apks;install_fn=install_fn or install_session
     cloud_id=phone_id(cloud_id)
     if adb.op('get-state')!='device':raise InstallError('device-not-ready')
     identity=boot(adb)
@@ -163,12 +208,11 @@ def install_connected(adb,cloud_id,directory,stopped,confirm_install,confirm_del
         exists=present(adb)
         if not confirm_install(cloud_id,sdk,exists):raise InstallError('declined')
         guard(adb,identity,stopped);verify_bundle(adb.folder);guard(adb,identity,stopped)
-        progress('Устанавливаю оба APK. Не закрывай программу.')
-        record(status='installing',stage='install',package_existed=exists)
-        args=['install-multiple']+(['-r'] if exists else [])+[str(adb.folder/'base.apk'),str(adb.folder/'split-001.apk')]
+        record(status='preparing',stage='transfer',package_existed=exists,install_method='verified-files-package-session')
+        transfer_fn(adb,directory,identity,stopped,progress,record)
+        guard(adb,identity,stopped)
         try:
-            value=adb.op(*args,timeout=240)
-            if value.splitlines()[-1:]!=['Success']:raise InstallError('operation-uncertain')
+            install_fn(adb,exists,identity,stopped,progress,record)
         except InstallError as error:
             if error.android_code!='INSTALL_FAILED_UPDATE_INCOMPATIBLE' or not exists:raise
             record(status='replacement-required',stage='signature',android_code=error.android_code)
@@ -180,6 +224,9 @@ def install_connected(adb,cloud_id,directory,stopped,confirm_install,confirm_del
             record(status='backing-up-apks',stage='backup')
             if backup_fn(adb,directory,identity,stopped) is not True:raise InstallError('backup-failed')
             verify_bundle(adb.folder);guard(adb,identity,stopped)
+            # Recheck files already on the phone BEFORE any approved removal.
+            if getattr(adb,'upload_dir',None):verify_upload(adb,identity,stopped)
+            guard(adb,identity,stopped)
             # Durable marker survives a crash. Never auto-resume a destructive action.
             record(status='delete-started',stage='delete',apk_backup=True,account_data_backed_up=False)
             value=adb.op('uninstall',PACKAGE,timeout=120)
@@ -188,8 +235,7 @@ def install_connected(adb,cloud_id,directory,stopped,confirm_install,confirm_del
             if present(adb):raise InstallError('delete-failed')
             verify_bundle(adb.folder);guard(adb,identity,stopped)
             record(status='installing-after-delete',stage='install',apk_backup=True)
-            value=adb.op('install-multiple',str(adb.folder/'base.apk'),str(adb.folder/'split-001.apk'),timeout=240)
-            if value.splitlines()[-1:]!=['Success']:raise InstallError('operation-uncertain')
+            install_fn(adb,False,identity,stopped,progress,record)
             result='installed-after-replacement'
         else:result='installed'
         guard(adb,identity,stopped)
@@ -200,7 +246,8 @@ def install_connected(adb,cloud_id,directory,stopped,confirm_install,confirm_del
         record(installed_apks=check)
         if not check['known_bundle']:raise InstallError('installed-unverified')
         # Byte identity is NOT a claim that Gadget runs on Android 15A.
-        record(status=result,stage='done',known_bundle=True)
+        record(status=result,stage='done',known_bundle=True,code=None,android_code=None,reason=None,failed_operation=None,failed_elapsed_seconds=None)
+        cleanup_upload(adb,record)
         return result
 
 @contextmanager
@@ -220,12 +267,14 @@ def connected_phone(cloud_id,adb_path,folder,stopped,record,*,read_only=False):
             from morelogin_ssh import tunnel
             serial=stack.enter_context(tunnel(selected,pin,stopped.is_set))
         adb=OwnedAdb(adb_path,serial,folder,read_only=read_only)
+        adb.audit=record
         connected=False
         try:
             record(stage='adb');adb.run(['connect',serial]);connected=True
             yield adb
         finally:
             if connected:
+                adb.audit=lambda **kw:None
                 try:adb.run(['disconnect',serial])
                 except Exception:pass
 
@@ -239,7 +288,9 @@ def _report(cloud_id,name):
 
 def _failure(error,record):
     code=error.code if isinstance(error,(InstallError,CloudError)) else 'configuration'
-    record(status='stopped',code=code,android_code=getattr(error,'android_code',None))
+    record(status='stopped',code=code,android_code=getattr(error,'android_code',None),
+        reason=getattr(error,'reason',None),failed_operation=getattr(error,'operation',None),
+        failed_elapsed_seconds=getattr(error,'elapsed_seconds',None))
     if isinstance(error,(InstallError,CloudError)):raise error
     raise InstallError('configuration') from None
 

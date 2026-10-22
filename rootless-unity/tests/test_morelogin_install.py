@@ -26,6 +26,11 @@ class Adb:
             if self.installs==1 and self.failure:raise self.failure
             self.exists=True;return 'Success'
         raise AssertionError(args)
+def legacy_install(adb,replace,identity,stopped,progress,record):
+    # Flow orchestration fake; real PackageInstaller protocol is tested separately.
+    result=adb.op('install-multiple',*(['-r'] if replace else []),str(adb.folder/'base.apk'),str(adb.folder/'split-001.apk'))
+    if result!='Success':raise InstallError('operation-uncertain')
+
 class Flow(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.folder=Path(self.tmp.name)
@@ -34,7 +39,8 @@ class Flow(unittest.TestCase):
     def execute(self,adb,approve=True,delete=None,backup_fn=lambda *_:True,verify=lambda _:None):
         return install_connected(adb,'101',self.folder,self.stopped,lambda *a:approve,
             lambda *a:delete,lambda _:None,backup_fn=backup_fn,verify_bundle=verify,lock=no_lock,
-            record=lambda **x:self.records.append(x),inspect_fn=lambda *_:dict(known_bundle=True))
+            record=lambda **x:self.records.append(x),inspect_fn=lambda *_:dict(known_bundle=True),
+            transfer_fn=lambda *_:None,install_fn=legacy_install)
     def writes(self,adb):return [x for x in adb.calls if x[0] in ('uninstall','install-multiple')]
     def test_update_success_preserves_existing_app_no_delete_prompt(self):
         a=Adb(self.folder)
@@ -123,8 +129,8 @@ class CommandPolicy(unittest.TestCase):
             with self.subTest(args=args),self.assertRaises(InstallError):self.adb.validate(args)
     def test_install_requires_two_exact_staged_apks_no_downgrade_or_permissions_flags(self):
         valid=['-s',self.serial,'install-multiple','-r',str(self.root/'base.apk'),str(self.root/'split-001.apk')]
-        self.adb.validate(valid)
-        for args in (valid+['-g'],valid+['-d'],valid[:-1],valid[:-1]+['/tmp/other.apk']):
+        # The legacy streaming install path is forbidden, including its valid-looking form.
+        for args in (valid,valid+['-g'],valid+['-d'],valid[:-1],valid[:-1]+['/tmp/other.apk']):
             with self.assertRaises(InstallError):self.adb.validate(args)
     def test_shell_false_scoped_server_and_hidden_output(self):
         def fake(args,**kwargs):
