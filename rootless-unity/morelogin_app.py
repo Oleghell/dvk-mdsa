@@ -128,7 +128,7 @@ def launch(self_check=False):
                             observed=probe(ssh)
                             events.put(('host-key', (cloud_id,ssh.host,ssh.ssh_port,observed)))
                     except Exception as error:
-                        save_failure([cloud_id], error)
+                        save_failure([cloud_id], error, entry=entries.get(cloud_id))
                         events.put(('phone', (cloud_id, 'error', str(error) if isinstance(error,CloudError) else 'ssh-unavailable')))
                         return False
                     return True
@@ -461,7 +461,10 @@ def launch(self_check=False):
                     'ssh-key-untrusted':'Сначала проверь SSH-подключение и подтверди ключ',
                     'ssh-key-changed':'SSH-ключ изменился. Нужна ручная сверка, запуск запрещён',
                     'ssh-unavailable':'SSH недоступен. Проверь телефон, сеть и права',
-                    'ssh-format':'Неподдерживаемый формат SSH-команды',
+                    'ssh-format':'Неподдерживаемая структура SSH-команды',
+                    'ssh-host-format':'Не удалось проверить адрес SSH из ответа MoreLogin',
+                    'ssh-options-format':'Неизвестный параметр совместимости SSH в ответе MoreLogin',
+                    'ssh-forward-format':'Неожиданный адрес назначения SSH-туннеля',
                     'direct-adb-format':'Для прямого ADB нужны IPv4, порт и числовой код подключения из MoreLogin',
                     'adb-auth-failed':'Прямой ADB: не удалось подтвердить доступ по коду; проверь срок действия подключения',
                     'adb-unavailable':'Не удалось запустить ADB или подключиться; проверь путь к adb.exe и доступность телефона',

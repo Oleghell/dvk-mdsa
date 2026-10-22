@@ -9,6 +9,7 @@ import threading
 import time
 from morelogin_common import CloudError, phone_id
 from morelogin_client import plan, DirectPlan
+from morelogin_diagnostics import save_failure
 
 
 def worker_command():
@@ -94,6 +95,7 @@ def run(settings, ids, pins, entries, mode, stopped, publish, *, target=one):
         try:
             selected=plan(entries[cloud_id],cloud_id)
         except CloudError as error:
+            save_failure([cloud_id],error,entry=entries[cloud_id])
             publish(cloud_id,'error',error.code)
             continue
         direct=isinstance(selected,DirectPlan)

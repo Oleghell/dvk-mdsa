@@ -136,6 +136,41 @@ class Plan:
     remote_port: int
     password: str = field(repr=False)
 
+def endpoint_host(value):
+    """A host literal or DNS name, never a URL, shell fragment, path or user."""
+    if not isinstance(value,str) or not 1 <= len(value) <= 253:
+        raise CloudError('ssh-host-format')
+    try:
+        return str(ipaddress.IPv4Address(value))
+    except ValueError:
+        if (not re.fullmatch(r'[A-Za-z0-9.-]+',value) or '.' not in value
+                or re.fullmatch(r'[0-9.]+',value)):
+            raise CloudError('ssh-host-format') from None
+        name=value.rstrip('.').lower()
+        if any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?',part) for part in name.split('.')):
+            raise CloudError('ssh-host-format')
+        return name
+
+
+def compatibility_option(option):
+    """Parse harmless CLI hints only. No option is passed to a shell/SSH binary.
+    App-level host-key pinning and timeouts always take precedence.
+    """
+    key,sep,value=option.partition('=')
+    key=key.lower()
+    if not sep or not value:raise CloudError('ssh-options-format')
+    if key in ('hostkeyalgorithms','pubkeyacceptedalgorithms','pubkeyacceptedkeytypes'):
+        algorithms=value.lstrip('+^-').split(',')
+        allowed={'ssh-rsa','ssh-dss','ssh-ed25519','rsa-sha2-256','rsa-sha2-512',
+                 'ecdsa-sha2-nistp256','ecdsa-sha2-nistp384','ecdsa-sha2-nistp521'}
+        if not algorithms or any(x not in allowed for x in algorithms):raise CloudError('ssh-options-format')
+    elif key=='stricthostkeychecking':
+        if value.lower() not in ('yes','no','ask','accept-new'):raise CloudError('ssh-options-format')
+    elif key=='userknownhostsfile':
+        if value.lower() not in ('/dev/null','nul'):raise CloudError('ssh-options-format')
+    else:raise CloudError('ssh-options-format')
+
+
 def plan(entry, expected):
     """Explicit provider mode: SSH command, otherwise documented direct IP/port/code."""
     phone_id(expected)
@@ -179,7 +214,7 @@ def plan(entry, expected):
                 flags.add(arg)
             elif arg.startswith('-o'):
                 option = arg[2:] or args.pop(0)
-                if option != 'HostKeyAlgorithms=+ssh-rsa': raise ValueError()
+                compatibility_option(option)
             elif arg in ('-p', '-L'):
                 val = args.pop(0)
                 if arg == '-p':
@@ -191,15 +226,21 @@ def plan(entry, expected):
             elif not arg.startswith('-') and arg.count('@') == 1 and host is None:
                 user, host = arg.split('@')
                 if not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', user) or user.startswith('-'): raise ValueError()
-                host = str(ipaddress.IPv4Address(host))
+                host = endpoint_host(host)
+                # DNS must agree with the endpoint separately returned for this phone.
+                # Keep legacy literal-IP plans, but never accept an unrelated hostname.
+                if not re.fullmatch(r'[0-9.]+',host):
+                    if endpoint_host(entry.get('adbIp')) != host:raise CloudError('ssh-host-format')
             else:
                 raise ValueError()
         if None in (host, user, forwarding, number) or not flags: raise ValueError()
         bits = forwarding.split(':')
         if len(bits) == 4:
             if bits.pop(0) not in ('127.0.0.1', 'localhost'): raise ValueError()
-        if len(bits) != 3 or bits[1] not in ('adb-proxy', '127.0.0.1', 'localhost'): raise ValueError()
+        if len(bits) != 3 or bits[1] not in ('adb-proxy', '127.0.0.1', 'localhost'): raise CloudError('ssh-forward-format')
         port(bits[0])  # Never bind the supplied local port: allocate our own loopback port.
         return Plan(host, number, user, bits[1], port(bits[2]), password)
+    except CloudError:
+        raise
     except Exception:
         raise CloudError('ssh-format') from None

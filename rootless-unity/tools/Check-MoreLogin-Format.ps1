@@ -57,11 +57,12 @@ function Get-SafeShape($Entry) {
 }
 if ($SelfTest) {
     $entry = [pscustomobject]@{id='SYNTHETIC-ID';command='adb connect 8.8.8.8:15555 && adb -s 8.8.8.8:15555 shell 726491';adbIp='8.8.8.8';adbPort=15555;adbPassword='SYNTHETIC-SECRET';envStatus=4;supportAdb=$true;enableAdb=$true;remark='PRIVATE-REMARK'}
-    $json = Get-SafeShape $entry | ConvertTo-Json -Depth 8
+    $shape = Get-SafeShape $entry
+    $json = $shape | ConvertTo-Json -Depth 8
     foreach ($secret in @('SYNTHETIC-ID','8.8.8.8','15555','726491','SYNTHETIC-SECRET','PRIVATE-REMARK')) {
         if ($json.Contains($secret)) { throw 'Sanitizer self-test failed' }
     }
-    if (-not $json.Contains('<IPv4:port>')) { throw 'Missing safe command shape' }
+    if ($shape.command_tokens -notcontains '<IPv4:port>') { throw 'Missing safe command shape' }
     Write-Host 'Offline sanitizer self-test passed. No network or saved credentials accessed.'
     exit 0
 }
