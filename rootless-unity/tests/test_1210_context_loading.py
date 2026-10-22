@@ -254,6 +254,14 @@ for name in dir(Context):
     if name.startswith('test_') and name not in ExtraContext.__dict__:setattr(ExtraContext,name,None)
 
 class Gates(unittest.TestCase):
+    def test_packaged_instructions_match_release_and_main_readme(self):
+        from pathlib import Path
+        from version import VERSION
+        root=Path(__file__).resolve().parents[2]
+        guide=(root/'rootless-unity/ASSISTANT.md').read_text(encoding='utf-8')
+        self.assertEqual(guide,(root/'README.md').read_text(encoding='utf-8'))
+        self.assertTrue(guide.startswith('# DvkAssistant '+VERSION+' '))
+
     def test_clarification_rejects_sensitive_requests_and_second_greeting(self):
         for text in ['Привет! Напиши номер','Напиши номер карты','Дай пароль и номер','Как настроение?','Номер +79991234567']:
             with self.subTest(text=text):
