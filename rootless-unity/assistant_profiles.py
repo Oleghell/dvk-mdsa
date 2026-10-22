@@ -75,7 +75,10 @@ def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics
         diagnostics['last_city_navigation'] = {key: n[key] for key in (
             'stage', 'error', 'phase', 'city_checkpoint', 'city_prepare',
             'city_visible_rows', 'city_total_rows', 'city_scan_samples',
-            'city_matches', 'city_select_attempted', 'city_select_completed', 'city_verified')}
+            'city_matches', 'city_select_attempted', 'city_select_completed', 'city_verified',
+            'open_attempted', 'open_completed', 'city_open_attempted', 'city_open_completed',
+            'city_query_attempted', 'city_query_completed', 'apply_attempted', 'apply_completed',
+            'settings_checkpoint', 'city_transition_overruns')}
         if n['stage'] != 'navigation-ready':
             diagnostics['last_error'] = n['error']
     if n['stage'] != 'navigation-ready':

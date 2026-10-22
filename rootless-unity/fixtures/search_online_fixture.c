@@ -79,7 +79,7 @@ static Object *online_invoke(Method *m,void *obj,void **args,void **exc){
  if(m->action>=300)return city_invoke(m,obj,args,exc);
  if(mode>=300&&m->action==206)return city_geocode((Object *)obj);
  if(mode>=300&&m->action==208){online_box.value=(unsigned char)city_distance((Object *)obj);return &online_box;}
- if(mode>=300&&m->action==210)city_apply();
+ if(mode>=300&&m->action==210){if(mode==341)slow();city_apply();}
 #endif
  switch(m->action){
  case 200:return &model;

@@ -150,7 +150,7 @@ if(m->action>=200)return online_invoke(m,obj,args,exc);
  switch(m->action){
  case 10:
 #ifdef CITY_FIXTURE
- if(mode>=300)return active();
+ if(mode>=300){if(mode==346)slow();return active();}
 #endif
  if(mode==77)slow();return mode>=80?&app_root:active();
  case 11:if(mode>=98)return NULL;if(mode==88)return &view;return (mode==72||phase!=1||mode==87)?NULL:&view;
@@ -170,7 +170,13 @@ if(m->action>=200)return online_invoke(m,obj,args,exc);
  case 19:hidden_reads++;yes=mode==63||(mode==97&&hidden_reads<4);break;
  case 20:yes=mode!=64;break;
  case 21:yes=mode!=65;break;
- case 22:opens++;if(mode==79)slow();if(mode==66){*exc=&exception;return NULL;}if(mode!=69&&mode!=76)phase=1;return NULL;
+ case 22:opens++;
+#ifdef CITY_FIXTURE
+ if(mode==338||mode==343)slow();
+ if(mode==343){phase=1;*exc=&exception;return NULL;}
+ if(mode==345)return NULL;
+#endif
+if(mode==79)slow();if(mode==66){*exc=&exception;return NULL;}if(mode!=69&&mode!=76)phase=1;return NULL;
  case 24:yes=mode!=92&&phase==1;break;
  case 25:return mode==81?&dv_nav:&ui_nav;
  case 26:yes=0;break;

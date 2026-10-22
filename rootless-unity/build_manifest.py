@@ -26,7 +26,7 @@ LIVE_VERIFIED = {
     'history_loading_local_deferral': False, 'contact_choice_clarification': False,
     'incoming_during_returned_send': False,
     'labelled_telegram_contact': False, 'voluntary_contact_during_pending': False,
-    'time_sliced_model_scan': False, 'unverified_greeting_local_isolation': False,
+    'returned_city_transition_verification': False, 'time_sliced_model_scan': False, 'unverified_greeting_local_isolation': False,
     'dialog_cached_model_scan': False, 'contact_profile_photo': False, 'api_key_failover': False,
 }
 
@@ -59,6 +59,7 @@ def main(folder):
                       history_loading_peer_cooldown_seconds=60,
                       contact_choice_clarification_once=True, contextual_incoming_batch=True,
                       labelled_telegram_contact=True, voluntary_contact_during_pending=True,
+                      returned_city_transition_verification=True, city_transition_max_overruns=5,
                       model_scan_slice_milliseconds=4000, model_scan_max_slice_rows=64,
                       unverified_greeting_local_isolation=True,
                       telegram_peer_excerpt_on_skip=True, contact_profile_photo=True,

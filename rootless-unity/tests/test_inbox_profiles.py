@@ -377,7 +377,8 @@ class Profiles(Base):
 
     def city_value(self, name='Псков'):
         from search_city import DEFAULTS
-        return dict(navigation=dict(DEFAULTS, stage='navigation-ready', error='none', phase='done', city_selected_name=name))
+        return dict(navigation=dict(DEFAULTS, stage='navigation-ready', error='none', phase='done', city_selected_name=name,
+            open_attempted=True,open_completed=True,apply_attempted=True,apply_completed=True,settings_checkpoint='complete'))
 
     def test_first_run_sets_city_then_counts_each_outcome(self):
         def greeted(adb, folder, text, ask, cancelled, store):

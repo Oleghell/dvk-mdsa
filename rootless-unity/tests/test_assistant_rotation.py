@@ -133,7 +133,7 @@ class NativeCityPolicy(unittest.TestCase):
         self.assertIn('!cityUsed.has(cityNorm(name))',source)
         self.assertIn("if(found.match.id===state.rotationCityID)fail('identity-changed');",source)
         self.assertIn("fail('city-no-alternative')",source)
-        self.assertLess(source.index('const previousCityName='),source.index('call(s.open,current)'))
+        self.assertLess(source.index('const previousCityName='),source.index('cityTransition(s.open,current)'))
         for text in ('OnMessageButton','OnSendText','input tap','5555'):
             self.assertNotIn(text,source)
 

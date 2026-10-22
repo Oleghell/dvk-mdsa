@@ -64,11 +64,11 @@ static Object *city_invoke(Method *m,void *obj,void **args,void **exc){
  int yes=0,index=0;
  if((m->action==314||m->action==316)&&args&&args[0])index=*(int *)args[0];
  switch(m->action){
- case 300:city_open_calls++;if(mode==304||mode==321){*exc=&exception;return NULL;}if(mode==305)phase=2;else phase=3;return NULL;
+ case 300:city_open_calls++;if(mode==339)slow();if(mode==304||mode==321){*exc=&exception;return NULL;}if(mode==305)phase=2;else phase=3;return NULL;
  case 301:return input_text;
- case 302:city_text_calls++;input_text=mode==306?(Object *)&other_name_string:(Object *)args[0];return NULL;
+ case 302:city_text_calls++;if(mode==342)slow();input_text=mode==306?(Object *)&other_name_string:(Object *)args[0];return NULL;
  case 303:return input_text;
- case 304:city_search_calls++;if(mode==307){*exc=&exception;return NULL;}query_sent=1;return NULL;
+ case 304:city_search_calls++;if(mode==340)slow();if(mode==307){*exc=&exception;return NULL;}query_sent=1;return NULL;
  case 305:
   city_pick_calls++;
   if(!args||args[0]!=(mode==327?&city_cell2:&city_cell)||args[1]!=(mode==327?&city_record2:&city_record)){*exc=&exception;return NULL;}

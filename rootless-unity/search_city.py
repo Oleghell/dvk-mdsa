@@ -20,7 +20,7 @@ DEFAULTS = dict(city_open_attempted=False, city_open_completed=False, city_query
                 city_query_completed=False, city_result_verified=False, city_select_attempted=False,
                 city_select_completed=False, city_form_verified=False, city_verified=False,
                 city_scan_samples=0, city_visible_rows=0, city_total_rows=0,
-                city_matches=0, city_selected_name=None,
+                city_matches=0, city_selected_name=None, city_transition_overruns=0,
                 city_checkpoint='not-checked', city_prepare='not-checked', city_identity='none')
 PREPARE_STEPS = None  # filled below from the native source (fixed labels only)
 IDENTITY = {'none', 'select-recheck', 'scan-controller', 'query-controller'}
@@ -106,6 +106,16 @@ import re as _re
 PREPARE_STEPS = {'not-checked'} | set(_re.findall(r"mark\('([^'+]+)'\)", PREPARE)) | {'class:' + k for k in
     ('city', 'cityCell', 'geoRecord', 'searchField', 'table', 'tableCell')}
 UTILS = r'''
+  // Only terminal UI transitions can finish a returned invocation beyond the
+  // 100ms read budget. Their next statement commits the completed flag/phase
+  // and returns; destination/identity are verified on a fresh frame. No replay.
+  let cityTransitionEntry=null;
+  const cityTransition=(entry,obj,args=ptr(0))=>{
+   const phases=new Map([[s.open,'search'],[s.cityOpen,'confirm-filters'],
+    [s.citySearch,'query-city'],[s.citySelect,'scan-city'],[s.apply,'confirm-filters']]);
+   if(phases.get(entry)!==n.phase)fail('signature-mismatch');
+   cityTransitionEntry=entry;try{return call(entry,obj,args);}finally{cityTransitionEntry=null;}
+  };
   const cityArgs=values=>{const p=Memory.alloc(Process.pointerSize*values.length);values.forEach((v,i)=>p.add(i*Process.pointerSize).writePointer(v));return p;};
   const cityInt=(entry,obj,args=ptr(0))=>{const box=call(entry,obj,args);if(box.isNull())fail('signature-mismatch');own(box);const p=f.unbox(box);if(p.isNull())fail('signature-mismatch');return p.readS32();};
   const cityIndex=(entry,obj,i)=>{const p=Memory.alloc(4);p.writeS32(i);return call(entry,obj,cityArgs([p]));};
@@ -233,7 +243,7 @@ def build(city):
     s = replace(s, '||f.byref(f.returnType(m)))fail', '||(f.byref(f.returnType(m))&&!entry.allowByref))fail')
     s = replace(s, '  const kind=obj=>{', UTILS + '\n  const kind=obj=>{')
     s = replace(s, "if(!ex.readPointer().isNull())fail('managed-exception');return out;",
-                "if(!ex.readPointer().isNull())fail('managed-exception');if(fixedCancellationRequested)fail('cancelled');if(Date.now()>deadline)fail('frame-budget');return out;")
+                "if(!ex.readPointer().isNull())fail('managed-exception');if(fixedCancellationRequested)fail('cancelled');if(Date.now()>deadline){if(entry!==cityTransitionEntry)fail('frame-budget');n.city_transition_overruns++;}return out;")
 
     # The real picker is presented by the people form (a child controller), not by the card/root list.
     s = replace(s, "   const current=resolve(candidate);if(current.isNull())return;\n   const k=kind(current);",
@@ -248,6 +258,14 @@ def build(city):
     s = replace(s, "   if(n.phase==='confirm-filters'){", PHASE_CODE + "\n   if(n.phase==='confirm-filters'){")
     s = replace(s, "    n.settings_checkpoint='people-view';", OPEN + "\n    n.settings_checkpoint='people-view';")
     s = replace(s, "n.online_verified=true;n.location_preserved=true;n.settings_checkpoint='complete';", "const appliedCityName=cityString(call(s.geoFilterName,actual));\n    if(code(s.geoGet)(actual)!==state.cityID||!cityExact(appliedCityName)||bool(s.distanceGet,actual))fail('identity-changed');\n    n.city_selected_name=appliedCityName;n.online_verified=true;n.location_preserved=true;n.settings_checkpoint='complete';n.city_verified=true;n.city_checkpoint='complete';")
+    # Only phase-terminal calls: no getter, setter or send receives this rule.
+    for before,after in (
+        ('call(s.open,current);n.open_completed=true;', 'cityTransition(s.open,current);n.open_completed=true;'),
+        ('call(s.cityOpen,people);n.city_open_completed=true;', 'cityTransition(s.cityOpen,people);n.city_open_completed=true;'),
+        ('call(s.citySearch,current);n.city_query_completed=true;', 'cityTransition(s.citySearch,current);n.city_query_completed=true;'),
+        ('call(s.citySelect,current,cityArgs([cell,record]));n.city_select_completed=true;', 'cityTransition(s.citySelect,current,cityArgs([cell,record]));n.city_select_completed=true;'),
+        ('call(s.apply,current);n.apply_completed=true;', 'cityTransition(s.apply,current);n.apply_completed=true;')):
+        s = replace(s,before,after)
     s = replace(s, "['card','origin','onlineCM']", "['card','origin','onlineCM','cityFinder','cityPeople']")
     s = replace(s, json.dumps(sorted(navigation.ERRORS)), json.dumps(sorted(ERRORS)))
     s = replace(s, 'r.navigation.frames>=180', 'r.navigation.frames>=900')
@@ -262,12 +280,18 @@ def validate(value, *, expected_city=None):
     for key,default in DEFAULTS.items():
         if type(default) is bool and type(extra[key]) is not bool:
             raise ValueError('Invalid city flag')
-    for key,limit in [('city_scan_samples',2),('city_visible_rows',12),('city_total_rows',200),('city_matches',12)]:
+    for key,limit in [('city_scan_samples',2),('city_visible_rows',12),('city_total_rows',200),('city_matches',12),('city_transition_overruns',5)]:
         if type(extra[key]) is not int or not 0<=extra[key]<=limit:
             raise ValueError('Invalid city counter')
     if extra['city_checkpoint'] not in CHECKPOINTS or extra['city_prepare'] not in PREPARE_STEPS or extra['city_identity'] not in IDENTITY:
         raise ValueError('Invalid city checkpoint')
     online.validate(checked, max_frames=MAX_FRAMES, phases=PHASES, errors=ERRORS, kinds=KINDS, allow_ui_text=True)
+    if extra['city_transition_overruns'] and not n['open_completed']:
+        raise ValueError('Transition overrun without returned open')
+    completed = sum((n['open_completed'], extra['city_open_completed'], extra['city_query_completed'],
+                     extra['city_select_completed'], n['apply_completed']))
+    if extra['city_transition_overruns'] > completed:
+        raise ValueError('More overruns than completed transitions')
     if extra['city_query_completed'] and not n['ui_text_read']:
         raise ValueError('Missing query text check')
     if n['ui_text_read'] and not extra['city_query_attempted']:
