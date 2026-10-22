@@ -64,6 +64,22 @@ class Monitor(unittest.TestCase):
         defaults.update(kwargs)
         return monitor.run(Settings(), self.stop, self.approve, self.progress, **defaults)
 
+    def test_local_unknown_send_does_not_pause_next_passes(self):
+        self.inbox.return_value = inbox_result(isolated_dialogs=1, review_pending=1,
+            outcomes={'isolated:send-outcome-unknown':1})
+        waits=[]
+        def wait(seconds):
+            waits.append(seconds)
+            if len(waits)==3:
+                self.stop.set()
+                return True
+            return False
+        out=self.run_monitor(wait=wait)
+        self.assertEqual(out['status'], 'cancelled')
+        self.assertEqual(out['passes_completed'], 3)
+        self.assertEqual(out['totals']['isolated_dialogs'], 3)
+        self.assertTrue(any('на проверке' in call.args[0] for call in self.progress.call_args_list))
+
     def test_full_pass_once_then_only_inbox_and_one_lock(self):
         waits = []
         def wait(seconds):

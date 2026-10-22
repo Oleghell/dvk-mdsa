@@ -199,19 +199,78 @@ class Inbox(Base):
         self.assertEqual(self.approve.call_count, 1)
         self.assertEqual(self.sent, [])
 
-    def test_unknown_send_stops_pass_in_open_chat(self):
+    def test_unknown_send_isolates_chat_and_never_retries(self):
         self.journal()
         hello = msg(1002, 'Привет')
         sender = MagicMock(side_effect=RuntimeError('PRIVATE'))
-        out = self.walk([nav('opened', WHO)], [snap(hello), snap(hello)], sender=sender)
-        self.assertEqual(out['status'], 'inbox-stopped')
-        self.assertEqual(out['reason'], 'chat-send-outcome-unknown')
-        self.assertEqual(self.nav.call_count, 1)
+        out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
+                        [snap(hello), snap(hello)], sender=sender)
+        self.assertEqual(out['status'], 'inbox-completed')
+        self.assertEqual(out['isolated_dialogs'], 1)
+        self.assertEqual(out['outcomes'], {'isolated:send-outcome-unknown': 1})
+        self.assertEqual(out['last_chat_diagnostics']['failure_point'], 'send-adapter-exception')
         self.assertNotIn('PRIVATE', json.dumps(out))
-        # Never retried on the next Start.
-        out = self.walk([nav('opened', WHO, unread=False), nav('returned', WHO), nav('search-ready')],
-                        [snap(hello)])
+        self.assertEqual(inbox.inbox_targets(self.chain()), ([], []))
+        self.assertEqual(self.walk([], [])['status'], 'inbox-empty')
         self.assertEqual(sender.call_count, 1)
+
+    def test_native_identity_error_and_device_failure_remain_global_stops(self):
+        from one_chat_device import ReadStopped
+        self.journal()
+        hello=msg(1002,'Привет')
+        out=self.walk([nav('opened',WHO)], [snap(hello),snap(hello)],
+                      sender=MagicMock(return_value=dict(attempted=False,handler_returned=False,
+                           native_check=dict(error='identity-not-bound'))))
+        self.assertEqual(out['status'],'inbox-stopped')
+        self.assertEqual(out['reason'],'chat-send-native-check-failed')
+        self.assertEqual(out['isolated_dialogs'],0)
+        self.assertEqual(self.nav.call_count,1)
+        self.assertEqual(out['last_chat_diagnostics']['last_send_failure'],'identity-not-bound')
+
+    def test_device_failure_is_not_disguised_as_unknown_send(self):
+        from one_chat_device import ReadStopped
+        self.journal(); hello=msg(1002,'Привет')
+        out=self.walk([nav('opened',WHO)], [snap(hello),snap(hello)],
+                      sender=MagicMock(side_effect=ReadStopped('unsupported-runtime')))
+        self.assertEqual(out['reason'],'chat-send-device-check-failed')
+        self.assertEqual(out['isolated_dialogs'],0)
+        self.assertEqual(self.nav.call_count,1)
+
+    def test_old_unknown_reservation_is_isolated_without_sender_invocation(self):
+        self.journal()
+        chain=self.chain(); hello=msg(1002,'Привет')
+        _, action=chain.proposal(snap(hello))
+        chain.reserve_confirmed(WHO, action); chain.finish(WHO, action, False)
+        sender=MagicMock()
+        out=self.walk([nav('opened',WHO),nav('returned',WHO),nav('search-ready')],
+                      [snap(hello)],chain=chain,sender=sender)
+        self.assertEqual(out['status'],'inbox-completed')
+        self.assertEqual(out['isolated_dialogs'],1)
+        sender.assert_not_called()
+        self.assertEqual(inbox.inbox_targets(self.chain()),([],[]))
+
+    def test_unknown_send_back_failure_still_stops_and_never_retries(self):
+        self.journal()
+        hello = msg(1002, 'Привет')
+        sender = MagicMock(side_effect=RuntimeError('PRIVATE'))
+        out = self.walk([nav('opened', WHO), nav('returned', OTHER)],
+                        [snap(hello), snap(hello)], sender=sender)
+        self.assertEqual(out['status'], 'inbox-stopped')
+        self.assertEqual(out['reason'], 'changed-dialog')
+        self.assertEqual(inbox.inbox_targets(self.chain()), ([], []))
+        self.assertEqual(sender.call_count, 1)
+
+    def test_unknown_send_does_not_starve_another_chat(self):
+        self.journal(); self.journal(OTHER)
+        hello = msg(1002, 'Привет')
+        out = self.walk([nav('opened', WHO), nav('returned', WHO),
+                         nav('opened', OTHER), nav('returned', OTHER), nav('search-ready')],
+                        [snap(hello), snap(hello), snap(who=OTHER)],
+                        sender=MagicMock(side_effect=RuntimeError('PRIVATE')))
+        self.assertEqual(out['status'], 'inbox-completed')
+        self.assertEqual(out['dialogs_processed'], 2)
+        self.assertEqual(out['isolated_dialogs'], 1)
+        self.assertEqual([x['peer'] for x in inbox.inbox_targets(self.chain())[1]], ['201'])
 
     def test_refusal_is_terminal_and_excluded(self):
         self.journal()
@@ -260,7 +319,7 @@ class Inbox(Base):
         chain=self.chain(); chain.consume(snap())
         out = self.walk([nav('exhausted'), nav('opened', WHO, unread=False),
                          nav('returned', WHO), nav('search-ready')], [snap(hello, manual)], chain=chain)
-        self.assertEqual(out['outcomes'], {'manual-review': 1})
+        self.assertEqual(out['outcomes'], {'isolated:manual-review': 1})
         self.assertEqual(out['submission_calls'], 0)
         self.assertFalse(self.sent)
 

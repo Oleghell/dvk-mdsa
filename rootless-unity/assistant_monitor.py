@@ -2,7 +2,7 @@
 
 Full mode repeats qualified-profile batches with a 120-second idle interval,
 serially between tracked inbox passes. Reply-only mode never starts profiles.
-One device lock and durable send journals survive all batches. Unknown sends stop.
+One device lock and durable journals survive all batches. Unknown sends are isolated.
 """
 from contextlib import nullcontext
 import json
@@ -20,7 +20,7 @@ from assistant_authorization import flags
 
 PROFILE_INTERVAL = 120
 REPORT = 'last-monitor.json'
-COUNTERS = ('submission_calls', 'handler_returns', 'outgoing_observed', 'contacts_forwarded', 'groq_requests', 'openrouter_requests', 'ai_requests')
+COUNTERS = ('submission_calls', 'handler_returns', 'outgoing_observed', 'contacts_forwarded', 'groq_requests', 'openrouter_requests', 'ai_requests', 'isolated_dialogs')
 
 
 def write_report(value):
@@ -67,7 +67,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
 
     def add_counters(value):
         for key in COUNTERS:
-            number = value.get(key, 0) if key in ('groq_requests', 'openrouter_requests', 'ai_requests') else value[key]
+            number = value.get(key, 0) if key in ('groq_requests', 'openrouter_requests', 'ai_requests', 'isolated_dialogs') else value[key]
             if type(number) is not int or number < 0:
                 raise ValueError('Invalid inbox counter')
             out['totals'][key] += number
@@ -219,6 +219,9 @@ def summary(result):
     status=result['status']
     if status=='waiting':
         text=f"Диалоги • проходов {result['passes_completed']} • в истории {totals['outgoing_observed']} • контактов TG {totals['contacts_forwarded']}"
+        pending = (result.get('last_pass') or {}).get('review_pending', 0)
+        if pending or totals.get('isolated_dialogs', 0):
+            text += f" • на проверке {max(pending, totals.get('isolated_dialogs', 0))}"
         if result.get('automatic_profile_repeat'):
             text+=f"\nАнкеты • порций {result.get('profile_batches_completed',0)} • следующая через {result.get('profile_next_in_seconds',120)} с"
         else:

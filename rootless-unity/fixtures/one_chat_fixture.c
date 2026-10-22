@@ -61,13 +61,18 @@ API Method *il2cpp_class_get_method_from_name(Class *c,const char *name,int arit
 }
 API void *il2cpp_object_unbox(Object *o){if(o==&long_object)return &long_value;return old_unbox(o);}
 static int reply_variant;
+static char expected_reply[1024];
+API void fixture_expected_reply(const char *text){
+ expected_reply[0]=0;
+ if(text && strlen(text)<sizeof(expected_reply)){strcpy(expected_reply,text);}
+}
 API void fixture_reply_variant(int value){reply_variant=value>=0&&value<3?value:0;}
 static const char *reply_texts[]={"\320\232\320\260\320\272\040\320\264\320\265\320\273\320\260\077\051",
  "\320\232\320\260\320\272\040\320\275\320\260\321\201\321\202\321\200\320\276\320\265\320\275\320\270\320\265\077\051",
  "\320\241\321\203\320\277\320\265\321\200\054\040\321\203\040\320\274\320\265\320\275\321\217\040\321\202\320\276\320\266\320\265\056\040\320\242\321\213\040\320\265\321\201\321\202\321\214\040\320\262\040\321\202\320\265\320\273\320\265\320\263\321\200\320\260\320\274\320\265\040\320\270\320\273\320\270\040\320\262\320\260\321\202\321\206\320\260\320\277\320\265\077\040\320\220\040\321\202\320\276\040\321\217\040\321\202\321\203\321\202\040\320\275\320\265\040\321\207\320\260\321\201\321\202\320\276\040\320\261\321\213\320\262\320\260\321\216\040\360\237\230\205"};
 API Object *il2cpp_string_new(const char *text){
  if(mode<600)return old_string_new(text);
- if(!text||strcmp(text,reply_texts[reply_variant]))greeting_bad++;
+ if(!text||strcmp(text,expected_reply[0]?expected_reply:reply_texts[reply_variant]))greeting_bad++;
  return mode==604?NULL:&greeting_string;
 }
 API int il2cpp_string_length(Text *s){return mode==504?2049:s->length;}

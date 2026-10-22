@@ -4,6 +4,7 @@ from dialog_browser import ERRORS as NAV_ERRORS
 import telegram_notify
 
 KNOWN = GROQ_ERRORS | NAV_ERRORS | {
+    'send-native-check-failed', 'send-device-check-failed', 'send-validation-failed',
     'settings-check-stopped', 'device-busy-or-monitor-check-stopped', 'initial-pass-stopped',
     'search-screen-not-verified', 'dialog-list-not-verified', 'initial-pass-paused',
     'inbox-pass-stopped', 'monitor-check-stopped', 'report-write-failed', 'profile-pass-stopped',
@@ -56,3 +57,23 @@ def notify(report, *, loader=telegram_notify.load, sender=telegram_notify.send):
         return 'accepted' if sender(token, chat, message) is True else 'unknown'
     except Exception:
         return 'unknown'  # No retry: Telegram may have accepted the first request.
+
+
+def notify_isolated(report, *, loader=telegram_notify.load, sender=telegram_notify.send):
+    """One bounded alert per pass with newly isolated chats; no IDs or message text."""
+    from assistant_inbox import ISOLATE
+    codes = sorted(k for k, v in report.get('isolated_reasons', {}).items()
+                   if k in ISOLATE and type(v) is int and v > 0)
+    if not codes:
+        return 'not-needed'
+    try:
+        token, chat = loader()
+    except Exception:
+        return 'not-configured'
+    message = ('⚠️ DvkAssistant: проблемный диалог оставлен на проверку. '
+               'Остальные диалоги продолжаются после проверки возврата.\nПричина: ' +
+               ', '.join(codes) + '\nОтчёт: last-monitor.json. Неизвестная отправка не повторяется.')
+    try:
+        return 'accepted' if sender(token, chat, message) is True else 'unknown'
+    except Exception:
+        return 'unknown'

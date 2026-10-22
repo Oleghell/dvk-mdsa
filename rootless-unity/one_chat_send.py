@@ -1,7 +1,7 @@
-"""One fixed/whitelisted reply in the exact bound dialog.
+"""One validated short reply in the exact bound dialog.
 
 Caller commits authorization before submission. Default retains the manual
-test question; automatic callers may select only the three chain templates.
+test question; automatic callers may use templates or validated AI drafts.
 No arbitrary text, navigation, typing imitation or retries.
 """
 import copy
@@ -36,10 +36,26 @@ def checked(snapshot):
     return copy.deepcopy(snapshot)
 
 
-def build(before, *, text=QUESTION):
+def checked_reply(text):
+    """Same structural gate as the AI draft; never permit arbitrary native text.
+
+    Exact stage/hash authorization remains the caller's durable responsibility.
+    This adapter independently checks the final text before any device access.
+    """
     from conversation_engine import QUESTIONS, CONTACT_TEXT
-    if text not in (*QUESTIONS, CONTACT_TEXT):
-        raise ValueError('Unsupported automatic reply')
+    from groq_reply import decision, GroqError
+    if isinstance(text, str) and text in (*QUESTIONS, CONTACT_TEXT):
+        return text
+    for kind in ('question', 'contact'):
+        try:
+            return decision(dict(decision='reply', text=text), kind)['text']
+        except GroqError:
+            pass
+    raise ValueError('Unsupported automatic reply')
+
+
+def build(before, *, text=QUESTION):
+    text = checked_reply(text)
     before = checked(before)
     source = reader.build(before['identity'])
     setup = r'''

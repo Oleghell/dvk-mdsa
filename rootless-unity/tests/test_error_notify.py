@@ -25,3 +25,21 @@ class ErrorAlerts(unittest.TestCase):
         for status in ('cancelled','waiting'):
             self.assertEqual(n.notify(dict(status=status),loader=loader,sender=sender),'not-needed')
         self.assertEqual(loader.call_count,1);sender.assert_not_called()
+
+    def test_isolated_alert_is_bounded_and_contains_only_safe_codes(self):
+        sender=MagicMock(return_value=True)
+        report=dict(isolated_reasons={'send-outcome-unknown':1, 'PRIVATE':1})
+        self.assertEqual(n.notify_isolated(report, loader=lambda:('token','chat'), sender=sender), 'accepted')
+        text=sender.call_args.args[2]
+        self.assertIn('send-outcome-unknown', text)
+        self.assertNotIn('PRIVATE', text)
+        self.assertEqual(sender.call_count, 1)
+
+    def test_isolated_alert_no_retry_or_repeated_alert_without_new_isolation(self):
+        sender=MagicMock(side_effect=RuntimeError('PRIVATE'))
+        self.assertEqual(n.notify_isolated(dict(isolated_reasons={'manual-review':1}),
+                         loader=lambda:('token','chat'), sender=sender), 'unknown')
+        self.assertEqual(sender.call_count, 1)
+        self.assertEqual(n.notify_isolated(dict(isolated_reasons={}),
+                         loader=lambda:('token','chat'), sender=sender), 'not-needed')
+        self.assertEqual(sender.call_count, 1)

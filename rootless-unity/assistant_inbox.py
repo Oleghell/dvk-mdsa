@@ -16,6 +16,9 @@ from assistant_authorization import flags
 LIMIT = 10
 PAUSE_OUTCOMES = {'message-not-approved', 'manual-review', 'telegram-disabled',
                   'telegram-outcome-unknown', 'contact-payload-blocked'}
+# Chat-local uncertainty is isolated, never retried; navigation failures still stop.
+ISOLATE = {'send-outcome-unknown', 'outgoing-not-observed', 'manual-review',
+           'history-changed-during-approval'}
 CONTINUE = {'chain-waiting', 'chain-completed', 'chain-needs-review', 'chain-paused'}
 
 
@@ -109,6 +112,7 @@ def report():
                 reason='not-started', dialog_limit=LIMIT, dialogs_opened=0,
                 dialogs_processed=0, read_dialogs_checked=0, read_recovery_enabled=True, read_rows_skipped=0, confirmations=0, automatic_authorizations=0,
                 submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0,
+                isolated_dialogs=0, isolated_reasons={}, isolation_notification='not-needed', review_pending=0,
                 groq_requests=0, openrouter_requests=0, ai_requests=0, ai_provider='groq', ai_model=None,
                 groq_context_export_enabled=False, openrouter_context_export_enabled=False, outcomes={}, per_message_confirmation=True, automatic_send=False,
                 return_verified=False, dialogs_verified=False, delivery_confirmed=False,
@@ -204,21 +208,31 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             out['contacts_forwarded'] += result['notifications']['accepted']
             if result['telegram_used']:
                 out['personal_data_exported'] = True
-            count(result['reason'] if result['status'] != 'chain-waiting' else result['status'] + ':' + result['reason'])
+            isolated = result['reason'] in ISOLATE
+            if not isolated:
+                count(result['reason'] if result['status'] != 'chain-waiting' else result['status'] + ':' + result['reason'])
             if result['status'] == 'chain-cancelled' or stopped.is_set():
                 raise StateError('cancelled')
-            if result['status'] not in CONTINUE:
-                # Unknown send, unobserved outgoing or a changed chat: never
-                # continue blindly. The chat is left open for a manual check.
+            if result['status'] not in CONTINUE and not isolated:
+                # Global/API/read/identity errors must not be treated as local.
                 out.update(status='inbox-stopped', reason='chat-' + result['reason'])
                 return out
             phase = 'navigation'
+            # Mark durably BEFORE leaving: a failed back cannot enable a resend.
+            if isolated:
+                chain.mark_review(who)
             call('back', expected=who)
+            if isolated:
+                out['isolated_dialogs'] += 1
+                code = result['reason']
+                out['isolated_reasons'][code] = out['isolated_reasons'].get(code, 0) + 1
+                count('isolated:' + code)
+                progress('Диалоги • один чат на проверке, продолжаю остальные')
             out['dialogs_processed'] += 1
             record_checked(chain, who)
             for group in groups:
                 group[0][:] = [x for x in group[0] if (x['account'], x['peer']) != (who['account'], who['peer'])]
-            if result['reason'] in PAUSE_OUTCOMES:
+            if result['reason'] in PAUSE_OUTCOMES and not isolated:
                 reason = 'needs-review'
                 break  # No further approval prompts in this pass after No/timeout.
         else:
@@ -265,6 +279,12 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
                 notifier=notifier, pause=pause, entry=entry, return_to=return_to,
                 greetings=load().greetings if greetings is None else greetings)
 
+    with chain.store.connection() as db:
+        result['review_pending'] = db.execute(
+            "SELECT COUNT(*) FROM chain_dialogs WHERE stage='manual-review'").fetchone()[0]
+    if settings.errors_enabled and result['isolated_dialogs']:
+        from assistant_error_notify import notify_isolated
+        result['isolation_notification'] = notify_isolated(result)
     result['ai_provider'], result['ai_model'] = settings.ai_provider, settings.ai_model
     result['ai_requests'] = responder.calls if responder is not None else 0
     result['groq_requests'] = result['ai_requests'] if settings.ai_provider == 'groq' else 0

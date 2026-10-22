@@ -21,6 +21,8 @@ LIVE_VERIFIED = {
     'groq_live_replies': False,
     'openrouter_live_device_replies': False,
     'repeated_profile_batches': False,
+    'dynamic_ai_reply_native_send': False,
+    'chat_local_error_isolation': False,
 }
 
 
@@ -44,6 +46,8 @@ def main(folder):
                       openrouter_opt_in=True, openrouter_only_free=True,
                       openrouter_paid_fallback=False, provider_auto_switch=False,
                       entered_key_test=True, independent_ai_key_save=True,
+                      validated_dynamic_ai_send=True, chat_local_error_isolation=True,
+                      unknown_send_auto_retry=False,
                       telegram_test_message=True, clear_profile_history=True),
         live_verified=LIVE_VERIFIED,
         production_ready=all(LIVE_VERIFIED.values()))

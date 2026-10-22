@@ -70,9 +70,7 @@ def inspect_submission(port, token, cancelled, before, *, text=QUESTION, frida_a
 
 
 def submit(executable, folder, before, cancelled=lambda: False, *, text=QUESTION):
-    from conversation_engine import QUESTIONS, CONTACT_TEXT
-    if text not in (*QUESTIONS, CONTACT_TEXT):
-        raise ValueError('Unsupported automatic reply')
+    text = sender.checked_reply(text)
     before = sender.checked(before)
     def inspector(port, token, cancel, expected):
         if expected != before['identity']:

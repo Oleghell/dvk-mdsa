@@ -409,14 +409,35 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 if stopped.is_set():
                     break
                 out['submission_calls'] += 1
+                send_failure = None
                 try:
                     result = sender(fresh, action['text'])
                     returned = (isinstance(result, dict) and result.get('attempted') is True
                                 and result.get('handler_returned') is True)
-                except Exception:
+                    native = result.get('native_check') if isinstance(result, dict) else None
+                    if isinstance(native, dict):
+                        from one_chat_send import ERRORS as SEND_ERRORS
+                        code = native.get('error')
+                        if isinstance(code, str) and code in SEND_ERRORS and code not in {
+                                'none', 'managed-exception', 'submission-already-attempted'}:
+                            send_failure = 'send-native-check-failed'
+                            out['diagnostics']['last_send_failure'] = code
+                except Exception as send_error:
+                    from one_chat_device import ReadStopped
+                    if isinstance(send_error, ReadStopped):
+                        send_failure = 'send-device-check-failed'
+                    elif isinstance(send_error, ValueError):
+                        send_failure = 'send-validation-failed'
                     returned = False
+                    out['diagnostics']['failure_point'] = 'send-adapter-exception'
+                if not returned and out['diagnostics']['failure_point'] == 'none':
+                    out['diagnostics']['failure_point'] = 'send-handler-unconfirmed'
                 out['handler_returns'] += int(returned)
                 chain.finish(who, action, returned)
+                if send_failure is not None:
+                    out['diagnostics']['failure_point'] = send_failure
+                    out.update(reason=send_failure)
+                    return out
                 if not returned:
                     out.update(reason='send-outcome-unknown')
                     return out

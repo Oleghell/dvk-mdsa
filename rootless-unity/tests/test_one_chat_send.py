@@ -251,4 +251,28 @@ class LocalTranscript(unittest.TestCase):
         self.assertIn('PRIVATE TEST TEXT',value)
 
 
+class AiTextTransport(unittest.TestCase):
+    def test_safe_dynamic_text_reaches_native_source_through_real_submit(self):
+        texts = ('Привет 🙂 Как настроение?', 'Понимаю. Обменяемся Telegram?',
+                 'Ты написал «Привет». Как дела?')
+        for text in texts:
+            def capture(adb, folder, cancelled, expected, *, inspector):
+                return inspector(1234, 'synthetic', cancelled, expected)
+            def inspect(port, token, cancelled, before, *, text):
+                return sender.build(before, text=text)
+            with patch.object(transport, 'capture', side_effect=capture), patch.object(
+                    transport, 'inspect_submission', side_effect=inspect):
+                source = transport.submit('adb', 'test-apks', snap(), text=text)
+            self.assertIn(json.dumps(text), source)
+            self.assertEqual(source.count('call(s.submit,current,args)'), 1)
+
+    def test_invalid_dynamic_text_never_opens_device(self):
+        for text in ('Привет', 'Как дела? @somebody', 'Как дела? https://example.com',
+                     'Как дела?\n', '<script>Как дела?</script>', 'Как дела?' + 'x'*241, None, []):
+            with patch.object(transport, 'capture') as capture:
+                with self.assertRaises(ValueError):
+                    transport.submit('adb', 'test-apks', snap(), text=text)
+                capture.assert_not_called()
+
+
 if __name__=='__main__':unittest.main()
