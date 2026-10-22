@@ -1,5 +1,6 @@
 """One «Старт»: replies in unread chain chats, then new profiles. One device lock."""
 import json
+from run_preparation import checkpoint,record,message as preparation_message
 
 from assistant_lock import operation_lock
 from assistant_store import StateError, data_directory
@@ -28,42 +29,55 @@ def start(settings, stopped, approve, progress=lambda _: None, *, mode='full', f
           inbox=None, profiles=None, lock=operation_lock, write=write_report, between_profiles=None):
     if mode not in MODES:
         raise ValueError('Invalid mode')
-    if inbox is None:
-        from assistant_inbox import run as inbox
-    if profiles is None:
-        from assistant_profiles import run as profiles
     result = dict(tool_version=VERSION, mode=mode, status='stopped', reason='not-started',
-                  inbox=None, profiles=None, per_message_confirmation=True, automatic_send=False)
+                  inbox=None, profiles=None, preparation_failure=None, per_message_confirmation=True, automatic_send=False)
     result.update(flags(approve))
+    stage='run-lock'
     try:
         if stopped.is_set():
             raise StateError('cancelled')
+        stage='run-imports'
+        with checkpoint(stage):
+            if inbox is None:
+                from assistant_inbox import run as inbox
+            if profiles is None:
+                from assistant_profiles import run as profiles
+        stage='run-lock'
         with lock():
             if mode in ('full', 'inbox'):
-                result['inbox'] = inbox(settings, stopped, approve, progress)
+                stage='run-inbox'
+                with checkpoint(stage):
+                    result['inbox'] = inbox(settings, stopped, approve, progress)
+                stage='run-inbox-result'
                 if result['inbox']['status'] not in ('inbox-completed', 'inbox-empty'):
                     raise StateError('inbox-not-finished')
                 if set(result['inbox']['outcomes']) & PAUSE_OUTCOMES:
                     raise StateError('inbox-needs-review')
             if mode in ('full', 'profiles'):
-                result['profiles'] = profiles(settings, stopped, approve, progress,
-                                              limit=settings.profile_limit,
-                                              fresh_session=fresh_session,
-                                              **({'between_profiles': between_profiles} if between_profiles is not None else {}))
+                stage='run-profiles'
+                with checkpoint(stage):
+                    result['profiles'] = profiles(settings, stopped, approve, progress,
+                                                  limit=settings.profile_limit,
+                                                  fresh_session=fresh_session,
+                                                  **({'between_profiles': between_profiles} if between_profiles is not None else {}))
+                stage='run-profiles-result'
                 if result['profiles']['status'] != 'profiles-completed':
                     raise StateError('profiles-not-finished')
         result.update(status='completed', reason='none')
     except Exception as error:
+        if not (isinstance(error,StateError) and str(error) in ('cancelled','inbox-not-finished','inbox-needs-review','profiles-not-finished')):
+            result['preparation_failure']=record(error,stage)
         result.update(status='cancelled' if stopped.is_set() else
                       'paused' if isinstance(error, StateError) and str(error) == 'inbox-needs-review' else 'stopped',
                       reason='cancelled' if stopped.is_set() else
                       str(error) if isinstance(error, StateError) and str(error) in
                       ('inbox-not-finished', 'inbox-needs-review', 'profiles-not-finished', 'cancelled') else
-                      'device-busy-or-start-check-stopped')
+                      'initialization-failed')
     try:
         result['report_name'] = write(result)
-    except Exception:
+    except Exception as error:
         result['report_name'] = None
+        if result['preparation_failure'] is None:result['preparation_failure']=record(error,'run-report')
     return result
 
 
@@ -97,6 +111,8 @@ def summary(result):
         parts.append('Готово. Возврат к анкетам подтверждён.')
     elif result['status'] == 'cancelled':
         parts.append('Остановлено. Выполненные действия не откатываются.')
+    elif preparation_message(result):
+        parts.append(preparation_message(result))
     elif result['reason'] == 'device-busy-or-start-check-stopped':
         parts.append('Запуск не выполнен: проверь пути в настройках и MuMu №4.')
     else:

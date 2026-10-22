@@ -13,6 +13,7 @@ from one_chat_probe import identity
 from version import VERSION
 from assistant_authorization import flags
 import time
+from run_preparation import checkpoint
 import assistant_history_wait as history_wait
 
 LIMIT = None
@@ -166,30 +167,32 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     out['exit_events'] = []
     # Telegram outbox is independent of the device. Never reopen a completed
     # conversation just to deliver an already encrypted, verified contact.
-    with chain.store.connection() as db:
-        pending=db.execute("SELECT c.account,c.peer,c.chat FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat WHERE c.stage='done' AND o.status='pending'").fetchall()
-    for account,peer,chat in pending:
-        if stopped.is_set():
-            out.update(status='inbox-cancelled',reason='cancelled')
-            return out
-        who=dict(account=account,peer=peer,chat=chat)
-        if chain.media_required and not chain.has_media(who):continue
-        status=chain.notify(who,notifier,stopped.is_set)
-        if status in out['contact_notifications']:out['contact_notifications'][status]+=1
-        if status=='accepted':out['contacts_forwarded']+=1
-        if status in ('accepted','unknown'):out['personal_data_exported']=True
+    with checkpoint('inbox-outbox'):
+        with chain.store.connection() as db:
+            pending=db.execute("SELECT c.account,c.peer,c.chat FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat WHERE c.stage='done' AND o.status='pending'").fetchall()
+        for account,peer,chat in pending:
+            if stopped.is_set():
+                out.update(status='inbox-cancelled',reason='cancelled')
+                return out
+            who=dict(account=account,peer=peer,chat=chat)
+            if chain.media_required and not chain.has_media(who):continue
+            status=chain.notify(who,notifier,stopped.is_set)
+            if status in out['contact_notifications']:out['contact_notifications'][status]+=1
+            if status=='accepted':out['contacts_forwarded']+=1
+            if status in ('accepted','unknown'):out['personal_data_exported']=True
     def pending_contacts():
         with chain.store.connection() as db:
             return db.execute("SELECT COUNT(*) FROM chain_contact_outbox WHERE status='pending'").fetchone()[0]
-    out['contact_delivery_pending']=pending_contacts()
-    history_wait.initialize(chain.store)
-    attention, unread = inbox_targets(chain)
-    attention, unread, skipped = history_wait.eligible(chain.store, attention, unread, clock=clock)
-    out['history_cooldown_skipped'] = skipped
-    out['tracked_active']=len(unread)
-    out['tracked_attention']=len(attention)
-    with chain.store.connection() as db:
-        out['tracked_terminal']={stage:number for stage,number in db.execute('SELECT stage,COUNT(*) FROM chain_dialogs GROUP BY stage') if stage in TERMINAL}
+    with checkpoint('inbox-targets'):
+        out['contact_delivery_pending']=pending_contacts()
+        history_wait.initialize(chain.store)
+        attention, unread = inbox_targets(chain)
+        attention, unread, skipped = history_wait.eligible(chain.store, attention, unread, clock=clock)
+        out['history_cooldown_skipped'] = skipped
+        out['tracked_active']=len(unread)
+        out['tracked_attention']=len(attention)
+        with chain.store.connection() as db:
+            out['tracked_terminal']={stage:number for stage,number in db.execute('SELECT stage,COUNT(*) FROM chain_dialogs GROUP BY stage') if stage in TERMINAL}
     if not attention and not unread:
         out.update(status='inbox-empty', reason='history-cooldown' if skipped else 'no-chain-dialogs',
                    dialogs_verified=entry=='dialogs')
@@ -387,43 +390,55 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         reader=None, sender=None, notifier=None, greetings=None, pause=None,
         entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None):
     """Caller must hold the shared device lock."""
-    from assistant_config import load
-    from assistant_store import Store
-    from one_chat_device import capture
-    from one_chat_send_device import submit
-    import telegram_notify
+    with checkpoint('inbox-imports'):
+        from assistant_config import load
+        from assistant_store import Store
+        from one_chat_device import capture
+        from one_chat_send_device import submit
+        import telegram_notify
     if stopped.is_set():
         return dict(report(), status='inbox-cancelled', reason='cancelled')
-    if notifier is None and settings.contacts_enabled:
-        token, chat_id = telegram_notify.load()
-        notifier = lambda payload: telegram_notify.send_contact(token, chat_id, payload)
-    from assistant_ai import responder as make_responder
-    responder = make_responder(settings.ai_provider, settings.ai_model, stopped.is_set) if settings.groq_enabled else None
-    chain = InboxChain(Store() if store is None else store, responder=responder)
+    with checkpoint('inbox-contacts'):
+        if notifier is None and settings.contacts_enabled:
+            token, chat_id = telegram_notify.load()
+            notifier = lambda payload: telegram_notify.send_contact(token, chat_id, payload)
+    with checkpoint('inbox-ai'):
+        from assistant_ai import responder as make_responder
+        responder = make_responder(settings.ai_provider, settings.ai_model, stopped.is_set) if settings.groq_enabled else None
+    with checkpoint('inbox-database'):
+        prepared_store=Store() if store is None else store
+    with checkpoint('inbox-chain'):
+        chain = InboxChain(prepared_store,responder=responder)
     chain.media_required=settings.contacts_enabled
-    if contact_photo is None and settings.contacts_enabled:
-        from assistant_contact_photo import capture_profile
-        contact_photo=lambda who:capture_profile(settings.adb,settings.folder,who,stopped.is_set)
+    with checkpoint('inbox-photo'):
+        if contact_photo is None and settings.contacts_enabled:
+            from assistant_contact_photo import capture_profile
+            contact_photo=lambda who:capture_profile(settings.adb,settings.folder,who,stopped.is_set)
     if exit_notifier is None and settings.errors_enabled:
         try:
             exit_token, exit_chat = telegram_notify.load()
             exit_notifier = lambda text: telegram_notify.send(exit_token, exit_chat, text)
         except telegram_notify.TelegramError:
             pass
-    if navigator is None:
-        from dialog_models import perform as model_navigation
-        navigator=model_navigation
+    with checkpoint('inbox-navigation-adapter'):
+        if navigator is None:
+            from dialog_models import perform as model_navigation
+            navigator=model_navigation
+    with checkpoint('inbox-config'):
+        prepared_greetings=load().greetings if greetings is None else greetings
     # No screen paging, automatic swipes or return-to-top scan.
-    result = walk(settings, stopped, approve, progress, chain,
-                navigator=navigator,
-                reader=capture if reader is None else reader,
-                sender=submit if sender is None else sender,
-                notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,
-                greetings=load().greetings if greetings is None else greetings)
+    with checkpoint('inbox-walk'):
+        result = walk(settings, stopped, approve, progress, chain,
+                    navigator=navigator,
+                    reader=capture if reader is None else reader,
+                    sender=submit if sender is None else sender,
+                    notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,
+                    greetings=prepared_greetings)
 
-    with chain.store.connection() as db:
-        result['review_pending'] = db.execute(
-            "SELECT COUNT(*) FROM chain_dialogs WHERE stage='manual-review'").fetchone()[0]
+    with checkpoint('inbox-review'):
+        with chain.store.connection() as db:
+            result['review_pending'] = db.execute(
+                "SELECT COUNT(*) FROM chain_dialogs WHERE stage='manual-review'").fetchone()[0]
     if settings.errors_enabled and result['isolated_dialogs'] and not any(e['notification'] in ('accepted','unknown','already-attempted') for e in result.get('exit_events',[])):
         from assistant_error_notify import notify_isolated
         result['isolation_notification'] = notify_isolated(result)

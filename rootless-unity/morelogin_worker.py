@@ -96,10 +96,12 @@ def run(spec, stopped, progress, *, connect=None, runner=None):
 
 def main():
     if sys.argv[1:] == ['--self-check']:
-        # Packaging check only: imports are available, no socket/ADB/credential access.
+        # Offline packaging check: disposable shared DB/config, no phone or credentials.
         import paramiko
         from morelogin_store import SharedStore
         from assistant_monitor import run as monitor
+        from morelogin_preparation_check import check
+        check()
         return 0
     stopped = threading.Event()
     try:
