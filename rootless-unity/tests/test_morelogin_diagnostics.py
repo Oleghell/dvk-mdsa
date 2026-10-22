@@ -101,7 +101,7 @@ class Diagnostics(unittest.TestCase):
     def test_actual_gui_event_loop_preserves_failure_and_marks_phone(self):
         # Execute actual poll body without launching Tk or importing the engine.
         path=Path(__file__).resolve().parents[1]/'morelogin_app.py'
-        tree=ast.parse(path.read_text())
+        tree=ast.parse(path.read_text(encoding='utf-8'))
         launch=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='launch')
         poll=next(n for n in launch.body if isinstance(n,ast.FunctionDef) and n.name=='poll')
         poll.body=[ast.Global(names=n.names) if isinstance(n,ast.Nonlocal) else n for n in poll.body]
