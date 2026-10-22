@@ -43,19 +43,23 @@ def handshake(plan, *, socket_factory=None, transport_factory=None):
             socket_factory=domain_connection
     sock = transport = None
     try:
-        sock = socket_factory((plan.host, plan.ssh_port), timeout=15)
-        transport = transport_factory(sock)
-        transport.banner_timeout = 15
-        transport.auth_timeout = 15
-        transport.start_client(timeout=15)
+        try:
+            sock = socket_factory((plan.host, plan.ssh_port), timeout=15)
+            transport = transport_factory(sock)
+            transport.banner_timeout = 15
+            transport.auth_timeout = 15
+            transport.start_client(timeout=15)
+        except CloudError:
+            raise
+        except Exception:
+            raise CloudError('ssh-unavailable') from None
+        # Do not turn installation, timeouts or engine errors into SSH errors.
         yield transport
-    except CloudError:
-        raise
-    except Exception:
-        raise CloudError('ssh-unavailable') from None
     finally:
-        if transport is not None: transport.close()
-        if sock is not None: sock.close()
+        for resource in (transport, sock):
+            if resource is not None:
+                try: resource.close()
+                except Exception: pass
 
 def probe(plan):
     """No password sent. This is an observation, NOT authentication of the host."""
@@ -103,7 +107,7 @@ def tunnel(plan, pinned, cancelled=lambda: False):
         try:
             yield '127.0.0.1:' + str(server.server_address[1])
         finally:
-            server.shutdown()
-            server.server_close()
-            transport.close()
+            for close in (server.shutdown,server.server_close,transport.close):
+                try: close()
+                except Exception: pass
             thread.join(timeout=2)

@@ -1,5 +1,5 @@
 """Explicit single-phone split APK installer. No root, shell strings, auto-delete or sends."""
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import hashlib
 import json
 import os
@@ -23,7 +23,8 @@ ANDROID_CODES = {'INSTALL_FAILED_UPDATE_INCOMPATIBLE','INSTALL_FAILED_VERSION_DO
  'DELETE_FAILED_DEVICE_POLICY_MANAGER','DELETE_FAILED_USER_RESTRICTED'}
 CODES={'configuration','bundle-required','cancelled','device-busy','device-not-ready','wrong-abi',
  'wrong-android','identity-changed','adb-failed','operation-uncertain','backup-failed','declined','install-failed',
- 'delete-failed','not-installed','installed','installed-after-replacement'}
+ 'delete-failed','not-installed','installed','installed-after-replacement',
+ 'known-bundle','different-bundle','app-absent','check-failed','installed-unverified'}
 BOOT=re.compile(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}')
 class InstallError(RuntimeError):
     def __init__(self,code,android_code=None):
@@ -32,14 +33,14 @@ class InstallError(RuntimeError):
         super().__init__(self.code)
 
 class OwnedAdb:
-    def __init__(self,executable,serial,folder,*,runner=subprocess.run):
+    def __init__(self,executable,serial,folder,*,runner=subprocess.run,read_only=False):
         path=Path(executable)
         if not path.is_absolute() or not path.is_file() or path.name.lower() not in ('adb','adb.exe','adb_server.exe'):
             raise InstallError('configuration')
         if not re.fullmatch(r'127\.0\.0\.1:[0-9]{1,5}',serial) or not 1024<=int(serial.split(':')[1])<=65535:
             raise InstallError('configuration')
         self.executable=str(path);self.serial=serial;self.folder=Path(folder).resolve(strict=True)
-        self.runner=runner;self.backup_dir=None
+        self.runner=runner;self.backup_dir=None;self.read_only=read_only
     def validate(self,args):
         if args in (['connect',self.serial],['disconnect',self.serial]):return
         if args[:2]!=['-s',self.serial]:raise InstallError('configuration')
@@ -48,8 +49,9 @@ class OwnedAdb:
           ['shell','getprop','sys.boot_completed'],['shell','getprop','ro.product.cpu.abilist'],
           ['shell','getprop','ro.build.version.sdk'],['shell','pm','list','packages',PACKAGE],
           ['shell','pm','path',PACKAGE]]
-        if op in read or op==['uninstall',PACKAGE]:return
-        if op in (['install-multiple','-r',str(self.folder/'base.apk'),str(self.folder/'split-001.apk')],
+        if op in read:return
+        if not self.read_only and op==['uninstall',PACKAGE]:return
+        if not self.read_only and op in (['install-multiple','-r',str(self.folder/'base.apk'),str(self.folder/'split-001.apk')],
                   ['install-multiple',str(self.folder/'base.apk'),str(self.folder/'split-001.apk')]):return
         if len(op)==3 and op[0]=='pull' and self.backup_dir is not None:
             remote=op[1];base=remote.rsplit('/',1)[0]+'/base.apk'
@@ -70,8 +72,8 @@ class OwnedAdb:
                 out.seek(0);value=out.read(65537)
             if len(value)>65536:raise InstallError('operation-uncertain')
             text=value.decode('utf-8',errors='replace').strip()
-            if result.returncode:
-                match=re.search(r'Failure \[([A-Z_]+)',text)
+            match=re.search(r'Failure \[([A-Z_]+)',text)
+            if result.returncode or match:
                 raise InstallError('adb-failed',match.group(1) if match else None)
             return text
         except subprocess.TimeoutExpired:raise InstallError('operation-uncertain') from None
@@ -120,8 +122,35 @@ def backup(adb,directory,identity,stopped):
     except Exception:raise InstallError('backup-failed') from None
     finally:adb.backup_dir=None
 
+def verify_installed(adb,directory,identity,stopped,progress=lambda _:None):
+    """Read APK binaries only; never attach Gadget, launch app or read account data."""
+    guard(adb,identity,stopped)
+    if not present(adb):return dict(result='app-absent',files=[],known_bundle=False)
+    if shutil.disk_usage(directory).free<2*1024**3:raise InstallError('check-failed')
+    paths=parse_apk_paths(adb.op('shell','pm','path',PACKAGE))
+    files=[];total=0
+    with tempfile.TemporaryDirectory(prefix='.gadget-check-',dir=directory) as local:
+        adb.backup_dir=Path(local).resolve(strict=True)
+        try:
+            for index,remote in enumerate(paths):
+                guard(adb,identity,stopped)
+                progress('Проверяю установленный APK %d из %d. Данные аккаунта не читаются.'%(index+1,len(paths)))
+                name='base.apk' if remote.endswith('/base.apk') else 'split-%03d.apk'%index
+                dest=adb.backup_dir/name
+                adb.op('pull',remote,str(dest),timeout=240)
+                item=validate_apk(dest);total+=item['size_bytes']
+                if total>2*1024**3:raise InstallError('check-failed')
+                files.append(dict(file=name,**item))
+            guard(adb,identity,stopped)
+            if parse_apk_paths(adb.op('shell','pm','path',PACKAGE))!=paths:
+                raise InstallError('identity-changed')
+        finally:adb.backup_dir=None
+    same=(len(files)==len(HASHES) and sorted(x['sha256'] for x in files)==sorted(HASHES.values()))
+    return dict(result='known-bundle' if same else 'different-bundle',files=files,known_bundle=same)
+
+
 def install_connected(adb,cloud_id,directory,stopped,confirm_install,confirm_delete,progress,
-                      *,backup_fn=backup,verify_bundle=bundle_token,lock=operation_lock,record=lambda **kw:None):
+                      *,backup_fn=backup,verify_bundle=bundle_token,lock=operation_lock,record=lambda **kw:None,inspect_fn=verify_installed):
     cloud_id=phone_id(cloud_id)
     if adb.op('get-state')!='device':raise InstallError('device-not-ready')
     identity=boot(adb)
@@ -165,54 +194,87 @@ def install_connected(adb,cloud_id,directory,stopped,confirm_install,confirm_del
         else:result='installed'
         guard(adb,identity,stopped)
         if not present(adb):raise InstallError('not-installed')
-        # No app launch, login, Gadget attach, message send or follow-up cycle here.
-        record(status=result,stage='done')
+        record(stage='verify-installed')
+        progress('Android сообщил об установке. Сравниваю установленные APK с комплектом Gadget.')
+        check=inspect_fn(adb,directory,identity,stopped,progress)
+        record(installed_apks=check)
+        if not check['known_bundle']:raise InstallError('installed-unverified')
+        # Byte identity is NOT a claim that Gadget runs on Android 15A.
+        record(status=result,stage='done',known_bundle=True)
         return result
 
-def run(cloud_id,adb_path,folder,stopped,confirm_install,confirm_delete,progress):
-    """Credentials/API entry stay in memory. All reports contain only fixed fields."""
-    cloud_id=phone_id(cloud_id);directory=phone_directory(cloud_id);directory.mkdir(parents=True,exist_ok=True)
+@contextmanager
+def connected_phone(cloud_id,adb_path,folder,stopped,record,*,read_only=False):
+    """Use the existing pinned per-phone transport; never enumerate other devices."""
+    with ExitStack() as stack:
+        record(stage='api')
+        from morelogin_credentials import load
+        app_id,key=load();entry=Client(app_id,key).query([cloud_id])[cloud_id]
+        selected=plan(entry,cloud_id)
+        if isinstance(selected,DirectPlan):
+            from morelogin_direct import connection
+            serial=stack.enter_context(connection(selected,adb_path,stopped.is_set))
+        else:
+            value=json.loads((root_directory()/'phones.json').read_text(encoding='utf-8'))
+            pin=fingerprint(value.get('pins',{}).get(cloud_id))
+            from morelogin_ssh import tunnel
+            serial=stack.enter_context(tunnel(selected,pin,stopped.is_set))
+        adb=OwnedAdb(adb_path,serial,folder,read_only=read_only)
+        connected=False
+        try:
+            record(stage='adb');adb.run(['connect',serial]);connected=True
+            yield adb
+        finally:
+            if connected:
+                try:adb.run(['disconnect',serial])
+                except Exception:pass
+
+def _report(cloud_id,name):
+    directory=phone_directory(cloud_id);directory.mkdir(parents=True,exist_ok=True)
     report=dict(cloud_phone_id=cloud_id,status='checking',stage='bundle',account_data_backed_up=False,
                 live_gadget_verified=False)
     def record(**values):
-        report.update(values);atomic_json(directory/'last-install.json',report)
+        report.update(values);atomic_json(directory/name,report)
+    return directory,record
+
+def _failure(error,record):
+    code=error.code if isinstance(error,(InstallError,CloudError)) else 'configuration'
+    record(status='stopped',code=code,android_code=getattr(error,'android_code',None))
+    if isinstance(error,(InstallError,CloudError)):raise error
+    raise InstallError('configuration') from None
+
+def run(cloud_id,adb_path,folder,stopped,confirm_install,confirm_delete,progress):
+    """Explicit install only. All reports contain fixed fields, never raw ADB output."""
+    cloud_id=phone_id(cloud_id);directory,record=_report(cloud_id,'last-install.json')
     try:
         with ExitStack() as stack:
             try:stack.enter_context(operation_lock(directory/'cloud-run.lock'))
             except Exception:raise InstallError('device-busy') from None
-            # Each explicit invocation stages & verifies immutable-known APK bytes.
             staged=Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='.install-',dir=directory)))
-            for name,expected in HASHES.items():
+            for name in HASHES:
                 source=Path(folder)/name
                 if not source.is_file() or source.stat().st_size>1024**3:raise InstallError('bundle-required')
                 shutil.copyfile(source,staged/name)
             try:bundle_token(staged)
             except Exception:raise InstallError('bundle-required') from None
             if stopped.is_set():raise InstallError('cancelled')
-            record(stage='api')
-            from morelogin_credentials import load
-            app_id,key=load();entry=Client(app_id,key).query([cloud_id])[cloud_id]
-            selected=plan(entry,cloud_id)
-            if isinstance(selected,DirectPlan):
-                from morelogin_direct import connection
-                serial=stack.enter_context(connection(selected,adb_path,stopped.is_set))
-            else:
-                value=json.loads((root_directory()/'phones.json').read_text(encoding='utf-8'))
-                pin=fingerprint(value.get('pins',{}).get(cloud_id))
-                from morelogin_ssh import tunnel
-                serial=stack.enter_context(tunnel(selected,pin,stopped.is_set))
-            adb=OwnedAdb(adb_path,serial,staged)
-            connected=False
-            try:
-                record(stage='adb');adb.run(['connect',serial]);connected=True
-                result=install_connected(adb,cloud_id,directory,stopped,confirm_install,confirm_delete,progress,record=record)
-            finally:
-                if connected:
-                    try:adb.run(['disconnect',serial])
-                    except Exception:pass
-            return result
-    except Exception as error:
-        code=error.code if isinstance(error,(InstallError,CloudError)) else 'configuration'
-        record(status='stopped',code=code,android_code=getattr(error,'android_code',None))
-        if isinstance(error,(InstallError,CloudError)):raise
-        raise InstallError('configuration') from None
+            with connected_phone(cloud_id,adb_path,staged,stopped,record) as adb:
+                return install_connected(adb,cloud_id,directory,stopped,confirm_install,confirm_delete,progress,record=record)
+    except Exception as error:_failure(error,record)
+
+def check_installed(cloud_id,adb_path,stopped,progress):
+    """No bundle needed locally, no installation, deletion, app launch or messages."""
+    cloud_id=phone_id(cloud_id);directory,record=_report(cloud_id,'last-gadget-check.json')
+    try:
+        with operation_lock(directory/'cloud-run.lock'):
+            if stopped.is_set():raise InstallError('cancelled')
+            with tempfile.TemporaryDirectory(prefix='.inspect-',dir=directory) as temporary:
+                with connected_phone(cloud_id,adb_path,temporary,stopped,record,read_only=True) as adb:
+                    if adb.op('get-state')!='device':raise InstallError('device-not-ready')
+                    identity=boot(adb)
+                    with operation_lock(root_directory()/'locks'/('boot-'+identity+'.lock')):
+                        record(stage='read-installed-apks')
+                        result=verify_installed(adb,directory,identity,stopped,progress)
+                        record(status=result['result'],stage='done',installed_apks=result)
+                        return result['result']
+    except Exception as error:_failure(error,record)

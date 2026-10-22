@@ -9,7 +9,7 @@ import sys
 import threading
 from morelogin_common import root_directory,phone_directory,phone_id
 from morelogin_version import VERSION
-from morelogin_install import run,InstallError
+from morelogin_install import run,check_installed,InstallError
 
 MESSAGES={
  'installed':'APK установлены без удаления приложения. Открой ДругВокруг вручную; проверь вход.',
@@ -29,13 +29,18 @@ MESSAGES={
  'delete-failed':'Не удалось подтвердить удаление. Повтор не выполнялся.',
  'not-installed':'Не удалось подтвердить наличие установленного приложения.',
  'ssh-key-changed':'Ключ SSH изменился. Замена запрещена; сначала проверь подключение в DvkAssistant.',
- 'ssh-unavailable':'Не удалось подключиться к SSH. Замена не начинается.',
+ 'ssh-unavailable':'Не удалось установить SSH-соединение. Подробности этапа — в отчёте.',
+ 'known-bundle':'Подтверждено: установлен наш комплект APK с Gadget. Работа самого Gadget ещё не проверена.',
+ 'different-bundle':'Установленные APK отличаются от нашего комплекта. Это не подтверждённый комплект Gadget.',
+ 'app-absent':'ДругВокруг (drug.vokrug) не установлен.',
+ 'check-failed':'Проверка APK не завершена. Нужно 2 ГБ свободного места; см. last-gadget-check.json.',
+ 'installed-unverified':'Android сообщил об установке, но APK не совпали с комплектом. Автоповтора нет.',
 }
 
 def launch(self_check=False):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox,simpledialog
-    root=tk.Tk();root.title('DvkAssistant '+VERSION+' · Установка Gadget');root.geometry('780x520')
+    root=tk.Tk();root.title('DvkAssistant '+VERSION+' · Установка Gadget');root.geometry('860x580')
     box=ttk.Frame(root,padding=18);box.pack(fill='both',expand=True)
     ttk.Label(box,text='Установка Gadget · один Cloud Phone',font=('Segoe UI',16,'bold')).pack(anchor='w')
     ttk.Label(box,text='Только проверенный комплект ARM64. Совместимость Gadget с Android 15A ещё не подтверждена.\nЗамена магазинной версии может удалить аккаунт, переписку и настройки с телефона.\nКопия APK НЕ сохраняет данные аккаунта. Удаление — только после отдельного ввода ID.',wraplength=730).pack(anchor='w',pady=12)
@@ -72,23 +77,26 @@ def launch(self_check=False):
     def finish():
         nonlocal busy
         busy=False
-        for widget in controls+[choice,begin]:widget.configure(state='normal')
+        for widget in controls+[choice,begin,inspect]:widget.configure(state='normal')
         cancel.configure(state='disabled')
-    def start():
+    def start(check_only=False):
         nonlocal busy
         if busy:return
         try:identifier=phone_id(cloud.get().strip())
         except Exception:status.set('Укажи один числовой Cloud Phone ID.');return
         executable=adb.get();source=folder.get()
-        if not executable or not source:status.set('Выбери adb.exe и папку test-apks.');return
+        if not executable or (not check_only and not source):status.set('Выбери adb.exe'+('.' if check_only else ' и папку test-apks.'));return
         busy=True;stopped.clear()
-        for widget in controls+[choice,begin]:widget.configure(state='disabled')
-        cancel.configure(state='normal');status.set('Проверяю комплект и подключение. На телефоне пока ничего не меняется.')
+        for widget in controls+[choice,begin,inspect]:widget.configure(state='disabled')
+        cancel.configure(state='normal');status.set('Проверяю установленные APK. Установка, удаление и отправка сообщений запрещены.' if check_only else 'Проверяю комплект и подключение. На телефоне пока ничего не меняется.')
         def work():
             try:
-                result=run(identifier,executable,source,stopped,
-                    lambda *args:ask('install',*args),lambda *args:ask('delete',*args),
-                    lambda text:events.put(('status',text)))
+                if check_only:
+                    result=check_installed(identifier,executable,stopped,lambda text:events.put(('status',text)))
+                else:
+                    result=run(identifier,executable,source,stopped,
+                        lambda *args:ask('install',*args),lambda *args:ask('delete',*args),
+                        lambda text:events.put(('status',text)))
                 events.put(('done',result))
             except Exception as error:
                 events.put(('done',getattr(error,'code','configuration')))
@@ -97,11 +105,12 @@ def launch(self_check=False):
         stopped.set();status.set('Останавливаю после текущей операции. Уже выполненные действия не откатываются.')
     row=ttk.Frame(box);row.pack(fill='x')
     begin=ttk.Button(row,text='Проверить и установить Gadget',command=start);begin.pack(side='left')
+    inspect=ttk.Button(row,text='Проверить установленный Gadget',command=lambda:start(True));inspect.pack(side='left',padx=8)
     cancel=ttk.Button(row,text='Стоп',command=stop,state='disabled');cancel.pack(side='left',padx=8)
     def show_report():
         try:os.startfile(str(phone_directory(phone_id(cloud.get().strip()))))
         except Exception:status.set('Отчёт: %LOCALAPPDATA%\\DvkAssistantMoreLogin\\phones\\<ID>\\last-install.json')
-    ttk.Button(row,text='Открыть папку отчёта',command=show_report).pack(side='right')
+    ttk.Button(box,text='Открыть папку отчёта',command=show_report).pack(side='right')
     def poll():
         while not events.empty():
             kind,value=events.get_nowait()
@@ -126,7 +135,7 @@ def launch(self_check=False):
         else:root.destroy()
     root.protocol('WM_DELETE_WINDOW',close)
     if self_check:
-        root.update();assert root.winfo_viewable() and begin.winfo_viewable() and not busy and events.empty()
+        root.update();assert root.winfo_viewable() and begin.winfo_viewable() and inspect.winfo_viewable() and not busy and events.empty()
         assert not stopped.is_set() and str(cancel.cget('state'))=='disabled'
         root.destroy();return
     root.after(100,poll);root.mainloop()

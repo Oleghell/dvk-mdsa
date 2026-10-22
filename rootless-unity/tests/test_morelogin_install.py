@@ -34,7 +34,7 @@ class Flow(unittest.TestCase):
     def execute(self,adb,approve=True,delete=None,backup_fn=lambda *_:True,verify=lambda _:None):
         return install_connected(adb,'101',self.folder,self.stopped,lambda *a:approve,
             lambda *a:delete,lambda _:None,backup_fn=backup_fn,verify_bundle=verify,lock=no_lock,
-            record=lambda **x:self.records.append(x))
+            record=lambda **x:self.records.append(x),inspect_fn=lambda *_:dict(known_bundle=True))
     def writes(self,adb):return [x for x in adb.calls if x[0] in ('uninstall','install-multiple')]
     def test_update_success_preserves_existing_app_no_delete_prompt(self):
         a=Adb(self.folder)
