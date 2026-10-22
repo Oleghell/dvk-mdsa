@@ -76,7 +76,7 @@ def launch(self_check=False):
     phone_status.column('id', width=155, stretch=False)
     phone_status.column('state', width=460)
     phone_status.pack(side='left', fill='both', expand=True, padx=8)
-    ttk.Label(frame, text='Одна общая SQLite-база. Все ID запускаются параллельно; состояние чатов изолировано.\nСначала сохрани APP ID / Secret Key в настройках, затем проверь SSH-подключения.\nНужна совместимая тестовая копия приложения с Gadget; обычный APK не подключается автоматически.', wraplength=850).pack(anchor='w')
+    ttk.Label(frame, text='Одна общая SQLite-база. Все ID запускаются параллельно; состояние чатов изолировано.\nСначала сохрани APP ID / Secret Key, затем проверь подключения (прямой ADB или SSH).\nНужна совместимая тестовая копия приложения с Gadget; обычный APK не подключается автоматически.', wraplength=850).pack(anchor='w')
 
     def save_ids(values):
         atomic_json(root_directory()/'phones.json', {'ids':values, 'pins':{x:pins[x] for x in values if x in pins}})
@@ -107,11 +107,12 @@ def launch(self_check=False):
         stopped.clear()
         busy=True
         refresh()
-        status.set('Проверяю Open API и SSH-ключи. Пароли SSH на этом этапе не передаются.')
+        status.set('Проверяю API и подключение. Прямой ADB использует код; SSH-ключ проверяется без пароля.')
+        selected_adb = settings.adb
         def check():
             failed = False
             try:
-                from morelogin_client import plan
+                from morelogin_client import plan, DirectPlan
                 from morelogin_ssh import probe
                 from concurrent.futures import ThreadPoolExecutor, as_completed
                 entries=api_entries(values)
@@ -119,8 +120,13 @@ def launch(self_check=False):
                     if stopped.is_set(): return
                     try:
                         ssh=plan(entries.get(cloud_id), cloud_id)
-                        observed=probe(ssh)
-                        events.put(('host-key', (cloud_id,ssh.host,ssh.ssh_port,observed)))
+                        if isinstance(ssh,DirectPlan):
+                            from morelogin_direct import check as direct_check
+                            direct_check(ssh,selected_adb,stopped.is_set)
+                            events.put(('phone',(cloud_id,'progress','Прямой ADB проверен; Android загружен (без SSH-шифрования)')))
+                        else:
+                            observed=probe(ssh)
+                            events.put(('host-key', (cloud_id,ssh.host,ssh.ssh_port,observed)))
                     except Exception as error:
                         save_failure([cloud_id], error)
                         events.put(('phone', (cloud_id, 'error', str(error) if isinstance(error,CloudError) else 'ssh-unavailable')))
@@ -455,7 +461,10 @@ def launch(self_check=False):
                     'ssh-key-untrusted':'Сначала проверь SSH-подключение и подтверди ключ',
                     'ssh-key-changed':'SSH-ключ изменился. Нужна ручная сверка, запуск запрещён',
                     'ssh-unavailable':'SSH недоступен. Проверь телефон, сеть и права',
-                    'ssh-format':'Этот формат подключения пока не поддержан',
+                    'ssh-format':'Неподдерживаемый формат SSH-команды',
+                    'direct-adb-format':'Для прямого ADB нужны IPv4, порт и числовой код подключения из MoreLogin',
+                    'adb-auth-failed':'Прямой ADB: не удалось подтвердить доступ по коду; проверь срок действия подключения',
+                    'adb-unavailable':'Не удалось запустить ADB или подключиться; проверь путь к adb.exe и доступность телефона',
                     'phone-unavailable':'Телефон выключен, ADB выключен или нет доступа',
                     'phone-ambiguous':'Неоднозначное соответствие Cloud Phone ID',
                     'bundle-required':'Нужен совместимый комплект test-apks / Gadget',

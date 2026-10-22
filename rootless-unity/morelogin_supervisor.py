@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from morelogin_common import CloudError, phone_id
+from morelogin_client import plan, DirectPlan
 
 
 def worker_command():
@@ -90,10 +91,16 @@ def run(settings, ids, pins, entries, mode, stopped, publish, *, target=one):
         if not entries.get(cloud_id):
             publish(cloud_id,'error','phone-unavailable')
             continue
-        if cloud_id not in pins:
+        try:
+            selected=plan(entries[cloud_id],cloud_id)
+        except CloudError as error:
+            publish(cloud_id,'error',error.code)
+            continue
+        direct=isinstance(selected,DirectPlan)
+        if not direct and cloud_id not in pins:
             publish(cloud_id,'error','ssh-key-untrusted')
             continue
-        spec=dict(id=cloud_id,entry=entries[cloud_id],fingerprint=pins[cloud_id],settings=asdict(settings),mode=mode)
+        spec=dict(id=cloud_id,entry=entries[cloud_id],fingerprint=None if direct else pins[cloud_id],settings=asdict(settings),mode=mode)
         thread=threading.Thread(target=target,args=(spec,stopped,publish),daemon=True)
         thread.start()
         threads.append(thread)

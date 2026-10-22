@@ -121,6 +121,13 @@ def port(value):
     return int(value)
 
 @dataclass(frozen=True)
+class DirectPlan:
+    host: str
+    adb_port: int
+    password: str = field(repr=False)
+
+
+@dataclass(frozen=True)
 class Plan:
     host: str
     ssh_port: int
@@ -130,7 +137,7 @@ class Plan:
     password: str = field(repr=False)
 
 def plan(entry, expected):
-    """Only SSH -L to the documented ADB proxy, no shell/options from service."""
+    """Explicit provider mode: SSH command, otherwise documented direct IP/port/code."""
     phone_id(expected)
     if not isinstance(entry, dict) or entry.get('id') != expected:
         raise CloudError('phone-ambiguous')
@@ -138,6 +145,21 @@ def plan(entry, expected):
             or type(entry.get('envStatus')) is not int or entry['envStatus'] != 4
             or entry.get('remark')):
         raise CloudError('phone-unavailable')
+    command = entry.get('command')
+    direct_command = re.fullmatch(r'adb(?:\.exe)? connect ([0-9.]+:[0-9]+)',command) if isinstance(command,str) else None
+    if command is None or command == '' or direct_command:
+        # No downgrade from a malformed SSH command. Direct is selected only
+        # when the API explicitly supplies no tunnel command.
+        try:
+            host = ipaddress.IPv4Address(entry.get('adbIp'))
+            if not host.is_global or host.is_multicast or host.is_reserved: raise ValueError()
+            number = port(entry.get('adbPort'))
+            if direct_command and direct_command.group(1) != str(host)+':'+str(number):raise ValueError()
+            password = entry.get('adbPassword')
+            if not isinstance(password,str) or not re.fullmatch(r'[0-9]{1,32}',password):raise ValueError()
+            return DirectPlan(str(host),number,password)
+        except Exception:
+            raise CloudError('direct-adb-format') from None
     password = entry.get('adbPassword')
     if not isinstance(password, str) or not 1 <= len(password) <= 4096 or '\x00' in password:
         raise CloudError('ssh-format')

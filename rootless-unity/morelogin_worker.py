@@ -10,7 +10,7 @@ import sys
 import threading
 from contextlib import ExitStack
 from morelogin_common import CloudError, phone_id, root_directory, phone_directory, fingerprint
-from morelogin_client import plan
+from morelogin_client import plan, DirectPlan
 
 
 def event(kind, **value):
@@ -39,10 +39,17 @@ def run(spec, stopped, progress, *, connect=None, runner=None):
     from morelogin_ssh import tunnel
     cloud_id = phone_id(spec['id'])
     ssh = plan(spec['entry'], cloud_id)
-    pin = fingerprint(spec['fingerprint'])
+    pin = None if isinstance(ssh,DirectPlan) else fingerprint(spec['fingerprint'])
     if stopped.is_set(): raise CloudError('cancelled')
-    connect = tunnel if connect is None else connect
-    with connect(ssh, pin, stopped.is_set) as serial:
+    if connect is None:
+        if isinstance(ssh,DirectPlan):
+            from morelogin_direct import connection
+            transport=connection(ssh,spec['settings']['adb'],stopped.is_set)
+        else:
+            transport=tunnel(ssh,pin,stopped.is_set)
+    else:
+        transport=connect(ssh,pin,stopped.is_set)
+    with transport as serial:
         configure_target(serial, cloud_id)
         from assistant_settings import Settings
         from assistant_store import Store

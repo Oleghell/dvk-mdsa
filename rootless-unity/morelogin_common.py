@@ -9,7 +9,7 @@ MAX_PHONES = 200
 
 class CloudError(RuntimeError):
     """Only fixed, non-secret reason codes may leave connection layers."""
-    CODES = {'configuration', 'api-transport', 'api-http', 'api-network', 'api-dns', 'api-tls', 'api-timeout', 'api-unavailable', 'api-denied', 'api-response',
+    CODES = {'configuration', 'direct-adb-format', 'adb-auth-failed', 'api-transport', 'api-http', 'api-network', 'api-dns', 'api-tls', 'api-timeout', 'api-unavailable', 'api-denied', 'api-response',
              'phone-unavailable', 'phone-ambiguous', 'ssh-format', 'ssh-key-untrusted',
              'ssh-key-changed', 'ssh-unavailable', 'adb-unavailable', 'device-busy',
              'device-not-ready', 'bundle-required', 'cancelled', 'worker-stopped'}

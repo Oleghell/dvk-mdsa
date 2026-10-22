@@ -15,8 +15,8 @@ def main(folder):
             app_id_secret_key=True,windows_dpapi=True,ssh_host_key_pinning=True,
             auto_start=False,unknown_send_auto_retry=False,automatic_app_install=False,
             compatible_gadget_bundle_required=True,stock_apk_supported=False,
-            direct_adb_fallback=False,automatic_phone_power_on=False),
-        live_verified=dict(cloud_api=False,ssh_android14=False,ssh_android15=False,
+            direct_adb_fallback=False,direct_adb_supported=True,direct_adb_code_via_argv=False,automatic_phone_power_on=False),
+        live_verified=dict(cloud_api=False,direct_adb_android15=False,ssh_android14=False,ssh_android15=False,
             gadget_android14=False,gadget_android15=False,parallel_cloud_phones=False,
             cloud_message_send=False,cloud_contact_photo_telegram=False))
     (folder/'build-manifest.json').write_text(json.dumps(result,ensure_ascii=False,indent=1),encoding='utf-8')
