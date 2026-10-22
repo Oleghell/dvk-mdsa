@@ -151,6 +151,6 @@ class PacingAndSettings(unittest.TestCase):
         self.assertEqual(batches,[300]);self.assertEqual(out['immediate_rechecks'],3)
 
     def test_start_has_no_modal(self):
-        text=Path(__file__).resolve().parents[1].joinpath('assistant_app.py').read_text()
+        text=Path(__file__).resolve().parents[1].joinpath('assistant_app.py').read_text(encoding='utf-8')
         begin=text.split("    def begin(mode='full'):",1)[1].split('    def configure():',1)[0]
         self.assertNotIn('askyesno',begin)
