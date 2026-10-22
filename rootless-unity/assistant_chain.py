@@ -14,7 +14,7 @@ from assistant_store import StateError, Store
 from conversation_engine import QUESTIONS, CONTACT_TEXT, REFUSAL, NEGATIVE, normalized
 from one_chat_probe import identity
 from one_chat_send import checked
-from shared_contact import self_shared, payload as contact_payload, display_name
+from shared_contact import self_shared, voluntary_batch, payload as contact_payload, display_name
 from telegram_notify import protect
 from assistant_contact_clarify import TEXT as CLARIFY_TEXT, chosen as chose_messenger
 
@@ -122,13 +122,14 @@ class Chain:
                 pending = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?', (chat,pending_contact_kind)).fetchone()
                 pending_contact_observed = bool(pending and pending[1] == 'handler-returned-unconfirmed'
                     and isinstance(outgoing[0]['text'], str) and text_hash(outgoing[0]['text']) == pending[0])
-            shared = [(m, self_shared(m['text'], requested=stage == 'wait-contact' or pending_contact_observed)) for m in incoming]
+            independent_contact = self.any_replies and voluntary_batch(incoming)
+            shared = [(m, self_shared(m['text'], requested=stage == 'wait-contact' or pending_contact_observed or independent_contact)) for m in incoming]
             shared = [(m, items) for m, items in shared if items]
             if any(m['text'] and REFUSAL.search(normalized(m['text'])) for m in incoming):
                 stage = 'declined'
             elif shared:
-                aggregate = self.any_replies and (stage == 'wait-contact' or pending_contact_observed)
-                if (outgoing and not pending_contact_observed) or (not aggregate and (len(shared) != 1 or len(incoming) != 1)):
+                aggregate = self.any_replies and (stage == 'wait-contact' or pending_contact_observed or independent_contact)
+                if (outgoing and not pending_contact_observed and not independent_contact) or (not aggregate and (len(shared) != 1 or len(incoming) != 1)):
                     stage, review_cause = 'manual-review', 'contact-batch-ambiguous'
                 else:
                     message, items = shared[0]
@@ -155,6 +156,8 @@ class Chain:
                                        (chat, message['id'], protected))
                         except Exception:
                             raise StateError('contact-protection-failed') from None
+                    # Voluntary sharing is independent of earlier send outcome.
+                    # Preserve unknown/returned action records; do not infer delivery.
                     if pending_contact_observed:
                         db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind=?", (chat,pending_contact_kind))
                     stage = 'done'

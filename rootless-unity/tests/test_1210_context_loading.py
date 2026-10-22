@@ -62,7 +62,7 @@ class Context(guide.WholeChain):
         h=self.seed_contact();h += [('Давай ватсап',False)]
         first=guide.snapshot(*h);seen=guide.snapshot(*h,(clarify.TEXT,True))
         out=self.walk([first,first,seen],until_waiting=True)
-        self.assertEqual(self.sent,[clarify.TEXT]);self.assertEqual(out['reason'],'wait-contact')
+        self.assertEqual(self.sent,[clarify.TEXT]);self.assertEqual(out['reason'],'contact-clarification-sent')
         self.chain=guided.GuidedChain(self.store,choose=lambda:0,seal=lambda v:v,unseal=lambda v:v)
         out=self.walk([guide.snapshot(*h,(clarify.TEXT,True),('Тг лучше',False))],until_waiting=True)
         self.assertEqual(out['submission_calls'],0);self.assertEqual(self.sent,[clarify.TEXT])

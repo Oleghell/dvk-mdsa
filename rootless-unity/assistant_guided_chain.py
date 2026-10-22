@@ -476,7 +476,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 return out
             if (until_waiting and action is None and
                     stage in ('wait-reply', 'wait-mood', 'wait-contact')):
-                out.update(status='chain-waiting', reason=stage)
+                wait_reason=stage
+                if stage == 'wait-contact' and observed.get('clarify') == 'outgoing-observed':
+                    wait_reason='contact-clarification-sent'
+                out.update(status='chain-waiting', reason=wait_reason)
                 return out
             if action is not None:
                 progress('Подготовлено уточнение контакта.' if action['kind'] == 'clarify' else

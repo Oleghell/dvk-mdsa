@@ -18,7 +18,7 @@ import assistant_history_wait as history_wait
 LIMIT = None
 PAUSE_OUTCOMES = {'message-not-approved', 'manual-review'}
 # Chat-local uncertainty is isolated, never retried; navigation failures still stop.
-ISOLATE = {'send-outcome-unknown', 'outgoing-not-observed', 'manual-review',
+ISOLATE = {'greeting-not-verified', 'send-outcome-unknown', 'outgoing-not-observed', 'manual-review',
            'history-changed-during-approval', 'local-own-message-unanchored',
            'groq-repeat-greeting', 'openrouter-repeat-greeting', 'groq-unsafe-reply', 'openrouter-unsafe-reply',
            'groq-invalid-response', 'openrouter-invalid-response'}

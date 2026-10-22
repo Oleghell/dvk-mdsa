@@ -10,6 +10,7 @@ from assistant_store import StateError
 from uikit_profile_navigation import replace_once
 MAX_MODELS=100000
 SLICE=64
+SCAN_MILLISECONDS=4000
 EXTRA_APIS=['il2cpp_class_get_field_from_name','il2cpp_field_get_parent',
  'il2cpp_field_get_type','il2cpp_field_get_flags','il2cpp_field_get_value',
  'il2cpp_class_value_size','il2cpp_class_is_enum','il2cpp_class_enum_basetype',
@@ -113,7 +114,8 @@ UTILS=r'''
    if(state.scanIndex===undefined)state.scanIndex=modelOffset;
    if(state.scanIndex>count)fail('selection-count-changed');
    n.private_model_scan.count=count;n.scan_batches++;
-   for(let batch=0;batch<2&&state.scanIndex<count&&state.scanIndex<modelOffset+64;batch++,state.scanIndex++){
+   if(state.scanStarted===undefined)state.scanStarted=Date.now();
+   for(let batch=0;batch<2&&state.scanIndex<count&&state.scanIndex<modelOffset+64&&(state.scanIndex===modelOffset||Date.now()-state.scanStarted<4000);batch++,state.scanIndex++){
     const opened=scope(()=>{
      n.rows_scanned++;const chat=modelAt(cm,state.scanIndex);if(chat.isNull())return false;own(chat);
      const model=modelIdentity(chat);if(model===null||!permitted(model.who))return false;
@@ -145,7 +147,11 @@ UTILS=r'''
     });
     if(opened)return;
    }
-   if(state.scanIndex>=count||state.scanIndex>=modelOffset+64){
+   if(state.scanIndex>=count||state.scanIndex>=modelOffset+64||
+      (state.scanIndex>modelOffset&&Date.now()-state.scanStarted>=4000)){
+    // Yield only from a freshly verified list, BEFORE any open action. This is
+    // completed read-only work, not a retry after a timeout or an unknown click.
+    if(!checkView(current)||!resolve(candidate).equals(current))fail('selection-screen-changed');
     stableModels(current,manager,cm,count,null,null);
     n.private_model_scan.next=state.scanIndex<count?state.scanIndex:null;
     n.exhausted=true;n.selection_checkpoint='exhausted';finish();
@@ -165,7 +171,7 @@ def build(*,allowed=(),entry='dialogs',unread_only=False,needs_reply_only=False,
  start=s.index('  const cellAt=');end=s.index('  const finish=',start)
  s=s[:start]+s[end:]
  start=s.index('  const scan=(current,candidate)=>');end=s.index('  try {\n   const root=call',start)
- s=s[:start]+UTILS+s[end:]
+ s=s[:start]+UTILS.replace('4000',str(SCAN_MILLISECONDS))+s[end:]
  s=replace_once(s,"phase:'entry',entry_verified:false", "private_model_scan:{next:null,count:0,skipped_headers:0},phase:'entry',entry_verified:false")
  # The baseline wraps traversal in short handle scopes; preserve the same rule.
  s=s.replace('checkView(current)', 'scope(()=>checkView(current))').replace('resolve(candidate).equals(current)', 'scope(()=>resolve(candidate).equals(current))')
@@ -176,7 +182,7 @@ def validate(raw,*,allowed=(),unread_only=False,needs_reply_only=False,offset=0)
  if not isinstance(scan,dict) or set(scan)!={'next','count','skipped_headers'}:raise ValueError('Invalid model evidence')
  if type(scan['count']) is not int or not 0<=scan['count']<=MAX_MODELS or type(scan['skipped_headers']) is not int or not 0<=scan['skipped_headers']<=SLICE:raise ValueError('Invalid model bounds')
  nxt=scan['next']
- if nxt is not None and (type(nxt) is not int or nxt!=offset+SLICE or not offset<nxt<scan['count']):raise ValueError('Invalid model cursor')
+ if nxt is not None and (type(nxt) is not int or not offset<nxt<=offset+SLICE or not nxt<scan['count']):raise ValueError('Invalid model cursor')
  result=browser.validate(raw,'open',allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only)
  if nxt is not None and result['state']!='exhausted':raise ValueError('Cursor on non-exhausted model slice')
  result['diagnostic']['header_rows_skipped']=scan['skipped_headers']

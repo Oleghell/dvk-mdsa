@@ -37,7 +37,7 @@ class Models(unittest.TestCase):
    self.assertEqual(nxt,64);self.assertEqual(out['diagnostic']['header_rows_skipped'],2)
    self.assertNotIn('private_model_scan',v.call_args.args[0]['navigation'])
    self.assertEqual(raw,before)
-  for scan in (dict(next=63,count=130,skipped_headers=0),dict(next=True,count=130,skipped_headers=0),dict(next=64,count=64,skipped_headers=0),dict(next=None,count=100001,skipped_headers=0),dict(next=None,count=2,skipped_headers=65),dict(next=None,count=2,skipped_headers=True)):
+  for scan in (dict(next=0,count=130,skipped_headers=0),dict(next=True,count=130,skipped_headers=0),dict(next=64,count=64,skipped_headers=0),dict(next=None,count=100001,skipped_headers=0),dict(next=None,count=2,skipped_headers=65),dict(next=None,count=2,skipped_headers=True)):
    with self.assertRaises(ValueError):models.validate(dict(navigation=dict(private_model_scan=scan)))
  def test_no_continuation_after_action(self):
   raw=dict(navigation=dict(private_model_scan=dict(next=64,count=130,skipped_headers=0)))

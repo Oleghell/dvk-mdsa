@@ -1,7 +1,7 @@
 """Conservative detection of explicitly self-shared contacts, not profile scraping.
 
-A stand-alone contact is accepted only as a direct response to our contact
-request. Otherwise an explicit first-person ownership phrase is required.
+A stand-alone contact requires a contact request or explicit messenger
+invitation in the verified new peer packet. Otherwise ownership is required.
 Unknown/third-party/quoted/negative cases never trigger forwarding.
 """
 import re
@@ -9,7 +9,7 @@ from conversation_engine import contacts, HANDLE, TGLINK, PHONE, REFUSAL, normal
 
 OTHER = re.compile(r'\b(?:подруг\w*|друг[а-я]*|брат\w*|сестр\w*|мам\w*|пап\w*|коллег\w*|знаком\w*|чуж\w*|е[её]|его|их|твой|ваш|пример\w*|например|переслан\w*|forwarded|код\w*|парол\w*|заказ\w*|карт\w*|кошел\w*|сч[её]т\w*|банк\w*|бот\w*|канал\w*|групп\w*)\b', re.I)
 OWNER = re.compile(r'\b(?:мой|моя|мо[её]|меня|пиши(?:те)?\s+мне|свяжись\s+со\s+мной)\b', re.I)
-LABELS = re.compile(r'\b(?:телеграм\w*|тг|telegram|whatsapp|ватсап\w*|ватцап\w*|вацап\w*|телефон|номер|контакт|вот|держи|это|в|на|да|ага)\b', re.I)
+LABELS = re.compile(r'\b(?:телеграм\w*|телег[аеу]|тг|telegram|whatsapp|ватсап\w*|ватцап\w*|вацап\w*|телефон|номер|контакт|вот|держи|это|в|на|да|ага)\b', re.I)
 PUNCTUATION = re.compile(r'^[\s:;,!.()—\-🙂😊👍]*$')
 
 
@@ -28,6 +28,31 @@ def contact_items(text, *, allow_unformatted=False):
     return found[:4]
 
 
+TG_LABEL = r'(?:тг|телеграм(?:м)?(?:е|у|ом)?|телег[аеу]|telegram)'
+TG_HANDLE = r'@?([A-Za-z][A-Za-z0-9_]{4,31})'
+TG_SEPARATOR = r'(?:\s*[:;,!.—-]\s*|\s+)'
+BARE_TG = re.compile(r'^(?:'+TG_LABEL+TG_SEPARATOR+TG_HANDLE+r'|'+TG_HANDLE+TG_SEPARATOR+TG_LABEL+r')[.! ]*$',re.I)
+
+def labelled_telegram(text):
+    # Require a separate label AND handle. A messenger name alone (Telegram)
+    # is not a contact, nor is an arbitrary Latin word/profile display name.
+    match=BARE_TG.fullmatch(text.strip().replace('\\_', '_'))
+    return ['@'+(match.group(1) or match.group(2))] if match else []
+
+def voluntary_batch(messages):
+    """An explicit messenger invitation makes standalone contacts self-shared.
+
+    No ordering assumption. Refusals/third-party context apply to the entire NEW
+    peer packet; it does not prove ANY outgoing action was sent or delivered.
+    """
+    texts=[m['text'] for m in messages if isinstance(m.get('text'),str)]
+    value=' / '.join(texts)
+    if not value or REFUSAL.search(value) or OTHER.search(value):return False
+    if any(c in value for c in ('\"','«','»','“','”','>','\x00')):return False
+    if re.search(r'не\s+(?:мой|моя|мне|передавай|пересылай|делись)|никому',value,re.I):return False
+    from assistant_contact_clarify import PLATFORM, CHOICE, NEGATIVE
+    return bool(PLATFORM.search(value) and CHOICE.search(value) and not NEGATIVE.search(value))
+
 def self_shared(text, *, requested=False):
     if not isinstance(text, str) or not text.strip() or len(text) > 2048:
         return []
@@ -37,6 +62,9 @@ def self_shared(text, *, requested=False):
         return []
     explicit_owner = OWNER.search(n) and re.search(r'\b(?:мой|моя|мо[её])\s+(?:номер|телефон|контакт)\b', n)
     found = contact_items(text, allow_unformatted=requested is True or bool(explicit_owner))
+    labelled = labelled_telegram(text) if requested is True else []
+    if labelled and not found:
+        return labelled
     if not found:
         return []
     # A handle/phone alone after the explicit request is a self-sharing action.
