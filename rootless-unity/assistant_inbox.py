@@ -18,8 +18,29 @@ PAUSE_OUTCOMES = {'message-not-approved', 'manual-review', 'telegram-disabled',
                   'telegram-outcome-unknown', 'contact-payload-blocked'}
 # Chat-local uncertainty is isolated, never retried; navigation failures still stop.
 ISOLATE = {'send-outcome-unknown', 'outgoing-not-observed', 'manual-review',
-           'history-changed-during-approval'}
+           'history-changed-during-approval', 'local-own-message-unanchored',
+           'groq-repeat-greeting', 'openrouter-repeat-greeting'}
 CONTINUE = {'chain-waiting', 'chain-completed', 'chain-needs-review', 'chain-paused'}
+
+
+def isolation_reason(result):
+    """Only one authored, chat-local read failure may leave via verified back.
+
+    Do not skip arbitrary ReadStopped/identity/device failures. The native reader
+    still rejects unanchored local messages without reading their bodies.
+    """
+    reason = result['reason']
+    if reason == 'bound-chat-read-failed':
+        failure = (result.get('diagnostics') or {}).get('last_read_failure') or {}
+        expected = dict(error='local-own-message-unanchored',
+                        stage='navigation-stopped', metadata_checkpoint='ready',
+                        identity_checkpoint='recheck', scalar_checkpoint='message-chat-id',
+                        scalar_state='negative', message_direction='own')
+        if all(failure.get(key) == value for key, value in expected.items()):
+            return 'local-own-message-unanchored'
+        return None
+    # A bare local-read code must not bypass the required native diagnostics.
+    return reason if reason in ISOLATE - {'local-own-message-unanchored'} else None
 
 
 class InboxChain(GuidedChain):
@@ -208,7 +229,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             out['contacts_forwarded'] += result['notifications']['accepted']
             if result['telegram_used']:
                 out['personal_data_exported'] = True
-            isolated = result['reason'] in ISOLATE
+            isolated_code = isolation_reason(result)
+            isolated = isolated_code is not None
             if not isolated:
                 count(result['reason'] if result['status'] != 'chain-waiting' else result['status'] + ':' + result['reason'])
             if result['status'] == 'chain-cancelled' or stopped.is_set():
@@ -224,7 +246,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             call('back', expected=who)
             if isolated:
                 out['isolated_dialogs'] += 1
-                code = result['reason']
+                code = isolated_code
                 out['isolated_reasons'][code] = out['isolated_reasons'].get(code, 0) + 1
                 count('isolated:' + code)
                 progress('Диалоги • один чат на проверке, продолжаю остальные')

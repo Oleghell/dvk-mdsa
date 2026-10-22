@@ -253,7 +253,7 @@ class LocalTranscript(unittest.TestCase):
 
 class AiTextTransport(unittest.TestCase):
     def test_safe_dynamic_text_reaches_native_source_through_real_submit(self):
-        texts = ('Привет 🙂 Как настроение?', 'Понимаю. Обменяемся Telegram?',
+        texts = ('Взаимно 🙂 Как настроение?', 'Понимаю. Обменяемся Telegram?',
                  'Ты написал «Привет». Как дела?')
         for text in texts:
             def capture(adb, folder, cancelled, expected, *, inspector):
@@ -267,7 +267,7 @@ class AiTextTransport(unittest.TestCase):
             self.assertEqual(source.count('call(s.submit,current,args)'), 1)
 
     def test_invalid_dynamic_text_never_opens_device(self):
-        for text in ('Привет', 'Как дела? @somebody', 'Как дела? https://example.com',
+        for text in ('Привет', 'Привет! Как настроение?', 'Как дела? @somebody', 'Как дела? https://example.com',
                      'Как дела?\n', '<script>Как дела?</script>', 'Как дела?' + 'x'*241, None, []):
             with patch.object(transport, 'capture') as capture:
                 with self.assertRaises(ValueError):

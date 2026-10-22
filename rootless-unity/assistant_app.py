@@ -81,7 +81,7 @@ def launch(self_check=False):
                                    'После прохода останусь в диалогах и буду проверять отслеживаемые чаты каждые '
                                    + str(settings.reply_interval) + ' сек. ' +
                                    ('В полном режиме: следующая порция в другом случайном городе через 120 секунд после предыдущей.\n' if mode == 'full' else 'Новые анкеты в режиме «Только ответы» не запускаются.\n') +
-                                   ((assistant_ai.LABELS[settings.ai_provider] + ': до 12 коротких фрагментов переписки и правила будут переданы выбранному сервису' + (' и его провайдеру' if settings.ai_provider == 'openrouter' else '') + ' для ответа.\n') if settings.groq_enabled else 'ИИ выключен: используются шаблоны цепочки.\n') +
+                                   ((assistant_ai.LABELS[settings.ai_provider] + ': весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила будут переданы выбранному сервису' + (' и его провайдеру' if settings.ai_provider == 'openrouter' else '') + ' для ответа.\n') if settings.groq_enabled else 'ИИ выключен: используются шаблоны цепочки.\n') +
                                    'Этот запуск разрешает автоматические приветствия и ответы цепочки без отдельных окон. '
                                    'Не трогай MuMu №4 во время работы.\n\nНачать?', parent=root):
             return
@@ -148,7 +148,7 @@ def launch(self_check=False):
         ttk.Entry(box, textvariable=interval, width=8).pack(anchor='w', pady=(3, 10))
         ttk.Label(box, text='Полный режим: новая порция и случайный город через 120 секунд после предыдущей.\nДиалоги и поиск выполняются последовательно; пропущенные интервалы не накапливаются.', wraplength=500).pack(anchor='w', pady=8)
         ttk.Checkbutton(ai_box, variable=ai_enabled, text='ИИ: короткие ответы по структуре цепочки').pack(anchor='w', pady=6)
-        ttk.Label(ai_box, text='До 12 фрагментов по 300 символов и правила передаются выбранному сервису (для OpenRouter — также провайдеру модели). ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
+        ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются выбранному сервису (для OpenRouter — также провайдеру модели). ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
         ttk.Label(ai_box, text='Сервис ИИ').pack(anchor='w', pady=(8, 0))
         provider_box=ttk.Combobox(ai_box, textvariable=ai_provider, values=tuple(assistant_ai.LABELS), state='readonly')
         provider_box.pack(fill='x')

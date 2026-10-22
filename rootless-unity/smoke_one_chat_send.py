@@ -72,7 +72,7 @@ def ai_chain(library):
     from assistant_store import Store
     from assistant_guided_chain import GuidedChain, walk
     from assistant_authorization import RunAuthorization
-    text = 'Привет 🙂 Как настроение?'
+    text = 'Взаимно 🙂 Как настроение?'
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         store = Store(root/'assistant.sqlite3', root/'old')
@@ -107,8 +107,8 @@ if __name__=='__main__':
     one(library,600,dict(identity=WHO,messages=[dict(BEFORE['messages'][0],text='changed'),BEFORE['messages'][1]]))
     for text in (QUESTIONS[1],CONTACT_TEXT):one(library,600,text=text)
     one(library,603,text=CONTACT_TEXT)
-    for text in ('Привет 🙂 Как настроение?', 'Понимаю. Обменяемся Telegram?', 'Ты написал «Привет». Как дела?'):
+    for text in ('Взаимно 🙂 Как настроение?', 'Понимаю. Обменяемся Telegram?', 'Ты написал «Привет». Как дела?'):
         one(library,600,text=text)
-    one(library,603,text='Привет 🙂 Как дела?')
+    one(library,603,text='Взаимно 🙂 Как дела?')
     ai_chain(library)
     print('Synthetic manual-send and whitelisted reply ABI passed. Real recipient delivery is NOT verified.')

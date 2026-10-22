@@ -77,11 +77,13 @@ class Adapter(unittest.TestCase):
             client.open.assert_not_called()
             self.assertEqual(responder.calls, 0)
 
-    def test_context_bounded_to_twelve_fragments(self):
-        v=snapshot(*[('x'*500, False) for _ in range(50)])
+    def test_context_includes_every_verified_message_without_fragment_truncation(self):
+        v=snapshot(*[('x'*500, False) for _ in range(18)])
         history = g.public_context(v)
-        self.assertEqual(len(history), 12)
-        self.assertTrue(all(len(m['text'])<=300 for m in history))
+        self.assertEqual(len(history), 19)
+        self.assertEqual([m['text'] for m in history], [m['text'] for m in v['messages']])
+        with self.assertRaises(ValueError):
+            g.public_context(snapshot(*[('x'*500, False) for _ in range(20)]))
 
     def test_auth_rate_limit_server_and_other_http_errors_are_fixed(self):
         for status, reason in ((401, 'groq-unauthorized'), (403, 'groq-unauthorized'),

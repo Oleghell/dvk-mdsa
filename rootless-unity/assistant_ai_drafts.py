@@ -2,7 +2,7 @@
 import json
 from contextlib import nullcontext
 from assistant_chain import text_hash
-from groq_reply import GroqError, decision
+from groq_reply import GroqError, decision, continuation
 
 
 def initialize(store):
@@ -23,6 +23,12 @@ def restore(chain, chat, kind, expected_hash, connection=None):
         if value['decision'] != 'reply' or text_hash(value['text']) != expected_hash:
             raise ValueError()
         return value['text']
+    except GroqError as error:
+        # Old prepared text is never silently rehashed/replaced. Block just this
+        # chat if it contains a repeated greeting; other corruption still stops.
+        if str(error) == 'groq-repeat-greeting':
+            raise
+        raise GroqError('groq-draft-unavailable') from None
     except Exception:
         raise GroqError('groq-draft-unavailable') from None
 
@@ -49,7 +55,7 @@ def prepare(chain, snapshot, action):
     with chain.store.connection() as db:
         reply_ids = [r[0] for r in db.execute('SELECT message FROM ai_draft_inputs WHERE chat=? AND kind=?', (chat,kind))]
     context = dict(snapshot, _reply_ids=reply_ids)
-    value = decision(chain.responder(kind, context), kind)
+    value = continuation(chain.responder(kind, context), kind)
     if value['decision'] != 'reply':
         stage = 'declined' if value['decision'] == 'decline' else 'manual-review'
         with chain.store.connection() as db:
