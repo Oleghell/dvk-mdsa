@@ -182,19 +182,23 @@ def validate(value, **navigation_options):
 
 
 def inspect(port, token, cancelled, expected=None, *, frida_api=None, source_function=FUNCTION, validator=validate, timeout=25):
-    if frida_api is None:
-        import frida as frida_api
+    from startup_failure import checkpoint, record
+    with checkpoint('gadget-import'):
+        if frida_api is None:
+            import frida as frida_api
     from diagnose_device import cleanup_frida, validate_runtime
     from one_chat_device import ReadStopped
     from test_device import PACKAGE
     f = frida_api
-    if f.__version__ != '17.24.1':
-        raise ReadStopped('client-version')
+    with checkpoint('runtime-check'):
+        if f.__version__ != '17.24.1':
+            raise ReadStopped('client-version')
     source = source_function + '''
 rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
  root(){return probeUIKitRoot();},cancel(){cancelNavigation();}};
 '''
-    manager = f.get_device_manager()
+    with checkpoint('gadget-manager'):
+        manager = f.get_device_manager()
     address = '127.0.0.1:' + str(port)
     device = session = script = None
     guard = f.Cancellable()
@@ -203,18 +207,24 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
     done = threading.Event()
     monitor = None
     timer.start()
+    stage = 'gadget-connect'
     try:
         with guard:
             if cancelled():
                 raise ReadStopped('cancelled')
             device = manager.add_remote_device(address, token=token)
+            stage = 'gadget-process'
             processes = device.enumerate_processes()
             if (len(processes) != 1 or type(processes[0].pid) is not int or processes[0].pid <= 0
                     or processes[0].name not in ('Gadget', PACKAGE)):
                 raise ReadStopped('unexpected-process')
+            stage = 'gadget-attach'
             session = device.attach(processes[0].pid)
+            stage = 'script-create'
             script = session.create_script(source, name='dvk-online-only')
+            stage = 'script-load'
             script.load()
+            stage = 'runtime-check'
             runtime = validate_runtime(script.exports_sync.runtime())
             if runtime['arch'] != 'arm64' or runtime['platform'] != 'linux':
                 raise ReadStopped('unsupported-runtime')
@@ -228,7 +238,13 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
                         return
             monitor = threading.Thread(target=watch, daemon=True)
             monitor.start()
-            return validator(script.exports_sync.root())
+            stage = 'script-run'
+            result = script.exports_sync.root()
+            stage = 'result-validation'
+            return validator(result)
+    except Exception as error:
+        record(error, stage)
+        raise
     finally:
         done.set()
         timer.cancel()

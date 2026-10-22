@@ -174,6 +174,31 @@ class ReadTransport(TargetOnly):
         self.adb_run=bad
         with self.assertRaises(TestError):self.run_capture()
 
+    def test_failure_stage_post_read_identity_and_cleanup_no_secrets(self):
+        from startup_failure import clean
+        self.identities=iter((BOOT,BOOT,OTHER_BOOT))
+        with self.assertRaises(TestError) as raised:self.run_capture()
+        self.assertEqual(clean(raised.exception._dvk_failure)['stage'],'device-recheck-after')
+
+    def test_failure_stage_inspector_is_preserved_without_retry(self):
+        from startup_failure import record
+        e=RuntimeError('PRIVATE TOKEN');record(e,'script-run')
+        from unittest.mock import MagicMock
+        reader=MagicMock(side_effect=e)
+        with self.assertRaises(RuntimeError) as raised:self.run_capture(reader)
+        self.assertEqual(raised.exception._dvk_failure['stage'],'script-run')
+        reader.assert_called_once()
+
+    def test_failure_stage_cleanup_blocks_success(self):
+        old=self.adb_run
+        def bad(adb,args,timeout=30):
+            if '--remove' in args:raise TestError('PRIVATE CLEANUP')
+            return old(adb,args,timeout)
+        self.adb_run=bad
+        with self.assertRaises(TestError) as raised:self.run_capture()
+        self.assertEqual(raised.exception._dvk_failure['stage'],'forward-close')
+
+
 
 class Inspector(unittest.TestCase):
     def fake(self, result=None):

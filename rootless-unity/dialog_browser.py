@@ -403,7 +403,28 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
 def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),expected=None,entry='search',unread_only=False, needs_reply_only=False):
     from one_chat_device import capture
     from search_online import inspect
-    source=build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
+    from startup_failure import checkpoint
+    with checkpoint('navigation-source'):
+        source=build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
+    def checked(result):
+        try:
+            return validate(result,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
+        except Exception as error:
+            # A rejected result never becomes a usable result. Preserve ONLY the
+            # independently validated public diagnostic; discard all raw RPC data.
+            from assistant_navigation_check import safe_diagnostic
+            keys=('stage','error','phase','metadata_checkpoint','selection_checkpoint',
+                  'rows_scanned','scan_batches','action_attempted','action_completed',
+                  'destination_verified','unread_filter_applied','unread_verified',
+                  'read_rows_skipped','back_budget_retries','reply_filter_applied',
+                  'reply_needed_verified','waiting_rows_skipped','handled_rows_skipped')
+            try:
+                public=safe_diagnostic({k:result['navigation'][k] for k in keys})
+            except Exception:
+                pass
+            else:
+                error._dvk_navigation=public
+            raise
     def inspector(port,token,cancel,binding):
-        return inspect(port,token,cancel,source_function=source,validator=lambda r:validate(r,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only))
+        return inspect(port,token,cancel,source_function=source,validator=checked)
     return capture(executable,folder,cancelled,inspector=inspector)

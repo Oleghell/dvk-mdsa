@@ -84,27 +84,36 @@ def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspe
         if expected is None or inspector is not inspect:
             raise ValueError('Name requires the fixed bound reader')
         inspector = lambda port, token, cancel, who: inspect(port, token, cancel, who, read_name=True)
-    folder = Path(folder).resolve(strict=True)
-    adb = TargetOnlyAdb(executable, folder)
-    token = bundle_token(folder)  # Pins existing test APKs; no install/launch.
-    boot = preflight(adb)
-    recheck(adb, boot)
+    from startup_failure import checkpoint
+    with checkpoint('bundle-check'):
+        folder = Path(folder).resolve(strict=True)
+        token = bundle_token(folder)  # Pins existing test APKs; no install/launch.
+    with checkpoint('adb-create'):
+        adb = TargetOnlyAdb(executable, folder)
+    with checkpoint('adb-preflight', adb=adb):
+        boot = preflight(adb)
+    with checkpoint('device-recheck', adb=adb):
+        recheck(adb, boot)
     if cancelled():
         raise ReadStopped('cancelled')
     private = None
     try:
-        port = adb.run(['-s', TARGET, 'forward', 'tcp:0', 'tcp:27042'])
-        if not port.isdecimal() or not 1024 <= int(port) <= 65535:
-            raise ReadStopped('invalid-forward')
-        adb.forward_port = int(port)
-        private = inspector(adb.forward_port, token, cancelled, expected)
-        recheck(adb, boot)
+        with checkpoint('forward-open', adb=adb):
+            port = adb.run(['-s', TARGET, 'forward', 'tcp:0', 'tcp:27042'])
+            if not port.isdecimal() or not 1024 <= int(port) <= 65535:
+                raise ReadStopped('invalid-forward')
+            adb.forward_port = int(port)
+        with checkpoint('device-inspection'):
+            private = inspector(adb.forward_port, token, cancelled, expected)
+        with checkpoint('device-recheck-after', adb=adb):
+            recheck(adb, boot)
         if cancelled():
             raise ReadStopped('cancelled')
     finally:
         if adb.forward_port is not None:
-            # A failed cleanup also prevents consuming the result.
-            adb.run(['-s', TARGET, 'forward', '--remove', f'tcp:{adb.forward_port}'], timeout=10)
+            # Cleanup failure still prevents consuming the result. Never retry UI actions.
+            with checkpoint('forward-close', adb=adb):
+                adb.run(['-s', TARGET, 'forward', '--remove', f'tcp:{adb.forward_port}'], timeout=10)
     return private
 
 

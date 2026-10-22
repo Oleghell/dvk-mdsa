@@ -40,7 +40,7 @@ def report(mode):
     return dict(tool_version=VERSION, mode=mode, status='stopped', reason='not-started',
                 initial_run=None, last_pass=None, passes_completed=0,
                 totals={key: 0 for key in COUNTERS}, dialogs_verified=False,
-                ui_may_remain_open=False, last_navigation=None,
+                ui_may_remain_open=False, last_navigation=None, last_navigation_failure=None,
                 per_message_confirmation=True, automatic_send=False,
                 automatic_profile_repeat=False, profile_interval_seconds=PROFILE_INTERVAL,
                 profile_batches_completed=0, profile_next_in_seconds=None, last_profile_run=None, error_notification='not-needed',
@@ -99,19 +99,36 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
     def navigate(operation, entry):
         check_stop()
         out.update(dialogs_verified=False, ui_may_remain_open=True)
-        value = navigator(operation, settings.adb, settings.folder, stopped.is_set, entry=entry)
-        if not isinstance(value, dict) or set(value) != {'state', 'identity', 'diagnostic'}:
-            raise ValueError('Invalid screen result')
-        n = out['last_navigation'] = safe_diagnostic(value['diagnostic'])
-        destination = 'dialogs-ready' if operation == 'list' else 'search-ready'
-        if (value['state'] != destination or value['identity'] is not None
-                or n['stage'] != 'navigation-ready' or n['error'] != 'none'
-                or not n['destination_verified'] or n['phase'] != 'done'
-                or n['rows_scanned'] or n['scan_batches'] or n['unread_filter_applied']
-                or operation == 'return' and not n['action_completed']):
-            raise ValueError('Unverified screen')
-        out.update(dialogs_verified=operation == 'list', ui_may_remain_open=False)
-        check_stop()
+        from startup_failure import record
+        out['last_navigation'] = None
+        out['last_navigation_failure'] = None
+        stage = 'device-inspection'
+        try:
+            value = navigator(operation, settings.adb, settings.folder, stopped.is_set, entry=entry)
+            stage = 'navigation-result'
+            if not isinstance(value, dict) or set(value) != {'state', 'identity', 'diagnostic'}:
+                raise ValueError('Invalid screen result')
+            stage = 'navigation-diagnostic'
+            n = out['last_navigation'] = safe_diagnostic(value['diagnostic'])
+            stage = 'navigation-destination'
+            destination = 'dialogs-ready' if operation == 'list' else 'search-ready'
+            if (value['state'] != destination or value['identity'] is not None
+                    or n['stage'] != 'navigation-ready' or n['error'] != 'none'
+                    or not n['destination_verified'] or n['phase'] != 'done'
+                    or n['rows_scanned'] or n['scan_batches'] or n['unread_filter_applied']
+                    or operation == 'return' and not n['action_completed']):
+                raise ValueError('Unverified screen')
+            out.update(dialogs_verified=operation == 'list', ui_may_remain_open=False)
+            check_stop()
+
+        except Exception as error:
+            out['last_navigation_failure'] = dict(record(error, stage), operation=operation)
+            if out['last_navigation'] is None:
+                try:
+                    out['last_navigation'] = safe_diagnostic(getattr(error, '_dvk_navigation', None))
+                except Exception:
+                    pass
+            raise
 
     last_between_check = clock()
     def between_profiles():
@@ -285,7 +302,11 @@ def summary(result):
     from groq_reply import ERRORS as GROQ_ERRORS
     codes=reasons(result)
     reason=next((c for c in codes if c in GROQ_ERRORS),result['reason'])
+    from startup_failure import message as failure_message
+    detail = failure_message(result.get('last_navigation_failure'))
     text=('Пауза' if status=='paused' else 'Ошибка')+' • '+reason
+    if detail:
+        text += '\n' + detail
     notification=result.get('error_notification')
     if notification=='accepted':
         text+=' • причина передана в TG'
