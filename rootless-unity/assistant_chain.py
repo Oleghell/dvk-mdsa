@@ -187,7 +187,7 @@ class Chain:
                         stage='pending-contact';action=dict(kind='contact',text=CONTACT_TEXT)
                     else:
                         stage='wait-contact'
-                        if kind == 'contact' and chose_messenger(incoming) and not db.execute(
+                        if kind in ('contact','followup') and chose_messenger(incoming) and not db.execute(
                                 "SELECT 1 FROM chain_actions WHERE chat=? AND kind='clarify'",(chat,)).fetchone():
                             db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
                                        (chat,'clarify',incoming[0]['id'],text_hash(CLARIFY_TEXT)))

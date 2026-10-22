@@ -88,6 +88,14 @@ class Followup(context.Context):
         stage,action=self.chain.proposal(guide.snapshot(*h,*base,('Давай тг',False)))
         self.assertEqual(stage,'pending-clarify');self.assertEqual(action['kind'],'clarify')
 
+    def test_choice_in_same_snapshot_as_returned_followup_is_not_consumed_silently(self):
+        h=self.seed_contact();before=guide.snapshot(*h,('Наверное',False));stage,action=self.chain.proposal(before)
+        self.chain.reserve_confirmed(WHO,action);self.chain.finish(WHO,action,True)
+        stage,action=self.chain.proposal(guide.snapshot(*h,('Наверное',False),(TEXT,True),('Давай тг',False)))
+        self.assertEqual(stage,'pending-clarify');self.assertEqual(action['kind'],'clarify')
+        with self.store.connection() as db:
+            self.assertEqual(db.execute("SELECT status FROM chain_actions WHERE kind='followup'").fetchone()[0],'outgoing-observed')
+
     def test_refusal_and_contact_have_priority(self):
         h=self.seed_contact();out=self.walk([guide.snapshot(*h,('Не пиши мне',False))],until_waiting=True)
         self.assertEqual(out['reason'],'declined');self.assertFalse(self.sent)
