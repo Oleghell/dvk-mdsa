@@ -150,6 +150,7 @@ def launch(self_check=False):
         replies.configure(state='disabled' if busy else 'normal')
         stop.configure(state='normal' if busy else 'disabled')
         check_button.configure(state='disabled' if busy else 'normal')
+        install_button.configure(state='disabled' if busy else 'normal')
         id_text.configure(state='disabled' if busy else 'normal')
 
     def cancel():
@@ -447,6 +448,19 @@ def launch(self_check=False):
     stop.pack(side='left')
     check_button=ttk.Button(controls,text='Проверить подключения',command=check_connections)
     check_button.pack(side='left',padx=8)
+    def open_installer():
+        if busy:return
+        try:
+            import subprocess
+            from pathlib import Path
+            command=([str(Path(sys.executable).with_name('DvkCloudInstaller.exe'))] if getattr(sys,'frozen',False)
+                     else [sys.executable,str(Path(__file__).with_name('morelogin_installer.py'))])
+            subprocess.Popen(command,shell=False,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            status.set('Открыто отдельное окно установки. До подтверждения ничего не меняется.')
+        except Exception:status.set('Не удалось открыть DvkCloudInstaller.exe. Распакуй весь архив новой версии.')
+    install_button=ttk.Button(controls,text='Установить Gadget',command=open_installer)
+    install_button.pack(side='left',padx=(8,0))
     options = ttk.Button(controls, text='Настройки', command=configure)
     options.pack(side='right')
 
@@ -524,7 +538,7 @@ def launch(self_check=False):
     if self_check:
         root.update()
         assert root.winfo_viewable() and all(b.winfo_viewable() for b in
-                                             (start, stop, replies, options))
+                                             (start, stop, replies, options, install_button))
         assert not busy and not stopped.is_set() and events.empty()
         assert str(stop.cget('state')) == 'disabled'
         assert not phone_status.get_children()
