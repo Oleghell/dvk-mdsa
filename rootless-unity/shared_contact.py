@@ -13,6 +13,21 @@ LABELS = re.compile(r'\b(?:телеграм\w*|тг|telegram|whatsapp|ватса
 PUNCTUATION = re.compile(r'^[\s:;,!.()—\-🙂😊👍]*$')
 
 
+def contact_items(text, *, allow_unformatted=False):
+    """Only a contextual direct contact response may retain bare digits as supplied.
+
+    Do not guess country codes or call such a candidate a validated phone number.
+    Generic extraction/masking policy in conversation_engine remains unchanged.
+    """
+    found=contacts(text)
+    if allow_unformatted:
+        for m in PHONE.finditer(text):
+            raw=m.group()
+            if re.fullmatch(r'[0-9]{10,15}',raw) and not contacts(raw) and raw not in found:
+                found.append(raw)
+    return found[:4]
+
+
 def self_shared(text, *, requested=False):
     if not isinstance(text, str) or not text.strip() or len(text) > 2048:
         return []
@@ -20,11 +35,12 @@ def self_shared(text, *, requested=False):
     if (re.search(r'\b(?:не\s+(?:мой|моя|мо[её]|мне|я|пересылай|передавай|делись)|никому)\b', n) or REFUSAL.search(n) or OTHER.search(n) or '?' in n or '？' in n
             or any(c in n for c in ('"', '«', '»', '“', '”', '>', '\x00'))):
         return []
-    found = contacts(text)
+    explicit_owner = OWNER.search(n) and re.search(r'\b(?:мой|моя|мо[её])\s+(?:номер|телефон|контакт)\b', n)
+    found = contact_items(text, allow_unformatted=requested is True or bool(explicit_owner))
     if not found:
         return []
     # A handle/phone alone after the explicit request is a self-sharing action.
-    remainder = PHONE.sub(lambda m: '' if contacts(m.group()) else m.group(), HANDLE.sub('', TGLINK.sub('', text)))
+    remainder = PHONE.sub(lambda m: '' if contact_items(m.group(), allow_unformatted=requested is True or bool(explicit_owner)) else m.group(), HANDLE.sub('', TGLINK.sub('', text)))
     remainder = LABELS.sub('', normalized(remainder))
     if OWNER.search(n):
         own_remainder = OWNER.sub('', remainder)
@@ -49,6 +65,6 @@ def payload(name, items):
             or any(not isinstance(c, str) or not 1 <= len(c) <= 64 for c in items)):
         raise ValueError('Unverified contact/name')
     # Only normalized forms produced by the detector, never arbitrary payloads.
-    if any(contacts(c) != [c] for c in items):
+    if any(contact_items(c, allow_unformatted=True) != [c] for c in items):
         raise ValueError('Invalid contact')
     return dict(name=name.strip(), contacts=items)

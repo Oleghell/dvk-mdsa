@@ -13,7 +13,7 @@ class Settings:
     adb: str = DEFAULT_ADB
     folder: str = DEFAULT_TEST_APKS
     contacts_enabled: bool = False
-    reply_interval: int = 30
+    reply_interval: int = 5
     profile_limit: int = 5
     groq_enabled: bool = False
     groq_model: str = 'qwen/qwen3.8-27b'
@@ -25,8 +25,8 @@ class Settings:
         if any(not isinstance(x, str) or not 1 <= len(x) <= 4096 or x != x.strip()
                or any(ord(c) < 32 for c in x) for x in (self.adb, self.folder)):
             raise StateError('Укажи корректные пути ADB и test-apks.')
-        if type(self.contacts_enabled) is not bool or type(self.reply_interval) is not int or not 30 <= self.reply_interval <= 3600:
-            raise StateError('Интервал проверки: от 30 до 3600 секунд.')
+        if type(self.contacts_enabled) is not bool or type(self.reply_interval) is not int or not 5 <= self.reply_interval <= 3600:
+            raise StateError('Интервал проверки: от 5 до 3600 секунд.')
         if type(self.profile_limit) is not int or not 1 <= self.profile_limit <= 20:
             raise StateError('Анкет за одну порцию: от 1 до 20.')
         import re
@@ -62,16 +62,18 @@ def load(directory=None):
             for key in saved:
                 if old[key]:
                     saved[key] = old[key]
-        config = dict(contacts_enabled=False, reply_interval=30)
+        config = dict(contacts_enabled=False, reply_interval=5)
         if options.exists():
             if options.stat().st_size > 8192:
                 raise ValueError()
             config = json.loads(options.read_text(encoding='utf-8'))
             schema = config.pop('settings_version', 1)
-            if type(schema) is not int or schema not in (1, 2, 3, 4):
+            if type(schema) is not int or schema not in (1, 2, 3, 4, 5):
                 raise ValueError()
             if schema == 1 and type(config.get('reply_interval')) is int and config['reply_interval'] == 120:
                 config['reply_interval'] = 30
+            if schema < 5 and config.get('reply_interval') == 30:
+                config['reply_interval'] = 5
             # 0.4.x files have no profile_limit; keep reading them.
             required = {'contacts_enabled', 'reply_interval'}
             allowed = required | {'profile_limit'} | ({'groq_enabled', 'groq_model', 'errors_enabled'} if schema >= 3 else set()) | ({'ai_provider', 'openrouter_model'} if schema >= 4 else set())
@@ -89,7 +91,7 @@ def save(settings, directory=None):
     directory = data_directory() if directory is None else Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     values = {'settings.json': dict(adb=settings.adb, test_apks=settings.folder),
-              'workflow-settings.json': dict(settings_version=4, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
+              'workflow-settings.json': dict(settings_version=5, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
                                             profile_limit=settings.profile_limit, groq_enabled=settings.groq_enabled,
                                             groq_model=settings.groq_model, errors_enabled=settings.errors_enabled,
                                             ai_provider=settings.ai_provider, openrouter_model=settings.openrouter_model)}

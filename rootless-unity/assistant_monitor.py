@@ -44,6 +44,7 @@ def report(mode):
                 per_message_confirmation=True, automatic_send=False,
                 automatic_profile_repeat=False, profile_interval_seconds=PROFILE_INTERVAL,
                 profile_batches_completed=0, profile_next_in_seconds=None, last_profile_run=None, error_notification='not-needed',
+                contacts_enabled=False, immediate_rechecks=0, between_profile_checks=0,
                 groq_enabled=False, ai_enabled=False, ai_provider='groq', ai_model=None,
                 groq_context_export_enabled=False, openrouter_context_export_enabled=False, chat_content_exported=False, delivery_confirmed=False,
                 all_dialogs_covered=False, report_name=None)
@@ -58,7 +59,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         raise ValueError('Invalid monitor mode')
     out = report(mode)
     out.update(flags(approve))
-    out.update(automatic_profile_repeat=mode == 'full', groq_enabled=settings.groq_enabled,
+    out.update(contacts_enabled=settings.contacts_enabled, automatic_profile_repeat=mode == 'full', groq_enabled=settings.groq_enabled,
                ai_enabled=settings.groq_enabled, ai_provider=settings.ai_provider, ai_model=settings.ai_model,
                groq_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'groq',
                openrouter_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'openrouter')
@@ -104,6 +105,29 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         out.update(dialogs_verified=operation == 'list', ui_may_remain_open=False)
         check_stop()
 
+    last_between_check = clock()
+    def between_profiles():
+        nonlocal last_between_check
+        check_stop()
+        if clock() - last_between_check < settings.reply_interval:
+            return
+        navigate('list','search')
+        current = inbox(settings,stopped,approve,progress,entry='dialogs',return_to='dialogs')
+        out['last_pass'] = current
+        add_counters(current)
+        check_stop()
+        if (current['status'] not in ('inbox-completed','inbox-empty') or
+                current['status'] != 'inbox-empty' and not current.get('dialogs_verified') or
+                set(current['outcomes']) & PAUSE_OUTCOMES):
+            raise StateError('between-profile-inbox-stopped')
+        out['passes_completed'] += 1
+        out['between_profile_checks'] += 1
+        navigate('return','dialogs')
+        last_between_check = clock()
+        out.update(status='checking',reason='between-profile-inbox')
+        publish()
+
+
     try:
         check_stop()
         settings.check()
@@ -118,7 +142,8 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 phase = 'initial-pass-stopped'
                 out['ui_may_remain_open'] = True
                 first = initial(settings, stopped, approve, progress,
-                                mode='full', fresh_session=fresh_session, lock=nullcontext)
+                                mode='full', fresh_session=fresh_session, lock=nullcontext,
+                                between_profiles=between_profiles)
                 out['initial_run'] = first
                 if first.get('inbox'):
                     add_counters(first['inbox'])
@@ -132,6 +157,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 out['profile_batches_completed'] = 1
             next_profiles = clock() + PROFILE_INTERVAL
             entry = 'search' if mode == 'full' else 'either'
+            immediate_passes = 0
             while True:
                 check_stop()
                 phase = 'dialog-list-not-verified'
@@ -155,7 +181,17 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     out.update(status='paused', reason='message-not-approved' if
                                'message-not-approved' in review else 'dialog-needs-review')
                     break
-                if mode == 'full' and clock() >= next_profiles:
+                # A peer can reply while we are in another chat. Rescan from
+                # the list with fresh journal targets BEFORE sleeping/profiles.
+                # Bounded burst avoids an unbounded busy loop/stale badges.
+                active = current.get('dialogs_processed',0) > 0
+                if active and immediate_passes < 3:
+                    immediate_passes += 1
+                    out['immediate_rechecks'] += 1
+                    out.update(status='checking',reason='drain-incoming')
+                    publish()
+                    continue
+                if mode == 'full' and not active and clock() >= next_profiles:
                     # Only between completed inbox passes; never overlap device work
                     # or reset greeting reservations/profile/city history.
                     phase = 'search-screen-not-verified'
@@ -164,7 +200,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     phase = 'profile-repeat-stopped'
                     out.update(dialogs_verified=False, ui_may_remain_open=True)
                     batch = repeat(settings, stopped, approve, progress, mode='profiles',
-                                   fresh_session=True, lock=nullcontext)
+                                   fresh_session=True, lock=nullcontext, between_profiles=between_profiles)
                     out['last_profile_run'] = batch
                     check_stop()
                     if batch['status'] == 'paused':
@@ -177,12 +213,16 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     phase = 'dialog-list-not-verified'
                     navigate('list', 'search')
                     next_profiles = clock() + PROFILE_INTERVAL
+                    immediate_passes = 0
+                    # No idle delay between the profile batch and inbox.
+                    continue
                 out['profile_next_in_seconds'] = math.ceil(max(0, next_profiles-clock())) if mode == 'full' else None
                 out.update(status='waiting', reason='next-inbox-pass')
                 publish()  # A failed report always stops further device work.
                 phase = 'monitor-check-stopped'
-                delay = min(settings.reply_interval, max(0.01, next_profiles-clock())) if mode == 'full' else settings.reply_interval
+                delay = min(settings.reply_interval, max(0.01, next_profiles-clock())) if mode == 'full' and not active else settings.reply_interval
                 progress(summary(out) + f' Следующая проверка через {delay:g} сек.')
+                immediate_passes = 0
                 if wait(delay):
                     out.update(status='cancelled', reason='cancelled')
                     break
@@ -219,6 +259,10 @@ def summary(result):
     status=result['status']
     if status=='waiting':
         text=f"Диалоги • проходов {result['passes_completed']} • в истории {totals['outgoing_observed']} • контактов TG {totals['contacts_forwarded']}"
+        contact_pending = (result.get('last_pass') or {}).get('contact_delivery_pending',0)
+        if contact_pending:
+            text += f" • контактов ожидают TG {contact_pending}"
+            if not result.get('contacts_enabled'):text += ' (передача выключена)'
         pending = (result.get('last_pass') or {}).get('review_pending', 0)
         if pending or totals.get('isolated_dialogs', 0):
             text += f" • на проверке {max(pending, totals.get('isolated_dialogs', 0))}"

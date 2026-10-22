@@ -64,8 +64,9 @@ static Method browser_headers[]={
  {"get_SenderId",&browser_message_class,0,&blong,852},
  {"get_ChatId",&browser_message_class,0,&blong,853},
  {"get_IsMine",&browser_message_class,0,&tbool,854}};
-static int browser_last_reads,browser_message_id,browser_message_mine;
-API void fixture_browser_last_message(int id,int mine){browser_message_id=id;browser_message_mine=mine;}
+static int browser_last_reads,browser_message_id,browser_message_mine,browser_clear_unread,browser_seen;
+API void fixture_browser_clear_unread_on_open(int enabled){browser_clear_unread=enabled;}
+API void fixture_browser_last_message(int id,int mine){browser_message_id=id;browser_message_mine=mine;if(!mine)browser_seen=0;}
 static Method browser_bad_header;
 static Method browser_bad_method,browser_unread_bad_method;
 static Object browser_vc={&bc[0],0},browser_table={&bc[5],0},browser_list={&bc[8],0},browser_list_alt={&bc[8],0};
@@ -79,7 +80,7 @@ static int browser_clicks,browser_backs,browser_cell_reads,browser_count_reads,b
 static Object *browser_selected;
 static int browser_back_checks;
 static Object browser_parents[31];
-static void browser_init(void){int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=0;browser_back_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
+static void browser_init(void){int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
 API int fixture_browser_clicks(void){return browser_clicks;}
 API int fixture_browser_backs(void){return browser_backs;}
 API void fixture_browser_entry(int entry){phase=entry;browser_start=entry;}
@@ -165,7 +166,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 814:return mode==814?&browser_users[0]:&browser_users[browser_selected->value];
  case 815:
   browser_clicks++;if(obj!=&chats_obj||!args||args[0]!=&browser_cells[1]||args[1]!=&browser_chats[1])route_bad++;
-  if(mode==807){*exc=&exception;return NULL;}browser_selected=args[1];phase=3;if(mode==815)slow();return NULL;
+  if(mode==807){*exc=&exception;return NULL;}browser_selected=args[1];browser_seen=1;phase=3;if(mode==815)slow();return NULL;
  case 816:
   browser_backs++;browser_back_checks=0;if(obj!=&browser_vc)route_bad++;
   if(mode==808){*exc=&exception;return NULL;}phase=mode==838||mode==841?3:1;return NULL;
@@ -173,7 +174,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   browser_unread_reads++;
   if(mode==827)return NULL;
   if(mode==828){*exc=&exception;return NULL;}
-  browser_unread=1;
+  browser_unread=browser_clear_unread&&browser_seen?0:1;
   if(mode==822||mode==832||mode==843||mode==844||mode==845||mode==847||mode==852||(mode==829&&((Object *)obj)->value==0))browser_unread=0;
   if(mode==824&&browser_unread_reads>=2)browser_unread=0;
   if((mode==831||mode==855)&&browser_unread_reads>=2)browser_unread=2;

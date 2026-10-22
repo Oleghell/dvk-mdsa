@@ -25,7 +25,7 @@ def write_report(value):
 
 
 def start(settings, stopped, approve, progress=lambda _: None, *, mode='full', fresh_session=False,
-          inbox=None, profiles=None, lock=operation_lock, write=write_report):
+          inbox=None, profiles=None, lock=operation_lock, write=write_report, between_profiles=None):
     if mode not in MODES:
         raise ValueError('Invalid mode')
     if inbox is None:
@@ -48,7 +48,8 @@ def start(settings, stopped, approve, progress=lambda _: None, *, mode='full', f
             if mode in ('full', 'profiles'):
                 result['profiles'] = profiles(settings, stopped, approve, progress,
                                               limit=settings.profile_limit,
-                                              fresh_session=fresh_session)
+                                              fresh_session=fresh_session,
+                                              **({'between_profiles': between_profiles} if between_profiles is not None else {}))
                 if result['profiles']['status'] != 'profiles-completed':
                     raise StateError('profiles-not-finished')
         result.update(status='completed', reason='none')

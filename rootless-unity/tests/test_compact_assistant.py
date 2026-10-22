@@ -30,17 +30,17 @@ class Settings(unittest.TestCase):
             self.assertEqual(set(json.loads((path/'settings.json').read_text())),{'adb','test_apks'})
             self.assertNotIn('token', (path/'workflow-settings.json').read_text())
 
-    def test_default_interval_and_old_default_migrate_to_30(self):
-        self.assertEqual(cfg.Settings().reply_interval, 30)
+    def test_default_interval_and_old_default_migrate_to_5(self):
+        self.assertEqual(cfg.Settings().reply_interval, 5)
         with tempfile.TemporaryDirectory() as temp:
             p = Path(temp) / 'workflow-settings.json'
             p.write_text(json.dumps(dict(contacts_enabled=False, reply_interval=120)))
-            self.assertEqual(cfg.load(temp).reply_interval, 30)
+            self.assertEqual(cfg.load(temp).reply_interval, 5)
             cfg.save(cfg.Settings(reply_interval=120), temp)
             self.assertEqual(cfg.load(temp).reply_interval, 120)  # explicit new choice is preserved
 
     def test_bad_interval_and_broken_settings_fail_closed(self):
-        for seconds in (True,0,29,3601,'120'):
+        for seconds in (True,0,4,3601,'120'):
             with self.assertRaises(StateError):cfg.Settings(reply_interval=seconds).check()
         with tempfile.TemporaryDirectory() as temp:
             p=Path(temp)/'workflow-settings.json'
@@ -189,7 +189,7 @@ class GroqSettings(unittest.TestCase):
             cfg.save(value,temp);self.assertEqual(cfg.load(temp),value)
             saved=Path(temp,'workflow-settings.json').read_text()
             self.assertNotIn('gsk_',saved);self.assertNotIn('api_key',saved)
-            self.assertEqual(json.loads(saved)['settings_version'],4)
+            self.assertEqual(json.loads(saved)['settings_version'],5)
     def test_old_settings_migrate_with_ai_off_and_error_notifications_on(self):
         with tempfile.TemporaryDirectory() as temp:
             Path(temp,'workflow-settings.json').write_text(json.dumps(dict(settings_version=2,contacts_enabled=True,reply_interval=30,profile_limit=5)))

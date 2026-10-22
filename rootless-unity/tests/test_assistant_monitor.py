@@ -62,7 +62,7 @@ class Monitor(unittest.TestCase):
         defaults = dict(initial=self.initial, inbox=self.inbox, navigator=self.navigator,
                         lock=self.lock, write=self.write, wait=self.wait_stop)
         defaults.update(kwargs)
-        return monitor.run(Settings(), self.stop, self.approve, self.progress, **defaults)
+        return monitor.run(Settings(reply_interval=30), self.stop, self.approve, self.progress, **defaults)
 
     def test_local_unknown_send_does_not_pause_next_passes(self):
         self.inbox.return_value = inbox_result(isolated_dialogs=1, review_pending=1,
@@ -153,7 +153,7 @@ class Monitor(unittest.TestCase):
         self.assertEqual(self.inbox.call_count, 1)
 
     def test_manual_review_pauses_but_peer_refusal_is_terminal_only_for_peer(self):
-        for reason, status in (('manual-review', 'paused'), ('telegram-outcome-unknown', 'paused'),
+        for reason, status in (('manual-review', 'paused'), ('telegram-outcome-unknown', 'cancelled'),
                                ('declined', 'cancelled')):
             with self.subTest(reason=reason):
                 self.stop.clear()
@@ -264,7 +264,7 @@ class RepeatedProfiles(Monitor):
         out=self.run_monitor(clock=lambda:now[0],wait=wait,repeat=repeat)
         self.assertEqual(batches,[120,240]);self.assertEqual(out['profile_batches_completed'],3)
         self.assertEqual(out['profile_interval_seconds'],120)
-        self.assertEqual(self.initial.call_count,1);self.assertEqual(self.inbox.call_count,10)
+        self.assertEqual(self.initial.call_count,1);self.assertEqual(self.inbox.call_count,12)
         operations=[c.args[0] for c in self.navigator.call_args_list]
         self.assertEqual(operations.count('return'),3)
         self.assertTrue(out['dialogs_verified'])

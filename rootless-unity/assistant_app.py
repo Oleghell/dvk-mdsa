@@ -144,7 +144,7 @@ def launch(self_check=False):
             ttk.Button(row, text='Выбрать', command=choose).pack(side='right', padx=(8, 0))
         ttk.Label(box, text='Подходящих анкет за одну порцию (1–20)').pack(anchor='w')
         ttk.Entry(box, textvariable=limit, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Label(box, text='Проверка диалогов (30–3600 секунд)').pack(anchor='w')
+        ttk.Label(box, text='Проверка диалогов (5–3600 секунд)').pack(anchor='w')
         ttk.Entry(box, textvariable=interval, width=8).pack(anchor='w', pady=(3, 10))
         ttk.Label(box, text='Полный режим: новая порция и случайный город через 120 секунд после предыдущей.\nДиалоги и поиск выполняются последовательно; пропущенные интервалы не накапливаются.', wraplength=500).pack(anchor='w', pady=8)
         ttk.Checkbutton(ai_box, variable=ai_enabled, text='ИИ: короткие ответы по структуре цепочки').pack(anchor='w', pady=6)

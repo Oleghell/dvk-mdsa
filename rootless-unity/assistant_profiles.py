@@ -85,7 +85,7 @@ def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics
 
 
 def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, config=None,
-         limit=5, fresh_session=False):
+         limit=5, fresh_session=False, between_profiles=None):
     from assistant_config import load
     if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
         raise ValueError('Invalid profile limit')
@@ -109,6 +109,12 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
         if fresh_session or out['current_city'] is None:
             new_city('Поиск • выбираю город и «Только онлайн»')
         while out['qualified_profiles'] < limit:
+            if stopped.is_set():
+                raise StateError('cancelled')
+            # Only between complete native cycles, on verified search; never
+            # interrupt a chat/send handler or release the shared device lock.
+            if between_profiles is not None:
+                between_profiles()
             if out['profiles_checked'] >= MAX_SCANNED:
                 raise StateError('profile-scan-limit')
             if stopped.is_set():
@@ -165,7 +171,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
     except Exception as error:
         if cycle_pending:
             out.update(send_attempts_unknown=True, greetings_sent=None)
-        known = {'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
+        known = {'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
                  'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'search-cycle-limit', 'profile-scan-limit'}
         reason = 'cancelled' if stopped.is_set() else (
             str(error) if isinstance(error, StateError) and str(error) in known else 'device-or-journal-check-stopped')
@@ -176,7 +182,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
 
 
 def run(settings, stopped, approve, progress=lambda _: None, *, store=None, cycle=None,
-        city_next=None, config=None, limit=5, fresh_session=False):
+        city_next=None, config=None, limit=5, fresh_session=False, between_profiles=None):
     """Caller must hold the shared device lock (assistant_pass.run re-enters it)."""
     from assistant_store import Store
     if stopped.is_set():
@@ -197,4 +203,4 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, cycl
                            native_cycle(port, token, cancel, text, store, ask))
     return walk(settings, stopped, approve, progress, Store() if store is None else store,
                 cycle=cycle, city_next=city_next, config=config, limit=limit,
-                fresh_session=fresh_session)
+                fresh_session=fresh_session, between_profiles=between_profiles)

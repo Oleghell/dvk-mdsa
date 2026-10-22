@@ -14,8 +14,7 @@ from version import VERSION
 from assistant_authorization import flags
 
 LIMIT = 10
-PAUSE_OUTCOMES = {'message-not-approved', 'manual-review', 'telegram-disabled',
-                  'telegram-outcome-unknown', 'contact-payload-blocked'}
+PAUSE_OUTCOMES = {'message-not-approved', 'manual-review'}
 # Chat-local uncertainty is isolated, never retried; navigation failures still stop.
 ISOLATE = {'send-outcome-unknown', 'outgoing-not-observed', 'manual-review',
            'history-changed-during-approval', 'local-own-message-unanchored',
@@ -94,9 +93,7 @@ def inbox_targets(chain):
     attention, unread = [], []
     for account, peer, chat, stage, outbox, pending in rows:
         item = dict(account=account, peer=peer, chat=chat)
-        if stage == 'done' and outbox:
-            attention.append(item)  # contact received, Telegram not yet sent
-        elif stage in TERMINAL:
+        if stage in TERMINAL:
             continue
         elif pending or (stage or '').startswith('pending-'):
             attention.append(item)  # unconfirmed draft or unobserved outgoing
@@ -143,7 +140,8 @@ def report():
     return dict(tool_version=VERSION, mode='inbox-chain-pass', status='inbox-stopped',
                 reason='not-started', dialog_limit=LIMIT, dialogs_opened=0,
                 dialogs_processed=0, read_dialogs_checked=0, read_recovery_enabled=True, reply_filter_enabled=True, read_rows_skipped=0, waiting_rows_skipped=0, handled_rows_skipped=0, confirmations=0, automatic_authorizations=0,
-                submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0,
+                submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0, contacts_detected=0, contact_delivery_pending=0,
+                contact_notifications=dict(accepted=0,unknown=0,disabled=0,blocked=0),
                 isolated_dialogs=0, isolated_reasons={}, review_causes={}, isolation_notification='not-needed', review_pending=0,
                 groq_requests=0, openrouter_requests=0, ai_requests=0, ai_provider='groq', ai_model=None,
                 groq_context_export_enabled=False, openrouter_context_export_enabled=False, outcomes={}, per_message_confirmation=True, automatic_send=False,
@@ -160,7 +158,27 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         raise ValueError('Invalid inbox screen')
     out = report()
     out.update(flags(approve))
+    # Telegram outbox is independent of the device. Never reopen a completed
+    # conversation just to deliver an already encrypted, verified contact.
+    with chain.store.connection() as db:
+        pending=db.execute("SELECT c.account,c.peer,c.chat FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat WHERE c.stage='done' AND o.status='pending' LIMIT ?", (LIMIT,)).fetchall()
+    for account,peer,chat in pending:
+        if stopped.is_set():
+            out.update(status='inbox-cancelled',reason='cancelled')
+            return out
+        status=chain.notify(dict(account=account,peer=peer,chat=chat),notifier,stopped.is_set)
+        if status in out['contact_notifications']:out['contact_notifications'][status]+=1
+        if status=='accepted':out['contacts_forwarded']+=1
+        if status in ('accepted','unknown'):out['personal_data_exported']=True
+    def pending_contacts():
+        with chain.store.connection() as db:
+            return db.execute("SELECT COUNT(*) FROM chain_contact_outbox WHERE status='pending'").fetchone()[0]
+    out['contact_delivery_pending']=pending_contacts()
     attention, unread = inbox_targets(chain)
+    out['tracked_active']=len(unread)
+    out['tracked_attention']=len(attention)
+    with chain.store.connection() as db:
+        out['tracked_terminal']={stage:number for stage,number in db.execute('SELECT stage,COUNT(*) FROM chain_dialogs GROUP BY stage') if stage in TERMINAL}
     if not attention and not unread:
         out.update(status='inbox-empty', reason='no-chain-dialogs')
         return out
@@ -244,6 +262,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 out[key] += result[key]
             out['outgoing_observed'] += result['outgoing_observed_this_run']
             out['contacts_forwarded'] += result['notifications']['accepted']
+            out['contacts_detected'] += int(result['stages']['peer_contact'])
+            for status in out['contact_notifications']:
+                out['contact_notifications'][status] += result['notifications'][status]
+            out['contact_delivery_pending']=pending_contacts()
+            if result['stages']['peer_contact']:
+                progress('Контакт получен • передан в Telegram' if result['notifications']['accepted'] else
+                         'Контакт получен • сохранён в очереди; передача в Telegram выключена' if result['notifications']['disabled'] else
+                         'Контакт получен • результат передачи в Telegram требует проверки')
             if result['telegram_used']:
                 out['personal_data_exported'] = True
             isolated_code = isolation_reason(result)

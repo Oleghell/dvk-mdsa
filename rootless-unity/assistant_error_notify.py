@@ -3,7 +3,7 @@ from groq_reply import ERRORS as GROQ_ERRORS
 from dialog_browser import ERRORS as NAV_ERRORS
 import telegram_notify
 
-KNOWN = GROQ_ERRORS | NAV_ERRORS | {
+KNOWN = GROQ_ERRORS | NAV_ERRORS | {'between-profile-inbox-stopped',
     'send-native-check-failed', 'send-device-check-failed', 'send-validation-failed',
     'settings-check-stopped', 'device-busy-or-monitor-check-stopped', 'initial-pass-stopped',
     'search-screen-not-verified', 'dialog-list-not-verified', 'initial-pass-paused',

@@ -41,7 +41,7 @@ def main(folder):
                       online_only_filter=True, random_city_from_config=True,
                       guided_open_chat=False, guided_reset=False, telegram_contact_only=False,
                       telegram_error_alerts=True, profile_interval_seconds=120,
-                      default_dialog_interval_seconds=30, read_tracked_dialog_recovery=True,
+                      default_dialog_interval_seconds=5, read_tracked_dialog_recovery=True,
                       groq_opt_in=True, groq_rules_file='config/groq-rules.txt',
                       openrouter_opt_in=True, openrouter_only_free=True,
                       openrouter_paid_fallback=False, provider_auto_switch=False,

@@ -102,7 +102,7 @@ for _ in range(12000):
         def latest(message):
             session=frida.get_local_device().attach(child.pid);script=None
             try:
-                script=session.create_script("rpc.exports={setLast(id,mine){new NativeFunction(Module.getGlobalExportByName('fixture_browser_last_message'),'void',['int','int'])(id,mine);}};")
+                script=session.create_script("rpc.exports={setLast(id,mine){new NativeFunction(Module.getGlobalExportByName('fixture_browser_last_message'),'void',['int','int'])(id,mine);new NativeFunction(Module.getGlobalExportByName('fixture_browser_clear_unread_on_open'),'void',['int'])(1);}};")
                 script.load();script.exports_sync.set_last(int(message['id']),int(message['sender']=='100'))
             finally:
                 if script:script.unload()
@@ -183,7 +183,7 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
                 assert monitored['chat_content_exported'],monitored
 
             assert monitored['status']=='cancelled' and monitored['dialogs_verified'],monitored
-            assert monitored['passes_completed']==2 and approvals==['contact'],monitored
+            assert monitored['passes_completed']==3 and monitored['immediate_rechecks']==1 and approvals==['contact'],monitored
             assert monitored['totals']['submission_calls']==1,monitored
             assert monitored['totals']['handler_returns']==1,monitored
             assert monitored['totals']['outgoing_observed']==1,monitored
@@ -192,8 +192,23 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
             if mode==843:assert monitored['last_pass']['dialogs_opened']==0 and monitored['last_pass']['waiting_rows_skipped']==1,monitored
             if mode in (836,843):assert recovered and all(r==1 for r in recovered),recovered
             assert sum(m['sender']=='100' for m in messages)==3,messages
+            # A direct bare-number contact response reaches the durable outbox
+            # and Telegram callback without another chat reply or reopening done.
+            from unittest.mock import patch
+            messages.append(dict(id='1006',sender='200',text='791234567890'))
+            latest(messages[-1]);delivered=[]
+            with patch('assistant_inbox.InboxChain',SyntheticAIChain):
+                contacted=assistant_inbox.run(Settings(contacts_enabled=True),threading.Event(),approve,store=store,
+                    navigator=navigator,reader=reader,sender=sender,notifier=lambda payload:delivered.append(payload) or True,
+                    greetings=(greeting,),pause=lambda _:False,entry='dialogs',return_to='dialogs')
+                assert contacted['status']=='inbox-completed' and contacted['contacts_forwarded']==1 and contacted['submission_calls']==0,contacted
+                assert len(delivered)==1 and delivered[0]['contacts']==['791234567890'],delivered
+                again=assistant_inbox.run(Settings(contacts_enabled=True),threading.Event(),approve,store=store,
+                    navigator=navigator,reader=reader,sender=sender,notifier=lambda payload:delivered.append(payload) or True,
+                    greetings=(greeting,),pause=lambda _:False,entry='dialogs',return_to='dialogs')
+                assert again['status']=='inbox-empty' and again['dialogs_opened']==0 and len(delivered)==1,again
         print('Synthetic browser + durable chain + outgoing observation + return passed.',flush=True)
-        print('Synthetic monitor: two serial inbox passes, one approval, no duplicate counters, stays in dialogs.',flush=True)
+        print('Synthetic monitor: immediate inbox recheck, idle in dialogs, direct contact delivered once without reopening.',flush=True)
     finally:
         child.terminate()
         try:child.wait(timeout=3)
