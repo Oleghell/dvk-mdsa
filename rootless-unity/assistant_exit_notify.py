@@ -1,6 +1,6 @@
 """Durable, privacy-safe reasons for verified exits without a reply.
 
-No conversation body, phone or raw identity is exported. Each state/reason is
+Only explicitly enabled peer excerpts are exported; raw identities stay local. Each state/reason is
 attempted once; an unknown Telegram result is never automatically retried.
 """
 import hashlib
@@ -9,20 +9,28 @@ import json
 import telegram_notify
 
 REASONS = {
-    'incoming-burst-pending': 'Собеседник продолжает писать. Несохранённый к отправке ответ отложен до следующей проверки, чтобы учесть весь пакет.',
-    'wait-reply': 'В проверенном снимке нет нового входящего для ответа.',
-    'wait-mood': 'Ожидается новый ответ на уже отправленный вопрос.',
-    'wait-contact': 'Контакт не распознан: этап ожидания добровольно присланного контакта. Повторная просьба не отправлена.',
-    'declined': 'Собеседник отказался; автоматический ответ прекращён.',
-    'telegram-disabled': 'Контакт сохранён в защищённой очереди, но передача контактов в Telegram выключена.',
-    'telegram-outcome-unknown': 'Контакт найден, результат передачи в Telegram неизвестен. Повтор исключён.',
-    'contact-payload-blocked': 'Контакт найден, но проверка уведомления не пройдена.',
-    'contact-already-handled': 'Контакт уже обработан; повторная передача исключена.',
-    'manual-review': 'Не удалось безопасно продолжить этот чат; он оставлен на проверку.',
-    'history-changed-during-approval': 'История изменилась не только добавлением входящих. Отправка не выполнена.',
-    'send-outcome-unknown': 'Результат предыдущей попытки отправки неизвестен. Повтор исключён.',
-    'outgoing-not-observed': 'Отправленное сообщение не удалось подтвердить в истории. Повтор исключён.',
-    'bound-chat-read-failed': 'Не удалось прочитать проверенный снимок привязанного чата.',
+ 'contact-photo-unavailable':'Контакт сохранён. Не удалось проверить снимок профиля; отправка отложена.',
+ 'wait-contact':'Контакт не найден. Повторно просить не стал.',
+ 'wait-reply':'Нового сообщения для ответа нет.',
+ 'wait-mood':'Жду ответ на уже отправленный вопрос.',
+ 'incoming-burst-pending':'Ещё приходят сообщения. Отвечу после следующей проверки.',
+ 'ai-temporarily-unavailable':'Сервис ИИ сейчас недоступен. Попробую позже.',
+ 'declined':'Собеседник отказался от общения.',
+ 'telegram-disabled':'Контакт сохранён, но отправка контактов в Telegram выключена.',
+ 'telegram-outcome-unknown':'Контакт найден, но Telegram не подтвердил приём. Не повторяю, чтобы не было дубля.',
+ 'contact-payload-blocked':'Не удалось проверить данные контакта.',
+ 'contact-already-handled':'Этот контакт уже обработан.',
+ 'manual-review':'Не удалось безопасно продолжить этот чат.',
+ 'history-changed-during-approval':'История изменилась. Не стал отправлять ответ вслепую.',
+ 'send-outcome-unknown':'Неясно, ушёл ли ответ. Не повторяю, чтобы не было дубля.',
+ 'outgoing-not-observed':'Не вижу отправленный ответ в истории. Повторять не стал.',
+ 'bound-chat-read-failed':'Не удалось прочитать переписку.',
+ 'groq-unsafe-reply':'Ответ ИИ не прошёл проверку. Отправлять его не стал.',
+ 'openrouter-unsafe-reply':'Ответ ИИ не прошёл проверку. Отправлять его не стал.',
+ 'groq-invalid-response':'ИИ вернул непонятный ответ.',
+ 'openrouter-invalid-response':'ИИ вернул непонятный ответ.',
+ 'groq-repeat-greeting':'ИИ снова поздоровался. Такой ответ не отправляю.',
+ 'openrouter-repeat-greeting':'ИИ снова поздоровался. Такой ответ не отправляю.',
 }
 
 def notify_exit(chain, who, result, *, sender=None, enabled=True):
@@ -57,10 +65,10 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True):
         cur = db.execute("INSERT OR IGNORE INTO chain_exit_notices VALUES(?,?,'attempted-unknown')", (who['chat'],signature))
         if cur.rowcount != 1:
             return dict(chat_ref=ref,reason=reason,review_cause=cause,notification='already-attempted')
-    text = ('ℹ️ DvkAssistant: диалог '+ref+' прочитан, выход без нового ответа.\n'+
-            REASONS.get(reason,'Чат изолирован: безопасное продолжение не подтверждено.')+
-            '\nПричина: '+reason+ (' / '+cause if cause else '')+
-            '\nВозврат в личку проверен; продолжаю остальные диалоги.')
+    excerpts=result.get('_exit_messages',[])
+    excerpts=[x for x in excerpts if isinstance(x,str)] if isinstance(excerpts,list) else []
+    excerpt=' / '.join(excerpts).replace('\x00','')[:800]
+    text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Сообщение собеседника прочитать не удалось.\n') + 'Пропущено: ' + REASONS.get(reason,'Не удалось безопасно продолжить этот чат.')
     try:
         status = 'accepted' if sender(text) is True else 'unknown'
     except Exception:

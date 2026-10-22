@@ -197,15 +197,18 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
             from unittest.mock import patch
             messages.append(dict(id='1006',sender='200',text='791234567890'))
             latest(messages[-1]);delivered=[]
+            import struct,zlib
+            def chunk(kind,data):return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)
+            photo=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',300,600,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\0'+b'\0'*900)*600))+chunk(b'IEND',b'')
             with patch('assistant_inbox.InboxChain',SyntheticAIChain):
                 contacted=assistant_inbox.run(Settings(contacts_enabled=True),threading.Event(),approve,store=store,
                     navigator=navigator,reader=reader,sender=sender,notifier=lambda payload:delivered.append(payload) or True,
-                    greetings=(greeting,),pause=lambda _:False,entry='dialogs',return_to='dialogs')
+                    greetings=(greeting,),pause=lambda _:False,entry='dialogs',return_to='dialogs',contact_photo=lambda who:photo)
                 assert contacted['status']=='inbox-completed' and contacted['contacts_forwarded']==1 and contacted['submission_calls']==0,contacted
-                assert len(delivered)==1 and delivered[0]['contacts']==['791234567890'],delivered
+                assert len(delivered)==1 and delivered[0]['contacts']==['791234567890'] and delivered[0]['photo']==photo,delivered
                 again=assistant_inbox.run(Settings(contacts_enabled=True),threading.Event(),approve,store=store,
                     navigator=navigator,reader=reader,sender=sender,notifier=lambda payload:delivered.append(payload) or True,
-                    greetings=(greeting,),pause=lambda _:False,entry='dialogs',return_to='dialogs')
+                    greetings=(greeting,),pause=lambda _:False,entry='dialogs',return_to='dialogs',contact_photo=lambda who:photo)
                 assert again['status']=='inbox-empty' and again['dialogs_opened']==0 and len(delivered)==1,again
         print('Synthetic browser + durable chain + outgoing observation + return passed.',flush=True)
         print('Synthetic monitor: immediate inbox recheck, idle in dialogs, direct contact delivered once without reopening.',flush=True)

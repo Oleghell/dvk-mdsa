@@ -248,7 +248,7 @@ class Drafts(unittest.TestCase):
         self.model.side_effect=g.GroqError('groq-timeout');sender=MagicMock()
         out=self.walk([snapshot(('PRIVATE_PEER',False))],sender)
         sender.assert_not_called()
-        self.assertEqual(out['reason'],'groq-timeout')
+        self.assertEqual(out['reason'],'ai-temporarily-unavailable');self.assertEqual(out['diagnostics']['failure_point'],'groq-timeout')
         self.assertNotIn('PRIVATE',json.dumps(out))
 
     def test_whole_brief_chain_uses_two_meaningful_replies_and_no_more(self):

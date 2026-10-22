@@ -77,10 +77,17 @@ static int browser_unread,browser_unread_reads;
 static Object browser_unread_box={NULL,0};
 API int fixture_browser_unread_reads(void){return browser_unread_reads;}
 static int browser_clicks,browser_backs,browser_cell_reads,browser_count_reads,browser_visible_reads,browser_start;
+static Image contact_profile_image={"DV.Profile.dll"};
+static Class contact_queue={"DV.Profiles","ProfilesQueueViewController"},contact_content={"DV.Profiles","ProfileViewController"};
+static Type contact_content_type={18,&contact_content};
+static Object contact_queue_obj={&contact_queue,0},contact_content_obj={&contact_content,0};
+static Method contact_active={"get_CurrentProfileController",&contact_queue,0,&contact_content_type,900};
+static Method contact_user={"get_User",&contact_content,0,&bt[3],901};
+static int contact_user_reads;
 static Object *browser_selected;
 static int browser_back_checks;
 static Object browser_parents[31];
-static void browser_init(void){int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
+static void browser_init(void){contact_user_reads=0;contact_user.type=mode==862?&tbool:&bt[3];int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
 API int fixture_browser_clicks(void){return browser_clicks;}
 API int fixture_browser_backs(void){return browser_backs;}
 API void fixture_browser_entry(int entry){phase=entry;browser_start=entry;}
@@ -88,10 +95,11 @@ API void fixture_init(int m){old_init(m);route_calls=route_bad=0;browser_init();
 API int fixture_route_calls(void){return route_calls;}
 API int fixture_route_bad(void){return route_bad;}
 API Image **il2cpp_domain_get_assemblies(void *d,size_t *n){
- static Image *all[]={&images[0],&images[1],&images[2],&images[3],&nav_image,&messages_image,&system_image};
- (void)d;*n=7;return all;
+ static Image *all[]={&images[0],&images[1],&images[2],&images[3],&nav_image,&messages_image,&system_image,&contact_profile_image};
+ (void)d;*n=8;return all;
 }
 API Class *il2cpp_class_from_name(Image *im,const char *ns,const char *name){
+ if(im==&contact_profile_image&&!strcmp(ns,"DV.Profiles")){if(!strcmp(name,contact_queue.name))return &contact_queue;if(!strcmp(name,contact_content.name))return &contact_content;}
  if(im==&messages_image&&!strcmp(ns,message_tab.ns)&&!strcmp(name,message_tab.name))return &message_tab;
  if(im==&messages_image&&!strcmp(ns,chats_class.ns)&&!strcmp(name,chats_class.name))return &chats_class;
  if(im==&system_image&&!strcmp(ns,system_type.ns)&&!strcmp(name,system_type.name))return &system_type;
@@ -100,6 +108,7 @@ API Class *il2cpp_class_from_name(Image *im,const char *ns,const char *name){
  return old_class(im,ns,name);
 }
 API unsigned char il2cpp_class_is_assignable_from(Class *a,Class *b){
+ if(a==&nc[1]&&(b==&contact_queue||b==&contact_content))return 1;
  if(a==&nc[1]&&(b==&message_tab||b==&chats_class))return 1;
  if(a==&system_type&&b==&runtime_type)return 1;
  if(b==&message_tab&&((mode==715&&a==&nc[10])||(mode==716&&a==&nc[9])))return 1;
@@ -111,6 +120,8 @@ API unsigned char il2cpp_class_is_assignable_from(Class *a,Class *b){
  return old_assignable(a,b);
 }
 API Method *il2cpp_class_get_method_from_name(Class *k,const char *name,int arity){
+ if(arity==0&&k==&contact_queue&&!strcmp(name,contact_active.name))return &contact_active;
+ if(arity==0&&k==&contact_content&&!strcmp(name,contact_user.name))return &contact_user;
  if(k==&nc[8]&&arity==2&&!strcmp(name,route.name))return &route;
  for(int i=0;i<18;i++)if(arity==(int)bm[i].arity&&!strcmp(name,bm[i].name)&&(k==bm[i].klass||(i==4&&k==&bc[4]))){if(mode==801&&i==4)return NULL;
   if(i==17){
@@ -149,6 +160,8 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  if(m->action<10)return old_invoke(m,obj,args,exc);
  managed_calls++;if(TID()!=main_id)off_thread_calls++;
  switch(m->action){
+ case 900:return &contact_content_obj;
+ case 901:contact_user_reads++;return &browser_users[(mode==861||(mode==863&&contact_user_reads>=2))?0:1];
  case 800:return &browser_table;
  case 801:browser_visible_reads++;return (mode==819||mode==820||mode==821)&&browser_visible_reads>=2?&browser_list_alt:&browser_list;
  case 802:browser_count_reads++;modal_count=mode==818?129:mode==811&&browser_count_reads>=2?1:2;return &countbox;
@@ -213,10 +226,10 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   if(obj==&browser_table)return mode==813?NULL:&view;
   if(obj==&browser_cells[0]||obj==&browser_cells[1])return &browser_table;
   return mode==711&&phase==1?NULL:&window;
- case 19:boolbox.value=mode==706&&phase==1;return &boolbox;
+ case 19:boolbox.value=(mode==706&&phase==1)||mode==864;return &boolbox;
  case 20:case 24:boolbox.value=1;return &boolbox;
  case 25:return &ui_nav;
- case 27:if(phase==3)return &browser_vc;if(phase==1)return mode==707?&other:&message_tab_obj;return mode==705&&phase==2?&replacement:&search;
+ case 27:if(phase==4)return &contact_queue_obj;if(phase==5)return &contact_content_obj;if(phase==3)return &browser_vc;if(phase==1)return mode==707?&other:&message_tab_obj;return mode==705&&phase==2?&replacement:&search;
  case 28:return &chats_obj;
  case 29:return obj==&message_tab_obj?&chats_obj:&tabs;
  case 33:return mode==708?&modal_list:NULL;

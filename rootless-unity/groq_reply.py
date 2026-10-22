@@ -21,6 +21,8 @@ ERRORS |= {'openrouter-' + code.removeprefix('groq-') for code in tuple(ERRORS)}
 ERRORS |= {'openrouter-credits-required', 'openrouter-access-denied', 'openrouter-model-unavailable',
            'openrouter-paid-model-blocked', 'openrouter-self-test-failed', 'groq-self-test-failed'}
 
+ERRORS |= {p+'-'+s for p in ('groq','openrouter') for s in ('key-pool-invalid','key-pool-exhausted')}
+
 class GroqError(StateError):
     def __init__(self, code):
         super().__init__(code if code in ERRORS else 'groq-invalid-response')

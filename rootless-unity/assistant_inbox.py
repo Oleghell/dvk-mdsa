@@ -13,12 +13,13 @@ from one_chat_probe import identity
 from version import VERSION
 from assistant_authorization import flags
 
-LIMIT = 10
+LIMIT = None
 PAUSE_OUTCOMES = {'message-not-approved', 'manual-review'}
 # Chat-local uncertainty is isolated, never retried; navigation failures still stop.
 ISOLATE = {'send-outcome-unknown', 'outgoing-not-observed', 'manual-review',
            'history-changed-during-approval', 'local-own-message-unanchored',
-           'groq-repeat-greeting', 'openrouter-repeat-greeting'}
+           'groq-repeat-greeting', 'openrouter-repeat-greeting', 'groq-unsafe-reply', 'openrouter-unsafe-reply',
+           'groq-invalid-response', 'openrouter-invalid-response'}
 CONTINUE = {'chain-waiting', 'chain-completed', 'chain-needs-review', 'chain-paused'}
 
 
@@ -94,12 +95,14 @@ def inbox_targets(chain):
     for account, peer, chat, stage, outbox, pending in rows:
         item = dict(account=account, peer=peer, chat=chat)
         if stage in TERMINAL:
+            if stage=='done' and outbox and chain.media_required and not chain.has_media(item):
+                attention.append(item)
             continue
         elif pending or (stage or '').startswith('pending-'):
             attention.append(item)  # unconfirmed draft or unobserved outgoing
         else:
             unread.append(item)
-    return targets(attention), targets(unread)
+    return attention, unread
 
 
 
@@ -152,7 +155,7 @@ def report():
 
 
 def walk(settings, stopped, approve, progress, chain, *, navigator, reader, sender,
-         notifier=None, greetings=(), pause=None, entry='search', return_to='search', exit_notifier=None):
+         notifier=None, greetings=(), pause=None, entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None):
     from assistant_navigation_check import safe_diagnostic
     if entry not in ('search', 'dialogs') or return_to not in ('search', 'dialogs'):
         raise ValueError('Invalid inbox screen')
@@ -162,12 +165,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     # Telegram outbox is independent of the device. Never reopen a completed
     # conversation just to deliver an already encrypted, verified contact.
     with chain.store.connection() as db:
-        pending=db.execute("SELECT c.account,c.peer,c.chat FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat WHERE c.stage='done' AND o.status='pending' LIMIT ?", (LIMIT,)).fetchall()
+        pending=db.execute("SELECT c.account,c.peer,c.chat FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat WHERE c.stage='done' AND o.status='pending'").fetchall()
     for account,peer,chat in pending:
         if stopped.is_set():
             out.update(status='inbox-cancelled',reason='cancelled')
             return out
-        status=chain.notify(dict(account=account,peer=peer,chat=chat),notifier,stopped.is_set)
+        who=dict(account=account,peer=peer,chat=chat)
+        if chain.media_required and not chain.has_media(who):continue
+        status=chain.notify(who,notifier,stopped.is_set)
         if status in out['contact_notifications']:out['contact_notifications'][status]+=1
         if status=='accepted':out['contacts_forwarded']+=1
         if status in ('accepted','unknown'):out['personal_data_exported']=True
@@ -227,13 +232,28 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         reason = 'visible-pass-limit'
         groups = [(attention, False, 'pending'), (list(unread), True, 'unread'),
                   (read_round(chain, unread), False, 'read')]
-        while out['dialogs_opened'] < LIMIT and groups:
+        processed=set()
+        def page_groups():
+            attention,unread=inbox_targets(chain)
+            groups=[(attention,False,'pending'),(list(unread),True,'unread'),(read_round(chain,unread),False,'read')]
+            return [(targets([x for x in items[i:i+MAX_TARGETS] if (x['account'],x['peer']) not in processed]),unread_only,kind) for items,unread_only,kind in groups for i in range(0,len(items),MAX_TARGETS)]
+        # Chunk transport payloads, not the number of dialogs processed.
+        from dialog_browser import MAX_TARGETS
+        groups=[(targets(items[i:i+MAX_TARGETS]),unread_only,kind) for items,unread_only,kind in groups for i in range(0,len(items),MAX_TARGETS)]
+        if pager is not None:pager.reset()
+        while groups or pager is not None:
+            if not groups:
+                if not pager.advance():
+                    reason='available-exhausted'
+                    break
+                groups=page_groups()
+                continue
             allowed, unread_only, group_kind = groups[0]
             if not allowed:
                 groups.pop(0)
                 continue
             phase = 'navigation'
-            progress(f'Диалоги • чат {out["dialogs_opened"] + 1}/{LIMIT}' +
+            progress(f'Диалоги • чат {out["dialogs_opened"] + 1}' +
                      (' • проверка прочитанного' if group_kind == 'read' else ''))
             selected = call('open', allowed=with_seen_ids(chain,allowed) if group_kind=='read' else allowed,
                             entry=entry, unread_only=unread_only, needs_reply_only=True)
@@ -248,13 +268,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if group_kind == 'read':
                 out['read_dialogs_checked'] += 1
             phase = 'chat'
+            exit_messages=[]
             result = walk_chat(
                 chain, who, stopped, approve,
                 lambda expected: reader(settings.adb, settings.folder, stopped.is_set, expected),
                 lambda snapshot, text: sender(settings.adb, settings.folder, snapshot,
                                               stopped.is_set, text=text),
                 approved=True, greetings=greetings, notifier=notifier, progress=progress,
-                pause=pause, max_polls=8, until_waiting=True,
+                pause=pause, max_polls=8, until_waiting=True, exit_capture=lambda texts:exit_messages.__setitem__(slice(None),texts), contact_photo=contact_photo,
                 contact_reader=lambda expected: reader(settings.adb, settings.folder,
                                                        stopped.is_set, expected, read_name=True))
             out['last_chat_diagnostics'] = result['diagnostics']
@@ -291,8 +312,11 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if (not result['notifications']['accepted']
                     and (not result['outgoing_observed_this_run'] or result['stages']['peer_contact'])):
                 from assistant_exit_notify import notify_exit
-                event = notify_exit(chain, who, result, sender=exit_notifier, enabled=exit_notifier is not None)
+                event = notify_exit(chain, who, dict(result,_exit_messages=exit_messages), sender=exit_notifier, enabled=exit_notifier is not None)
                 out['exit_events'].append(event)
+                if event['notification'] in ('accepted','unknown'):
+                    out['personal_data_exported']=True
+                    if exit_messages:out['chat_content_exported']=True
             if isolated:
                 out['isolated_dialogs'] += 1
                 code = isolated_code
@@ -304,6 +328,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 count('isolated:' + code)
                 progress('Диалоги • один чат на проверке, продолжаю остальные')
             out['dialogs_processed'] += 1
+            processed.add((who['account'],who['peer']))
             record_checked(chain, who)
             for group in groups:
                 group[0][:] = [x for x in group[0] if (x['account'], x['peer']) != (who['account'], who['peer'])]
@@ -312,6 +337,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 break  # No further approval prompts in this pass after No/timeout.
         else:
             reason = 'visible-exhausted' if not groups else 'visible-pass-limit'
+        out['pages_checked']=pager.pages if pager is not None else 1
         phase = 'navigation'
         if return_to == 'search':
             call('return')
@@ -331,7 +357,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
 
 def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navigator=None,
         reader=None, sender=None, notifier=None, greetings=None, pause=None,
-        entry='search', return_to='search', exit_notifier=None):
+        entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None):
     """Caller must hold the shared device lock."""
     from assistant_config import load
     from assistant_store import Store
@@ -347,23 +373,35 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     from assistant_ai import responder as make_responder
     responder = make_responder(settings.ai_provider, settings.ai_model, stopped.is_set) if settings.groq_enabled else None
     chain = InboxChain(Store() if store is None else store, responder=responder)
+    chain.media_required=settings.contacts_enabled
+    if contact_photo is None and settings.contacts_enabled:
+        from assistant_contact_photo import capture_profile
+        contact_photo=lambda who:capture_profile(settings.adb,settings.folder,who,stopped.is_set)
     if exit_notifier is None and settings.errors_enabled:
         try:
             exit_token, exit_chat = telegram_notify.load()
             exit_notifier = lambda text: telegram_notify.send(exit_token, exit_chat, text)
         except telegram_notify.TelegramError:
             pass
+    if navigator is None and pager is None:
+        from assistant_dialog_pages import Pager
+        # The initial full pass may still be on search. Verify the list before
+        # any paging gesture; this route never opens a conversation.
+        prepared=perform('list',settings.adb,settings.folder,stopped.is_set,entry=entry)
+        if prepared['state']!='dialogs-ready':raise StateError('dialog-list-not-verified')
+        entry='dialogs'
+        pager=Pager(settings,stopped.is_set)
     result = walk(settings, stopped, approve, progress, chain,
                 navigator=perform if navigator is None else navigator,
                 reader=capture if reader is None else reader,
                 sender=submit if sender is None else sender,
-                notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier,
+                notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,
                 greetings=load().greetings if greetings is None else greetings)
 
     with chain.store.connection() as db:
         result['review_pending'] = db.execute(
             "SELECT COUNT(*) FROM chain_dialogs WHERE stage='manual-review'").fetchone()[0]
-    if settings.errors_enabled and result['isolated_dialogs']:
+    if settings.errors_enabled and result['isolated_dialogs'] and not any(e['notification'] in ('accepted','unknown','already-attempted') for e in result.get('exit_events',[])):
         from assistant_error_notify import notify_isolated
         result['isolation_notification'] = notify_isolated(result)
     result['ai_provider'], result['ai_model'] = settings.ai_provider, settings.ai_model

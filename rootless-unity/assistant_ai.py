@@ -19,6 +19,11 @@ def responder(provider, model, cancelled=lambda: False, *, entered_key=''):
     if entered_key.strip():
         key = adapter.key_value(entered_key.strip())
         options['key_loader'] = lambda: key
+    if not entered_key.strip():
+        from assistant_key_pool import load, Responder
+        keys=load(provider)
+        if keys:
+            return Responder(provider,model,keys,cancelled)
     return adapter.Responder(**options)
 
 
@@ -43,6 +48,8 @@ def explain(code):
     suffix = code.split('-', 1)[1] if '-' in code else code
     message = {
         'key-unavailable': 'Сохранённый ключ недоступен. Вставь ключ в поле и нажми «Тест ИИ» или «Сохранить ключ ИИ».',
+        'key-pool-invalid':'Проверь config/ai-keys.txt: секции [groq]/[openrouter], один настоящий ключ на строку, до 16 на сервис.',
+        'key-pool-exhausted':'Все ключи выбранного сервиса временно недоступны. Неотправленный ответ сохранён, проверка продолжится позже.',
         'key-invalid': 'Неверный формат ключа выбранного сервиса.',
         'unauthorized': 'Сервис отклонил ключ. Проверь его или выпусти новый.',
         'access-denied': 'Доступ запрещён настройками аккаунта или политикой сервиса.',
@@ -54,3 +61,11 @@ def explain(code):
         'self-test-failed': 'Модель не прошла проверку структуры ответа или отказа.',
     }.get(suffix, 'Тест не пройден. Проверь модель, сеть и настройки.')
     return message + ' [' + code + ']'
+
+
+def check_saved_keys(provider):
+    from assistant_key_pool import load
+    keys=load(provider)
+    if keys:return len(keys)
+    module(provider).load_key()
+    return 1

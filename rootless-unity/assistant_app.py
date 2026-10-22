@@ -167,13 +167,14 @@ def launch(self_check=False):
                     adapter.save_key(ai_key.get())
                     ai_key.set('')
                 else:
-                    adapter.load_key()
+                    assistant_ai.check_saved_keys(ai_provider.get())
                 note.set('Ключ ИИ сохранён/доступен. Выбор сервиса и модели сохрани общей кнопкой «Сохранить».')
             except groq_reply.GroqError as error:
                 note.set(assistant_ai.explain(str(error)))
             except Exception:
                 note.set('Не удалось сохранить ключ ИИ. Нужна защита Windows DPAPI; открытый текст не записывается.')
         ttk.Button(ai_box, text='Сохранить ключ ИИ', command=save_ai_key).pack(anchor='w', pady=4)
+        ttk.Label(ai_box, text='Несколько ключей: заполни config/ai-keys.txt по образцу ai-keys.example.txt. Используются только ключи выбранного сервиса; при сбое — следующий. Файл содержит секреты: никому не отправляй.', wraplength=500).pack(anchor='w', pady=4)
         ttk.Checkbutton(tg_box, variable=errors_enabled, text='Telegram: причины остановок, ошибок и выхода без ответа').pack(anchor='w', pady=8)
         ttk.Checkbutton(tg_box, variable=enabled, text='Telegram: уведомлять, когда человек сам прислал контакт').pack(anchor='w', pady=8)
         for label, var, mask in (('Токен бота', token, '*'), ('Chat ID получателя', recipient, '')):
@@ -191,7 +192,7 @@ def launch(self_check=False):
                 if ai_key.get().strip():
                     adapter.save_key(ai_key.get())
                 elif current.groq_enabled:
-                    adapter.load_key()
+                    assistant_ai.check_saved_keys(ai_provider.get())
                 if token.get().strip():
                     telegram_notify.save(token.get(), recipient.get())
                 elif current.contacts_enabled or current.errors_enabled:

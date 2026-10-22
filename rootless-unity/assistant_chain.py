@@ -44,6 +44,7 @@ def text_hash(text):
 class Chain:
     # Only the explicitly selected, per-message-approved guided mode opts in.
     any_replies = False
+    media_required = False
 
     def __init__(self, store, choose=lambda: secrets.randbelow(2), *, contact_notifications=False,
                  seal=protect, unseal=lambda data: protect(data, decrypt=True)):
@@ -53,6 +54,7 @@ class Chain:
         with store.connection() as db:
             # Do not use executescript: it would commit the surrounding tx.
             for sql in (
+                'CREATE TABLE IF NOT EXISTS chain_contact_media(chat TEXT PRIMARY KEY,payload BLOB NOT NULL)',
                 'CREATE TABLE IF NOT EXISTS chain_contact_outbox(chat TEXT PRIMARY KEY,message TEXT,payload BLOB NOT NULL,status TEXT NOT NULL)',
                 'CREATE TABLE IF NOT EXISTS chain_dialogs(account TEXT,peer TEXT,chat TEXT UNIQUE,greeting TEXT,stage TEXT,salt TEXT,PRIMARY KEY(account,peer))',
                 'CREATE TABLE IF NOT EXISTS chain_review_reasons(chat TEXT PRIMARY KEY,reason TEXT NOT NULL)',
@@ -242,6 +244,22 @@ class Chain:
             db.execute("UPDATE chain_actions SET status=? WHERE chat=? AND kind=? AND status='reserved-unknown'",
                        (status, who['chat'], action['kind']))
 
+    def has_media(self,who):
+        with self.store.connection() as db:
+            return db.execute('SELECT 1 FROM chain_contact_media WHERE chat=?',(who['chat'],)).fetchone() is not None
+
+    def prepare_media(self,who,capture):
+        self.authorized(who)
+        if self.has_media(who):return
+        if capture is None:raise StateError('profile-photo-unavailable')
+        image=capture(who)
+        from assistant_contact_photo import png_size
+        png_size(image)
+        protected=self.seal(image)
+        if not isinstance(protected,bytes) or not protected:raise StateError('profile-photo-unavailable')
+        with self.store.connection() as db:
+            db.execute('INSERT OR IGNORE INTO chain_contact_media VALUES(?,?)',(who['chat'],protected))
+
     def notify(self, who, notifier, cancelled=lambda: False):
         # Never consume the former generic new-message outbox. It is obsolete.
         if notifier is None or not self.contact_notifications:
@@ -261,6 +279,14 @@ class Chain:
             except Exception:
                 db.execute("UPDATE chain_contact_outbox SET status='blocked' WHERE chat=?", (who['chat'],))
                 return 'blocked'
+            photo=db.execute('SELECT payload FROM chain_contact_media WHERE chat=?',(who['chat'],)).fetchone()
+            if self.media_required and photo is None:return 'photo-required'
+            if photo is not None:
+                try:
+                    data['photo']=self.unseal(photo[0])
+                    from assistant_contact_photo import png_size
+                    png_size(data['photo'])
+                except Exception:return 'blocked'
             db.execute("UPDATE chain_contact_outbox SET status='attempted-unknown' WHERE chat=?", (who['chat'],))
         if cancelled():
             return 'cancelled'  # Reserved attempt remains consumed; no resend.
@@ -270,6 +296,7 @@ class Chain:
             outcome = 'unknown'
         with self.store.connection() as db:
             db.execute('UPDATE chain_contact_outbox SET status=? WHERE chat=?', (outcome, who['chat']))
+            db.execute('DELETE FROM chain_contact_media WHERE chat=?',(who['chat'],))
         return outcome
 
 

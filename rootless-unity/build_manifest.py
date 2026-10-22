@@ -23,6 +23,7 @@ LIVE_VERIFIED = {
     'repeated_profile_batches': False,
     'dynamic_ai_reply_native_send': False,
     'chat_local_error_isolation': False,
+    'dialog_paging': False, 'contact_profile_photo': False, 'api_key_failover': False,
 }
 
 
@@ -47,7 +48,10 @@ def main(folder):
                       openrouter_paid_fallback=False, provider_auto_switch=False,
                       entered_key_test=True, independent_ai_key_save=True,
                       validated_dynamic_ai_send=True, chat_local_error_isolation=True,
-                      unknown_send_auto_retry=False,
+                      unknown_send_auto_retry=False, api_key_pool_file='config/ai-keys.txt',
+                      same_provider_key_failover=True, fixed_dialog_limit=None, dialog_paging=True,
+                      telegram_peer_excerpt_on_skip=True, contact_profile_photo=True,
+                      contact_single_telegram_message=True,
                       telegram_test_message=True, clear_profile_history=True),
         live_verified=LIVE_VERIFIED,
         production_ready=all(LIVE_VERIFIED.values()))

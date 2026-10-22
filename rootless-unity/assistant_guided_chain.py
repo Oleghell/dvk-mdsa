@@ -305,7 +305,7 @@ class GuidedChain(Chain):
 
 def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
          greetings=(), notifier=None, progress=lambda _: None, pause=None,
-         max_polls=360, deadline=None, contact_reader=None, until_waiting=False):
+         max_polls=360, deadline=None, contact_reader=None, until_waiting=False, exit_capture=None, contact_photo=None):
     """Monitor ONE open chat through both replies; all bodies remain in RAM.
 
     until_waiting=True is used by the inbox pass: once the chat needs a NEW
@@ -358,6 +358,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             if deadline is not None and time.monotonic() >= deadline:
                 out.update(status='chain-paused', reason='wait-timeout')
                 return out
+            with chain.store.connection() as db:
+                seen_ids={r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?',(who['chat'],))}
+            excerpts=[m['text'] if isinstance(m['text'],str) else '[нет текста]' for m in before['messages'] if m['sender']==who['peer'] and m['id'] not in seen_ids]
+            if excerpts and exit_capture is not None:exit_capture(excerpts)
             try:
                 stage, action = chain.proposal(before)
             except StateError as error:
@@ -407,6 +411,13 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 out.update(reason='send-outcome-unknown')
                 return out
             if stage == 'done':
+                if chain.media_required and notifier is not None:
+                    try:
+                        chain.prepare_media(who,contact_photo)
+                    except Exception as error:
+                        if str(error) in ('profile-return-not-verified','cancelled'):raise
+                        out.update(status='chain-waiting',reason='contact-photo-unavailable')
+                        return out
                 notification = chain.notify(who, notifier, stopped.is_set)
                 if notification == 'cancelled':
                     break
@@ -533,10 +544,16 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         allowed |= {'guided-contact-history-changed', 'contact-name-required',
                     'contact-protection-failed', 'contact-payload-invalid',
                     'contact-limit-exceeded', 'guided-binding-not-authorized',
-                    'guided-outgoing-not-verified'}
+                    'guided-outgoing-not-verified', 'profile-return-not-verified'}
         from groq_reply import ERRORS as GROQ_ERRORS
         allowed |= GROQ_ERRORS
         reason = str(error) if isinstance(error, StateError) and str(error) in allowed else 'binding-or-history-check-stopped'
+        from assistant_key_pool import RETRY_SUFFIXES
+        suffix=reason.split('-',1)[1] if '-' in reason else ''
+        if suffix in RETRY_SUFFIXES - {'unsafe-reply','repeat-greeting','invalid-response'} or suffix=='key-pool-exhausted':
+            out['diagnostics']['failure_point']=reason
+            out.update(status='chain-waiting',reason='ai-temporarily-unavailable')
+            return out
         # Fixed, non-private categories distinguish transport from contact storage.
         if reason == 'binding-or-history-check-stopped':
             from one_chat_device import ReadStopped

@@ -64,7 +64,7 @@ def send(token,chat_id,text,opener=None):
 def send_contact(token, chat_id, payload):
     from shared_contact import payload as validate
     try:
-        if not isinstance(payload, dict) or set(payload) != {'name', 'contacts'}:
+        if not isinstance(payload, dict) or set(payload) not in ({'name', 'contacts'}, {'name','contacts','photo'}):
             raise ValueError('Invalid payload')
         data = validate(payload['name'], payload['contacts'])
     except Exception:
@@ -72,7 +72,29 @@ def send_contact(token, chat_id, payload):
     from conversation_engine import contacts
     note = ('\nНомер передан как прислан; формат и код страны не подтверждены.'
             if any(contacts(c) != [c] for c in data['contacts']) else '')
-    return send(token, chat_id, 'Новый контакт!\nИмя: ' + data['name'] + '\nКонтакт: ' + ', '.join(data['contacts']) + note)
+    text='Новый контакт!\nИмя: ' + data['name'] + '\nКонтакт: ' + ', '.join(data['contacts']) + note
+    if 'photo' in payload:
+        return send_photo(token,chat_id,text,payload['photo'])
+    return send(token, chat_id, text)
+
+
+def send_photo(token,chat_id,caption,image,opener=None):
+    token,chat_id=credentials(token,chat_id)
+    from assistant_contact_photo import png_size
+    png_size(image)
+    if not isinstance(caption,str) or not 1<=len(caption)<=1024:raise TelegramError('Недопустимая подпись фото.')
+    import secrets
+    boundary='DvkPhoto'+secrets.token_hex(24);parts=[]
+    for key,value in (('chat_id',chat_id),('caption',caption)):
+        parts.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="'+key+'"\r\n\r\n'+value+'\r\n').encode())
+    parts.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="photo"; filename="profile.png"\r\nContent-Type: image/png\r\n\r\n').encode()+image+b'\r\n')
+    parts.append(('--'+boundary+'--\r\n').encode())
+    request=urllib.request.Request('https://api.telegram.org/bot'+token+'/sendPhoto',data=b''.join(parts),method='POST',headers={'Content-Type':'multipart/form-data; boundary='+boundary})
+    try:
+        client=opener or urllib.request.build_opener(NoRedirect)
+        with client.open(request,timeout=30) as response:data=json.loads(response.read(65537))
+        return data.get('ok') is True and isinstance(data.get('result'),dict) and type(data['result'].get('message_id')) is int
+    except Exception:raise TelegramError('Результат отправки фото неизвестен. Автоповтора нет.') from None
 
 
 def contact_notification(payload):

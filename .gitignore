@@ -24,3 +24,7 @@ build/
 *.pfx
 *storepass*
 *PRIVATE-signing*
+
+# User-owned plaintext API key list, never committed.
+config/ai-keys.txt
+ai-keys.txt
