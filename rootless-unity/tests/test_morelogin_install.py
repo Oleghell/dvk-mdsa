@@ -113,7 +113,7 @@ class UncertainReplacement(unittest.TestCase):
 
 class CommandPolicy(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name).resolve(strict=True)
         self.exe=self.root/'adb.exe';self.exe.write_bytes(b'synthetic');self.serial='127.0.0.1:12345'
         self.adb=OwnedAdb(str(self.exe),self.serial,self.root)
     def test_wrong_device_shell_uninstall_scope_and_global_ops_blocked(self):
