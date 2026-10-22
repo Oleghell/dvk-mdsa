@@ -195,6 +195,24 @@ class GuidedChain(Chain):
                 (who['chat'],))}
         with self.store.connection() as db:
             seen = {r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?', (who['chat'],))}
+        if unapproved:
+            # Resume an unsent draft after a stop/API failure with newer peer
+            # arrivals. Reserved/unknown attempts are deliberately excluded.
+            for kind in unapproved.copy():
+                with self.store.connection() as db:
+                    state = db.execute('SELECT stage FROM chain_dialogs WHERE chat=?', (who['chat'],)).fetchone()
+                    if not state or state[0] != 'pending-' + kind:
+                        continue
+                    row = db.execute('SELECT text_hash FROM chain_actions WHERE chat=? AND kind=?', (who['chat'],kind)).fetchone()
+                    from assistant_ai_drafts import restore
+                    text = restore(self, who['chat'], kind, row[0], connection=db)
+                text = text or next((t for t in REPLIES if text_hash(t) == row[0]), None)
+                if text is not None:
+                    previous = dict(snapshot, messages=[m for m in snapshot['messages'] if m['id'] in seen])
+                    if self.refresh_unsubmitted(previous, snapshot, dict(kind=kind,text=text)):
+                        unapproved.discard(kind)
+                        with self.store.connection() as db:
+                            seen = {r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?', (who['chat'],))}
         reply_ids = [m['id'] for m in snapshot['messages'] if m['sender'] == who['peer'] and m['id'] not in seen]
         stage, action = self.consume(snapshot)
         if ((stage == 'wait-mood' and 'question' in unapproved) or
@@ -206,11 +224,11 @@ class GuidedChain(Chain):
                 db.execute("UPDATE chain_actions SET status='awaiting-approval' "
                            "WHERE chat=? AND kind=? AND status='reserved-unknown'",
                            (who['chat'], action['kind']))
+                for message in reply_ids:
+                    db.execute('INSERT OR IGNORE INTO ai_draft_inputs VALUES(?,?,?)', (who['chat'],action['kind'],message))
                 if self.responder is not None:
                     # Atomically require AI BEFORE the draft can be resumed.
                     db.execute("INSERT OR IGNORE INTO ai_drafts VALUES(?,?,NULL,'needed')", (who['chat'], action['kind']))
-                    for message in reply_ids:
-                        db.execute('INSERT OR IGNORE INTO ai_draft_inputs VALUES(?,?,?)', (who['chat'],action['kind'],message))
             elif stage.startswith('pending-'):
                 kind = stage.removeprefix('pending-')
                 row = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?',
@@ -238,6 +256,39 @@ class GuidedChain(Chain):
             if terminal is not None:
                 stage = terminal
         return stage, action
+
+    def refresh_unsubmitted(self, previous, fresh, action):
+        """Replan ONLY an unsent draft after append-only peer arrivals.
+
+        Never release reserved/unknown/handler-returned actions, infer message
+        ordering, forget an outgoing message or reset a review quarantine.
+        """
+        if not extends_snapshot(previous, fresh):
+            return False
+        who = fresh['identity']; chat = who['chat']; kind = action['kind']
+        self.authorized(who)
+        old = {m['id']: m for m in previous['messages']}
+        delta = [m for m in fresh['messages'] if m['id'] not in old]
+        if not delta or any(m['sender'] != who['peer'] for m in delta):
+            return False
+        with self.store.connection() as db:
+            state = db.execute('SELECT stage,salt FROM chain_dialogs WHERE chat=?', (chat,)).fetchone()
+            row = db.execute('SELECT status,text_hash,trigger FROM chain_actions WHERE chat=? AND kind=?', (chat,kind)).fetchone()
+            if (not state or state[0] != 'pending-'+kind or not row or
+                    row[:2] != ('awaiting-approval', text_hash(action['text']))):
+                return False
+            seen = dict(db.execute('SELECT message,fingerprint FROM chain_seen WHERE chat=?', (chat,)))
+            if any(k not in old or fingerprint(old[k],state[1]) != value for k,value in seen.items()):
+                return False
+            inputs = [r[0] for r in db.execute('SELECT message FROM ai_draft_inputs WHERE chat=? AND kind=?', (chat,kind))] or [row[2]]
+            if any(k not in old or old[k]['sender'] != who['peer'] for k in inputs):
+                return False
+            db.execute('DELETE FROM ai_drafts WHERE chat=? AND kind=?', (chat,kind))
+            db.execute('DELETE FROM ai_draft_inputs WHERE chat=? AND kind=?', (chat,kind))
+            db.execute("DELETE FROM chain_actions WHERE chat=? AND kind=? AND status='awaiting-approval'", (chat,kind))
+            db.executemany('DELETE FROM chain_seen WHERE chat=? AND message=?', [(chat,k) for k in inputs])
+            db.execute('UPDATE chain_dialogs SET stage=? WHERE chat=?', ('wait-reply' if kind=='question' else 'wait-mood',chat))
+        return True
 
     def reserve_confirmed(self, who, action):
         self.authorized(who)
@@ -405,6 +456,14 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     break
                 fresh = read()
                 if not same_snapshot(before, fresh):
+                    if chain.refresh_unsubmitted(before, fresh, action):
+                        out['diagnostics']['incoming_draft_refreshes'] = out['diagnostics'].get('incoming_draft_refreshes', 0) + 1
+                        before = fresh
+                        if out['diagnostics']['incoming_draft_refreshes'] >= 3:
+                            out.update(status='chain-waiting', reason='incoming-burst-pending',
+                                       stage='wait-reply' if action['kind']=='question' else 'wait-mood')
+                            return out
+                        continue
                     chain.mark_review(who)
                     out.update(reason='history-changed-during-approval')
                     return out

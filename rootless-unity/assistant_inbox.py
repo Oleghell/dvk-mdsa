@@ -152,12 +152,13 @@ def report():
 
 
 def walk(settings, stopped, approve, progress, chain, *, navigator, reader, sender,
-         notifier=None, greetings=(), pause=None, entry='search', return_to='search'):
+         notifier=None, greetings=(), pause=None, entry='search', return_to='search', exit_notifier=None):
     from assistant_navigation_check import safe_diagnostic
     if entry not in ('search', 'dialogs') or return_to not in ('search', 'dialogs'):
         raise ValueError('Invalid inbox screen')
     out = report()
     out.update(flags(approve))
+    out['exit_events'] = []
     # Telegram outbox is independent of the device. Never reopen a completed
     # conversation just to deliver an already encrypted, verified contact.
     with chain.store.connection() as db:
@@ -287,6 +288,11 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if isolated:
                 chain.mark_review(who)
             call('back', expected=who)
+            if (not result['notifications']['accepted']
+                    and (not result['outgoing_observed_this_run'] or result['stages']['peer_contact'])):
+                from assistant_exit_notify import notify_exit
+                event = notify_exit(chain, who, result, sender=exit_notifier, enabled=exit_notifier is not None)
+                out['exit_events'].append(event)
             if isolated:
                 out['isolated_dialogs'] += 1
                 code = isolated_code
@@ -325,7 +331,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
 
 def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navigator=None,
         reader=None, sender=None, notifier=None, greetings=None, pause=None,
-        entry='search', return_to='search'):
+        entry='search', return_to='search', exit_notifier=None):
     """Caller must hold the shared device lock."""
     from assistant_config import load
     from assistant_store import Store
@@ -341,11 +347,17 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     from assistant_ai import responder as make_responder
     responder = make_responder(settings.ai_provider, settings.ai_model, stopped.is_set) if settings.groq_enabled else None
     chain = InboxChain(Store() if store is None else store, responder=responder)
+    if exit_notifier is None and settings.errors_enabled:
+        try:
+            exit_token, exit_chat = telegram_notify.load()
+            exit_notifier = lambda text: telegram_notify.send(exit_token, exit_chat, text)
+        except telegram_notify.TelegramError:
+            pass
     result = walk(settings, stopped, approve, progress, chain,
                 navigator=perform if navigator is None else navigator,
                 reader=capture if reader is None else reader,
                 sender=submit if sender is None else sender,
-                notifier=notifier, pause=pause, entry=entry, return_to=return_to,
+                notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier,
                 greetings=load().greetings if greetings is None else greetings)
 
     with chain.store.connection() as db:

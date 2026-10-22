@@ -1,6 +1,6 @@
 """Explicitly started, serial monitoring of journal-authorized dialogs.
 
-Full mode repeats qualified-profile batches with a 120-second idle interval,
+Full mode repeats qualified-profile batches with a configurable inbox-rest interval,
 serially between tracked inbox passes. Reply-only mode never starts profiles.
 One device lock and durable journals survive all batches. Unknown sends are isolated.
 """
@@ -18,7 +18,7 @@ from dialog_browser import perform
 from version import VERSION
 from assistant_authorization import flags
 
-PROFILE_INTERVAL = 120
+PROFILE_INTERVAL = 300
 REPORT = 'last-monitor.json'
 COUNTERS = ('submission_calls', 'handler_returns', 'outgoing_observed', 'contacts_forwarded', 'groq_requests', 'openrouter_requests', 'ai_requests', 'isolated_dialogs')
 
@@ -59,6 +59,10 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         raise ValueError('Invalid monitor mode')
     out = report(mode)
     out.update(flags(approve))
+    out['profile_interval_seconds'] = settings.profile_interval
+    out['recent_exit_events'] = []
+    out['isolated_reasons_total'] = {}
+    out['review_causes_total'] = {}
     out.update(contacts_enabled=settings.contacts_enabled, automatic_profile_repeat=mode == 'full', groq_enabled=settings.groq_enabled,
                ai_enabled=settings.groq_enabled, ai_provider=settings.ai_provider, ai_model=settings.ai_model,
                groq_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'groq',
@@ -67,6 +71,10 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
     phase = 'settings-check-stopped'
 
     def add_counters(value):
+        out['recent_exit_events'] = (out['recent_exit_events'] + value.get('exit_events', []))[-20:]
+        for key, source in (('isolated_reasons_total','isolated_reasons'),('review_causes_total','review_causes')):
+            for code, number in value.get(source, {}).items():
+                out[key][code] = out[key].get(code, 0) + number
         for key in COUNTERS:
             number = value.get(key, 0) if key in ('groq_requests', 'openrouter_requests', 'ai_requests', 'isolated_dialogs') else value[key]
             if type(number) is not int or number < 0:
@@ -155,7 +163,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 if first.get('report_name') is None:
                     raise StateError('report-write-failed')
                 out['profile_batches_completed'] = 1
-            next_profiles = clock() + PROFILE_INTERVAL
+            next_profiles = clock() + settings.profile_interval
             entry = 'search' if mode == 'full' else 'either'
             immediate_passes = 0
             while True:
@@ -191,7 +199,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     out.update(status='checking',reason='drain-incoming')
                     publish()
                     continue
-                if mode == 'full' and not active and clock() >= next_profiles:
+                if mode == 'full' and clock() >= next_profiles:
                     # Only between completed inbox passes; never overlap device work
                     # or reset greeting reservations/profile/city history.
                     phase = 'search-screen-not-verified'
@@ -212,7 +220,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     out['profile_batches_completed'] += 1
                     phase = 'dialog-list-not-verified'
                     navigate('list', 'search')
-                    next_profiles = clock() + PROFILE_INTERVAL
+                    next_profiles = clock() + settings.profile_interval
                     immediate_passes = 0
                     # No idle delay between the profile batch and inbox.
                     continue

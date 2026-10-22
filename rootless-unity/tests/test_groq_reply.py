@@ -233,12 +233,12 @@ class Drafts(unittest.TestCase):
         self.chain.proposal(snapshot(('Взаимно',False)))
 
     def walk(self, values, sender=None):
-        return guided.walk(self.chain,WHO,self.stop,RunAuthorization(self.stop),
+        return guided.walk(self.chain,WHO,self.stop,RunAuthorization(self.stop, wait=lambda _: False),
            MagicMock(side_effect=copy.deepcopy(values)),sender or MagicMock(),approved=True,
            greetings=(GREETING,),pause=lambda _:False,until_waiting=True,max_polls=8)
 
     def test_history_changed_after_generation_cannot_send(self):
-        before=snapshot(('Взаимно',False));changed=snapshot(('Взаимно',False),('А ты кто?',False))
+        before=snapshot(('Взаимно',False));changed=snapshot(('Изменено',False),('А ты кто?',False))
         sender=MagicMock()
         out=self.walk([before,changed],sender)
         sender.assert_not_called()

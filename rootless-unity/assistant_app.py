@@ -72,19 +72,7 @@ def launch(self_check=False):
         except Exception as error:
             status.set(str(error) if isinstance(error, StateError) else 'Не удалось сохранить настройки. Запуск отменён.')
             return
-        text = ('1) Проверю отслеживаемые чаты, включая прочитанные без ответа, и отправлю следующее сообщение цепочки.\n'
-                '2) Затем наберу ' + str(settings.profile_limit) + ' подходящих анкет: только онлайн, '
-                'друзей меньше 50, пустой чат — отправлю приветствие.\n\n'
-                if mode == 'full' else
-                'Проверю отслеживаемые чаты, включая прочитанные без ответа, и отправлю следующее сообщение цепочки.\n\n')
-        if not messagebox.askyesno('Старт' if mode == 'full' else 'Только ответы', text +
-                                   'После прохода останусь в диалогах и буду проверять отслеживаемые чаты каждые '
-                                   + str(settings.reply_interval) + ' сек. ' +
-                                   ('В полном режиме: следующая порция в другом случайном городе через 120 секунд после предыдущей.\n' if mode == 'full' else 'Новые анкеты в режиме «Только ответы» не запускаются.\n') +
-                                   ((assistant_ai.LABELS[settings.ai_provider] + ': весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила будут переданы выбранному сервису' + (' и его провайдеру' if settings.ai_provider == 'openrouter' else '') + ' для ответа.\n') if settings.groq_enabled else 'ИИ выключен: используются шаблоны цепочки.\n') +
-                                   'Этот запуск разрешает автоматические приветствия и ответы цепочки без отдельных окон. '
-                                   'Не трогай MuMu №4 во время работы.\n\nНачать?', parent=root):
-            return
+        # The Start button itself authorizes this run. No redundant modal.
         fresh = first_profiles_run and mode == 'full'
         if mode == 'full':
             first_profiles_run = False
@@ -113,6 +101,7 @@ def launch(self_check=False):
         folder = tk.StringVar(value=settings.folder)
         limit = tk.StringVar(value=str(settings.profile_limit))
         interval = tk.StringVar(value=str(settings.reply_interval))
+        profile_interval = tk.StringVar(value=str(settings.profile_interval))
         enabled = tk.BooleanVar(value=settings.contacts_enabled)
         errors_enabled = tk.BooleanVar(value=settings.errors_enabled)
         ai_enabled = tk.BooleanVar(value=settings.groq_enabled)
@@ -146,7 +135,9 @@ def launch(self_check=False):
         ttk.Entry(box, textvariable=limit, width=8).pack(anchor='w', pady=(3, 10))
         ttk.Label(box, text='Проверка диалогов (5–3600 секунд)').pack(anchor='w')
         ttk.Entry(box, textvariable=interval, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Label(box, text='Полный режим: новая порция и случайный город через 120 секунд после предыдущей.\nДиалоги и поиск выполняются последовательно; пропущенные интервалы не накапливаются.', wraplength=500).pack(anchor='w', pady=8)
+        ttk.Label(box, text='Отдых в личке перед новой порцией (30–86400 секунд)').pack(anchor='w')
+        ttk.Entry(box, textvariable=profile_interval, width=8).pack(anchor='w', pady=(3, 10))
+        ttk.Label(box, text='Во время отдыха проверяю входящие и отвечаю. Отправка с задержкой 35 слов/мин.\nСтарт разрешает автоматические сообщения; не трогай MuMu №4 во время работы.', wraplength=500).pack(anchor='w', pady=8)
         ttk.Checkbutton(ai_box, variable=ai_enabled, text='ИИ: короткие ответы по структуре цепочки').pack(anchor='w', pady=6)
         ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются выбранному сервису (для OpenRouter — также провайдеру модели). ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
         ttk.Label(ai_box, text='Сервис ИИ').pack(anchor='w', pady=(8, 0))
@@ -183,7 +174,7 @@ def launch(self_check=False):
             except Exception:
                 note.set('Не удалось сохранить ключ ИИ. Нужна защита Windows DPAPI; открытый текст не записывается.')
         ttk.Button(ai_box, text='Сохранить ключ ИИ', command=save_ai_key).pack(anchor='w', pady=4)
-        ttk.Checkbutton(tg_box, variable=errors_enabled, text='Telegram: уведомлять о причинах остановок и ошибок').pack(anchor='w', pady=8)
+        ttk.Checkbutton(tg_box, variable=errors_enabled, text='Telegram: причины остановок, ошибок и выхода без ответа').pack(anchor='w', pady=8)
         ttk.Checkbutton(tg_box, variable=enabled, text='Telegram: уведомлять, когда человек сам прислал контакт').pack(anchor='w', pady=8)
         for label, var, mask in (('Токен бота', token, '*'), ('Chat ID получателя', recipient, '')):
             ttk.Label(tg_box, text=label).pack(anchor='w')
@@ -195,7 +186,7 @@ def launch(self_check=False):
                 models[provider]=ai_model.get().strip()
                 current = Settings(adb.get(), folder.get(), enabled.get(), int(interval.get()),
                                    int(limit.get()), ai_enabled.get(), models['groq'], errors_enabled.get(),
-                                   provider, models['openrouter']).check()
+                                   provider, models['openrouter'], int(profile_interval.get())).check()
                 adapter=assistant_ai.module(provider)
                 if ai_key.get().strip():
                     adapter.save_key(ai_key.get())

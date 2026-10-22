@@ -168,7 +168,7 @@ class RunAuthorization(unittest.TestCase):
     def test_known_actions_only_and_stop_revokes_permission(self):
         from assistant_authorization import RunAuthorization, flags
         stopped = threading.Event()
-        permit = RunAuthorization(stopped)
+        permit = RunAuthorization(stopped, wait=lambda _: False)
         self.assertEqual(flags(permit), dict(per_message_confirmation=False, automatic_send=True))
         for kind in ('greeting', 'question', 'contact'):
             self.assertTrue(permit(kind, 'text', lambda: False))
@@ -189,7 +189,7 @@ class GroqSettings(unittest.TestCase):
             cfg.save(value,temp);self.assertEqual(cfg.load(temp),value)
             saved=Path(temp,'workflow-settings.json').read_text()
             self.assertNotIn('gsk_',saved);self.assertNotIn('api_key',saved)
-            self.assertEqual(json.loads(saved)['settings_version'],5)
+            self.assertEqual(json.loads(saved)['settings_version'],6)
     def test_old_settings_migrate_with_ai_off_and_error_notifications_on(self):
         with tempfile.TemporaryDirectory() as temp:
             Path(temp,'workflow-settings.json').write_text(json.dumps(dict(settings_version=2,contacts_enabled=True,reply_interval=30,profile_limit=5)))
@@ -212,10 +212,10 @@ class PackagedConfiguration(unittest.TestCase):
             build_manifest.main(folder)
             value=json.loads((folder/'build-manifest.json').read_text())
             self.assertEqual(value['config_sha256'], {name:hashlib.sha256((source/name).read_bytes()).hexdigest() for name in names})
-            self.assertFalse(value['auto_start']); self.assertTrue(value['explicit_run_confirmation'])
+            self.assertFalse(value['auto_start']); self.assertFalse(value['explicit_run_confirmation']); self.assertTrue(value['explicit_start_click'])
             self.assertFalse(value['per_message_confirmation']); self.assertTrue(value['automatic_send'])
             self.assertTrue(value['features']['read_tracked_dialog_recovery'])
-            self.assertEqual(value['features']['profile_interval_seconds'], 120)
+            self.assertEqual(value['features']['profile_interval_seconds'], 300)
             self.assertFalse(value['production_ready'])
             (folder/'config'/'groq-rules.txt').unlink()
             with self.assertRaises(FileNotFoundError): build_manifest.main(folder)

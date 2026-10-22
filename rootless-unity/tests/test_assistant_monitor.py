@@ -62,7 +62,7 @@ class Monitor(unittest.TestCase):
         defaults = dict(initial=self.initial, inbox=self.inbox, navigator=self.navigator,
                         lock=self.lock, write=self.write, wait=self.wait_stop)
         defaults.update(kwargs)
-        return monitor.run(Settings(reply_interval=30), self.stop, self.approve, self.progress, **defaults)
+        return monitor.run(Settings(reply_interval=30, profile_interval=120), self.stop, self.approve, self.progress, **defaults)
 
     def test_local_unknown_send_does_not_pause_next_passes(self):
         self.inbox.return_value = inbox_result(isolated_dialogs=1, review_pending=1,

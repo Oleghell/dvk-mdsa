@@ -109,7 +109,7 @@ class IdleLoop(unittest.TestCase):
         def repeat(*a,**k):events.append('profiles');return dict(status='completed',report_name='last-run.json')
         def wait(delay,stop):
             events.append('wait')
-            if 'profiles' not in events:now[0]=120;return False
+            if 'profiles' not in events:now[0]=300;return False
             stop.set();return True
         out,read=self.run_loop(results,wait,mode='full',clock=lambda:now[0],repeat=repeat)
         self.assertEqual(events,['inbox','wait','inbox','profiles','inbox','wait'])
@@ -135,7 +135,7 @@ class SettingsMigration(unittest.TestCase):
             p.write_text(json.dumps(dict(settings_version=4,contacts_enabled=False,reply_interval=30)))
             self.assertEqual(settings.load(folder).reply_interval,5)
             p.write_text(json.dumps(dict(settings_version=4,contacts_enabled=False,reply_interval=60)))
-            self.assertEqual(settings.load(folder).reply_interval,60)
+            self.assertEqual(settings.load(folder).reply_interval,5);self.assertEqual(settings.load(folder).profile_interval,60)
             settings.save(settings.Settings(reply_interval=30),folder)
             self.assertEqual(settings.load(folder).reply_interval,30)
 

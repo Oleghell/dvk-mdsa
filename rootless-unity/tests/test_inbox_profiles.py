@@ -102,7 +102,7 @@ class Inbox(Base):
     def test_vzaimno_after_run_authorization_sends_one_question_without_prompt(self):
         from assistant_authorization import RunAuthorization
         self.journal()
-        self.approve = RunAuthorization(self.stop)
+        self.approve = RunAuthorization(self.stop, wait=lambda _: False)
         hello = msg(1002, 'Взаимно')
         q = msg(1003, QUESTIONS[0], True)
         out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],

@@ -113,13 +113,18 @@ class Chain:
             new = [m for m in messages if m['id'] not in old]
             incoming = [m for m in new if m['sender'] == who['peer']]
             outgoing = [m for m in new if m['sender'] == who['account']]
-            shared = [(m, self_shared(m['text'], requested=stage == 'wait-contact')) for m in incoming]
+            pending_contact_observed = False
+            if stage == 'pending-contact' and len(outgoing) == 1:
+                pending = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?', (chat,'contact')).fetchone()
+                pending_contact_observed = bool(pending and pending[1] == 'handler-returned-unconfirmed'
+                    and isinstance(outgoing[0]['text'], str) and text_hash(outgoing[0]['text']) == pending[0])
+            shared = [(m, self_shared(m['text'], requested=stage == 'wait-contact' or pending_contact_observed)) for m in incoming]
             shared = [(m, items) for m, items in shared if items]
             if any(m['text'] and REFUSAL.search(normalized(m['text'])) for m in incoming):
                 stage = 'declined'
             elif shared:
-                aggregate = self.any_replies and stage == 'wait-contact'
-                if outgoing or (not aggregate and (len(shared) != 1 or len(incoming) != 1)):
+                aggregate = self.any_replies and (stage == 'wait-contact' or pending_contact_observed)
+                if (outgoing and not pending_contact_observed) or (not aggregate and (len(shared) != 1 or len(incoming) != 1)):
                     stage, review_cause = 'manual-review', 'contact-batch-ambiguous'
                 else:
                     message, items = shared[0]
@@ -146,6 +151,8 @@ class Chain:
                                        (chat, message['id'], protected))
                         except Exception:
                             raise StateError('contact-protection-failed') from None
+                    if pending_contact_observed:
+                        db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind='contact'", (chat,))
                     stage = 'done'
             elif stage.startswith('pending-'):
                 kind = stage.removeprefix('pending-')
