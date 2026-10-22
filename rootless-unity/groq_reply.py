@@ -78,6 +78,12 @@ clarify: собеседник уже выбрал мессенджер, но е�
 Один раз естественно уточни номер для WhatsApp или ник для Telegram по смыслу
 всех новых реплик. Например: «Хорошо, какой номер указать для WhatsApp?»
 Не утверждай, что контакт уже получен или что ты уже написал туда.
+followup: после предложения контактов пришёл обычный ответ, сомнение, вопрос
+или жалоба (например «Наверное», «не работают без VPN, и вообще для чего?»).
+Ответь по смыслу всех новых реплик. «Наверное» не означает согласие или контакт:
+можно ненавязчиво предложить остаться здесь, не спрашивая номер/ник и не повторяя
+предложение мессенджера. Не выдумывай технические причины или работоспособность
+сервисов. Если спрашивают зачем контакт, честно объясни, что переход необязателен.
 Не затягивай: один ответ, 1–2 коротких предложения, максимум 240 символов.
 Не пиши «у меня тоже всё супер», если человеку плохо. Не придумывай личные факты,
 город, возраст, работу, намерения, встречи, собственные контакты или обещания.
@@ -156,7 +162,7 @@ def continuation(value, kind):
 
 
 def decision(value, kind):
-    if kind not in ('question', 'contact', 'clarify') or not isinstance(value, dict) or set(value) != {'decision', 'text'}:
+    if kind not in ('question', 'contact', 'clarify', 'followup') or not isinstance(value, dict) or set(value) != {'decision', 'text'}:
         raise GroqError('groq-invalid-response')
     mode, text = value['decision'], value['text']
     if mode not in ('reply', 'decline', 'review') or not isinstance(text, str):
@@ -178,6 +184,8 @@ def decision(value, kind):
         raise GroqError('groq-unsafe-reply')
     if kind == 'clarify' and (not re.search(r'номер|ник|имя\s+пользовател',text,re.I)
             or re.search(r'парол|код|карт[аыу]|деньг|интим|адрес',text,re.I)):
+        raise GroqError('groq-unsafe-reply')
+    if kind == 'followup' and (not re.search(r'[А-Яа-яЁё]',text) or re.search(r'\b(?:номер|ник|контакт\w*|телефон\w*|парол\w*|код\w*|карт[аыу]|деньг\w*|интим\w*|адрес\w*)\b', text, re.I)):
         raise GroqError('groq-unsafe-reply')
     return dict(decision='reply', text=text)
 
@@ -218,7 +226,7 @@ class Responder:
     def __call__(self, kind, snapshot):
         if self.cancelled():
             raise GroqError('groq-cancelled')
-        if kind not in ('question', 'contact', 'clarify'):
+        if kind not in ('question', 'contact', 'clarify', 'followup'):
             raise GroqError('groq-invalid-response')
         key = self.key_loader()
         body = json.dumps(self.payload(kind, snapshot), ensure_ascii=False).encode()

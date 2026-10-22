@@ -44,10 +44,11 @@ def checked_reply(text):
     """
     from conversation_engine import QUESTIONS, CONTACT_TEXT
     from assistant_contact_clarify import TEXT as CLARIFY_TEXT
+    from assistant_contact_followup import TEXT as FOLLOWUP_TEXT
     from groq_reply import decision, GroqError
-    if isinstance(text, str) and text in (*QUESTIONS, CONTACT_TEXT, CLARIFY_TEXT):
+    if isinstance(text, str) and text in (*QUESTIONS, CONTACT_TEXT, CLARIFY_TEXT, FOLLOWUP_TEXT):
         return text
-    for kind in ('question', 'contact', 'clarify'):
+    for kind in ('question', 'contact', 'clarify', 'followup'):
         try:
             return decision(dict(decision='reply', text=text), kind)['text']
         except GroqError:

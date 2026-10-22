@@ -8,7 +8,7 @@ from assistant_store import Store, StateError
 from dialog_browser import VERSION, LIMIT, targets, perform
 from one_chat_probe import identity
 
-STATES={'wait-reply','wait-mood','wait-contact','pending-question','pending-contact','pending-clarify','await-outgoing','submission-unknown','manual-review','declined','done','cancelled'}
+STATES={'wait-reply','wait-mood','wait-contact','pending-question','pending-contact','pending-clarify','pending-followup','await-outgoing','submission-unknown','manual-review','declined','done','cancelled'}
 
 
 def journal_targets(chain):
@@ -125,7 +125,7 @@ def walk(settings,stopped,progress,chain, *, navigator,reader,sender,notifier=No
                     state,unexpected_action=chain.consume(after)
                     if unexpected_action is not None:raise StateError('unexpected-second-action')
                     if state in ('wait-mood','wait-contact'):out['outgoing_observed']+=1
-                    if state not in ('pending-question','pending-contact','pending-clarify') or stopped.is_set():break
+                    if state not in ('pending-question','pending-contact','pending-clarify','pending-followup') or stopped.is_set():break
             if state not in STATES:raise StateError('invalid-chain-stage')
             out['states'][state]+=1
             if state=='submission-unknown':

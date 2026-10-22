@@ -18,13 +18,15 @@ from shared_contact import self_shared, voluntary_batch, payload as contact_payl
 from telegram_notify import protect
 from assistant_contact_clarify import TEXT as CLARIFY_TEXT, chosen as chose_messenger
 
+from assistant_contact_followup import TEXT as FOLLOWUP_TEXT, eligible as followup_eligible
+
 TERMINAL = {'done', 'declined', 'manual-review'}
 REVIEW_CAUSES = {'history-missing', 'history-edited', 'contact-batch-ambiguous',
                  'incoming-during-pending', 'pending-outgoing-mismatch',
                  'unjournalled-outgoing', 'legacy-incoming-ambiguous',
                  'legacy-contact-not-shared', 'legacy-reply-unclassified',
                  'ai-context-review', 'review-cause-unavailable'}
-REPLIES = QUESTIONS + (CONTACT_TEXT, CLARIFY_TEXT)
+REPLIES = QUESTIONS + (CONTACT_TEXT, CLARIFY_TEXT, FOLLOWUP_TEXT)
 POSITIVE = re.compile(r'^(?:вс[её]\s+)?(?:хорошо|отлично|нормально|норм|супер|прекрасно|замечательно|неплохо|класс)(?:\s+(?:спасибо|вс[её]\s+хорошо))?[\s!.,)🙂😊👍]*$', re.I)
 HELLO = re.compile(r'^(?:привет(?:ик)?|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|хай|hello|hi)[\s!.,)🙂😊👋]*$', re.I)
 
@@ -92,14 +94,16 @@ class Chain:
             if row is None:
                 own = [m for m in messages if m['sender'] == who['account']]
                 if len(own) != 1 or not isinstance(own[0]['text'], str) or text_hash(own[0]['text']) != greeting_hash:
-                    raise ReviewRequired('Не подтверждено единственное исходное приветствие. Автоцепочка не запущена.')
+                    error=ReviewRequired('Не подтверждено единственное исходное приветствие. Автоцепочка не запущена.')
+                    error.anchor_reason='multiple-own' if len(own)>1 else 'missing-own' if not own else 'hash-mismatch'
+                    raise error
                 row = (own[0]['id'], 'wait-reply', secrets.token_hex(32))
                 db.execute('INSERT INTO chain_dialogs VALUES(?,?,?,?,?,?)',
                            (who['account'], who['peer'], chat, *row))
                 db.execute('INSERT INTO chain_seen VALUES(?,?,?)',
                            (chat, own[0]['id'], fingerprint(own[0], row[2])))
             greeting, stage, salt = row
-            if stage not in TERMINAL | {'wait-reply', 'wait-mood', 'wait-contact', 'pending-question', 'pending-contact', 'pending-clarify'}:
+            if stage not in TERMINAL | {'wait-reply', 'wait-mood', 'wait-contact', 'pending-question', 'pending-contact', 'pending-clarify', 'pending-followup'}:
                 raise StateError('Неизвестный сохранённый этап. Автоматическая отправка запрещена.')
             old = dict(db.execute('SELECT message,fingerprint FROM chain_seen WHERE chat=?', (chat,)))
             now = {m['id']: fingerprint(m, salt) for m in messages}
@@ -118,7 +122,7 @@ class Chain:
             outgoing = [m for m in new if m['sender'] == who['account']]
             pending_contact_observed = False
             pending_contact_kind = stage.removeprefix('pending-')
-            if stage in ('pending-contact','pending-clarify') and len(outgoing) == 1:
+            if stage in ('pending-contact','pending-clarify','pending-followup') and len(outgoing) == 1:
                 pending = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?', (chat,pending_contact_kind)).fetchone()
                 pending_contact_observed = bool(pending and pending[1] == 'handler-returned-unconfirmed'
                     and isinstance(outgoing[0]['text'], str) and text_hash(outgoing[0]['text']) == pending[0])
@@ -188,6 +192,11 @@ class Chain:
                             db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
                                        (chat,'clarify',incoming[0]['id'],text_hash(CLARIFY_TEXT)))
                             stage='pending-clarify';action=dict(kind='clarify',text=CLARIFY_TEXT)
+                        elif followup_eligible(incoming) and not db.execute(
+                                "SELECT 1 FROM chain_actions WHERE chat=? AND kind='followup'",(chat,)).fetchone():
+                            db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
+                                       (chat,'followup',incoming[0]['id'],text_hash(FOLLOWUP_TEXT)))
+                            stage='pending-followup';action=dict(kind='followup',text=FOLLOWUP_TEXT)
                 elif incoming:
                     stage, review_cause = 'manual-review', 'incoming-during-pending'
                 elif outgoing:
@@ -207,6 +216,11 @@ class Chain:
                         db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
                                    (chat,'clarify',incoming[0]['id'],text_hash(CLARIFY_TEXT)))
                         stage='pending-clarify';action=dict(kind='clarify',text=CLARIFY_TEXT)
+                    elif followup_eligible(incoming) and not db.execute(
+                            "SELECT 1 FROM chain_actions WHERE chat=? AND kind='followup'",(chat,)).fetchone():
+                        db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
+                                   (chat,'followup',incoming[0]['id'],text_hash(FOLLOWUP_TEXT)))
+                        stage='pending-followup';action=dict(kind='followup',text=FOLLOWUP_TEXT)
                 else:
                     # Any newly observed reply (including media or a burst of
                     # messages) advances exactly one stage. Explicit refusal and

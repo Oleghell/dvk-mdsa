@@ -19,15 +19,18 @@ class HistoryReadBudgetExpired(Exception):
 
 
 def verified_read_budget(value):
-    # Only authored failures during message traversal after the initial bound
-    # identity check. This evidence is NOT permission to navigate or send.
+    # Only authored read-budget failures, including an unfinished identity
+    # recheck. NEVER accept this as a verified identity or permission to send.
+    # Fresh reads restart all checks; local deferral requires a verified SAME-chat back.
     return (isinstance(value, dict)
         and value.get("error") == "frame-budget"
         and value.get("stage") == "navigation-stopped"
         and value.get("metadata_checkpoint") == "ready"
-        and value.get("read_checkpoint") == "last-message"
+        and ((value.get("read_checkpoint") == "last-message"
+                and value.get("scalar_checkpoint") in ("message-id", "message-sender-id", "message-chat-id"))
+             or (value.get("read_checkpoint") == "identity"
+                and value.get("scalar_checkpoint") in ("account-id", "peer-id", "chat-id")))
         and value.get("identity_checkpoint") == "recheck"
-        and value.get("scalar_checkpoint") in ("message-id", "message-sender-id", "message-chat-id")
         and value.get("scalar_state") == "positive"
         and value.get("wait_reason") == "none"
         and type(value.get("message_slot")) is int

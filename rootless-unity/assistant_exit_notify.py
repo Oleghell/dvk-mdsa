@@ -14,7 +14,8 @@ REASONS = {
  'history-loading-timeout':'История диалога не загрузилась. Пока пропустил, проверю позже.',
  'contact-photo-unavailable':'Контакт сохранён. Не удалось проверить снимок профиля; отправка отложена.',
  'contact-clarification-sent':'Номер или ник уже уточнил. Жду контакт, повторный запрос не отправлен.',
- 'wait-contact':'Контакт не найден. Повторно просить не стал.',
+ 'wait-contact':'Жду добровольный контакт или новое сообщение.',
+ 'contact-followup-sent':'На сообщение ответил. Пока продолжаем здесь; контакт повторно не прошу.',
  'wait-reply':'Нового сообщения для ответа нет.',
  'wait-mood':'Жду ответ на уже отправленный вопрос.',
  'incoming-burst-pending':'Ещё приходят сообщения. Отвечу после следующей проверки.',
@@ -82,6 +83,13 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True):
         'contact-batch-ambiguous':'Не удалось безопасно связать контакт с текущим этапом.',
     }
     explanation = review_text.get(cause,REASONS.get(reason,'Не удалось безопасно продолжить этот чат.'))
+    if reason == 'greeting-not-verified':
+        anchor=(result.get('diagnostics') or {}).get('greeting_anchor_failure')
+        explanation={
+            'missing-own':'В загруженной истории нет исходного приветствия из журнала. Нужна сверка истории.',
+            'multiple-own':'До привязки нашлось несколько исходящих. Нельзя уверенно восстановить этап по журналу.',
+            'hash-mismatch':'Исходное приветствие не совпало с журналом. Этот чат требует проверки.',
+        }.get(anchor,explanation)
     text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Сообщение собеседника прочитать не удалось.\n') + 'Пропущено: ' + explanation
     try:
         status = 'accepted' if sender(text) is True else 'unknown'

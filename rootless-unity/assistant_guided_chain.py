@@ -290,7 +290,7 @@ class GuidedChain(Chain):
             db.execute('DELETE FROM ai_draft_inputs WHERE chat=? AND kind=?', (chat,kind))
             db.execute("DELETE FROM chain_actions WHERE chat=? AND kind=? AND status='awaiting-approval'", (chat,kind))
             db.executemany('DELETE FROM chain_seen WHERE chat=? AND message=?', [(chat,k) for k in inputs])
-            db.execute('UPDATE chain_dialogs SET stage=? WHERE chat=?', ('wait-reply' if kind=='question' else 'wait-contact' if kind=='clarify' else 'wait-mood',chat))
+            db.execute('UPDATE chain_dialogs SET stage=? WHERE chat=?', ('wait-reply' if kind=='question' else 'wait-contact' if kind in ('clarify','followup') else 'wait-mood',chat))
         return True
 
     def reserve_confirmed(self, who, action):
@@ -488,10 +488,13 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 wait_reason=stage
                 if stage == 'wait-contact' and observed.get('clarify') == 'outgoing-observed':
                     wait_reason='contact-clarification-sent'
+                if stage == 'wait-contact' and observed.get('followup') == 'outgoing-observed':
+                    wait_reason='contact-followup-sent'
                 out.update(status='chain-waiting', reason=wait_reason)
                 return out
             if action is not None:
-                progress('Подготовлено уточнение контакта.' if action['kind'] == 'clarify' else
+                progress('Подготовлен ответ по контексту.' if action['kind'] == 'followup' else
+                         'Подготовлено уточнение контакта.' if action['kind'] == 'clarify' else
                          'Подготовлен вопрос.' if action['kind'] == 'question' else
                          'Подготовлено предложение перейти в мессенджер.')
                 if stopped.is_set():
@@ -509,7 +512,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                         before = fresh
                         if out['diagnostics']['incoming_draft_refreshes'] >= 3:
                             out.update(status='chain-waiting', reason='incoming-burst-pending',
-                                       stage='wait-reply' if action['kind']=='question' else 'wait-contact' if action['kind']=='clarify' else 'wait-mood')
+                                       stage='wait-reply' if action['kind']=='question' else 'wait-contact' if action['kind'] in ('clarify','followup') else 'wait-mood')
                             return out
                         continue
                     chain.mark_review(who)
@@ -580,7 +583,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         out['diagnostics']['failure_point'] = 'history-loading-timeout'
         out.update(status='chain-cancelled' if stopped.is_set() else 'chain-waiting',
                    reason='cancelled' if stopped.is_set() else 'history-loading-timeout')
-    except ReviewRequired:
+    except ReviewRequired as error:
+        anchor=getattr(error,'anchor_reason',None)
+        if anchor in ('multiple-own','missing-own','hash-mismatch'):
+            out['diagnostics']['greeting_anchor_failure']=anchor
         out.update(status='chain-needs-review', reason='greeting-not-verified')
     except Exception as error:
         # Only fixed, authored categories; no arbitrary native exception text.
