@@ -10,7 +10,12 @@ name: Build DvkAssistant MoreLogin
     - README.md
     - MORELOGIN_RELEASE_NOTES.md
     - .github/workflows/morelogin.yml
-  workflow_dispatch: null
+  workflow_dispatch:
+    inputs:
+      maintenance:
+        description: Archive the explicitly requested obsolete branches after verified packaging
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -274,7 +279,7 @@ jobs:
         $version" --notes-file MORELOGIN_RELEASE_NOTES.md --prerelease --latest=false'
   archive-old-branches:
     needs: package
-    if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[archive-old-branches]')
+    if: github.ref == 'refs/heads/main' && (inputs.maintenance == true || contains(github.event.head_commit.message, '[archive-old-branches]'))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -287,3 +292,40 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: python3 rootless-unity/archive_old_branches.py
+  promote-main:
+    needs: package
+    if: github.ref == 'refs/heads/morelogin' && contains(github.event.head_commit.message, '[promote-main]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Fast-forward main after verified build, then verify and publish main
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: 'set -euo pipefail
+
+        base="repos/$GITHUB_REPOSITORY"
+
+        old=$(gh api "$base/git/ref/heads/main" --jq .object.sha)
+
+        test "$old" = d413e5dd82a355fdcb6bae381d4bcc4121ad781a
+
+        mumu=$(gh api "$base/git/ref/heads/mumu" --jq .object.sha)
+
+        test "$mumu" = 2ce54aeb546af2e9aa49989f81ce1b0294d8a24c
+
+        git merge-base --is-ancestor "$old" "$GITHUB_SHA"
+
+        gh api --method PATCH "$base/git/refs/heads/main" -f sha="$GITHUB_SHA" -F force=false >/dev/null
+
+        # GITHUB_TOKEN pushes intentionally do not fire push workflows. Dispatch an
+
+        # explicit main run instead; it tests/packages again before release or cleanup.
+
+        gh workflow run morelogin.yml --repo "$GITHUB_REPOSITORY" --ref main -f maintenance=true'
