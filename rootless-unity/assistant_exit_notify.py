@@ -9,6 +9,7 @@ import json
 import telegram_notify
 
 REASONS = {
+ 'history-loading-timeout':'История диалога не загрузилась. Пока пропустил, проверю позже.',
  'contact-photo-unavailable':'Контакт сохранён. Не удалось проверить снимок профиля; отправка отложена.',
  'wait-contact':'Контакт не найден. Повторно просить не стал.',
  'wait-reply':'Нового сообщения для ответа нет.',
@@ -68,7 +69,17 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True):
     excerpts=result.get('_exit_messages',[])
     excerpts=[x for x in excerpts if isinstance(x,str)] if isinstance(excerpts,list) else []
     excerpt=' / '.join(excerpts).replace('\x00','')[:800]
-    text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Сообщение собеседника прочитать не удалось.\n') + 'Пропущено: ' + REASONS.get(reason,'Не удалось безопасно продолжить этот чат.')
+    review_text = {
+        'ai-context-review':'ИИ не смог подобрать подходящий ответ по контексту. Отправки не было.',
+        'history-missing':'Не хватает ранее проверенных сообщений. Нужна сверка истории.',
+        'history-edited':'Ранее проверенные сообщения изменились. Ответ вслепую не отправлен.',
+        'incoming-during-pending':'Пришло сообщение, но предыдущая отправка ещё не подтверждена. Повтор не отправлен.',
+        'pending-outgoing-mismatch':'Исходящее сообщение не совпало с сохранённой отправкой. Нужна проверка.',
+        'unjournalled-outgoing':'Обнаружено исходящее вне журнала программы. Нужна проверка.',
+        'contact-batch-ambiguous':'Не удалось безопасно связать контакт с текущим этапом.',
+    }
+    explanation = review_text.get(cause,REASONS.get(reason,'Не удалось безопасно продолжить этот чат.'))
+    text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Сообщение собеседника прочитать не удалось.\n') + 'Пропущено: ' + explanation
     try:
         status = 'accepted' if sender(text) is True else 'unknown'
     except Exception:

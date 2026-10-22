@@ -8,7 +8,7 @@ class RunAuthorization:
         self.stopped = stopped
         self.wait = stopped.wait if wait is None else wait
     def __call__(self, kind, text, cancelled):
-        if (kind not in {'greeting', 'question', 'contact'} or not isinstance(text, str)
+        if (kind not in {'greeting', 'question', 'contact', 'clarify'} or not isinstance(text, str)
                 or not text.strip() or self.stopped.is_set() or cancelled()):
             return False
         # Host-side delay, not a claimed native typing indicator. Never reserve a

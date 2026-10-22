@@ -23,6 +23,8 @@ LIVE_VERIFIED = {
     'repeated_profile_batches': False,
     'dynamic_ai_reply_native_send': False,
     'chat_local_error_isolation': False,
+    'history_loading_local_deferral': False, 'contact_choice_clarification': False,
+    'incoming_during_returned_send': False,
     'dialog_cached_model_scan': False, 'contact_profile_photo': False, 'api_key_failover': False,
 }
 
@@ -51,7 +53,9 @@ def main(folder):
                       unknown_send_auto_retry=False, api_key_pool_file='config/ai-keys.txt',
                       same_provider_key_failover=True, fixed_dialog_limit=None, dialog_paging=False, screen_scroll=False,
                       dialog_cached_model_scan=True, unloaded_server_archive_fetch=False,
-                      bad_header_local_skip=True,
+                      bad_header_local_skip=True, history_loading_wait_seconds=15,
+                      history_loading_peer_cooldown_seconds=60,
+                      contact_choice_clarification_once=True, contextual_incoming_batch=True,
                       telegram_peer_excerpt_on_skip=True, contact_profile_photo=True,
                       contact_single_telegram_message=True,
                       telegram_test_message=True, clear_profile_history=True),

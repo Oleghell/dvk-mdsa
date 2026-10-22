@@ -69,13 +69,21 @@ SYSTEM = '''Ты автоматический помощник для корот
 проверенных новых реплик, учитывая ВСЮ переданную историю, и один раз спроси
 «Как дела?» или «Как настроение?». Собственное приветствие уже отправлено:
 НИКОГДА не здоровайся повторно, даже в ответ на «Привет». Начинай сразу с
-содержательного продолжения. Это относится и к шагу contact.
+содержательного продолжения. Это относится и к шагам contact и clarify.
+Обычные ответы «нормально, а у тебя?» и «приветик» (в том числе в нескольких
+новых сообщениях сразу) не являются причиной review. Ответь на общий смысл
+всех is_current_reply, не приписывая сообщениям непроверенный порядок.
 contact: кратко отреагируй по смыслу и предложи обменяться Telegram/WhatsApp.
+clarify: собеседник уже выбрал мессенджер, но ещё не прислал контакт.
+Один раз естественно уточни номер для WhatsApp или ник для Telegram по смыслу
+всех новых реплик. Например: «Хорошо, какой номер указать для WhatsApp?»
+Не утверждай, что контакт уже получен или что ты уже написал туда.
 Не затягивай: один ответ, 1–2 коротких предложения, максимум 240 символов.
 Не пиши «у меня тоже всё супер», если человеку плохо. Не придумывай личные факты,
 город, возраст, работу, намерения, встречи, собственные контакты или обещания.
 Не выдавай себя за живого человека: если спрашивают, честно скажи, что ты помощник.
-Не дави, не манипулируй, не повторяй просьбу о контакте. Отказ, нежелание общаться,
+Не дави, не манипулируй, не повторяй просьбу о контакте без нового согласия собеседника.
+clarify разрешён программой только один раз после явного выбора мессенджера. Отказ, нежелание общаться,
 запрос не писать, несовершеннолетие → decision decline, text пустой.
 Неясная, опасная ситуация или запрос, на который нельзя честно ответить, → review,
 text пустой. Не запрашивай деньги, интимные материалы, пароли, адреса или коды.
@@ -148,7 +156,7 @@ def continuation(value, kind):
 
 
 def decision(value, kind):
-    if kind not in ('question', 'contact') or not isinstance(value, dict) or set(value) != {'decision', 'text'}:
+    if kind not in ('question', 'contact', 'clarify') or not isinstance(value, dict) or set(value) != {'decision', 'text'}:
         raise GroqError('groq-invalid-response')
     mode, text = value['decision'], value['text']
     if mode not in ('reply', 'decline', 'review') or not isinstance(text, str):
@@ -167,6 +175,9 @@ def decision(value, kind):
                                or re.search(r'телеграм|telegram|ват[сц]ап|whatsapp|контакт|номер', text, re.I)):
         raise GroqError('groq-unsafe-reply')
     if kind == 'contact' and not re.search(r'телеграм|telegram|ват[сц]ап|whatsapp', text, re.I):
+        raise GroqError('groq-unsafe-reply')
+    if kind == 'clarify' and (not re.search(r'номер|ник|имя\s+пользовател',text,re.I)
+            or re.search(r'парол|код|карт[аыу]|деньг|интим|адрес',text,re.I)):
         raise GroqError('groq-unsafe-reply')
     return dict(decision='reply', text=text)
 
@@ -207,7 +218,7 @@ class Responder:
     def __call__(self, kind, snapshot):
         if self.cancelled():
             raise GroqError('groq-cancelled')
-        if kind not in ('question', 'contact'):
+        if kind not in ('question', 'contact', 'clarify'):
             raise GroqError('groq-invalid-response')
         key = self.key_loader()
         body = json.dumps(self.payload(kind, snapshot), ensure_ascii=False).encode()

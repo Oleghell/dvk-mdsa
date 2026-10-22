@@ -43,10 +43,11 @@ def checked_reply(text):
     This adapter independently checks the final text before any device access.
     """
     from conversation_engine import QUESTIONS, CONTACT_TEXT
+    from assistant_contact_clarify import TEXT as CLARIFY_TEXT
     from groq_reply import decision, GroqError
-    if isinstance(text, str) and text in (*QUESTIONS, CONTACT_TEXT):
+    if isinstance(text, str) and text in (*QUESTIONS, CONTACT_TEXT, CLARIFY_TEXT):
         return text
-    for kind in ('question', 'contact'):
+    for kind in ('question', 'contact', 'clarify'):
         try:
             return decision(dict(decision='reply', text=text), kind)['text']
         except GroqError:

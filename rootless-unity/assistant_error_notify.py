@@ -4,7 +4,7 @@ from dialog_browser import ERRORS as NAV_ERRORS
 import telegram_notify
 from startup_failure import ERRORS as STARTUP_ERRORS, message as failure_message
 
-KNOWN = GROQ_ERRORS | NAV_ERRORS | STARTUP_ERRORS | {'between-profile-inbox-stopped',
+KNOWN = GROQ_ERRORS | NAV_ERRORS | STARTUP_ERRORS | {'history-loading-timeout','between-profile-inbox-stopped',
     'send-native-check-failed', 'send-device-check-failed', 'send-validation-failed',
     'settings-check-stopped', 'device-busy-or-monitor-check-stopped', 'initial-pass-stopped',
     'search-screen-not-verified', 'dialog-list-not-verified', 'initial-pass-paused',

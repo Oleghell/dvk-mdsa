@@ -16,6 +16,8 @@ from shared_contact import display_name
 
 from version import VERSION
 from assistant_authorization import flags
+from assistant_history_wait import (verified_loading, HistoryWaitExpired, WAIT_SECONDS,
+                                    WAIT_INTERVAL, MAX_READ_ATTEMPTS)
 
 
 def report():
@@ -31,7 +33,7 @@ def report():
                 automatic_send=False, delivery_confirmed=False,
                 personal_data_exported=False, chat_content_exported=False,
                 diagnostics=dict(name_source='not-requested', name_read='not-attempted',
-                                 failure_point='none', read_retries=0, last_read_failure=None),
+                                 failure_point='none', read_retries=0, last_read_failure=None, history_wait_exhausted=False),
                 telegram_used=False, ui_may_remain_open=True,
                 live_cycle_available=False)
 
@@ -287,7 +289,7 @@ class GuidedChain(Chain):
             db.execute('DELETE FROM ai_draft_inputs WHERE chat=? AND kind=?', (chat,kind))
             db.execute("DELETE FROM chain_actions WHERE chat=? AND kind=? AND status='awaiting-approval'", (chat,kind))
             db.executemany('DELETE FROM chain_seen WHERE chat=? AND message=?', [(chat,k) for k in inputs])
-            db.execute('UPDATE chain_dialogs SET stage=? WHERE chat=?', ('wait-reply' if kind=='question' else 'wait-mood',chat))
+            db.execute('UPDATE chain_dialogs SET stage=? WHERE chat=?', ('wait-reply' if kind=='question' else 'wait-contact' if kind=='clarify' else 'wait-mood',chat))
         return True
 
     def reserve_confirmed(self, who, action):
@@ -305,7 +307,8 @@ class GuidedChain(Chain):
 
 def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
          greetings=(), notifier=None, progress=lambda _: None, pause=None,
-         max_polls=360, deadline=None, contact_reader=None, until_waiting=False, exit_capture=None, contact_photo=None):
+         max_polls=360, deadline=None, contact_reader=None, until_waiting=False, exit_capture=None, contact_photo=None,
+         read_clock=time.monotonic):
     """Monitor ONE open chat through both replies; all bodies remain in RAM.
 
     until_waiting=True is used by the inbox pass: once the chat needs a NEW
@@ -326,18 +329,39 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         if stopped.is_set():
             raise StateError('cancelled')
         from one_chat_device import ReadStopped, safe_read_failure, transient_read_failure
-        for attempt in range(2):
+        started = read_clock()
+        soft_retries = 0
+        for attempt in range(MAX_READ_ATTEMPTS):
             try:
-                private = source(who)
+                private = source(who)  # Every native read independently rechecks the SAME bound identity.
                 break
             except ReadStopped as error:
-                out['diagnostics']['last_read_failure'] = safe_read_failure(error)
-                if attempt or not transient_read_failure(error) or stopped.is_set():
-                    raise
-                out['diagnostics']['read_retries'] += 1
-                progress('История ещё загружается. Повторяю только чтение того же чата; отправки нет.')
-                if pause(.5) or stopped.is_set():
+                failure = out['diagnostics']['last_read_failure'] = safe_read_failure(error)
+                if stopped.is_set():
                     raise StateError('cancelled')
+                loading = verified_loading(failure)
+                if loading:
+                    remaining = WAIT_SECONDS - (read_clock()-started)
+                    if remaining <= 0 or attempt == MAX_READ_ATTEMPTS-1:
+                        out['diagnostics']['history_wait_exhausted'] = True
+                        raise HistoryWaitExpired() from None
+                    delay = min(WAIT_INTERVAL, remaining)
+                else:
+                    # Keep the previous single read-only retry for other authored
+                    # transient states. Identity/transport/schema failures never retry.
+                    if soft_retries or not transient_read_failure(error):
+                        raise
+                    soft_retries += 1
+                    delay = .5
+                out['diagnostics']['read_retries'] += 1
+                progress('История ещё загружается. Жду тот же чат; отправки нет.')
+                if pause(delay) or stopped.is_set():
+                    raise StateError('cancelled')
+                if loading and read_clock()-started >= WAIT_SECONDS:
+                    out['diagnostics']['history_wait_exhausted'] = True
+                    raise HistoryWaitExpired() from None
+        else:
+            raise ValueError('Read attempt bound exceeded')
         if (not isinstance(private, dict) or
                 set(private) not in ({'identity', 'messages'},
                                      {'identity', 'messages', 'peer_name'})):
@@ -455,7 +479,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 out.update(status='chain-waiting', reason=stage)
                 return out
             if action is not None:
-                progress('Подготовлен вопрос.' if action['kind'] == 'question' else
+                progress('Подготовлено уточнение контакта.' if action['kind'] == 'clarify' else
+                         'Подготовлен вопрос.' if action['kind'] == 'question' else
                          'Подготовлено предложение перейти в мессенджер.')
                 if stopped.is_set():
                     break
@@ -472,7 +497,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                         before = fresh
                         if out['diagnostics']['incoming_draft_refreshes'] >= 3:
                             out.update(status='chain-waiting', reason='incoming-burst-pending',
-                                       stage='wait-reply' if action['kind']=='question' else 'wait-mood')
+                                       stage='wait-reply' if action['kind']=='question' else 'wait-contact' if action['kind']=='clarify' else 'wait-mood')
                             return out
                         continue
                     chain.mark_review(who)
@@ -535,6 +560,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             out.update(status='chain-paused', reason='wait-timeout')
             return out
         out.update(status='chain-cancelled', reason='cancelled')
+    except HistoryWaitExpired:
+        out['diagnostics']['failure_point'] = 'history-loading-timeout'
+        out.update(status='chain-cancelled' if stopped.is_set() else 'chain-waiting',
+                   reason='cancelled' if stopped.is_set() else 'history-loading-timeout')
     except ReviewRequired:
         out.update(status='chain-needs-review', reason='greeting-not-verified')
     except Exception as error:

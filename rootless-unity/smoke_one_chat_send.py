@@ -9,6 +9,7 @@ from unittest.mock import patch
 import one_chat_send_device as transport
 import one_chat_send as sender
 from conversation_engine import QUESTIONS, CONTACT_TEXT
+from assistant_contact_clarify import TEXT as CLARIFY_TEXT
 
 WHO=dict(account='100',peer='200',chat='300')
 BEFORE=dict(identity=WHO,messages=[dict(id='1001',sender='100',text='Hello'),dict(id='1002',sender='200',text='Reply')])
@@ -105,7 +106,7 @@ if __name__=='__main__':
     for mode in (600,602,603,604,605,606,501,502,503,506,520,521,650,651):one(library,mode)
     one(library,600,dict(identity=dict(WHO,peer='201'),messages=[BEFORE['messages'][0],dict(BEFORE['messages'][1],sender='201')]))
     one(library,600,dict(identity=WHO,messages=[dict(BEFORE['messages'][0],text='changed'),BEFORE['messages'][1]]))
-    for text in (QUESTIONS[1],CONTACT_TEXT):one(library,600,text=text)
+    for text in (QUESTIONS[1],CONTACT_TEXT,CLARIFY_TEXT,'Хорошо, по какому номеру тебя найти в WhatsApp?'):one(library,600,text=text)
     one(library,603,text=CONTACT_TEXT)
     for text in ('Взаимно 🙂 Как настроение?', 'Понимаю. Обменяемся Telegram?', 'Ты написал «Привет». Как дела?'):
         one(library,600,text=text)

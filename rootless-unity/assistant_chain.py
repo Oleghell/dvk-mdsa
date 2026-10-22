@@ -16,14 +16,15 @@ from one_chat_probe import identity
 from one_chat_send import checked
 from shared_contact import self_shared, payload as contact_payload, display_name
 from telegram_notify import protect
+from assistant_contact_clarify import TEXT as CLARIFY_TEXT, chosen as chose_messenger
 
 TERMINAL = {'done', 'declined', 'manual-review'}
 REVIEW_CAUSES = {'history-missing', 'history-edited', 'contact-batch-ambiguous',
                  'incoming-during-pending', 'pending-outgoing-mismatch',
                  'unjournalled-outgoing', 'legacy-incoming-ambiguous',
                  'legacy-contact-not-shared', 'legacy-reply-unclassified',
-                 'review-cause-unavailable'}
-REPLIES = QUESTIONS + (CONTACT_TEXT,)
+                 'ai-context-review', 'review-cause-unavailable'}
+REPLIES = QUESTIONS + (CONTACT_TEXT, CLARIFY_TEXT)
 POSITIVE = re.compile(r'^(?:вс[её]\s+)?(?:хорошо|отлично|нормально|норм|супер|прекрасно|замечательно|неплохо|класс)(?:\s+(?:спасибо|вс[её]\s+хорошо))?[\s!.,)🙂😊👍]*$', re.I)
 HELLO = re.compile(r'^(?:привет(?:ик)?|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|хай|hello|hi)[\s!.,)🙂😊👋]*$', re.I)
 
@@ -98,7 +99,7 @@ class Chain:
                 db.execute('INSERT INTO chain_seen VALUES(?,?,?)',
                            (chat, own[0]['id'], fingerprint(own[0], row[2])))
             greeting, stage, salt = row
-            if stage not in TERMINAL | {'wait-reply', 'wait-mood', 'wait-contact', 'pending-question', 'pending-contact'}:
+            if stage not in TERMINAL | {'wait-reply', 'wait-mood', 'wait-contact', 'pending-question', 'pending-contact', 'pending-clarify'}:
                 raise StateError('Неизвестный сохранённый этап. Автоматическая отправка запрещена.')
             old = dict(db.execute('SELECT message,fingerprint FROM chain_seen WHERE chat=?', (chat,)))
             now = {m['id']: fingerprint(m, salt) for m in messages}
@@ -116,8 +117,9 @@ class Chain:
             incoming = [m for m in new if m['sender'] == who['peer']]
             outgoing = [m for m in new if m['sender'] == who['account']]
             pending_contact_observed = False
-            if stage == 'pending-contact' and len(outgoing) == 1:
-                pending = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?', (chat,'contact')).fetchone()
+            pending_contact_kind = stage.removeprefix('pending-')
+            if stage in ('pending-contact','pending-clarify') and len(outgoing) == 1:
+                pending = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?', (chat,pending_contact_kind)).fetchone()
                 pending_contact_observed = bool(pending and pending[1] == 'handler-returned-unconfirmed'
                     and isinstance(outgoing[0]['text'], str) and text_hash(outgoing[0]['text']) == pending[0])
             shared = [(m, self_shared(m['text'], requested=stage == 'wait-contact' or pending_contact_observed)) for m in incoming]
@@ -154,19 +156,39 @@ class Chain:
                         except Exception:
                             raise StateError('contact-protection-failed') from None
                     if pending_contact_observed:
-                        db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind='contact'", (chat,))
+                        db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind=?", (chat,pending_contact_kind))
                     stage = 'done'
             elif stage.startswith('pending-'):
                 kind = stage.removeprefix('pending-')
-                reserved = db.execute('SELECT text_hash FROM chain_actions WHERE chat=? AND kind=?', (chat, kind)).fetchone()
+                reserved = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?', (chat, kind)).fetchone()
                 if not reserved:
                     raise StateError('Не найден резерв этапа. Отправка запрещена.')
-                if incoming:
+                verified_own = (len(outgoing) == 1 and isinstance(outgoing[0]['text'],str)
+                    and text_hash(outgoing[0]['text']) == reserved[0]
+                    and (reserved[1] == 'handler-returned-unconfirmed' or not self.any_replies))
+                if incoming and self.any_replies and not outgoing:
+                    # Peer arrivals while awaiting visibility do not prove a send
+                    # failed or succeeded. Keep them UNCONSUMED for a later sample.
+                    return stage, None
+                if incoming and self.any_replies and verified_own:
+                    # Observe the exact returned reservation, not a guessed order.
+                    # The complete verified incoming set is one contextual batch.
+                    db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind=?",(chat,kind))
+                    if kind == 'question':
+                        db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
+                                   (chat,'contact',incoming[0]['id'],text_hash(CONTACT_TEXT)))
+                        stage='pending-contact';action=dict(kind='contact',text=CONTACT_TEXT)
+                    else:
+                        stage='wait-contact'
+                        if kind == 'contact' and chose_messenger(incoming) and not db.execute(
+                                "SELECT 1 FROM chain_actions WHERE chat=? AND kind='clarify'",(chat,)).fetchone():
+                            db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
+                                       (chat,'clarify',incoming[0]['id'],text_hash(CLARIFY_TEXT)))
+                            stage='pending-clarify';action=dict(kind='clarify',text=CLARIFY_TEXT)
+                elif incoming:
                     stage, review_cause = 'manual-review', 'incoming-during-pending'
                 elif outgoing:
-                    # Simultaneous peer/own deltas have no verified order.
-                    if (len(outgoing) != 1 or incoming or not isinstance(outgoing[0]['text'], str)
-                            or text_hash(outgoing[0]['text']) != reserved[0]):
+                    if not verified_own:
                         stage, review_cause = 'manual-review', 'pending-outgoing-mismatch'
                     else:
                         stage = 'wait-mood' if kind == 'question' else 'wait-contact'
@@ -175,9 +197,13 @@ class Chain:
                 stage, review_cause = 'manual-review', 'unjournalled-outgoing'
             elif incoming and self.any_replies:
                 if stage == 'wait-contact':
-                    # Ordinary replies are observed but do not fabricate a contact
-                    # or trigger another request. Keep waiting for voluntary sharing.
-                    pass
+                    # A messenger choice is consent to ONE clarification, not a
+                    # fabricated contact. Never reuse or reset an existing action.
+                    if chose_messenger(incoming) and not db.execute(
+                            "SELECT 1 FROM chain_actions WHERE chat=? AND kind='clarify'",(chat,)).fetchone():
+                        db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
+                                   (chat,'clarify',incoming[0]['id'],text_hash(CLARIFY_TEXT)))
+                        stage='pending-clarify';action=dict(kind='clarify',text=CLARIFY_TEXT)
                 else:
                     # Any newly observed reply (including media or a burst of
                     # messages) advances exactly one stage. Explicit refusal and

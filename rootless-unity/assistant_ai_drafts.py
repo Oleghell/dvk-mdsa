@@ -61,6 +61,8 @@ def prepare(chain, snapshot, action):
         with chain.store.connection() as db:
             db.execute("UPDATE chain_dialogs SET stage=? WHERE chat=? AND stage=?", (stage, chat, 'pending-' + kind))
             db.execute("UPDATE ai_drafts SET status='blocked' WHERE chat=? AND kind=?", (chat, kind))
+            if stage == 'manual-review':
+                db.execute("INSERT INTO chain_review_reasons VALUES(?,'ai-context-review') ON CONFLICT(chat) DO NOTHING",(chat,))
         return stage, None
     try:
         payload = chain.seal(json.dumps(value, ensure_ascii=False).encode())

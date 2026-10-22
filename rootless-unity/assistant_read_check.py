@@ -20,7 +20,7 @@ from assistant_read_binding import read_bindings
 VERSION='0.4.6'
 LIMIT=5
 MAX_JOURNAL_BYTES=64*1024*1024
-STAGES=TERMINAL|{'wait-reply','wait-mood','wait-contact','pending-question','pending-contact'}
+STAGES=TERMINAL|{'wait-reply','wait-mood','wait-contact','pending-question','pending-contact','pending-clarify'}
 
 
 def report():

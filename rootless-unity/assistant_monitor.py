@@ -284,6 +284,10 @@ def summary(result):
     status=result['status']
     if status=='waiting':
         text=f"Диалоги • проходов {result['passes_completed']} • в истории {totals['outgoing_observed']} • контактов TG {totals['contacts_forwarded']}"
+        deferred = (result.get('last_pass') or {}).get('history_deferred',0)
+        cooling = (result.get('last_pass') or {}).get('history_cooldown_skipped',0)
+        if deferred or cooling:
+            text += f' • ждут загрузки истории {max(deferred,cooling)}'
         contact_pending = (result.get('last_pass') or {}).get('contact_delivery_pending',0)
         if contact_pending:
             text += f" • контактов ожидают TG {contact_pending}"

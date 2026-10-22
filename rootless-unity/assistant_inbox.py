@@ -12,6 +12,8 @@ from dialog_browser import targets
 from one_chat_probe import identity
 from version import VERSION
 from assistant_authorization import flags
+import time
+import assistant_history_wait as history_wait
 
 LIMIT = None
 PAUSE_OUTCOMES = {'message-not-approved', 'manual-review'}
@@ -150,12 +152,12 @@ def report():
                 groq_context_export_enabled=False, openrouter_context_export_enabled=False, outcomes={}, per_message_confirmation=True, automatic_send=False,
                 return_verified=False, dialogs_verified=False, delivery_confirmed=False,
                 all_dialogs_covered=False, ui_may_remain_open=False,
-                header_rows_skipped=0, personal_data_exported=False, chat_content_exported=False,
+                header_rows_skipped=0, history_deferred=0, history_cooldown_skipped=0, history_retry_after_seconds=60, personal_data_exported=False, chat_content_exported=False,
                 device_scope='MuMu-4-only', last_navigation=None, last_chat_diagnostics=None)
 
 
 def walk(settings, stopped, approve, progress, chain, *, navigator, reader, sender,
-         notifier=None, greetings=(), pause=None, entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None):
+         notifier=None, greetings=(), pause=None, entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None, clock=time.time):
     from assistant_navigation_check import safe_diagnostic
     if entry not in ('search', 'dialogs') or return_to not in ('search', 'dialogs'):
         raise ValueError('Invalid inbox screen')
@@ -180,13 +182,17 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         with chain.store.connection() as db:
             return db.execute("SELECT COUNT(*) FROM chain_contact_outbox WHERE status='pending'").fetchone()[0]
     out['contact_delivery_pending']=pending_contacts()
+    history_wait.initialize(chain.store)
     attention, unread = inbox_targets(chain)
+    attention, unread, skipped = history_wait.eligible(chain.store, attention, unread, clock=clock)
+    out['history_cooldown_skipped'] = skipped
     out['tracked_active']=len(unread)
     out['tracked_attention']=len(attention)
     with chain.store.connection() as db:
         out['tracked_terminal']={stage:number for stage,number in db.execute('SELECT stage,COUNT(*) FROM chain_dialogs GROUP BY stage') if stage in TERMINAL}
     if not attention and not unread:
-        out.update(status='inbox-empty', reason='no-chain-dialogs')
+        out.update(status='inbox-empty', reason='history-cooldown' if skipped else 'no-chain-dialogs',
+                   dialogs_verified=entry=='dialogs')
         return out
 
     def call(operation, **kwargs):
@@ -236,6 +242,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         processed=set()
         def page_groups():
             attention,unread=inbox_targets(chain)
+            attention,unread,_=history_wait.eligible(chain.store,attention,unread,clock=clock)
             groups=[(attention,False,'pending'),(list(unread),True,'unread'),(read_round(chain,unread),False,'read')]
             return [(targets([x for x in items[i:i+MAX_TARGETS] if (x['account'],x['peer']) not in processed]),unread_only,kind) for items,unread_only,kind in groups for i in range(0,len(items),MAX_TARGETS)]
         # Chunk transport payloads, not the number of dialogs processed.
@@ -295,6 +302,12 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                          'Контакт получен • результат передачи в Telegram требует проверки')
             if result['telegram_used']:
                 out['personal_data_exported'] = True
+            deferred = result['reason'] == 'history-loading-timeout'
+            if deferred and not (result['status'] == 'chain-waiting'
+                    and result['diagnostics'].get('history_wait_exhausted') is True
+                    and history_wait.verified_loading(result['diagnostics'].get('last_read_failure'))):
+                out.update(status='inbox-stopped', reason='chat-bound-chat-read-failed')
+                return out
             isolated_code = isolation_reason(result)
             isolated = isolated_code is not None
             if not isolated:
@@ -310,6 +323,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if isolated:
                 chain.mark_review(who)
             call('back', expected=who)
+            # Only a successful, SAME-chat back may make a loading failure local.
+            # Do not change chain stage, reservations, consumed messages or review state.
+            if deferred:
+                history_wait.defer(chain.store,who,clock=clock)
+                out['history_deferred'] += 1
+                progress('История не загрузилась. Вернулся в личку; проверю этот чат позже.')
+            else:
+                history_wait.clear(chain.store,who)
             if (not result['notifications']['accepted']
                     and (not result['outgoing_observed_this_run'] or result['stages']['peer_contact'])):
                 from assistant_exit_notify import notify_exit
@@ -330,7 +351,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 progress('Диалоги • один чат на проверке, продолжаю остальные')
             out['dialogs_processed'] += 1
             processed.add((who['account'],who['peer']))
-            record_checked(chain, who)
+            if not deferred:
+                record_checked(chain, who)
             for group in groups:
                 group[0][:] = [x for x in group[0] if (x['account'], x['peer']) != (who['account'], who['peer'])]
             if result['reason'] in PAUSE_OUTCOMES and not isolated:
