@@ -10,6 +10,7 @@ def describe(error):
     item = diagnostic(error)
     reasons = {
         'configuration':'Не удалось загрузить настройки API (APP ID / Secret Key)',
+        'api-transport':'Не удалось запустить защищённый Windows HTTP-клиент (проверь доступ к Windows PowerShell)',
         'api-http':'Сервер API вернул HTTP-ошибку',
         'api-denied':'MoreLogin отклонил запрос API',
         'api-response':'Ответ API не соответствует ожидаемому формату',

@@ -94,7 +94,8 @@ class ApiTests(unittest.TestCase):
         c,_=self.client([dict(code=0,data={'access_token':'abc\r\nINJECT: yes'})])
         with self.assertRaises(CloudError):c.query(['101'])
     def test_proxy_and_redirect_disabled(self):
-        client=Client('app','synthetic-secret')
+        with patch('morelogin_client.sys.platform','linux'):
+            client=Client('app','synthetic-secret')
         import urllib.request
         self.assertTrue(any(isinstance(x,__import__('morelogin_client').NoRedirect) for x in client.opener.handlers))
         self.assertFalse(any(isinstance(x,urllib.request.ProxyHandler) and x.proxies for x in client.opener.handlers))

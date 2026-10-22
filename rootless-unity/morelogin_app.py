@@ -220,6 +220,31 @@ def launch(self_check=False):
             except Exception:
                 note.set('Не удалось сохранить MoreLogin API. Проверь данные и доступность Windows DPAPI.')
         ttk.Button(api_box,text='Сохранить MoreLogin API',command=save_api).pack(anchor='w',pady=8)
+        api_note=tk.StringVar(value='Проверка ниже использует уже сохранённые ключи. Новые значения сначала сохрани.')
+        api_events=queue.Queue()
+        def check_saved_api():
+            api_check.configure(state='disabled')
+            api_note.set('Проверяю сохранённые ключи без запуска телефонов…')
+            def execute():
+                try:
+                    from morelogin_auth_check import check_saved
+                    api_events.put(check_saved())
+                except Exception:
+                    api_events.put('Не удалось выполнить проверку ключей. Секреты в отчёт не записаны.')
+            def collect():
+                if not w.winfo_exists(): return
+                try:
+                    text=api_events.get_nowait()
+                except queue.Empty:
+                    w.after(100,collect)
+                    return
+                api_note.set(text)
+                api_check.configure(state='normal')
+            threading.Thread(target=execute,daemon=True).start()
+            w.after(100,collect)
+        api_check=ttk.Button(api_box,text='Проверить сохранённые ключи',command=check_saved_api)
+        api_check.pack(anchor='w',pady=5)
+        ttk.Label(api_box,textvariable=api_note,wraplength=580).pack(anchor='w',pady=5)
         adb = tk.StringVar(value=settings.adb)
         folder = tk.StringVar(value=settings.folder)
         limit = tk.StringVar(value=str(settings.profile_limit))

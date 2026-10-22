@@ -1,6 +1,7 @@
 """Read-only official Open API and strictly parsed SSH plans. Never execute command."""
 from dataclasses import dataclass, field
 import ipaddress
+import sys
 import json
 import re
 import shlex
@@ -24,7 +25,13 @@ class Client:
                 or any(ord(c) < 33 or ord(c) > 126 for c in key)):
             raise CloudError('configuration')
         self.app_id, self.key = app_id, key
-        self.opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        if opener is not None:
+            self.opener = opener
+        elif sys.platform == 'win32':
+            from morelogin_windows_http import WindowsOpener
+            self.opener = WindowsOpener()
+        else:
+            self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
     def post(self, path, body, token=None):
         if path not in ('/oauth2/token', '/cloudphone/batchAdbInfo'):
@@ -53,8 +60,9 @@ class Client:
                 if 'data' not in value:
                     raise CloudError('api-response', stage=stage)
                 return value['data']
-            except CloudError:
-                raise
+            except CloudError as error:
+                failure = CloudError(error.code, stage=error.stage or stage, http_status=error.http_status, service_code=error.service_code)
+                retry = error.code in ('api-dns', 'api-timeout', 'api-network')
             except urllib.error.HTTPError as error:
                 status = error.code
                 error.close()  # Never read/export the server body or headers.
@@ -84,12 +92,7 @@ class Client:
                 or len(set(ids)) != len(ids)):
             raise CloudError('configuration')
         ids = [phone_id(x) for x in ids]
-        auth = self.post('/oauth2/token', dict(client_id=self.app_id, client_secret=self.key, grant_type='client_credentials'))
-        if not isinstance(auth, dict):
-            raise CloudError('api-response', stage='auth')
-        token = auth.get('access_token')
-        if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9_.~-]{16,16384}', token):
-            raise CloudError('api-response', stage='auth')
+        token = self.authorize()
         entries = self.post('/cloudphone/batchAdbInfo', {'envIds': ids}, token)
         if not isinstance(entries, list) or len(entries) > MAX_PHONES:
             raise CloudError('api-response', stage='adb-info')
@@ -100,6 +103,15 @@ class Client:
             result[entry['id']] = entry
         # Missing/failed phones do NOT cancel successful peers. They fail individually.
         return {x: result.get(x) for x in ids}
+
+    def authorize(self):
+        auth = self.post('/oauth2/token', dict(client_id=self.app_id, client_secret=self.key, grant_type='client_credentials'))
+        if not isinstance(auth, dict):
+            raise CloudError('api-response', stage='auth')
+        token = auth.get('access_token')
+        if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9_.~-]{16,16384}', token):
+            raise CloudError('api-response', stage='auth')
+        return token
 
 def port(value):
     if type(value) is int:
