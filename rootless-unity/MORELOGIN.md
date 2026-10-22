@@ -1,4 +1,4 @@
-# DvkAssistant MoreLogin 2.0.0-beta.1
+# DvkAssistant MoreLogin 2.0.0-beta.2
 
 Основная ветка `main` — MoreLogin Cloud Phone. Сохранённая ветка `mumu` — DvkAssistant 1.2.16 для MuMu №4. Это разные сборки и разные каталоги данных.
 
@@ -64,3 +64,6 @@ APP ID / Secret Key, одиночные ключи ИИ из настроек и
 ## Исходники и тесты
 
 `python rootless-unity/run_unit_tests.py` — синтетические тесты, без аккаунтов и Android. CI Linux/Windows выполняет также native fixture-тесты. Windows CI собирает GUI и отдельный worker, запускает их офлайн self-check без устройств и создаёт manifest с SHA256. `live_verified` для MoreLogin остаётся false до реальной проверки на облачных телефонах. Для запуска исходников: Python 3.13, frida==17.24.1, paramiko==4.0.0, `python rootless-unity/morelogin_app.py` на Windows.
+
+### Диагностика подключения (beta.2)
+Ошибки API больше не затираются успешным завершением проверки. Для каждого ID показаны этап, HTTP-код или числовой код MoreLogin. Безопасный отчёт: `%LOCALAPPDATA%\DvkAssistantMoreLogin\last-connection.json`. В отчёте нет APP ID, Secret Key, токенов, паролей, заголовков или тела ответа. Временные сетевые/HTTP 429/5xx ошибки повторяются до трёх попыток только для получения токена и чтения ADB-параметров; ошибки авторизации и TLS не обходятся. Реальная причина прежнего api-unavailable без нового отчёта неизвестна.

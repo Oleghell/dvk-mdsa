@@ -5,6 +5,10 @@ import json
 import re
 import shlex
 import urllib.request
+import urllib.error
+import socket
+import ssl
+import time
 from morelogin_common import CloudError, phone_id, MAX_PHONES
 
 BASE = 'https://api.morelogin.com'
@@ -25,25 +29,55 @@ class Client:
     def post(self, path, body, token=None):
         if path not in ('/oauth2/token', '/cloudphone/batchAdbInfo'):
             raise CloudError('configuration')
-        headers = {'Content-Type': 'application/json'}
+        stage = 'auth' if path == '/oauth2/token' else 'adb-info'
+        headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
         if token is not None:
             headers['Authorization'] = 'Bearer ' + token
         request = urllib.request.Request(BASE + path, data=json.dumps(body).encode(), headers=headers, method='POST')
-        try:
-            with self.opener.open(request, timeout=25) as response:
-                data = response.read(2 * 1024 * 1024 + 1)
+        # Both operations are read-only. Retry transport/temporary server failures,
+        # never authorization failures, malformed replies, or any device/send action.
+        for attempt in range(3):
+            try:
+                with self.opener.open(request, timeout=25) as response:
+                    data = response.read(2 * 1024 * 1024 + 1)
                 if len(data) > 2 * 1024 * 1024:
-                    raise ValueError()
-                value = json.loads(data)
-            if not isinstance(value, dict) or type(value.get('code')) is not int:
-                raise ValueError()
-            if value['code'] != 0:
-                raise CloudError('api-denied')
-            return value['data']
-        except CloudError:
-            raise
-        except Exception:
-            raise CloudError('api-unavailable') from None
+                    raise CloudError('api-response', stage=stage)
+                try:
+                    value = json.loads(data)
+                except (ValueError, UnicodeError):
+                    raise CloudError('api-response', stage=stage) from None
+                if not isinstance(value, dict) or type(value.get('code')) is not int:
+                    raise CloudError('api-response', stage=stage)
+                if value['code'] != 0:
+                    raise CloudError('api-denied', stage=stage, service_code=value['code'])
+                if 'data' not in value:
+                    raise CloudError('api-response', stage=stage)
+                return value['data']
+            except CloudError:
+                raise
+            except urllib.error.HTTPError as error:
+                status = error.code
+                error.close()  # Never read/export the server body or headers.
+                failure = CloudError('api-http', stage=stage, http_status=status)
+                retry = status in (429, 500, 502, 503, 504)
+            except (urllib.error.URLError, OSError) as error:
+                reason = error.reason if isinstance(error, urllib.error.URLError) else error
+                if isinstance(reason, ssl.SSLError):
+                    code = 'api-tls'
+                elif isinstance(reason, socket.gaierror):
+                    code = 'api-dns'
+                elif isinstance(reason, (TimeoutError, socket.timeout)):
+                    code = 'api-timeout'
+                else:
+                    code = 'api-network'
+                failure = CloudError(code, stage=stage)
+                retry = code in ('api-dns', 'api-timeout', 'api-network')
+            except Exception:
+                failure = CloudError('api-unavailable', stage=stage)
+                retry = False
+            if not retry or attempt == 2:
+                raise failure from None
+            time.sleep(0.5 * (attempt + 1))
 
     def query(self, ids):
         if (not isinstance(ids, list) or not 1 <= len(ids) <= MAX_PHONES
@@ -52,13 +86,13 @@ class Client:
         ids = [phone_id(x) for x in ids]
         auth = self.post('/oauth2/token', dict(client_id=self.app_id, client_secret=self.key, grant_type='client_credentials'))
         if not isinstance(auth, dict):
-            raise CloudError('api-response')
+            raise CloudError('api-response', stage='auth')
         token = auth.get('access_token')
         if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9_.~-]{16,16384}', token):
-            raise CloudError('api-response')
+            raise CloudError('api-response', stage='auth')
         entries = self.post('/cloudphone/batchAdbInfo', {'envIds': ids}, token)
         if not isinstance(entries, list) or len(entries) > MAX_PHONES:
-            raise CloudError('api-response')
+            raise CloudError('api-response', stage='adb-info')
         result = {}
         for entry in entries:
             if not isinstance(entry, dict) or entry.get('id') not in ids or entry['id'] in result:

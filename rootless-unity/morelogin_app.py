@@ -22,6 +22,7 @@ import telegram_notify
 import groq_reply
 import assistant_ai
 from morelogin_version import VERSION
+from morelogin_diagnostics import describe, save_failure, completion_text
 
 
 def launch(self_check=False):
@@ -101,11 +102,14 @@ def launch(self_check=False):
         except Exception:
             status.set('Укажи от 1 до 200 разных числовых Cloud Phone ID.')
             return
+        for cloud_id in values:
+            set_phone(cloud_id, 'Проверяю подключение')
         stopped.clear()
         busy=True
         refresh()
         status.set('Проверяю Open API и SSH-ключи. Пароли SSH на этом этапе не передаются.')
         def check():
+            failed = False
             try:
                 from morelogin_client import plan
                 from morelogin_ssh import probe
@@ -118,13 +122,20 @@ def launch(self_check=False):
                         observed=probe(ssh)
                         events.put(('host-key', (cloud_id,ssh.host,ssh.ssh_port,observed)))
                     except Exception as error:
+                        save_failure([cloud_id], error)
                         events.put(('phone', (cloud_id, 'error', str(error) if isinstance(error,CloudError) else 'ssh-unavailable')))
+                        return False
+                    return True
                 with ThreadPoolExecutor(max_workers=8) as pool:
-                    list(pool.map(check_one,values))
+                    failed = not all(list(pool.map(check_one,values)))
             except Exception as error:
-                events.put(('error','Open API: '+ (str(error) if isinstance(error,CloudError) else 'api-unavailable')))
+                failed = True
+                save_failure(values, error)
+                for cloud_id in values:
+                    events.put(('phone', (cloud_id, 'error', describe(error))))
+                events.put(('error', describe(error)))
             finally:
-                events.put(('check-done',None))
+                events.put(('check-done',failed))
         threading.Thread(target=check,daemon=True).start()
 
     def refresh():
@@ -151,7 +162,10 @@ def launch(self_check=False):
                       lambda cloud_id,kind,text:events.put(('phone',(cloud_id,kind,text))))
             events.put(('cloud-done',None))
         except Exception as error:
-            events.put(('error','Запуск MoreLogin: '+(str(error) if isinstance(error,CloudError) else 'worker-stopped')))
+            save_failure(values, error)
+            for cloud_id in values:
+                events.put(('phone', (cloud_id, 'error', describe(error))))
+            events.put(('error', 'Запуск MoreLogin: ' + describe(error)))
 
     def begin(mode='full'):
         nonlocal busy, first_profiles_run
@@ -444,7 +458,7 @@ def launch(self_check=False):
                 continue
             if kind in ('cloud-done','check-done'):
                 busy=False
-                status.set('Проверка завершена. Смотри статусы телефонов.' if kind=='check-done' else 'Все процессы завершены. Смотри статусы телефонов; общая база сохранена.')
+                status.set(completion_text(value) if kind=='check-done' else 'Все процессы завершены. Смотри статусы телефонов; общая база сохранена.')
                 refresh()
                 continue
             if kind == 'progress':

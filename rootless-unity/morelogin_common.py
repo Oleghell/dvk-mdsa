@@ -9,12 +9,17 @@ MAX_PHONES = 200
 
 class CloudError(RuntimeError):
     """Only fixed, non-secret reason codes may leave connection layers."""
-    CODES = {'configuration', 'api-unavailable', 'api-denied', 'api-response',
+    CODES = {'configuration', 'api-http', 'api-network', 'api-dns', 'api-tls', 'api-timeout', 'api-unavailable', 'api-denied', 'api-response',
              'phone-unavailable', 'phone-ambiguous', 'ssh-format', 'ssh-key-untrusted',
              'ssh-key-changed', 'ssh-unavailable', 'adb-unavailable', 'device-busy',
              'device-not-ready', 'bundle-required', 'cancelled', 'worker-stopped'}
-    def __init__(self, code):
-        super().__init__(code if code in self.CODES else 'worker-stopped')
+    def __init__(self, code, *, stage=None, http_status=None, service_code=None):
+        self.code = code if code in self.CODES else 'worker-stopped'
+        self.stage = stage if stage in ('auth', 'adb-info') else None
+        self.http_status = http_status if type(http_status) is int and 100 <= http_status <= 599 else None
+        self.service_code = service_code if type(service_code) is int and 0 <= service_code <= 999999 else None
+        super().__init__(self.code)
+
 
 def phone_id(value):
     if not isinstance(value, str) or not re.fullmatch(r'[1-9][0-9]{0,29}', value):
