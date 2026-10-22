@@ -1,5 +1,5 @@
 """Synthetic multi-phone/API/SSH/database tests. Never use real account credentials."""
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from dataclasses import asdict
 import hashlib
 import io
@@ -203,7 +203,7 @@ class SharedDatabaseTests(unittest.TestCase):
         for t in threads:t.start()
         for t in threads:t.join(10)
         self.assertEqual(sorted(results),['conflict','reserved'])
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM global_peer_claims').fetchone()[0],1)
         self.assertEqual(self.a.summary()['reserved']+self.b.summary()['reserved'],1)
     def test_claim_survives_restart_unknown_and_no_invocation(self):
@@ -219,7 +219,7 @@ class SharedDatabaseTests(unittest.TestCase):
         with self.a.connection() as db:
             db.execute("INSERT INTO manual_actions(account,peer,initial_chat,text_hash,confirmed,status) VALUES('1','2','55','hash',1,'reserved-unknown')")
         with self.assertRaises(sqlite3.IntegrityError):self.a.reserve(pending(),'Привет',approved=True)
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM global_peer_claims').fetchone()[0],0)
     def test_schema_queries_and_bound_values_not_rewritten(self):
         Chain(self.a)

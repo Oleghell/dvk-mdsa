@@ -5,7 +5,7 @@ those internal tables a phone namespace in the SAME database; chat IDs are never
 assumed unique across accounts/phones. Only authored SQL uses this adapter; bound
 message/key values are not rewritten. Shared claims commit with greeting reserves.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 import hashlib
 import os
 from pathlib import Path
@@ -64,7 +64,7 @@ class SharedStore(BaseStore):
         self.prefix = 'p' + self.cloud_id + '__'
         path = Path(path) if path is not None else root_directory() / 'shared.sqlite3'
         path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(path, timeout=30) as db:
+        with closing(sqlite3.connect(path, timeout=30)) as db, db:
             db.execute('PRAGMA journal_mode=WAL')
             db.execute('PRAGMA synchronous=FULL')
             db.execute('CREATE TABLE IF NOT EXISTS cloud_schema(version INTEGER PRIMARY KEY CHECK(version=1))')
