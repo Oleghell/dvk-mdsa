@@ -13,7 +13,7 @@ def one(library,mode):
         assert q.get(timeout=10).strip()=='ready'
         session=frida.get_local_device().attach(child.pid)
         source=p.FUNCTION
-        if mode==12:source=source.replace("Module.findGlobalExportByName('il2cpp_'+n)","(n==='class_get_fields'?null:Module.findGlobalExportByName('il2cpp_'+n))")
+        if mode==12:source=source.replace("findIl2cppExport('il2cpp_'+n)","(n==='class_get_fields'?null:findIl2cppExport('il2cpp_'+n))")
         script=session.create_script(source+'''\nrpc.exports={probe(){return nativeMetadata();},counts(){
  const read=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
  return {attached:read('fixture_attached'),invokes:read('fixture_invokes'),values:read('fixture_values'),keeps:read('fixture_keeps'),detaches:read('fixture_detaches')};}};''')

@@ -51,7 +51,8 @@ def notify(report, *, loader=telegram_notify.load, sender=telegram_notify.send):
         token, chat = loader()
     except Exception:
         return 'not-configured'
-    detail = failure_message(report.get('last_navigation_failure'))
+    from navigation_root_diagnostic import message as root_message
+    detail = root_message(report.get('last_navigation')) or failure_message(report.get('last_navigation_failure'))
     message = ('⚠️ DvkAssistant: цикл ' + ('на паузе' if report['status'] == 'paused' else 'остановлен') +
                '.\n' + ((detail + '\n') if detail else '') + 'Причина: ' + ', '.join(reasons(report)) +
                '\nОтчёт: last-monitor.json. Неизвестные отправки не повторяются.')

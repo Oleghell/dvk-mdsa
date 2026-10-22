@@ -4,6 +4,7 @@ No object discovery, values, fields, frame hooks, app handlers or global type
 inventory. A ready result proves signatures only, never history order or delivery.
 """
 import json
+from il2cpp_exports import with_module_exports
 
 VERSION = '0.3.29'
 ROOTS = [
@@ -68,7 +69,7 @@ CHECK_STATUSES = {'not-checked', 'ready', 'class-missing', 'method-missing',
 MAX_CALLS = 12000
 MAX_MS = 5000
 
-_TEMPLATE = r'''
+_TEMPLATE = with_module_exports(r'''
 function nativeMetadata(){
  const roots=__ROOTS__,specs=__SPECS__,api=__APIS__;
  const r={schema_version:1,tool_version:__VERSION__,mode:'targeted-reply-contract-definitions',
@@ -184,7 +185,7 @@ function nativeMetadata(){
  }
  return r;
 }
-'''
+''')
 FUNCTION = (_TEMPLATE.replace('__ROOTS__', json.dumps(ROOTS)).replace('__SPECS__', json.dumps(SPECS))
             .replace('__APIS__', json.dumps(APIS)).replace('__VERSION__', json.dumps(VERSION))
             .replace('__IMAGES__', json.dumps(IMAGES)).replace('__REASONS__', json.dumps(sorted(REASONS))))

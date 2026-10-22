@@ -307,7 +307,8 @@ def summary(result):
     codes=reasons(result)
     reason=next((c for c in codes if c in GROQ_ERRORS),result['reason'])
     from startup_failure import message as failure_message
-    detail = failure_message(result.get('last_navigation_failure'))
+    from navigation_root_diagnostic import message as root_message
+    detail = root_message(result.get('last_navigation')) or failure_message(result.get('last_navigation_failure'))
     text=('Пауза' if status=='paused' else 'Ошибка')+' • '+reason
     if detail:
         text += '\n' + detail
