@@ -2,3 +2,10 @@
 /mumu-navigation/city-android/AndroidManifest.xml text eol=lf
 /mumu-navigation/city-android/src/com/dvk/city/CityPolicy.java text eol=lf
 /mumu-navigation/city-android/src/com/dvk/city/CityInstrumentation.java text eol=lf
+*.py text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.json text eol=lf
+*.spec text eol=lf
+*.md text eol=lf
+*.yml text eol=lf

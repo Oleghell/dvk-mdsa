@@ -1,5 +1,6 @@
 """Local aggregate events and authorized Telegram queries, no network."""
 from datetime import datetime,timezone
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -48,6 +49,13 @@ class Statistics(unittest.TestCase):
  def test_nickname_only_not_counted_as_phone_city(self):
   with self.store.connection() as db:stats.received(db,'100','200','300',['@example'])
   self.assertIn('С номером: 0',stats.render('/city',self.path))
+ def test_read_connection_is_closed(self):
+  real=sqlite3.connect;opened=[]
+  def connect(*args,**kwargs):
+   value=real(*args,**kwargs);opened.append(value);return value
+  with patch('assistant_statistics.sqlite3.connect',side_effect=connect):stats.render('/today',self.path)
+  self.assertEqual(len(opened),1)
+  with self.assertRaises(sqlite3.ProgrammingError):opened[0].execute('SELECT 1')
  def test_old_database_is_not_backfilled(self):
   old=Path(self.temp.name)/'old.sqlite3'
   sqlite3.connect(old).close()
@@ -69,7 +77,7 @@ class Statistics(unittest.TestCase):
   a=SharedStore(self.path,cloud_id='101');b=SharedStore(self.path,cloud_id='102')
   for store,peer in ((a,'200'),(b,'201')):
    with store.connection() as db:stats.received(db,'100',peer,'300',['123456789'])
-  with sqlite3.connect(self.path) as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM global_contact_statistics').fetchone()[0],2)
+  with closing(sqlite3.connect(self.path)) as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM global_contact_statistics').fetchone()[0],2)
  def test_accepted_status_not_delivery_promise(self):
   with self.store.connection() as db:
    stats.received(db,'100','200','300',['123456789']);stats.notified(db,'100','200','300','accepted')

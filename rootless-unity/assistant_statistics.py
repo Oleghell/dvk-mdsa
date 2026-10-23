@@ -1,5 +1,6 @@
 """Aggregate only voluntary-contact events. No phone numbers, handles or bodies."""
 from datetime import datetime,timedelta,time,timezone
+from contextlib import closing
 import hashlib
 import os
 from pathlib import Path
@@ -72,7 +73,7 @@ def render(command,path=None,now=None):
     label={'/today':'Сегодня','/yesterday':'Вчера','/week':'Последние 7 дней','/month':'Последние 30 дней','/city':'Города поиска — всё время'}[command]
     title='📊 '+label+'\n'
     if not path.exists():return title+'Новых событий пока нет. Учёт начнётся после обновления.'
-    with sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=5) as db:
+    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=5)) as db:
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='global_contact_statistics'").fetchone():
             return title+'Новых событий пока нет. Старые контакты задним числом не учитываются.'
         if command=='/city':
