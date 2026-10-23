@@ -33,7 +33,7 @@ class Greeting(unittest.TestCase):
   self.assertNotIn('Личный',str(progress.call_args_list))
  def test_worker_explicitly_enables_fast_mode_only_in_mumu(self):
   from pathlib import Path
-  text=(Path(__file__).resolve().parents[1]/'mumu_worker.py').read_text()
+  text=(Path(__file__).resolve().parents[1]/'mumu_worker.py').read_text(encoding='utf-8')
   self.assertIn('RunAuthorization(stopped,immediate_greeting=True,progress=progress)',text)
   self.assertIn('write=write,continuous=True',text)
 
