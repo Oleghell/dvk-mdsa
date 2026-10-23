@@ -1,0 +1,60 @@
+name: Publish verified MuMu artifact
+'on':
+  push:
+    branches:
+    - mumu
+    paths:
+    - .github/workflows/publish-mumu-verified.yml
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Build DvkAssistant run; blank selects latest successful MuMu build
+        required: false
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: publish-verified-mumu
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+    - name: Require a successfully tested MuMu build
+      id: checked
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RUN_ID: ${{ inputs.run_id || '' }}
+      run: "set -euo pipefail\nif [ -z \"$RUN_ID\" ]; then\n  RUN_ID=$(gh api \"repos/$GITHUB_REPOSITORY/actions/workflows/assistant.yml/runs?branch=mumu&status=success&per_page=1\" --jq '.workflow_runs[0].id')\nfi\n[[ \"$RUN_ID\" =~ ^[0-9]+$ ]]\ngh api \"repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID\" > run.json\ngh api \"repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100\" > jobs.json\npython3 - <<'PYCODE'\nimport json,os,re\nr=json.load(open('run.json'));j=json.load(open('jobs.json'))\nassert r['repository']['full_name']==os.environ['GITHUB_REPOSITORY']\nassert r['head_branch']=='mumu' and r['path']=='.github/workflows/assistant.yml'\nassert r['status']=='completed' and r['conclusion']=='success'\nassert re.fullmatch('[0-9a-f]{40}',r['head_sha'])\nrequired={'verify (windows-2022)','verify (ubuntu-24.04)','package'}\nassert required <= {x['name'] for x in j['jobs'] if x['conclusion']=='success'}\nwith open(os.environ['GITHUB_OUTPUT'],'a') as f:\n f.write('run_id='+str(r['id'])+'\\\
+        nsha='+r['head_sha']+'\\n')\nPYCODE\n"
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ steps.checked.outputs.sha }}
+        persist-credentials: false
+    - uses: actions/download-artifact@v4
+      with:
+        name: DvkAssistant-windows-x64
+        path: release
+        run-id: ${{ steps.checked.outputs.run_id }}
+        github-token: ${{ github.token }}
+    - name: Verify archive checksum, source SHA and every binary
+      id: archive
+      env:
+        SOURCE_SHA: ${{ steps.checked.outputs.sha }}
+      run: "set -euo pipefail\npython3 - <<'PYCODE'\nimport hashlib,json,os,re,zipfile\nfrom pathlib import Path\nfiles=list(Path('release').glob('*.zip'));assert len(files)==1\np=files[0];match=re.fullmatch(r'DvkAssistant-([0-9]+\\.[0-9]+\\.[0-9]+)-windows-x64.zip',p.name);assert match\nexpected=Path(str(p)+'.sha256').read_text().split();assert len(expected)==2 and expected[1]==p.name\nassert hashlib.sha256(p.read_bytes()).hexdigest()==expected[0]\nwith zipfile.ZipFile(p) as z:\n assert z.testzip() is None\n names=[n for n in z.namelist() if n.endswith('build-manifest.json')];assert len(names)==1\n m=json.loads(z.read(names[0]));assert m['source_commit']==os.environ['SOURCE_SHA'] and m['tool_version']==match[1]\n base=names[0][:-len('build-manifest.json')]\n for name,digest in m['files_sha256'].items():\n  assert hashlib.sha256(z.read(base+name)).hexdigest()==digest\nwith open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('version='+match[1]+'\\narchive='+str(p)+'\\n')\nPYCODE\n"
+    - name: Publish the existing verified artifact without rebuilding
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SOURCE_SHA: ${{ steps.checked.outputs.sha }}
+        VERSION: ${{ steps.archive.outputs.version }}
+        ARCHIVE: ${{ steps.archive.outputs.archive }}
+      run: 'set -euo pipefail
+
+        gh release create "v$VERSION" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --title "DvkAssistant $VERSION" --notes-file RELEASE_NOTES.md --latest
+
+        '
