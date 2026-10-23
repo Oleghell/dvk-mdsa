@@ -20,22 +20,26 @@ class HistoryReadBudgetExpired(Exception):
 
 
 def verified_read_budget(value):
-    # Only authored read-budget failures, including an unfinished identity
-    # recheck. NEVER accept this as a verified identity or permission to send.
-    # Fresh reads restart all checks; local deferral requires a verified SAME-chat back.
-    return (isinstance(value, dict)
-        and value.get("error") == "frame-budget"
+    # This classifies an interrupted READ, never proves its identity or content.
+    # Only the fixed reader's authored stages/scalars are accepted. A fresh read
+    # starts from scratch with expected identity; local deferral still needs an
+    # independently verified SAME-chat Back. Identity/schema errors never match.
+    if not isinstance(value, dict):return False
+    phase=value.get("read_checkpoint")
+    scalar=value.get("scalar_checkpoint")
+    identity_scalar=scalar in ("account-id", "peer-id", "chat-id")
+    message_scalar=scalar in ("message-id", "message-sender-id", "message-chat-id")
+    phase_ok=(phase in ("identity", "model", "manager", "loaded-flag", "count", "recheck", "sample") and identity_scalar
+              or phase == "last-message" and (identity_scalar or message_scalar))
+    return (value.get("error") == "frame-budget"
         and value.get("stage") == "navigation-stopped"
         and value.get("metadata_checkpoint") == "ready"
-        and ((value.get("read_checkpoint") == "last-message"
-                and value.get("scalar_checkpoint") in ("message-id", "message-sender-id", "message-chat-id"))
-             or (value.get("read_checkpoint") in ("identity", "recheck")
-                and value.get("scalar_checkpoint") in ("account-id", "peer-id", "chat-id")))
+        and phase_ok
         and value.get("identity_checkpoint") == "recheck"
-        and value.get("scalar_state") == "positive"
-        and value.get("wait_reason") == "none"
+        and value.get("scalar_state") in ("positive", "not-read")
+        and value.get("wait_reason") in ("none", "not-checked")
         and type(value.get("message_slot")) is int
-        and 0 <= value["message_slot"] < MAX_MESSAGES)
+        and -1 <= value["message_slot"] < MAX_MESSAGES)
 
 
 def verified_loading(value):

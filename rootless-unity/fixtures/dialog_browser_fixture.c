@@ -105,9 +105,9 @@ API int fixture_model_clicks(void){return model_clicks;}
 API int fixture_model_visible_calls(void){return browser_visible_reads;}
 static int model_mode(void){return mode>=870&&mode<=889;}
 static Object *browser_selected;
-static int browser_back_checks;
+static int browser_back_checks,observation_checks;
 static Object browser_parents[31];
-static void browser_init(void){model_count_reads=model_field_reads=model_clicks=0;contact_user_reads=0;contact_user.type=mode==862?&tbool:&bt[3];int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
+static void browser_init(void){model_count_reads=model_field_reads=model_clicks=0;contact_user_reads=0;contact_user.type=mode==862?&tbool:&bt[3];int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=observation_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
 API int fixture_browser_clicks(void){return browser_clicks;}
 API int fixture_browser_backs(void){return browser_backs;}
 API void fixture_browser_entry(int entry){phase=entry;browser_start=entry;}
@@ -239,9 +239,15 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 853:if(mode==874){browser_long=999;return &browser_long_box;}browser_long=mode==851?999:mode==844?-1:((Object *)obj)->value==0?301:300;return &browser_long_box;
  case 854:if(mode==882){boolbox.value=1;return &boolbox;}boolbox.value=browser_message_id?browser_message_mine:(mode==844||mode==846||(mode==849&&browser_last_reads>=2));return &boolbox;
  case 10:
+  if(route_calls&&((mode==930||mode==931)&&phase==2||(mode==932||mode==933)&&phase==1)){
+   observation_checks++;
+   if(mode==931||mode==933||observation_checks==1)slow();
+  }
   if(mode==842&&!browser_backs)slow();
   if(browser_backs){
    browser_back_checks++;
+   if(mode==937)phase=browser_back_checks==2?3:1;
+
    if((mode==836||mode==843||mode==838||mode==839||mode==841)&&browser_back_checks==1)slow();
    if(mode==837)slow();
    if(mode==838&&browser_back_checks>=2)browser_selected=&browser_chats[0];
@@ -266,7 +272,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 19:boolbox.value=(mode==706&&phase==1)||mode==864;return &boolbox;
  case 20:case 24:boolbox.value=1;return &boolbox;
  case 25:return &ui_nav;
- case 27:if(phase==4)return &contact_queue_obj;if(phase==5)return &contact_content_obj;if(phase==3)return &browser_vc;if(phase==1)return mode==707?&other:&message_tab_obj;return mode==705&&phase==2?&replacement:&search;
+ case 27:if(phase==4)return &contact_queue_obj;if(phase==5)return &contact_content_obj;if(phase==3)return &browser_vc;if(phase==1)return (mode==707||mode==934)?&other:&message_tab_obj;return mode==705&&phase==2?&replacement:&search;
  case 28:return &chats_obj;
  case 29:return obj==&message_tab_obj?&chats_obj:&tabs;
  case 33:return mode==708?&modal_list:NULL;
@@ -277,7 +283,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   route_calls++;if(obj!=&tabs||!args||!args[1]||*(unsigned char *)args[1]!=0)route_bad++;
   /* Search is phase 0 initially, phase 2 after a verified return. */
   if(!args||args[0]!=((phase==0||phase==2)?&type_messages:&type_search))route_bad++;
-  if((mode==702&&phase==0)||(mode==713&&phase==1)){*exc=&exception;return NULL;}
+  if((mode==702&&phase==0)||(mode==713&&phase==1)||mode==935){*exc=&exception;return NULL;}
   boolbox.value=!((mode==703&&phase==0)||(mode==704&&phase==1));
   if(boolbox.value)phase=(phase==0||phase==2)?1:2;
   if(mode==714&&phase==1)slow();

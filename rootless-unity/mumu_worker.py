@@ -10,6 +10,13 @@ import threading
 from mumu_common import MumuError, port, serial, root_directory, device_directory, atomic, VERSION
 
 
+TELEGRAM_DEVICE_NUMBERS={5563:1,5557:2,5559:3,5561:4,5565:5}
+
+def telegram_device_label(value):
+    n=port(value)
+    number=TELEGRAM_DEVICE_NUMBERS.get(n)
+    return 'MuMu ADB '+str(n)+(f' ({number})' if number is not None else '')
+
 def configure(value):
     n=port(value)
     # Constants are imported by value throughout the original single-device engine.
@@ -34,7 +41,7 @@ def configure(value):
     assistant_statistics.database_path=lambda:root_directory()/'assistant.sqlite3'
     import telegram_notify
     old_label=telegram_notify.cloud_label
-    telegram_notify.cloud_label=lambda text:'MuMu ADB '+str(n)+'\n'+old_label(text)
+    telegram_notify.cloud_label=lambda text:telegram_device_label(n)+'\n'+old_label(text)
     return n
 
 

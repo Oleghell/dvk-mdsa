@@ -29,7 +29,8 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFun
   elif mode==862:
    assert n['stage']=='not-attempted' and n['metadata_checkpoint']!='ready' and not n['destination_verified'],(mode,n)
   else:
-   expected={861:'identity-not-bound',862:'signature-mismatch',863:'identity-changed',864:'call-limit'}[mode]
+   # Reusing the tabs owner reduces calls: hidden views now hit frame bound first.
+   expected={861:'identity-not-bound',862:'signature-mismatch',863:'identity-changed',864:'frame-limit'}[mode]
    assert n['error']==expected and not n['destination_verified'],(mode,n)
   print('Synthetic contact profile/page',mode,phase,'passed',flush=True)
  finally:

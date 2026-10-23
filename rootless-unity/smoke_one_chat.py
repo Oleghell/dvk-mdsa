@@ -61,6 +61,11 @@ def one(library, mode, expected=None):
                 assert counts['bodies']==0,(mode,counts)
             if expected and expected['peer']=='201':
                 assert counts['bodies']==counts['items']==0
+        if mode==576:
+            from assistant_history_wait import verified_read_budget
+            n=out['navigation']
+            assert n['read_checkpoint']=='sample' and n['error']=='frame-budget' and verified_read_budget(n),(mode,{k:n[k] for k in ('read_checkpoint','error','scalar_checkpoint','scalar_state','identity_checkpoint')})
+            assert private is None and counts['sends']==0,(mode,counts)
         print('Synthetic one-chat',mode,'identity' if expected is None else 'read',out['navigation']['stage'],out['navigation']['error'],flush=True)
     finally:
         if script:
@@ -78,6 +83,6 @@ if __name__=='__main__':
     lib=Path(sys.argv[1]).resolve(strict=True)
     one(lib,500)
     who=dict(account='100',peer='200',chat='300')
-    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575):one(lib,mode,who)
+    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575,576):one(lib,mode,who)
     one(lib,500,dict(account='100',peer='201',chat='300'))
     print('Synthetic read-only ABI passed; live Android has not been tested.')

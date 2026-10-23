@@ -30,7 +30,7 @@ for _ in range(12000):
 rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},counts(){
  const read=n=>new NativeFunction(findIl2cppExport(n),'int',[])();
  return {handles:read('fixture_handles'),bad:read('fixture_bad_frees'),off:read('fixture_off_thread_calls'),
- unread_reads:read('fixture_browser_unread_reads'),clicks:read('fixture_browser_clicks'),backs:read('fixture_browser_backs'),route_bad:read('fixture_route_bad')};}};''')
+ unread_reads:read('fixture_browser_unread_reads'),clicks:read('fixture_browser_clicks'),backs:read('fixture_browser_backs'),route_bad:read('fixture_route_bad'),routes:read('fixture_route_calls')};}};''')
         script.load()
         if mode in (815,839):
             def stop():
@@ -42,7 +42,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         raw=script.exports_sync.probe();result=validate(raw,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
         if monitor:monitor.join(timeout=6)
         c=script.exports_sync.counts();n=raw['navigation']
-        expected_status={800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'opened',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
+        expected_status={930:'search-ready',931:'frame-budget',932:'opened',933:'frame-budget',934:'wrong-screen',935:'managed-exception',936:'wrong-screen',937:'returned',800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'opened',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
         actual=result['state'] if result['state']!='stopped' else n['stage'] if n['stage']=='not-attempted' else n['error']
         assert actual==expected_status,(mode,operation,actual,n,c)
         assert c['handles']==c['bad']==c['off']==c['route_bad']==0,(mode,n,c)
@@ -61,6 +61,13 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
             if result['state']!='opened':assert c['clicks']==0,(mode,n,c)
             if mode in (844,847):assert n['waiting_rows_skipped']==1,(n,c)
             if mode==852:assert n['handled_rows_skipped']==1,(n,c)
+        if mode in (930,931,932,933):
+            assert c['routes']==1,(mode,n,c)
+            assert n['observation_budget_retries']==(3 if mode in (931,933) else 1),(mode,n,c)
+        if mode==932:assert n['entry_search_recovered'],(mode,n,c)
+        if mode in (934,935,936):assert c['clicks']==c['backs']==0,(mode,n,c)
+        if mode==936:assert c['routes']==0 and not n['entry_search_recovered'],(mode,n,c)
+        if mode==937:assert n['frames']>=4,(mode,n,c)
         if result['state']=='opened':assert result['identity']==WHO and c['clicks']==1,(result,c)
         if result['state']=='exhausted' or mode in (801,802,804,811,812,813,818,821):assert c['clicks']==0,c
         if operation=='back':assert c['clicks']==0 and c['backs']==(mode not in (809,842)),c
@@ -257,6 +264,12 @@ if __name__=='__main__':
         local=Path(temp)/'libil2cpp.so';shutil.copy2(lib,local)
         one(local,800,'list',entry='either',local_engine=True)
         one(local,800,'list',entry='either',start_override=1,local_engine=True)
+    for mode in (930,931):one(lib,mode,operation='return')
+    for mode in (932,933):one(lib,mode,entry='dialogs',start_override=0)
+    one(lib,934,entry='dialogs')
+    one(lib,935,operation='return')
+    one(lib,936,entry='dialogs',start_override=3)
+    one(lib,937,operation='back')
     for mode in range(844,856):one(lib,mode,needs_reply_only=True)
     one(lib,846,unread_only=True,needs_reply_only=True)
     integration(lib)

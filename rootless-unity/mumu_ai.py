@@ -84,6 +84,8 @@ def failure_explanation(values):
         return 'ИИ: сервисы не ответили или недоступны. Проверю чат позже.'
     if codes and codes<={'invalid-response','unsafe-reply','repeat-greeting','token-limit'}:
         return 'ИИ: полученные ответы не прошли проверку. Проверю чат позже.'
+    if codes and codes <= {'rate-limit','credits-required','invalid-response','unsafe-reply','repeat-greeting','token-limit'}:
+        return 'ИИ: часть ответов не прошла проверку, у остальных ключей исчерпаны лимиты. Проверю чат позже.'
     return 'Доступные ключи ИИ не дали проверенного ответа. Проверю чат позже.'
 
 

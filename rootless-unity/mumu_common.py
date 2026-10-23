@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import re
 
-VERSION = '1.3.4'
+VERSION = '1.3.5'
 DEFAULT_PORTS = (5557, 5559, 5561, 5563, 5565)
 
 class MumuError(RuntimeError): pass
@@ -33,7 +33,7 @@ def root_directory():
     return Path(value)/'DvkAssistant'
 
 def device_directory(value):
-    # Preserve #4 reports and its existing lock/journals in their original place.
+    # Preserve legacy 5563 reports and its existing lock/journals in their original place.
     n=port(value)
     return root_directory() if n==5563 else root_directory()/'devices'/str(n)
 

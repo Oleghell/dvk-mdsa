@@ -102,7 +102,7 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
     if reason=='ai-temporarily-unavailable':
         from mumu_ai import failure_explanation
         explanation=failure_explanation((result.get('diagnostics') or {}).get('ai_failures',[]))
-    text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Сообщение собеседника прочитать не удалось.\n') + ('Статус: ' if reason in ('contact-followup-sent','contact-clarification-sent') else 'Пропущено: ') + explanation
+    text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Текст сообщения не включён в уведомление.\n') + ('Статус: ' if reason in ('contact-followup-sent','contact-clarification-sent') else 'Пропущено: ') + explanation
     if photo_status=='unavailable':text+='\nСнимок переписки получить не удалось.'
     text=text[:950]  # reserve room for the port label in the 1024-char caption
     try:

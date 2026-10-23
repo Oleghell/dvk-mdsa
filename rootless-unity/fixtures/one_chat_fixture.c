@@ -25,7 +25,7 @@ static int64_t long_value;
 typedef struct Text {Object header;int length;uint16_t chars[16];} Text;
 static Text text_a={{&greeting_string_class,0},5,{'H','e','l','l','o'}},text_b={{&greeting_string_class,0},5,{'R','e','p','l','y'}};
 static Object outgoing={&text_class,0},incoming={&text_class,0};
-static int body_reads,items,name_reads,own_chat_reads;
+static int body_reads,items,name_reads,own_chat_reads,sample_budget_checks;
 static Object read_parents[31];
 static Object batch_messages[128];
 static Text display_name={{&greeting_string_class,0},4,{0x410,0x43d,0x43d,0x430}}, changed_name={{&greeting_string_class,0},4,{0x418,0x43d,0x43d,0x430}};
@@ -115,7 +115,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 100:return &manager_object;
  case 101:long_value=mode==526?0:mode==527?-1:100;break;
  case 102:long_value=mode==528?0:mode==529?-1:((mode==506&&sample_frames>1)||(mode==573&&items>=4))?201:200;break;
- case 103:long_value=mode==530?0:mode==531?-1:300;break;
+ case 103:if(mode==576&&body_reads>=4&&++sample_budget_checks==5)slow();long_value=mode==530?0:mode==531?-1:300;break;
  case 104:long_value=batch_index>=0?1001+batch_index:mode==520?0:mode==521?-1:in&&mode!=503?1002:1001;break;
  case 105:long_value=mode==574&&batch_index==17?999:mode==522?0:mode==523?-1:in?(mode==501?999:200):100;break;
  case 106:

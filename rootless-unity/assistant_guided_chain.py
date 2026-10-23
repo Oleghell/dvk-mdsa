@@ -401,7 +401,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 return out
             with chain.store.connection() as db:
                 seen_ids={r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?',(who['chat'],))}
-            excerpts=[m['text'] if isinstance(m['text'],str) else '[нет текста]' for m in before['messages'] if m['sender']==who['peer'] and m['id'] not in seen_ids]
+            from assistant_reply_audit import pending as pending_replies
+            unanswered_ids=set(pending_replies(chain,who))
+            excerpts=[m['text'] if isinstance(m['text'],str) else '[нет текста]' for m in before['messages'] if m['sender']==who['peer'] and (m['id'] not in seen_ids or m['id'] in unanswered_ids)]
             if excerpts and exit_capture is not None:exit_capture(excerpts)
             try:
                 stage, action = chain.proposal(before)

@@ -140,7 +140,9 @@ COLLECT = r'''
    if(chunk.count!==first){state.historyChunk=null;invalidate('changing-count');return;}
    const end=Math.min(first,(chunk.phase==='headers'?chunk.headers.length:chunk.messages.length)+4);
    if(chunk.phase==='headers'){
-    for(let i=chunk.headers.length;i<end;i++){
+    const start=chunk.headers.length;
+    for(let i=start;i<end;i++){
+     if(i>start&&Date.now()>deadline-30)break;
      n.message_slot=i;const message=messageAt(i),handle=own(message),bits=messageHeader(message);
      if(chunk.headers.some(row=>row.bits.id===bits.id))fail('message-invalid');
      if(bits.chatId.startsWith('-'))chunk.localOwn++;
@@ -151,7 +153,9 @@ COLLECT = r'''
     if(chunk.localOwn>0&&chunk.peerAnchors===0)fail('local-own-message-unanchored');
     chunk.phase='bodies';if(first>0){verifyWho();return;}
    }else if(chunk.phase==='bodies'){
-    for(let i=chunk.messages.length;i<end;i++){
+    const start=chunk.messages.length;
+    for(let i=start;i<end;i++){
+     if(i>start&&Date.now()>deadline-30)break;
      n.message_slot=i;const row=chunk.headers[i],message=messageAt(i),handle=own(message);
      if(message.toString()!==row.pointer||JSON.stringify(messageHeader(message))!==JSON.stringify(row.bits))fail('message-invalid');
      const {id,sender}=row.bits;let text=null;

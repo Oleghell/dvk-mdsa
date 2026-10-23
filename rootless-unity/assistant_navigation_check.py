@@ -10,7 +10,7 @@ import sqlite3
 from assistant_lock import operation_lock
 from assistant_store import data_directory, StateError
 from dialog_browser import (VERSION, MAX_TARGETS, ERRORS, PHASES, CHECKPOINTS,
-                            SELECTION, MAX_BACK_BUDGET_RETRIES, targets, perform)
+                            SELECTION, KINDS, MAX_BACK_BUDGET_RETRIES, MAX_OBSERVATION_BUDGET_RETRIES, targets, perform)
 from one_chat_probe import identity
 
 
@@ -58,7 +58,7 @@ def safe_diagnostic(value):
     keys={'stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned',
           'scan_batches','action_attempted','action_completed','destination_verified',
           'unread_filter_applied','unread_verified','read_rows_skipped'}
-    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','header_rows_skipped','root_probe'}:
+    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','header_rows_skipped','root_probe','observation_budget_retries','entry_search_recovered','root_top_kind','last_presented_kind','controller_path'}:
         raise ValueError('Invalid diagnostic')
     if (value['stage'] not in {'not-attempted','navigation-ready','navigation-stopped','cleanup-failed'}
             or value['error'] not in ERRORS or value['phase'] not in PHASES
@@ -78,6 +78,17 @@ def safe_diagnostic(value):
         raise ValueError('Invalid back recovery counter')
     if retries and (value['phase'] not in ('wait-back','done') or not value['action_completed']):
         raise ValueError('Invalid back recovery diagnostic')
+    retries=value.get('observation_budget_retries',0)
+    if type(retries) is not int or not 0<=retries<=MAX_OBSERVATION_BUDGET_RETRIES:
+        raise ValueError('Invalid observation recovery counter')
+    if retries and (value['phase'] not in ('wait-list','wait-chat','wait-search','scan','done') or not value['action_completed']):
+        raise ValueError('Invalid observation recovery diagnostic')
+    if 'entry_search_recovered' in value and type(value['entry_search_recovered']) is not bool:
+        raise ValueError('Invalid search reentry flag')
+    for key in ('root_top_kind','last_presented_kind'):
+        if key in value and value[key] not in KINDS:raise ValueError('Invalid screen category')
+    if 'controller_path' in value and (not isinstance(value['controller_path'],list) or len(value['controller_path'])>12 or any(x not in KINDS for x in value['controller_path'])):
+        raise ValueError('Invalid controller path')
     for key in ('reply_filter_applied','reply_needed_verified'):
         if key in value and type(value[key]) is not bool:raise ValueError('Invalid reply diagnostic')
     for key in ('waiting_rows_skipped','handled_rows_skipped'):
