@@ -158,7 +158,7 @@ def report():
 
 
 def walk(settings, stopped, approve, progress, chain, *, navigator, reader, sender,
-         notifier=None, greetings=(), pause=None, entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None, clock=time.time):
+         notifier=None, greetings=(), pause=None, entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None, exit_photo=None, exit_photo_sender=None, clock=time.time):
     from assistant_navigation_check import safe_diagnostic
     if entry not in ('search', 'dialogs') or return_to not in ('search', 'dialogs'):
         raise ValueError('Invalid inbox screen')
@@ -305,7 +305,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                          'Контакт получен • результат передачи в Telegram требует проверки')
             if result['telegram_used']:
                 out['personal_data_exported'] = True
-            deferred = result['reason'] in ('history-loading-timeout','history-read-budget-timeout')
+            deferred = result['reason'] in ('history-loading-timeout','history-read-budget-timeout','history-snapshot-too-large')
+            ai_deferred=result['reason']=='ai-temporarily-unavailable'
             evidence = result['diagnostics']
             deferred_valid = ((result['reason'] == 'history-loading-timeout'
                     and evidence.get('history_wait_exhausted') is True
@@ -313,6 +314,9 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 or (result['reason'] == 'history-read-budget-timeout'
                     and evidence.get('history_budget_exhausted') is True
                     and history_wait.verified_read_budget(evidence.get('last_read_failure'))))
+            deferred_valid = deferred_valid or (result['reason']=='history-snapshot-too-large'
+                and evidence.get('history_snapshot_oversized') is True
+                and history_wait.verified_oversized(evidence.get('last_read_failure')))
             if deferred and not (result['status'] == 'chain-waiting' and deferred_valid):
                 out.update(status='inbox-stopped', reason='chat-bound-chat-read-failed')
                 return out
@@ -326,6 +330,24 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 # Global/API/read/identity errors must not be treated as local.
                 out.update(status='inbox-stopped', reason='chat-' + result['reason'])
                 return out
+            notice_needed=(not result['notifications']['accepted']
+                    and (not result['outgoing_observed_this_run'] or result['stages']['peer_contact']))
+            exit_image=None;exit_image_status=None
+            capture_needed=notice_needed and exit_notifier is not None and exit_photo is not None
+            if capture_needed:
+                from assistant_exit_notify import notify_exit
+                # A read-only preview avoids taking another expensive screenshot
+                # for a Telegram state already attempted (including unknown).
+                preview=notify_exit(chain,who,dict(result,_exit_messages=exit_messages),enabled=False)
+                capture_needed=preview['notification']!='already-attempted'
+            if capture_needed:
+                try:
+                    exit_image=exit_photo(who)
+                    from assistant_contact_photo import png_size
+                    png_size(exit_image);exit_image_status='captured'
+                except Exception:
+                    exit_image=None;exit_image_status='unavailable'
+                    if stopped.is_set():raise StateError('cancelled')
             phase = 'navigation'
             # Mark durably BEFORE leaving: a failed back cannot enable a resend.
             if isolated:
@@ -333,20 +355,19 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             call('back', expected=who)
             # Only a successful, SAME-chat back may make a read failure local.
             # Do not change chain stage, reservations, consumed messages or review state.
-            if deferred:
+            if deferred or ai_deferred:
                 history_wait.defer(chain.store,who,clock=clock)
                 out['history_deferred'] += 1
-                progress('Не удалось дочитать историю. Вернулся в личку; проверю этот чат позже.')
+                progress('ИИ не дал проверенный ответ. Проверю чат позже.' if ai_deferred else 'Не удалось дочитать историю. Вернулся в личку; проверю этот чат позже.')
             else:
                 history_wait.clear(chain.store,who)
-            if (not result['notifications']['accepted']
-                    and (not result['outgoing_observed_this_run'] or result['stages']['peer_contact'])):
+            if notice_needed:
                 from assistant_exit_notify import notify_exit
-                event = notify_exit(chain, who, dict(result,_exit_messages=exit_messages), sender=exit_notifier, enabled=exit_notifier is not None)
+                event = notify_exit(chain, who, dict(result,_exit_messages=exit_messages), sender=exit_notifier, enabled=exit_notifier is not None, photo=exit_image, photo_status=exit_image_status, photo_sender=exit_photo_sender)
                 out['exit_events'].append(event)
                 if event['notification'] in ('accepted','unknown'):
                     out['personal_data_exported']=True
-                    if exit_messages:out['chat_content_exported']=True
+                    if exit_messages or exit_image is not None:out['chat_content_exported']=True
             if isolated:
                 out['isolated_dialogs'] += 1
                 code = isolated_code
@@ -359,7 +380,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 progress('Диалоги • один чат на проверке, продолжаю остальные')
             out['dialogs_processed'] += 1
             processed.add((who['account'],who['peer']))
-            if not deferred:
+            if not deferred and not ai_deferred:
                 record_checked(chain, who)
             for group in groups:
                 group[0][:] = [x for x in group[0] if (x['account'], x['peer']) != (who['account'], who['peer'])]
@@ -388,7 +409,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
 
 def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navigator=None,
         reader=None, sender=None, notifier=None, greetings=None, pause=None,
-        entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None):
+        entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None, exit_photo=None, exit_photo_sender=None):
     """Caller must hold the shared device lock."""
     with checkpoint('inbox-imports'):
         from assistant_config import config_directory, entries
@@ -418,6 +439,10 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         try:
             exit_token, exit_chat = telegram_notify.load()
             exit_notifier = lambda text: telegram_notify.send(exit_token, exit_chat, text)
+            exit_photo_sender=lambda text,image:telegram_notify.send_photo(exit_token,exit_chat,text,image)
+            if exit_photo is None:
+                from assistant_exit_photo import capture_chat
+                exit_photo=lambda who:capture_chat(settings.adb,settings.folder,who,stopped.is_set)
         except telegram_notify.TelegramError:
             pass
     with checkpoint('inbox-navigation-adapter'):
@@ -432,7 +457,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
                     navigator=navigator,
                     reader=capture if reader is None else reader,
                     sender=submit if sender is None else sender,
-                    notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,
+                    notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,exit_photo=exit_photo,exit_photo_sender=exit_photo_sender,
                     greetings=prepared_greetings)
 
     with checkpoint('inbox-review'):
@@ -448,6 +473,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     if type(counts) is dict:
         result['groq_requests']=counts['groq'];result['openrouter_requests']=counts['openrouter']
         result['ai_key_failures']=list(responder.errors)
+        result['ai_failure_history']=list(responder.failure_history) if type(getattr(responder,'failure_history',None)) is list else []
         result['ai_strategy']='groq-then-openrouter'
     else:
         result['groq_requests'] = result['ai_requests'] if settings.ai_provider == 'groq' else 0

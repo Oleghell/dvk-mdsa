@@ -315,6 +315,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
     until_waiting=True is used by the inbox pass: once the chat needs a NEW
     peer message, leave it (status chain-waiting) instead of polling it.
     """
+    from assistant_history_wait import verified_oversized, HistorySnapshotTooLarge
     out = report()
     out.update(flags(approve))
     if approved is not True:
@@ -341,6 +342,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 failure = out['diagnostics']['last_read_failure'] = safe_read_failure(error)
                 if stopped.is_set():
                     raise StateError('cancelled')
+                if verified_oversized(failure):
+                    out['diagnostics']['history_snapshot_oversized']=True
+                    raise HistorySnapshotTooLarge() from None
                 loading = verified_loading(failure)
                 if verified_read_budget(failure):
                     budget_failures += 1
@@ -575,6 +579,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             out.update(status='chain-paused', reason='wait-timeout')
             return out
         out.update(status='chain-cancelled', reason='cancelled')
+    except HistorySnapshotTooLarge:
+        out['diagnostics']['failure_point']='history-snapshot-too-large'
+        out.update(status='chain-cancelled' if stopped.is_set() else 'chain-waiting',
+                   reason='cancelled' if stopped.is_set() else 'history-snapshot-too-large')
     except HistoryReadBudgetExpired:
         out['diagnostics']['failure_point'] = 'history-read-budget-timeout'
         out.update(status='chain-cancelled' if stopped.is_set() else 'chain-waiting',
@@ -603,6 +611,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         suffix=reason.split('-',1)[1] if '-' in reason else ''
         if suffix in RETRY_SUFFIXES - {'unsafe-reply','repeat-greeting','invalid-response'} or suffix=='key-pool-exhausted':
             out['diagnostics']['failure_point']=reason
+            from mumu_ai import safe_failures
+            out['diagnostics']['ai_failures']=safe_failures(chain.responder)
             out.update(status='chain-waiting',reason='ai-temporarily-unavailable')
             return out
         # Fixed, non-private categories distinguish transport from contact storage.

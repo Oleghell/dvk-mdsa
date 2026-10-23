@@ -11,6 +11,7 @@ import telegram_notify
 REASONS = {
  'greeting-not-verified':'Не удалось подтвердить исходное приветствие по журналу. Этот чат оставлен на проверку.',
  'history-read-budget-timeout':'Не удалось дочитать переписку. Проверю позже; отправленный ответ не повторяю.',
+ 'history-snapshot-too-large':'История слишком большая для проверенного чтения. Чат отложен, остальные продолжаются.',
  'history-loading-timeout':'История диалога не загрузилась. Пока пропустил, проверю позже.',
  'contact-photo-unavailable':'Контакт сохранён. Не удалось проверить снимок профиля; отправка отложена.',
  'contact-clarification-sent':'Номер или ник уже уточнил. Жду контакт, повторный запрос не отправлен.',
@@ -38,7 +39,7 @@ REASONS = {
  'openrouter-repeat-greeting':'ИИ снова поздоровался. Такой ответ не отправляю.',
 }
 
-def notify_exit(chain, who, result, *, sender=None, enabled=True):
+def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, photo_status=None, photo_sender=None):
     reason = result.get('reason')
     from assistant_inbox import ISOLATE
     from assistant_chain import REVIEW_CAUSES
@@ -60,12 +61,16 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True):
             return dict(chat_ref=ref,reason=reason,review_cause=cause,notification='already-attempted')
     if not enabled:
         return dict(chat_ref=ref,reason=reason,review_cause=cause,notification='disabled')
+    if photo is not None:
+        from assistant_contact_photo import png_size
+        png_size(photo)
     if sender is None:
         try:
             token, chat = telegram_notify.load()
         except Exception:
             return dict(chat_ref=ref,reason=reason,review_cause=cause,notification='not-configured')
         sender = lambda text: telegram_notify.send(token,chat,text)
+        if photo is not None:photo_sender=lambda text,image:telegram_notify.send_photo(token,chat,text,image)
     with chain.store.connection() as db:
         cur = db.execute("INSERT OR IGNORE INTO chain_exit_notices VALUES(?,?,'attempted-unknown')", (who['chat'],signature))
         if cur.rowcount != 1:
@@ -90,11 +95,17 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True):
             'multiple-own':'До привязки нашлось несколько исходящих. Нельзя уверенно восстановить этап по журналу.',
             'hash-mismatch':'Исходное приветствие не совпало с журналом. Этот чат требует проверки.',
         }.get(anchor,explanation)
+    if reason=='ai-temporarily-unavailable':
+        from mumu_ai import failure_explanation
+        explanation=failure_explanation((result.get('diagnostics') or {}).get('ai_failures',[]))
     text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Сообщение собеседника прочитать не удалось.\n') + 'Пропущено: ' + explanation
+    if photo_status=='unavailable':text+='\nСнимок переписки получить не удалось.'
+    text=text[:950]  # reserve room for the port label in the 1024-char caption
     try:
-        status = 'accepted' if sender(text) is True else 'unknown'
+        accepted=photo_sender(text,photo) if photo is not None and photo_sender is not None else sender(text)
+        status = 'accepted' if accepted is True else 'unknown'
     except Exception:
         status = 'unknown'
     with chain.store.connection() as db:
         db.execute('UPDATE chain_exit_notices SET status=? WHERE chat=? AND signature=?', (status,who['chat'],signature))
-    return dict(chat_ref=ref,reason=reason,review_cause=cause,notification=status)
+    return dict(chat_ref=ref,reason=reason,review_cause=cause,notification=status,photo='attached' if photo is not None and photo_sender is not None else 'unavailable' if photo_status=='unavailable' else 'not-requested')

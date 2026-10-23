@@ -87,3 +87,17 @@ def clear(store, who):
     with store.connection() as db:
         db.execute('DELETE FROM inbox_history_deferrals WHERE account=? AND peer=?',
                    (who['account'],who['peer']))
+
+
+class HistorySnapshotTooLarge(Exception):
+    """Bound history exceeds the verified snapshot contract; never truncate."""
+
+def verified_oversized(value):
+    return (isinstance(value,dict) and value.get('error')=='snapshot-too-large'
+        and value.get('stage')=='navigation-stopped'
+        and value.get('metadata_checkpoint')=='ready'
+        and value.get('read_checkpoint')=='last-message'
+        and value.get('identity_checkpoint')=='recheck'
+        and value.get('scalar_checkpoint') in ('chat-id','message-chat-id')
+        and value.get('scalar_state')=='positive'
+        and value.get('wait_reason')=='none')

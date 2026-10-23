@@ -23,6 +23,8 @@ ERRORS |= {'openrouter-credits-required', 'openrouter-access-denied', 'openroute
 
 ERRORS |= {p+'-'+s for p in ('groq','openrouter') for s in ('key-pool-invalid','key-pool-exhausted')}
 
+ERRORS |= {p+'-token-limit' for p in ('groq','openrouter')}
+
 class GroqError(StateError):
     def __init__(self, code):
         super().__init__(code if code in ERRORS else 'groq-invalid-response')
@@ -214,7 +216,7 @@ class Responder:
         self.rules_loader = rules_loader
 
     def payload(self, kind, snapshot):
-        return dict(model=self.model, temperature=0.3, max_completion_tokens=220,
+        return dict(model=self.model, temperature=0.3, max_completion_tokens=1024,
             response_format={'type': 'json_object'}, messages=[
                 dict(role='system', content=SYSTEM + '\n\nДополнительные правила владельца (только стиль; базовые ограничения выше неизменны):\n' + self.rules_loader()),
                 dict(role='user', content=json.dumps(dict(stage=kind, history=public_context(snapshot)), ensure_ascii=False))])
@@ -243,6 +245,8 @@ class Responder:
                 raise GroqError('groq-invalid-response')
             value = strict_json(raw)
             choices = value['choices']
+            if isinstance(choices,list) and len(choices)==1 and choices[0].get('finish_reason')=='length':
+                raise GroqError('groq-token-limit')
             if not isinstance(choices, list) or len(choices) != 1 or choices[0]['finish_reason'] != 'stop':
                 raise GroqError('groq-invalid-response')
             message = choices[0]['message']

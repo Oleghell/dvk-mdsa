@@ -318,7 +318,7 @@ def launch(self_check=False):
     scroll.pack(side='right',fill='y');device_table.pack(side='left',fill='both',expand=True,padx=(8,0))
     ttk.Label(frame,text='Одна общая база: защита от повторного приветствия на всех выбранных MuMu.\n'
         'Пауза между порциями — 2 минуты с обработкой лички; печать — 35 слов/мин.\n'
-        'Проверки экрана и неизвестных отправок сохранены.',wraplength=780).pack(anchor='w')
+        'Проверки экрана и неизвестных отправок сохранены. Отчёты 5563 — в корне DvkAssistant.',wraplength=780).pack(anchor='w')
     def show_reports():
         try:
             selected=device_table.selection()

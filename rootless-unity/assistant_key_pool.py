@@ -6,7 +6,7 @@ from assistant_config import config_directory
 
 RETRY_SUFFIXES={'key-invalid','key-unavailable','unauthorized','access-denied','rate-limit',
  'credits-required','model-unavailable','service-error','network-error','timeout',
- 'request-rejected','invalid-response','unsafe-reply','repeat-greeting'}
+ 'request-rejected','invalid-response','unsafe-reply','repeat-greeting','token-limit'}
 _CACHE={}
 
 def load(provider, path=None):
@@ -43,15 +43,18 @@ class Responder:
         self.items=[factory(model=model,cancelled=cancelled,key_loader=lambda k=k:k) for k in keys]
         identity=hashlib.sha256((provider+'\0'+'\0'.join(keys)).encode()).hexdigest()
         self.state=_CACHE.setdefault(identity,dict(cursor=0,blocked={}))
-        self.failovers=0
+        self.failovers=0;self.failures=[]
     @property
     def calls(self):return sum(x.calls for x in self.items)
     def __call__(self,kind,snapshot):
-        n=len(self.items);last=None
+        n=len(self.items);last=None;self.failures=[]
         for offset in range(n):
             if self.cancelled():raise g.GroqError(self.provider+'-cancelled')
             i=(self.state['cursor']+offset)%n
-            if self.state['blocked'].get(i,0)>self.clock():continue
+            if self.state['blocked'].get(i,0)>self.clock():
+                code=self.state.get('causes',{}).get(i,self.provider+'-key-pool-exhausted')
+                self.failures.append(dict(provider=self.provider,key_index=i+1,code=code,cooldown=True))
+                continue
             try:
                 result=self.items[i](kind,snapshot)
                 # Every regenerated answer must pass the same gate. Keys cannot
@@ -63,6 +66,8 @@ class Responder:
                 suffix=str(error).removeprefix(self.provider+'-')
                 if suffix not in RETRY_SUFFIXES:raise
                 last=error;self.failovers+=1
+                self.failures.append(dict(provider=self.provider,key_index=i+1,code=str(error),cooldown=False))
+                self.state.setdefault('causes',{})[i]=str(error)
                 cooldown=3600 if suffix in {'unauthorized','access-denied','key-invalid','key-unavailable'} else 60 if suffix in {'rate-limit','credits-required'} else 15
                 self.state['blocked'][i]=self.clock()+cooldown
         raise g.GroqError(self.provider+'-key-pool-exhausted') from None

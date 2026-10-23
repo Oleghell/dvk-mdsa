@@ -5,7 +5,7 @@ import telegram_notify
 from startup_failure import ERRORS as STARTUP_ERRORS, message as failure_message
 import run_preparation
 
-KNOWN = GROQ_ERRORS | NAV_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed'} | {'contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
+KNOWN = GROQ_ERRORS | NAV_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed'} | {'history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
     'send-native-check-failed', 'send-device-check-failed', 'send-validation-failed',
     'settings-check-stopped', 'device-busy-or-monitor-check-stopped', 'initial-pass-stopped',
     'search-screen-not-verified', 'dialog-list-not-verified', 'initial-pass-paused',
