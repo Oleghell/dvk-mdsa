@@ -113,6 +113,7 @@ class PhotoFlow(ContactFlow):
   out=self.walk([nav('opened',WHO),nav('returned',WHO),nav('search-ready')],[candidate],chain=chain,contact_photo=MagicMock(side_effect=StateError('profile-photo-unavailable')))
   self.assertEqual(out['status'],'inbox-completed');self.notifier.assert_not_called()
   self.assertEqual(out['contact_delivery_pending'],1)
+  self.assertEqual(out['history_deferred'],1)
 
 class PhotoTransport(unittest.TestCase):
  def test_png_rejects_corruption_and_oversize_dimensions(self):
@@ -134,7 +135,7 @@ class PhotoTransport(unittest.TestCase):
    if calls[0]==2:raise RuntimeError()
    return snap()
   image=capture_profile('adb','folder',WHO,device_factory=lambda *a:device,chat_reader=chat,profile_reader=profile)
-  self.assertEqual(image,png());self.assertEqual(events,['profile','profile']);self.assertEqual(calls[0],3)
+  self.assertEqual(image,png());self.assertEqual(events,['profile','profile','profile']);self.assertEqual(calls[0],3)
   self.assertIn(unittest.mock.call(['shell','input','keyevent','4']),device.run.call_args_list)
  def test_wrong_profile_never_returns_image(self):
   device=MagicMock();device.screen.return_value=png()

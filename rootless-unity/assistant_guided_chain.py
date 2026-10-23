@@ -196,6 +196,18 @@ class GuidedChain(Chain):
         recycle_followup(self,snapshot)
         who = snapshot['identity']
         with self.store.connection() as db:
+            row=db.execute('SELECT stage FROM chain_dialogs WHERE chat=?',(who['chat'],)).fetchone()
+            seen_before={r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?',(who['chat'],))}
+        from shared_contact import self_shared,voluntary_batch
+        new_peer=[m for m in snapshot['messages'] if m['sender']==who['peer'] and m['id'] not in seen_before]
+        requested=bool(row and row[0]=='wait-contact') or voluntary_batch(new_peer)
+        if any(self_shared(m['text'],requested=requested) for m in new_peer):
+            # consume still checks complete history, hashes, identity, third-party
+            # context and pending sends. Do not repair/reset a prior terminal state.
+            stage,action=self.consume(snapshot)
+            observe(self,snapshot,input_ids=[m['id'] for m in new_peer])
+            return stage,action
+        with self.store.connection() as db:
             unapproved = {row[0] for row in db.execute(
                 "SELECT kind FROM chain_actions WHERE chat=? AND status='awaiting-approval'",
                 (who['chat'],))}
@@ -312,7 +324,7 @@ class GuidedChain(Chain):
 
 def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
          greetings=(), notifier=None, progress=lambda _: None, pause=None,
-         max_polls=360, deadline=None, contact_reader=None, until_waiting=False, exit_capture=None, contact_photo=None,
+         max_polls=360, deadline=None, contact_reader=None, until_waiting=False, exit_capture=None, contact_photo=None, snapshot_capture=None,
          read_clock=time.monotonic):
     """Monitor ONE open chat through both replies; all bodies remain in RAM.
 
@@ -352,7 +364,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 loading = verified_loading(failure)
                 if verified_read_budget(failure):
                     budget_failures += 1
-                    if budget_failures >= BUDGET_READ_ATTEMPTS or attempt == MAX_READ_ATTEMPTS-1:
+                    if budget_failures >= (2 if failure.get("error") == "transition-timeout" else BUDGET_READ_ATTEMPTS) or attempt == MAX_READ_ATTEMPTS-1:
                         out['diagnostics']['history_budget_exhausted'] = True
                         raise HistoryReadBudgetExpired() from None
                     delay = BUDGET_RETRY_INTERVAL
@@ -381,11 +393,19 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             raise ValueError('Read attempt bound exceeded')
         if (not isinstance(private, dict) or
                 not {'identity','messages'} <= set(private) or
-                set(private) - {'identity','messages','peer_name','latest_message_id'}):
+                set(private) - {'identity','messages','peer_name','latest_message_id','input_enabled'}):
             raise ValueError('Invalid private snapshot fields')
         if identity(private['identity']) != who:
             raise StateError('guided-binding-changed')
         value = checked({key: private[key] for key in ('identity', 'messages')})
+        if 'input_enabled' in private:
+            if type(private['input_enabled']) is not bool:
+                raise ValueError('Invalid input state')
+            if not private['input_enabled']:
+                out['diagnostics']['input_disabled_verified']=True
+                raise StateError('chat-input-disabled')
+        if snapshot_capture is not None:
+            snapshot_capture(checked({key:value[key] for key in ('identity','messages')}))
         if 'peer_name' in private:
             value['peer_name'] = private['peer_name']
         if keep_latest and 'latest_message_id' in private:
@@ -557,10 +577,13 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     break
                 out['submission_calls'] += 1
                 send_failure = None
+                input_disabled = False
                 try:
                     result = sender(fresh, action['text'])
                     returned = (isinstance(result, dict) and result.get('attempted') is True
                                 and result.get('handler_returned') is True)
+                    from one_chat_send import input_disabled_before_submission
+                    input_disabled = input_disabled_before_submission(result)
                     native = result.get('native_check') if isinstance(result, dict) else None
                     if isinstance(native, dict):
                         from one_chat_send import ERRORS as SEND_ERRORS
@@ -582,6 +605,13 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 out['handler_returns'] += int(returned)
                 chain.finish(who, action, returned)
                 out['diagnostics']['post_send_checked']=False
+                if input_disabled:
+                    # Keep the committed reservation conservative; never release
+                    # or replay it. Only this validated call did not invoke send.
+                    out['diagnostics']['input_disabled_verified']=True
+                    out['diagnostics']['failure_point']='chat-input-disabled'
+                    out.update(status='chain-needs-review',reason='chat-input-disabled')
+                    return out
                 if send_failure is not None:
                     out['diagnostics']['failure_point'] = send_failure
                     out.update(reason=send_failure)
@@ -631,6 +661,11 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             out['diagnostics']['greeting_anchor_failure']=anchor
         out.update(status='chain-needs-review', reason='greeting-not-verified')
     except Exception as error:
+        if (isinstance(error,StateError) and str(error)=='chat-input-disabled'
+                and out['diagnostics'].get('input_disabled_verified') is True):
+            out['diagnostics']['failure_point']='chat-input-disabled'
+            out.update(status='chain-needs-review',reason='chat-input-disabled')
+            return out
         # Only fixed, authored categories; no arbitrary native exception text.
         allowed = {'start-before-peer-reply', 'guided-binding-changed',
                    'guided-history-not-verified', 'guided-consent-required'}

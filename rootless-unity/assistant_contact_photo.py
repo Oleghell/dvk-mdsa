@@ -104,7 +104,9 @@ def verify_profile(executable,folder,who,cancelled):
 
 def capture_profile(executable,folder,who,cancelled=lambda:False,*,device_factory=Device,chat_reader=None,profile_reader=verify_profile):
     from one_chat_device import capture
-    who=identity(who);chat_reader=capture if chat_reader is None else chat_reader
+    who=identity(who)
+    if chat_reader is None:
+        chat_reader=lambda exe,folder,cancel,binding:capture(exe,folder,cancel)
     device=device_factory(executable,folder,cancelled)
     def check_chat():
         try:
@@ -118,13 +120,23 @@ def capture_profile(executable,folder,who,cancelled=lambda:False,*,device_factor
     device.run(['shell','input','tap',str(int(w*.075)),str(int(h*.06))]);device.pause()
     image=None;failure=None
     try:
-        profile_reader(executable,folder,who,cancelled)
+        if profile_reader(executable,folder,who,cancelled) is not True:raise StateError('profile-not-verified')
         image=device.screen()
-        profile_reader(executable,folder,who,cancelled)
+        if profile_reader(executable,folder,who,cancelled) is not True:raise StateError('profile-not-verified')
     except Exception:failure=StateError('profile-photo-unavailable')
     # If the tap did nothing, do NOT issue Back and accidentally leave the chat.
     try:check_chat()
     except Exception:
+        if cancelled():raise StateError('cancelled')
+        # A failed chat read is NOT proof that a profile is open. A no-op tap
+        # must never turn a read timeout into Back from the chat itself.
+        try:
+            if profile_reader(executable,folder,who,cancelled) is not True:
+                raise StateError('profile-not-verified')
+        except Exception:
+            # One fresh read-only observation may establish a no-op tap.
+            check_chat()
+            raise StateError('profile-photo-unavailable') from None
         if cancelled():raise StateError('cancelled')
         device.run(['shell','input','keyevent','4']);device.pause();check_chat()
     if failure:raise failure

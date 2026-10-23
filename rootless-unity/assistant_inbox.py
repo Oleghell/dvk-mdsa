@@ -33,6 +33,8 @@ def isolation_reason(result):
     still rejects unanchored local messages without reading their bodies.
     """
     reason = result['reason']
+    if reason == 'chat-input-disabled':
+        return reason if (result.get('diagnostics') or {}).get('input_disabled_verified') is True else None
     if reason == 'bound-chat-read-failed':
         failure = (result.get('diagnostics') or {}).get('last_read_failure') or {}
         expected = dict(error='local-own-message-unanchored',
@@ -144,8 +146,13 @@ def with_seen_ids(chain, allowed):
         for who in allowed:
             from assistant_reply_audit import initialize
             initialize(db)
+            from assistant_skip_audit import initialize as skips
+            skips(db)
             rows=db.execute('''SELECT message FROM chain_seen WHERE chat=? AND message NOT IN
-              (SELECT message FROM chain_reply_receipts WHERE chat=? AND status='pending') LIMIT 129''', (who['chat'],who['chat'])).fetchall()
+              (SELECT message FROM chain_reply_receipts WHERE chat=? AND status='pending')
+              UNION SELECT r.message FROM chain_reply_receipts r JOIN inbox_reported_inputs s
+                ON r.chat=s.chat AND r.message=s.message AND r.fingerprint=s.fingerprint
+              WHERE r.chat=? LIMIT 129''', (who['chat'],who['chat'],who['chat'])).fetchall()
             if len(rows)>128:raise StateError('observed-history-too-large')
             out.append(dict(who,seen_ids=[r[0] for r in rows]))
     return targets(out)
@@ -275,7 +282,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             phase = 'navigation'
             progress(f'Ищу следующий чат • обработано {out["dialogs_processed"]}' +
                      (' • проверка прочитанного' if group_kind == 'read' else ''))
-            selected = call('open', allowed=with_seen_ids(chain,allowed) if group_kind=='read' else allowed,
+            selected = call('open', allowed=with_seen_ids(chain,allowed),
                             entry=entry, unread_only=unread_only, needs_reply_only=True)
             entry = 'dialogs'
             if selected['state'] == 'exhausted':
@@ -292,13 +299,16 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             from assistant_legacy_recovery import reserve_probe
             reserve_probe(chain,who)
             exit_messages=[]
+            private_snapshot=[]
+            def capture_snapshot(value):
+                private_snapshot[:]=[value]
             result = walk_chat(
                 chain, who, stopped, approve,
                 lambda expected: reader(settings.adb, settings.folder, stopped.is_set, expected),
                 lambda snapshot, text: sender(settings.adb, settings.folder, snapshot,
                                               stopped.is_set, text=text),
                 approved=True, greetings=greetings, notifier=notifier, progress=progress,
-                pause=pause, max_polls=8, until_waiting=True, exit_capture=lambda texts:exit_messages.__setitem__(slice(None),texts), contact_photo=contact_photo,
+                pause=pause, max_polls=8, until_waiting=True, snapshot_capture=capture_snapshot, exit_capture=lambda texts:exit_messages.__setitem__(slice(None),texts), contact_photo=contact_photo,
                 contact_reader=lambda expected: reader(settings.adb, settings.folder,
                                                        stopped.is_set, expected, read_name=True))
             out['last_chat_diagnostics'] = result['diagnostics']
@@ -320,6 +330,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             deferred = result['reason'] in ('history-loading-timeout','history-read-budget-timeout','history-snapshot-too-large')
             ai_deferred=result['reason']=='ai-temporarily-unavailable'
             answer_deferred=result['reason']=='incoming-answer-pending'
+            photo_deferred=(result['reason']=='contact-photo-unavailable' and result['status']=='chain-waiting')
             evidence = result['diagnostics']
             deferred_valid = ((result['reason'] == 'history-loading-timeout'
                     and evidence.get('history_wait_exhausted') is True
@@ -372,16 +383,24 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             call('back', expected=who)
             # Only a successful, SAME-chat back may make a read failure local.
             # Do not change chain stage, reservations, consumed messages or review state.
-            if deferred or ai_deferred or answer_deferred:
+            if deferred or ai_deferred or answer_deferred or photo_deferred:
                 history_wait.defer(chain.store,who,clock=clock)
                 out['history_deferred'] += 1
-                progress('ИИ не дал проверенный ответ. Проверю чат позже.' if ai_deferred else 'Не удалось дочитать историю. Вернулся в личку; проверю этот чат позже.')
+                progress('Контакт сохранён. Проверю фото позже, продолжаю другие чаты.' if photo_deferred else
+                         'ИИ не дал проверенный ответ. Проверю чат позже.' if ai_deferred else 'Не удалось дочитать историю. Вернулся в личку; проверю этот чат позже.')
             else:
                 history_wait.clear(chain.store,who)
             if notice_needed:
                 from assistant_exit_notify import notify_exit
                 event = notify_exit(chain, who, dict(result,_exit_messages=exit_messages), sender=exit_notifier, enabled=exit_notifier is not None, photo=exit_image, photo_status=exit_image_status, photo_sender=exit_photo_sender)
                 out['exit_events'].append(event)
+                if event['notification'] in ('accepted','unknown','already-attempted') and exit_messages and private_snapshot:
+                    from assistant_skip_audit import reported
+                    marked=reported(chain,who,private_snapshot[0])
+                    if marked and (ai_deferred or answer_deferred):
+                        # Exact old inputs are suppressed; a NEW input needs no
+                        # leftover timer before becoming eligible.
+                        history_wait.clear(chain.store,who)
                 if event['notification'] in ('accepted','unknown'):
                     out['personal_data_exported']=True
                     if exit_messages or exit_image is not None:out['chat_content_exported']=True
@@ -397,7 +416,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 progress('Диалоги • один чат на проверке, продолжаю остальные')
             out['dialogs_processed'] += 1
             processed.add((who['account'],who['peer']))
-            if not deferred and not ai_deferred and not answer_deferred and not unanswered:
+            if not deferred and not ai_deferred and not answer_deferred and not photo_deferred and not unanswered:
                 record_checked(chain, who)
             for group in groups:
                 group[0][:] = [x for x in group[0] if (x['account'], x['peer']) != (who['account'], who['peer'])]
@@ -474,7 +493,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     with checkpoint('inbox-walk'):
         result = walk(settings, stopped, approve, progress, chain,
                     navigator=navigator,
-                    reader=partial(capture,read_latest=True) if reader is None else reader,
+                    reader=partial(capture,read_latest=True,read_input=True) if reader is None else reader,
                     sender=submit if sender is None else sender,
                     notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,exit_photo=exit_photo,exit_photo_sender=exit_photo_sender,
                     greetings=prepared_greetings)

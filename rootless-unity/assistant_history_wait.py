@@ -31,7 +31,7 @@ def verified_read_budget(value):
     message_scalar=scalar in ("message-id", "message-sender-id", "message-chat-id")
     phase_ok=(phase in ("identity", "model", "manager", "loaded-flag", "count", "recheck", "sample") and identity_scalar
               or phase == "last-message" and (identity_scalar or message_scalar))
-    return (value.get("error") == "frame-budget"
+    return (value.get("error") in ("frame-budget", "transition-timeout")
         and value.get("stage") == "navigation-stopped"
         and value.get("metadata_checkpoint") == "ready"
         and phase_ok

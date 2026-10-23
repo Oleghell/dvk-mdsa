@@ -47,7 +47,7 @@ class ReplySchema(unittest.TestCase):
         source=b.build('open',allowed=[TARGET],needs_reply_only=True)
         for method in ('get_LastMessage','get_SenderId','get_ChatId','get_IsMine'):
             self.assertIn(method,source)
-        for needle in ('if(unread===0&&!header.incoming)', 'if(unread===0&&alreadyHandled', "fail('selection-last-message-changed')"):
+        for needle in ('if(unread===0&&!header.incoming)', 'if(alreadyHandled', "fail('selection-last-message-changed')"):
             self.assertLess(source.index(needle),source.index('call(s.openCell,current,args)'))
         for forbidden in ('get_Text','get_Body','get_Name','OnSend'):
             self.assertNotIn(forbidden,source)

@@ -20,7 +20,7 @@ from mumu_common import root_directory, port
 TABLES = frozenset(('manual_actions profile_visits search_session city_rotation_used '
     'chain_contact_media chain_contact_outbox chain_dialogs chain_review_reasons '
     'chain_seen chain_actions chain_notifications guided_bindings ai_drafts ai_draft_inputs '
-    'inbox_read_round inbox_history_deferrals chain_exit_notices read_only_bindings guided_notices chain_reply_receipts chain_followup_archive chain_recovered_anchors chain_legacy_probes').split())
+    'inbox_read_round inbox_history_deferrals inbox_reported_inputs chain_exit_notices read_only_bindings guided_notices chain_reply_receipts chain_followup_archive chain_recovered_anchors chain_legacy_probes').split())
 TOKENS = re.compile(r'\b(' + '|'.join(sorted(TABLES, key=len, reverse=True)) + r')\b')
 
 class SharedPeerClaimed(StateError):

@@ -7,7 +7,7 @@ WHO=dict(account='100',peer='200',chat='300')
 TARGET=dict(WHO,chat='-1')
 
 
-def one(library,mode,operation='open',entry='search',unread_only=False,start_override=None,needs_reply_only=False,local_engine=False):
+def one(library,mode,operation='open',entry='search',unread_only=False,start_override=None,needs_reply_only=False,local_engine=False,seen_ids=None):
     code='''import ctypes,sys,time
 lib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_LOCAL if sys.argv[4]=='1' else ctypes.RTLD_GLOBAL)
 lib.fixture_init(int(sys.argv[2]));lib.fixture_browser_entry(int(sys.argv[3]))
@@ -18,6 +18,7 @@ for _ in range(12000):
     allowed=[] if operation!='open' or mode==816 else [TARGET]
     if mode in (829,832):allowed=[dict(account='100',peer='201',chat='301'),TARGET]
     if mode==852:allowed=[dict(TARGET,seen_ids=['1002'])]
+    if seen_ids is not None:allowed=[dict(TARGET,seen_ids=seen_ids)]
     expected=(dict(WHO,peer='201') if mode==809 else WHO) if operation=='back' else None
     start=3 if operation=='back' else 1 if operation=='return' or entry=='dialogs' else 0
     if start_override is not None:start=start_override
@@ -43,6 +44,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         if monitor:monitor.join(timeout=6)
         c=script.exports_sync.counts();n=raw['navigation']
         expected_status={930:'search-ready',931:'frame-budget',932:'opened',933:'frame-budget',934:'wrong-screen',935:'managed-exception',936:'wrong-screen',937:'returned',800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'opened',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
+        if mode in (800,846) and needs_reply_only and seen_ids is not None and '1002' in seen_ids:expected_status='exhausted'
         actual=result['state'] if result['state']!='stopped' else n['stage'] if n['stage']=='not-attempted' else n['error']
         assert actual==expected_status,(mode,operation,actual,n,c)
         assert c['handles']==c['bad']==c['off']==c['route_bad']==0,(mode,n,c)
@@ -291,6 +293,8 @@ if __name__=='__main__':
     one(lib,937,operation='back')
     for mode in range(844,856):one(lib,mode,needs_reply_only=True)
     one(lib,846,unread_only=True,needs_reply_only=True)
+    for mode,ids in ((800,['1002']),(800,['9999']),(846,['1002'])):
+        one(lib,mode,entry='dialogs',needs_reply_only=True,seen_ids=ids)
     integration(lib)
     integration(lib,836)
     integration(lib,836,ai=True)

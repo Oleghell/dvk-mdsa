@@ -176,7 +176,9 @@ COLLECT = r'''
 '''
 
 
-def build(expected=None, *, read_name=False, scoped_traversal=False, read_latest=False):
+def build(expected=None, *, read_name=False, scoped_traversal=False, read_latest=False, read_input=False):
+    if type(read_input) is not bool or read_input and expected is None:
+        raise ValueError("Input state requires a bound dialog")
     if type(read_latest) is not bool or read_latest and expected is None:
         raise ValueError("Latest message requires a bound dialog")
     if read_name and expected is None:
@@ -238,15 +240,24 @@ def build(expected=None, *, read_name=False, scoped_traversal=False, read_latest
         source=replace_once(source,'   const sample={count:first,',latest_read+'   const sample={latest_message_id:latestId,count:first,')
         fields='identity:who,messages'+(',peer_name:peerName' if read_name else '')
         source=replace_once(source,'n.private_result={'+fields+'};','n.private_result={'+fields+',latest_message_id:latestId};')
-    source=source.replace('n.managed_calls>=6000',f'n.managed_calls>={READ_MAX_CALLS}')
+    if read_input:
+        source=replace_once(source,"  if(!s.messageItem)throw new Error('signature');return s;",
+            "  s.inputEnabled=check(s.chatModel,'get_IsInputEnabled',2);\n  if(!s.messageItem)throw new Error('signature');return s;")
+        source=replace_once(source,'   const sample={',
+            "   const inputEnabled=bool(s.inputEnabled,chat);verifyWho();\n   const sample={input_enabled:inputEnabled,")
+        fields='identity:who,messages'+(',peer_name:peerName' if read_name else '')+(',latest_message_id:latestId' if read_latest else '')
+        source=replace_once(source,'n.private_result={'+fields+'};','n.private_result={'+fields+',input_enabled:inputEnabled};')
+    source=source.replace('n.managed_calls>=6000' ,f'n.managed_calls>={READ_MAX_CALLS}')
     if scoped_traversal:
         from navigation_handles import scoped_traversals
         source=scoped_traversals(source)
     return source
 
 
-def private_snapshot(value, expected=None, *, read_name=False, read_latest=False):
+def private_snapshot(value, expected=None, *, read_name=False, read_latest=False, read_input=False):
     """Validate private RPC data in memory; caller must never dump this object."""
+    if type(read_input) is not bool or read_input and expected is None:
+        raise ValueError("Input state requires a bound dialog")
     if type(read_latest) is not bool or read_latest and expected is None:
         raise ValueError("Latest message requires a bound dialog")
     expected = identity(expected) if expected is not None else None
@@ -272,10 +283,13 @@ def private_snapshot(value, expected=None, *, read_name=False, read_latest=False
         return None
     fields = {'identity', 'messages', 'peer_name'} if read_name else {'identity', 'messages'}
     if read_latest: fields |= {'latest_message_id'}
+    if read_input: fields |= {'input_enabled'}
     if read_name and expected is None:
         raise ValueError('Name requires an authorized dialog')
     if not isinstance(private, dict) or set(private) != fields:
         raise ValueError('Invalid private result')
+    if read_input and type(private['input_enabled']) is not bool:
+        raise ValueError('Invalid input state')
     who = identity(private['identity'])
     if read_name:
         from shared_contact import display_name

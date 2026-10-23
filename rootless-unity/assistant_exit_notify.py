@@ -29,6 +29,7 @@ REASONS = {
  'contact-already-handled':'Этот контакт уже обработан.',
  'manual-review':'Не удалось безопасно продолжить этот чат.',
  'history-changed-during-approval':'История изменилась. Не стал отправлять ответ вслепую.',
+ 'chat-input-disabled':'Поле отправки недоступно. Чат пропущен; повторных отправок нет.',
  'send-outcome-unknown':'Неясно, ушёл ли ответ. Не повторяю, чтобы не было дубля.',
  'outgoing-not-observed':'Не вижу отправленный ответ в истории. Повторять не стал.',
  'bound-chat-read-failed':'Не удалось прочитать переписку.',
@@ -102,7 +103,9 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
     if reason=='ai-temporarily-unavailable':
         from mumu_ai import failure_explanation
         explanation=failure_explanation((result.get('diagnostics') or {}).get('ai_failures',[]))
-    text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Текст сообщения не включён в уведомление.\n') + ('Статус: ' if reason in ('contact-followup-sent','contact-clarification-sent') else 'Пропущено: ') + explanation
+    contact_received=(result.get('stages') or {}).get('peer_contact') is True
+    label='Успех: Контакт получен. ' if contact_received else 'Статус: ' if reason in ('contact-followup-sent','contact-clarification-sent') else 'Пропущено: '
+    text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Текст сообщения не включён в уведомление.\n') + label + explanation
     if photo_status=='unavailable':text+='\nСнимок переписки получить не удалось.'
     text=text[:950]  # reserve room for the port label in the 1024-char caption
     try:

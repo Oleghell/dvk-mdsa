@@ -1,6 +1,6 @@
 """Explicitly started, serial monitoring of journal-authorized dialogs.
 
-Full mode repeats qualified-profile batches with a configurable inbox-rest interval,
+Continuous full mode drains eligible incoming work before each profile batch;
 serially between tracked inbox passes. Reply-only mode never starts profiles.
 One device lock and durable journals survive all batches. Unknown sends are isolated.
 """
@@ -190,12 +190,13 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     break
                 # A peer can reply while we are in another chat. Rescan from
                 # the list with fresh journal targets BEFORE sleeping/profiles.
-                # Bounded burst avoids an unbounded busy loop/stale badges.
+                # Only productive passes drain again; stale handled headers are filtered before open.
                 active = current.get('dialogs_processed',0) > 0
                 profile_due = mode == 'full' and clock() >= next_profiles
-                # One fresh drain after productive work, then fair rotation to
-                # search. Empty/deferred/review-only passes never cause idle.
-                if active and immediate_passes < (1 if continuous else 3) and not (continuous and profile_due):
+                # MuMu drains until a fresh pass finds no eligible work, even
+                # across the old profile deadline. Deferred/review-only inputs
+                # are excluded by durable input marks/cooldowns, not called answered.
+                if active and ((continuous and mode == 'full') or immediate_passes < 3):
                     immediate_passes += 1
                     out['immediate_rechecks'] += 1
                     out.update(status='checking',reason='drain-incoming')

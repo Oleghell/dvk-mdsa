@@ -126,7 +126,7 @@ UTILS=r'''
      if(needsReplyOnly){
       header=headerOrSkip(chat,model.who);if(header===null)return false;
       if(unread===0&&!header.incoming){n.waiting_rows_skipped++;return false;}
-      if(unread===0&&alreadyHandled(model.who,header.id)){n.handled_rows_skipped++;return false;}
+      if(alreadyHandled(model.who,header.id)){n.handled_rows_skipped++;return false;}
      }
      n.selection_checkpoint='model-stability';
      if(!checkView(current))fail('selection-screen-changed');

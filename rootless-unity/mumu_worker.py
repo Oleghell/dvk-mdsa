@@ -98,7 +98,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                     elif type(v) is list:
                         for child in v:scope(child)
                 scope(value)
-                value.update(tool_version=VERSION,engine_version='1.2.17',platform='MuMu',device_port=n,
+                value.update(tool_version=VERSION,engine_version='1.2.18',platform='MuMu',device_port=n,
                     device_scope=serial(n),shared_database=True)
                 atomic(device_directory(n)/'last-performance.json',dict(metrics.snapshot(),tool_version=VERSION,device_port=n))
                 atomic(device_directory(n)/REPORT,value)

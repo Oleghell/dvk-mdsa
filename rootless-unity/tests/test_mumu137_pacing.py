@@ -74,12 +74,12 @@ class Continuous(mf.Monitor):
   self.inbox.return_value=mf.inbox_result(history_deferred=2,review_pending=3,isolated_dialogs=1,outcomes={'isolated:send-outcome-unknown':1})
   out=self.run_fast();self.repeat.assert_called_once();self.assertEqual(out['last_pass']['history_deferred'],2)
   self.assertEqual(out['last_pass']['review_pending'],3);self.assertEqual(out['totals']['submission_calls'],0)
- def test_deadline_does_not_trigger_an_extra_drain(self):
-  now=iter([0,121,121]);self.inbox.return_value=mf.inbox_result(dialogs_processed=1)
+ def test_deadline_does_not_interrupt_incoming_drain(self):
+  now=iter([0,121,121]);self.inbox.side_effect=[mf.inbox_result(dialogs_processed=1),mf.inbox_result()]
   def repeat(*a,**kw):self.stop.set();return dict(status='completed',report_name='last-run.json')
   repeat=MagicMock(side_effect=repeat)
   out=self.run_monitor(continuous=True,clock=lambda:next(now,121),repeat=repeat,wait=MagicMock(side_effect=AssertionError()))
-  self.assertEqual(out['immediate_rechecks'],0);repeat.assert_called_once()
+  self.assertEqual(out['immediate_rechecks'],1);repeat.assert_called_once()
  def test_inbox_only_keeps_its_poller_and_never_opens_search(self):
   out=self.run_fast(mode='inbox',wait=self.wait_stop)
   self.repeat.assert_not_called();self.assertFalse(out['automatic_profile_repeat'])

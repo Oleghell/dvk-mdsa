@@ -138,3 +138,20 @@ def diagnostic(value):
     n=value['navigation']
     return checked_diagnostic(dict(root_stage=value['stage'],navigation_stage=n['stage'],navigation_error=n['error'],
         metadata_checkpoint=n['metadata_checkpoint'],read_checkpoint=n['read_checkpoint'],wait_reason=n['wait_reason'],**reader.diagnostic(n)))
+
+
+def input_disabled_before_submission(result):
+    """Only a fully validated native no-attempt result proves this call unsent.
+
+    This never changes any older reservation or permits retrying a send.
+    """
+    if (not isinstance(result,dict) or result.get('attempted') is not False
+            or result.get('handler_returned') is not False):return False
+    try:
+        n=checked_diagnostic(result.get('native_check'))
+    except (ValueError,KeyError,TypeError):return False
+    return (n['root_stage']=='root-ready' and n['navigation_error']=='input-disabled'
+        and n['navigation_stage']=='navigation-stopped'
+        and n['metadata_checkpoint']=='ready' and n['read_checkpoint']=='sample'
+        and n['identity_checkpoint']=='recheck' and n['scalar_checkpoint']=='chat-id'
+        and n['scalar_state']=='positive' and n['wait_reason']=='none')

@@ -218,7 +218,7 @@ UTILS=r'''
      if(needsReplyOnly){
       header=replyHeader(chat,model.who);
       if(unread===0&&!header.incoming){n.waiting_rows_skipped++;return false;}
-      if(unread===0&&alreadyHandled(model.who,header.id)){n.handled_rows_skipped++;return false;}
+      if(alreadyHandled(model.who,header.id)){n.handled_rows_skipped++;return false;}
      }
      n.selection_checkpoint='stability';
      // Preserve every original guard and its order; only explain WHICH one failed.

@@ -40,7 +40,8 @@ def one(library,mode,before=None,*,text=QUESTIONS[0]):
           return {handles:get('fixture_handles'),bad:get('fixture_bad_frees'),off:get('fixture_off_thread_calls'),
           sends:get('fixture_greeting_sends'),wrong:get('fixture_greeting_bad'),opens:get('fixture_opens'),closes:get('fixture_cancels')};}};''')
         script.load();out=script.exports_sync.root()
-        result=sender.validate(out,before);sender.diagnostic(out);counts=script.exports_sync.counts()
+        result=sender.validate(out,before);diag=sender.diagnostic(out);counts=script.exports_sync.counts()
+        assert sender.input_disabled_before_submission(dict(result,native_check=diag)) is (mode==602),(mode,diag)
         assert counts['handles']==counts['bad']==counts['off']==counts['wrong']==counts['opens']==counts['closes']==0,(mode,out,counts)
         expected_send=mode in (600,603,650) and before==BEFORE
         assert counts['sends']==int(expected_send),(mode,out,counts)
