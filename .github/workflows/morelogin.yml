@@ -413,7 +413,7 @@ jobs:
     - verify
     - native
     - package
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[morelogin-only]')
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     permissions:

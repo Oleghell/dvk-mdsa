@@ -91,7 +91,13 @@ def launch(self_check=False):
         from morelogin_credentials import load as credentials
         from morelogin_client import Client
         app_id, key = credentials()
-        return Client(app_id,key).query(values)
+        import time
+        started=time.monotonic();success=False
+        try:
+            result=Client(app_id,key).query(values);success=True;return result
+        finally:
+            try:atomic_json(root_directory()/'last-api-performance.json',dict(schema=1,elapsed_ms=max(0,round((time.monotonic()-started)*1000)),success=success))
+            except OSError:pass
 
     def check_connections():
         nonlocal busy

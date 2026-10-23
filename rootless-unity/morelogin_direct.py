@@ -116,6 +116,8 @@ def relay(plan,cancelled=lambda:False,*,socket_factory=socket.create_connection)
             try:
                 if cancelled() or closing.is_set():return
                 remote=socket_factory((plan.host,plan.adb_port),timeout=10)
+                self.request.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
+                remote.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
                 with lock:active.update((self.request,remote))
                 while not cancelled() and not closing.is_set():
                     ready,_,_=select.select([self.request,remote],[],[],.2)

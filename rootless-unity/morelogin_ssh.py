@@ -45,6 +45,7 @@ def handshake(plan, *, socket_factory=None, transport_factory=None):
     try:
         try:
             sock = socket_factory((plan.host, plan.ssh_port), timeout=15)
+            if isinstance(sock,socket.socket):sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
             transport = transport_factory(sock)
             transport.banner_timeout = 15
             transport.auth_timeout = 15
@@ -90,6 +91,7 @@ def tunnel(plan, pinned, cancelled=lambda: False):
             def handle(self):
                 channel = None
                 try:
+                    self.request.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
                     channel = transport.open_channel('direct-tcpip', (plan.remote_host, plan.remote_port), self.client_address, timeout=15)
                     while not cancelled() and transport.is_active():
                         ready, _, _ = select.select([self.request, channel], [], [], .2)

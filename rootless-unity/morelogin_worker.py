@@ -68,6 +68,13 @@ def run(spec, stopped, progress, *, connect=None, runner=None):
             # A duplicate ID in another GUI/process is rejected, never serialized
             # into a second active runner. Locks are released by the OS on crash.
             stack.enter_context(operation_lock(phone_directory(cloud_id)/'cloud-run.lock'))
+            from morelogin_fast_adb import transport as fast_reads
+            performance=stack.enter_context(fast_reads(serial,stopped.is_set))
+            def record_performance():
+                from morelogin_common import atomic_json
+                try:atomic_json(phone_directory(cloud_id)/'last-performance.json',performance.snapshot())
+                except OSError:pass
+            stack.callback(record_performance)
             adb = TargetOnlyAdb(settings.adb, folder)
             boot = preflight(adb)
             stack.enter_context(operation_lock(root_directory()/'locks'/('boot-'+boot+'.lock')))
@@ -79,6 +86,7 @@ def run(spec, stopped, progress, *, connect=None, runner=None):
                 from morelogin_common import atomic_json
                 value.update(tool_version=VERSION, engine_version=ENGINE_VERSION,
                              platform='MoreLogin', cloud_phone_id=cloud_id)
+                atomic_json(phone_directory(cloud_id)/'last-performance.json',performance.snapshot())
                 atomic_json(phone_directory(cloud_id)/'last-monitor.json', value)
                 return 'last-monitor.json'
             result = (monitor if runner is None else runner)(settings, stopped, RunAuthorization(stopped), progress,
