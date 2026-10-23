@@ -70,7 +70,10 @@ def safe_failures(responder):
         if (type(item) is dict and item.get('provider') in ('groq','openrouter')
             and item.get('code') in g.ERRORS and type(item.get('key_index')) is int
             and 0<=item['key_index']<=17 and type(item.get('cooldown')) is bool):
-            result.append({k:item[k] for k in ('provider','key_index','code','cooldown')})
+            failure={k:item[k] for k in ('provider','key_index','code','cooldown')}
+            if isinstance(item.get('validation_reason'),str) and item['validation_reason'] in g.VALIDATION_REASONS:
+                failure['validation_reason']=item['validation_reason']
+            result.append(failure)
     return result
 
 def failure_explanation(values):

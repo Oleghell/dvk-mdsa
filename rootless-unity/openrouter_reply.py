@@ -74,4 +74,5 @@ class Responder(g.Responder):
             return super().__call__(kind, snapshot)
         except g.GroqError as error:
             code = str(error)
-            raise g.GroqError('openrouter-' + code[5:] if code.startswith('groq-') else code) from None
+            raise g.GroqError('openrouter-' + code[5:] if code.startswith('groq-') else code,
+                              retry_after=error.retry_after, validation_reason=error.validation_reason) from None

@@ -61,6 +61,12 @@ def one(library, mode, expected=None):
                 assert counts['bodies']==0,(mode,counts)
             if expected and expected['peer']=='201':
                 assert counts['bodies']==counts['items']==0
+        if mode in (577,578):
+            from assistant_history_wait import verified_loading
+            n=out['navigation']
+            assert n['read_checkpoint']=='last-message' and verified_loading(n),(mode,out,counts)
+            assert n['wait_reason']==('history-loading' if mode==577 else 'history-not-loaded'),(mode,out)
+            assert private is None and counts['bodies']==counts['items']==counts['sends']==0,(mode,counts)
         if mode==576:
             from assistant_history_wait import verified_read_budget
             n=out['navigation']
@@ -83,6 +89,6 @@ if __name__=='__main__':
     lib=Path(sys.argv[1]).resolve(strict=True)
     one(lib,500)
     who=dict(account='100',peer='200',chat='300')
-    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575,576):one(lib,mode,who)
+    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575,576,577,578):one(lib,mode,who)
     one(lib,500,dict(account='100',peer='201',chat='300'))
     print('Synthetic read-only ABI passed; live Android has not been tested.')

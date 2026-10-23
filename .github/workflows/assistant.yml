@@ -27,7 +27,8 @@ jobs:
         - ubuntu-24.04
         - windows-2022
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 12
+    # Full native suite now exceeds the previous 12-minute job budget.
+    timeout-minutes: 35
     steps:
     - uses: actions/checkout@v4
       with:

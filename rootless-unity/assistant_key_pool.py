@@ -66,7 +66,10 @@ class Responder:
                 suffix=str(error).removeprefix(self.provider+'-')
                 if suffix not in RETRY_SUFFIXES:raise
                 last=error;self.failovers+=1
-                self.failures.append(dict(provider=self.provider,key_index=i+1,code=str(error),cooldown=False))
+                failure=dict(provider=self.provider,key_index=i+1,code=str(error),cooldown=False)
+                if error.validation_reason in g.VALIDATION_REASONS:
+                    failure['validation_reason']=error.validation_reason
+                self.failures.append(failure)
                 self.state.setdefault('causes',{})[i]=str(error)
                 cooldown=3600 if suffix in {'unauthorized','access-denied','key-invalid','key-unavailable'} else 60 if suffix in {'rate-limit','credits-required'} else 15
                 if suffix in {'rate-limit','service-error','credits-required'} and error.retry_after is not None:

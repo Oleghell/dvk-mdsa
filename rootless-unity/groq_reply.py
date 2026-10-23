@@ -25,11 +25,16 @@ ERRORS |= {p+'-'+s for p in ('groq','openrouter') for s in ('key-pool-invalid','
 
 ERRORS |= {p+'-token-limit' for p in ('groq','openrouter')}
 
+VALIDATION_REASONS = frozenset({'reply-format', 'sensitive-content', 'question-stage', 'contact-stage',
+    'clarify-stage', 'followup-stage'})
+REPAIR_REASONS = frozenset({'question-stage', 'contact-stage', 'clarify-stage', 'followup-stage'})
+
 class GroqError(StateError):
-    def __init__(self, code, *, retry_after=None):
+    def __init__(self, code, *, retry_after=None, validation_reason=None):
         super().__init__(code if code in ERRORS else 'groq-invalid-response')
         # Numeric, bounded scheduling evidence only; never retain HTTP bodies.
         self.retry_after = retry_after if type(retry_after) in (int, float) and 1 <= retry_after <= 86400 else None
+        self.validation_reason = validation_reason if isinstance(validation_reason, str) and validation_reason in VALIDATION_REASONS else None
 
 
 def retry_after_seconds(headers):
@@ -101,6 +106,11 @@ followup: после предложения контактов пришёл об
 можно ненавязчиво предложить остаться здесь, не спрашивая номер/ник и не повторяя
 предложение мессенджера. Не выдумывай технические причины или работоспособность
 сервисов. Если спрашивают зачем контакт, честно объясни, что переход необязателен.
+Просьба «напиши свой» или ответ «мне нечего бояться» сами по себе не требуют review.
+Собственный контакт не задан: не придумывай его, не обещай найти человека и не обвиняй
+в скрытности. Можно честно предложить продолжить здесь и ответить по смыслу.
+В followup не повторяй даже отрицательные формулировки со словами номер, ник,
+контакт или телефон: вырази ту же мысль без них, например «переход необязателен».
 Не затягивай: один ответ, 1–2 коротких предложения, максимум 240 символов.
 Не пиши «у меня тоже всё супер», если человеку плохо. Не придумывай личные факты,
 город, возраст, работу, намерения, встречи, собственные контакты или обещания.
@@ -191,19 +201,24 @@ def decision(value, kind):
     if (text != text.strip() or not 1 <= len(text) <= 240 or
             any(ord(c) < 32 or c in '<>\u2028\u2029' for c in text) or
             re.search(r'https?://|www\.|t\.me/|@|\d{5,}|\+?\d[\d\s()\-]{6,}\d|```', text, re.I)):
-        raise GroqError('groq-unsafe-reply')
+        raise GroqError('groq-unsafe-reply', validation_reason='reply-format')
     if GREETING.search(text):
         raise GroqError('groq-repeat-greeting')
     if kind == 'question' and (not re.search(r'как\s+(?:у\s+(?:тебя|вас)\s+)?(?:дела|настроени)', text, re.I)
                                or re.search(r'телеграм|telegram|ват[сц]ап|whatsapp|контакт|номер', text, re.I)):
-        raise GroqError('groq-unsafe-reply')
+        raise GroqError('groq-unsafe-reply', validation_reason='question-stage')
     if kind == 'contact' and not re.search(r'телеграм|telegram|ват[сц]ап|whatsapp', text, re.I):
-        raise GroqError('groq-unsafe-reply')
-    if kind == 'clarify' and (not re.search(r'номер|ник|имя\s+пользовател',text,re.I)
-            or re.search(r'парол|код|карт[аыу]|деньг|интим|адрес',text,re.I)):
-        raise GroqError('groq-unsafe-reply')
-    if kind == 'followup' and (not re.search(r'[А-Яа-яЁё]',text) or re.search(r'\b(?:номер|ник|контакт\w*|телефон\w*|парол\w*|код\w*|карт[аыу]|деньг\w*|интим\w*|адрес\w*)\b', text, re.I)):
-        raise GroqError('groq-unsafe-reply')
+        raise GroqError('groq-unsafe-reply', validation_reason='contact-stage')
+    if kind == 'clarify':
+        if re.search(r'парол|код|карт[аыу]|деньг|интим|адрес',text,re.I):
+            raise GroqError('groq-unsafe-reply', validation_reason='sensitive-content')
+        if not re.search(r'номер|ник|имя\s+пользовател',text,re.I):
+            raise GroqError('groq-unsafe-reply', validation_reason='clarify-stage')
+    if kind == 'followup':
+        if re.search(r'\b(?:парол\w*|код\w*|карт[аыу]|деньг\w*|интим\w*|адрес\w*)\b',text,re.I):
+            raise GroqError('groq-unsafe-reply', validation_reason='sensitive-content')
+        if not re.search(r'[А-Яа-яЁё]',text) or re.search(r'\b(?:номер|ник|контакт\w*|телефон\w*)\b',text,re.I):
+            raise GroqError('groq-unsafe-reply', validation_reason='followup-stage')
     return dict(decision='reply', text=text)
 
 
@@ -241,12 +256,37 @@ class Responder:
                 else 'groq-service-error' if status >= 500 else 'groq-request-rejected')
 
     def __call__(self, kind, snapshot):
+        # One new GENERATION for a stage mismatch, before durable draft/send
+        # reservation. Never repair links, contact values, oversized/control text,
+        # decline/review, HTTP errors, or an existing persisted draft.
+        try:
+            return self.generate_once(kind, snapshot)
+        except GroqError as error:
+            if error.validation_reason not in REPAIR_REASONS:
+                raise
+            reason = error.validation_reason
+        return self.generate_once(kind, snapshot, repair_reason=reason)
+
+    def generate_once(self, kind, snapshot, *, repair_reason=None):
         if self.cancelled():
             raise GroqError('groq-cancelled')
         if kind not in ('question', 'contact', 'clarify', 'followup'):
             raise GroqError('groq-invalid-response')
         key = self.key_loader()
-        body = json.dumps(self.payload(kind, snapshot), ensure_ascii=False).encode()
+        payload = self.payload(kind, snapshot)
+        if repair_reason in REPAIR_REASONS:
+            # Only a closed local label, not rejected output or API exception text.
+            # The same verified context is used and all original gates still apply.
+            instruction = {
+                'question-stage': 'Кратко ответь по смыслу новых реплик и добавь «Как настроение?». Не упоминай контакты или мессенджеры.',
+                'contact-stage': 'Нужен краткий ответ по смыслу новых реплик и одно предложение обменяться Telegram/WhatsApp, без давления.',
+                'clarify-stage': 'Один раз уточни ник для Telegram или номер для WhatsApp. Не запрашивай секреты и не придумывай свой контакт.',
+                'followup-stage': 'Продолжи разговор по смыслу новых реплик без нового запроса контакта. Не употребляй слова номер, ник, контакт, телефон. Если просят твой контакт, не придумывай его: можно честно предложить продолжить здесь. Не обвиняй в страхе или скрытности.'
+            }[repair_reason]
+            payload['messages'].insert(1, dict(role='system', content=
+                'Предыдущий черновик не соответствует этапу. Сгенерируй новый JSON с теми же ограничениями. '
+                + instruction + ' Отказ и необходимость ручной проверки остаются decline/review.'))
+        body = json.dumps(payload, ensure_ascii=False).encode()
         request = urllib.request.Request(self.endpoint, data=body, method='POST', headers={
             'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'User-Agent': 'DvkAssistant'})
         try:

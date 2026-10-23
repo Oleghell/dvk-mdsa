@@ -82,6 +82,11 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  int batch_index=-1;
  for(int bi=0;bi<128;bi++)if(obj==&batch_messages[bi])batch_index=bi;
  int in=obj==&incoming||batch_index>0;if(exc)*exc=NULL;
+ /* The chunk reader can yield before headers when loading is not complete. */
+ if((mode==577&&m->action==49)||(mode==578&&m->action==52)){
+  managed_calls++;if(TID()!=main_id)off_thread_calls++;
+  boolbox.value=mode==577;return &boolbox;
+ }
  if(mode>=570&&mode<=575&&m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=mode==575?65:mode==572&&items<4?16:18;return &integer_box;}
  if(mode>=570&&mode<=575&&m->action==109){
   managed_calls++;if(TID()!=main_id)off_thread_calls++;items++;

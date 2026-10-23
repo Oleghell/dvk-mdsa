@@ -47,7 +47,7 @@ def verified_loading(value):
         and value.get('error') == 'history-not-ready'
         and value.get('stage') == 'navigation-stopped'
         and value.get('metadata_checkpoint') == 'ready'
-        and value.get('read_checkpoint') == 'recheck'
+        and value.get('read_checkpoint') in ('recheck', 'last-message')
         and value.get('identity_checkpoint') == 'recheck'
         and value.get('scalar_checkpoint') == 'chat-id'
         and value.get('scalar_state') == 'positive'
