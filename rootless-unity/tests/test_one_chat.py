@@ -70,12 +70,12 @@ class Schema(unittest.TestCase):
 
     def test_negative_own_chat_requires_peer_anchor_and_stable_collection_headers(self):
         source=p.build(WHO)
-        self.assertIn("if(localOwn>0&&peerAnchors===0)fail('local-own-message-unanchored')", source)
+        self.assertIn("if(chunk.localOwn>0&&chunk.peerAnchors===0)fail('local-own-message-unanchored')", source)
         self.assertIn("(!chatId.startsWith('-')&&chatId!==who.chat)", source)
         self.assertIn("bits.sender===who.peer&&!bits.mine&&bits.chatId===who.chat", source)
-        self.assertLess(source.index('if(localOwn>0&&peerAnchors===0)'),
+        self.assertLess(source.index('if(chunk.localOwn>0&&chunk.peerAnchors===0)'),
                         source.index('const value=call(s.messageText,message)'))
-        self.assertIn("message.equals(row.message)", source)
+        self.assertIn("message.toString()!==row.pointer", source)
         self.assertIn("JSON.stringify(messageHeader(message))!==JSON.stringify(row.bits)", source)
         self.assertIn("identity:who,messages,messageBindings", source)
         self.assertNotIn("Math.abs", source)

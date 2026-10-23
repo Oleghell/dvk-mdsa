@@ -249,6 +249,15 @@ TICK=r'''
    if(!checkView(current))return;
    if(n.phase==='entry'){
     const required=operation==='back'?'chat':operation==='return'?'dialogs':entryScreen;
+    // Explicit startup list recovery only. The exact typed current chat is
+    // bound twice before one Back call; no body/name/send/row reads occur.
+    // Unknown screens, modals and changed identities still fail closed.
+    if(operation==='list'&&entryScreen==='either'&&k==='chat'){
+     const bound=currentIdentity(current);
+     if(!checkView(current)||!resolve(candidate).equals(current)||!same(currentIdentity(current).who,bound.who))fail('identity-changed');
+     state.startupReturnIdentity=bound.who;n.entry_verified=true;n.action_attempted=true;
+     call(s.closeChat,current);n.action_completed=true;n.phase='wait-back';return;
+    }
     if(required==='either'?(k!=='search'&&k!=='dialogs'):k!==required)fail('wrong-screen');n.entry_verified=true;
     if(operation==='list'&&k==='dialogs'){n.list_verified=true;finish();return;}
     if(operation==='return'){
@@ -280,7 +289,7 @@ TICK=r'''
     n.chat_verified=true;n.private_identity=bound.who;finish();return;
    }
    if(n.phase==='wait-back'){
-    if(k==='chat'){if(!same(currentIdentity(current).who,expectedIdentity))fail('identity-changed');return;}
+    if(k==='chat'){if(!same(currentIdentity(current).who,operation==='list'?state.startupReturnIdentity:expectedIdentity))fail('identity-changed');return;}
     if(k!=='dialogs')fail('unexpected-screen');n.list_verified=true;finish();return;
    }
    if(n.phase==='wait-search'){
@@ -322,6 +331,12 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     # observation. wait-back has no action calls and is never reset to entry.
     # Keep the baseline 100 ms/frame, total call/frame/time limits and cleanup.
     s=replace_once(s, "} catch(e){n.error=", """} catch(e){
+   if(e==='frame-budget'&&operation==='list'&&entryScreen==='either'&&n.phase==='wait-back'&&
+      state.startupReturnIdentity&&n.entry_verified&&n.action_attempted&&n.action_completed&&
+      !n.chat_verified&&n.private_identity===null&&state.stop===null&&
+      !fixedCancellationRequested&&!n.cleanup_failed&&n.back_budget_retries<3){
+    n.back_budget_retries++;return;
+   }
    if(e==='frame-budget'&&operation==='back'&&n.phase==='wait-back'&&
       n.entry_verified&&n.chat_verified&&n.action_attempted&&n.action_completed&&
       same(n.private_identity,expectedIdentity)&&state.stop===null&&
@@ -349,7 +364,11 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     if n['metadata_checkpoint'] not in CHECKPOINTS or n['selection_checkpoint'] not in SELECTION:raise ValueError('Invalid checkpoint')
     for k,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128),('waiting_rows_skipped',128),('handled_rows_skipped',128),('back_budget_retries',MAX_BACK_BUDGET_RETRIES)]:
         if type(n[k]) is not int or not 0<=n[k]<=limit:raise ValueError('Invalid scan bounds')
-    if n['back_budget_retries'] and (operation!='back' or n['phase'] not in ('wait-back','done') or not n['chat_verified'] or not n['action_completed']):raise ValueError('Invalid back recovery evidence')
+    if n['back_budget_retries']:
+        bound_back=operation=='back' and n['chat_verified'] and n['private_identity'] is not None
+        startup_back=operation=='list' and not n['chat_verified'] and n['private_identity'] is None and n['selection_checkpoint']=='not-checked'
+        if not (bound_back or startup_back) or n['phase'] not in ('wait-back','done') or not n['entry_verified'] or not n['action_completed']:
+            raise ValueError('Invalid back recovery evidence')
     if n['read_rows_skipped']>n['rows_scanned']:raise ValueError('Invalid skipped rows')
     if not unread_only and (n['unread_filter_applied'] or n['unread_verified'] or n['read_rows_skipped']):raise ValueError('Unexpected unread evidence')
     if not needs_reply_only and (n['reply_filter_applied'] or n['reply_needed_verified'] or n['waiting_rows_skipped'] or n['handled_rows_skipped']):raise ValueError('Unexpected reply evidence')

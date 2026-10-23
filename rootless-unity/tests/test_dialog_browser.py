@@ -150,11 +150,11 @@ class BackBudgetRecovery(unittest.TestCase):
         self.assertIn('same(n.private_identity,expectedIdentity)&&state.stop===null',source)
         self.assertIn('!fixedCancellationRequested&&!n.cleanup_failed&&n.back_budget_retries<3',source)
         self.assertIn('n.back_budget_retries++;return;',source)
-        self.assertEqual(source.count('call(s.closeChat,current)'),1)
+        self.assertEqual(source.count('call(s.closeChat,current)'),2)  # mutually exclusive explicit back / startup list
         wait=source.split("if(n.phase==='wait-back'){")[1].split('if(n.phase===')[0]
         self.assertNotIn('call(s.closeChat',wait)
         self.assertIn("if(k!=='dialogs')fail('unexpected-screen')",wait)
-        self.assertIn("if(!same(currentIdentity(current).who,expectedIdentity))fail('identity-changed')",wait)
+        self.assertIn("operation==='list'?state.startupReturnIdentity:expectedIdentity",wait)
         self.assertIn('const deadline=Date.now()+100',source)
         self.assertIn('r.navigation.frames>=180',source)
 
@@ -174,3 +174,17 @@ class BackBudgetRecovery(unittest.TestCase):
             with self.assertRaises(ValueError):safe_diagnostic(dict(diagnostic,back_budget_retries=bad))
         for change in (dict(phase='entry'),dict(action_completed=False)):
             with self.assertRaises(ValueError):safe_diagnostic(dict(diagnostic,back_budget_retries=1,**change))
+
+
+class StartupChatReturn(unittest.TestCase):
+ def test_list_recovery_has_double_binding_no_body_and_one_action(self):
+  source=b.build('list',entry='either')
+  part=source.split("if(operation==='list'&&entryScreen==='either'&&k==='chat'){")[1].split("if(required==='either'?")[0]
+  self.assertEqual(part.count('currentIdentity(current)'),2)
+  self.assertIn('resolve(candidate).equals(current)',part)
+  self.assertIn('same(currentIdentity(current).who,bound.who)',part)
+  self.assertEqual(part.count('call(s.closeChat,current)'),1)
+  self.assertIn("n.phase='wait-back';return;",part)
+  self.assertNotIn('private_identity=',part)
+  self.assertNotIn('message',part)
+  self.assertIn("k!=='search'&&k!=='dialogs'",source)

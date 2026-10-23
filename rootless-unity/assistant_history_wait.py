@@ -28,7 +28,7 @@ def verified_read_budget(value):
         and value.get("metadata_checkpoint") == "ready"
         and ((value.get("read_checkpoint") == "last-message"
                 and value.get("scalar_checkpoint") in ("message-id", "message-sender-id", "message-chat-id"))
-             or (value.get("read_checkpoint") == "identity"
+             or (value.get("read_checkpoint") in ("identity", "recheck")
                 and value.get("scalar_checkpoint") in ("account-id", "peer-id", "chat-id")))
         and value.get("identity_checkpoint") == "recheck"
         and value.get("scalar_state") == "positive"

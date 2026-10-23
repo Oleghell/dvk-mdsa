@@ -27,6 +27,7 @@ static Text text_a={{&greeting_string_class,0},5,{'H','e','l','l','o'}},text_b={
 static Object outgoing={&text_class,0},incoming={&text_class,0};
 static int body_reads,items,name_reads,own_chat_reads;
 static Object read_parents[31];
+static Object batch_messages[18];
 static Text display_name={{&greeting_string_class,0},4,{0x410,0x43d,0x43d,0x430}}, changed_name={{&greeting_string_class,0},4,{0x418,0x43d,0x43d,0x430}};
 static Method extra[]={
  {"get_MessagesManager",&cc[1],0,&manager_type,100},
@@ -78,7 +79,22 @@ API Object *il2cpp_string_new(const char *text){
 API int il2cpp_string_length(Text *s){return mode==504?2049:s->length;}
 API const uint16_t *il2cpp_string_chars(Text *s){return s->chars;}
 API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
- int in=obj==&incoming;if(exc)*exc=NULL;
+ int batch_index=-1;
+ for(int bi=0;bi<18;bi++)if(obj==&batch_messages[bi])batch_index=bi;
+ int in=obj==&incoming||batch_index>0;if(exc)*exc=NULL;
+ if(mode>=570&&mode<=574&&m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=mode==572&&items<4?16:18;return &integer_box;}
+ if(mode>=570&&mode<=574&&m->action==109){
+  managed_calls++;if(TID()!=main_id)off_thread_calls++;items++;
+  if(!args||!args[0]||*(int *)args[0]<0||*(int *)args[0]>=18){*exc=&exception;return NULL;}
+  if(mode==571){
+#ifdef _WIN32
+   Sleep(8);
+#else
+   usleep(8000);
+#endif
+  }
+  int index=*(int *)args[0];batch_messages[index].klass=&text_class;return &batch_messages[index];
+ }
  if(mode>=600&&m->action==60){
   managed_calls++;if(TID()!=main_id)off_thread_calls++;greeting_sends++;
   if(obj!=&filters||!args||args[0]!=&greeting_string)greeting_bad++;
@@ -98,10 +114,10 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  switch(m->action){
  case 100:return &manager_object;
  case 101:long_value=mode==526?0:mode==527?-1:100;break;
- case 102:long_value=mode==528?0:mode==529?-1:mode==506&&sample_frames>1?201:200;break;
+ case 102:long_value=mode==528?0:mode==529?-1:((mode==506&&sample_frames>1)||(mode==573&&items>=4))?201:200;break;
  case 103:long_value=mode==530?0:mode==531?-1:300;break;
- case 104:long_value=mode==520?0:mode==521?-1:in&&mode!=503?1002:1001;break;
- case 105:long_value=mode==522?0:mode==523?-1:in?(mode==501?999:200):100;break;
+ case 104:long_value=batch_index>=0?1001+batch_index:mode==520?0:mode==521?-1:in&&mode!=503?1002:1001;break;
+ case 105:long_value=mode==574&&batch_index==17?999:mode==522?0:mode==523?-1:in?(mode==501?999:200):100;break;
  case 106:
   if(!in)own_chat_reads++;
   long_value=mode==524||(!in&&mode==563)?0:mode==525||(in&&mode==562)?-1:

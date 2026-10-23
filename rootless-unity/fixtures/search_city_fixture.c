@@ -65,7 +65,9 @@ static Object *city_invoke(Method *m,void *obj,void **args,void **exc){
  if((m->action==314||m->action==316)&&args&&args[0])index=*(int *)args[0];
  switch(m->action){
  case 300:city_open_calls++;if(mode==339)slow();if(mode==304||mode==321){*exc=&exception;return NULL;}if(mode==305)phase=2;else phase=3;return NULL;
- case 301:return input_text;
+ case 301:
+  if(mode==349||mode==350){if(mode==350||city_name_reads++==0)slow();}
+  return input_text;
  case 302:city_text_calls++;if(mode==342)slow();input_text=mode==306?(Object *)&other_name_string:(Object *)args[0];return NULL;
  case 303:return input_text;
  case 304:city_search_calls++;if(mode==340)slow();if(mode==307){*exc=&exception;return NULL;}query_sent=1;return NULL;
@@ -107,6 +109,7 @@ static uint16_t *city_string_chars(void *s){return ((CityString *)s)->chars;}
 API Object *il2cpp_string_new(const char *text){if(strcmp(text,"Pskov"))return NULL;return (Object *)&wanted_string;}
 API void il2cpp_field_static_get_value(Field *f,int *out){*out=f==&enum_field?1:-1;}
 API Type *il2cpp_class_enum_basetype(Class *c){return c==&cc[4]?&tint:NULL;}
+API int fixture_city_texts(void){return city_text_calls;}
 API int fixture_city_opens(void){return city_open_calls;}
 API int fixture_city_searches(void){return city_search_calls;}
 API int fixture_city_selects(void){return city_pick_calls;}

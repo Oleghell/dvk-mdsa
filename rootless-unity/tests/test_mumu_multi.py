@@ -316,7 +316,7 @@ except mumu_worker.MumuError:print('blocked');sys.exit(3)
                 (base/'finish').touch();out,err=first.communicate(timeout=15)
                 self.assertEqual(first.returncode,0,err);self.assertEqual(out.strip(),'ok')
                 report=json.loads((base/'DvkAssistant/devices/5557/last-monitor.json').read_text(encoding='utf-8'))
-                self.assertEqual(report['tool_version'],'1.3.2');self.assertEqual(report['device_scope'],'127.0.0.1:5557')
+                self.assertEqual(report['tool_version'],'1.3.3');self.assertEqual(report['device_scope'],'127.0.0.1:5557')
             finally:
                 if first.poll() is None:first.kill()
                 first.communicate()

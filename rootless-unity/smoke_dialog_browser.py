@@ -67,7 +67,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         if mode in (836,838,841):assert n['back_budget_retries']==1,(mode,n,c)
         if mode==837:assert n['back_budget_retries']==3,(mode,n,c)
         if mode in (840,842):assert n['back_budget_retries']==0,(mode,n,c)
-        if operation in ('return','list'):assert c['clicks']==c['backs']==0,c
+        if operation in ('return','list'):assert c['clicks']==0 and c['backs']==int(operation=='list' and entry=='either' and start==3),c
         print('Synthetic dialog browser',mode,operation,entry,actual,flush=True)
     finally:
         if script:
@@ -248,6 +248,10 @@ if __name__=='__main__':
         one(lib,mode,'list',entry='dialogs')
         one(lib,mode,'list',entry='either')
         one(lib,mode,'list',entry='either',start_override=1)
+    one(lib,800,'list',entry='either',start_override=3)
+    one(lib,820,'list',entry='either',start_override=3)
+    one(lib,838,'list',entry='either',start_override=3)
+    one(lib,840,'list',entry='either',start_override=3)
     # Named engine in a local loader namespace: no reliance on global exports.
     with tempfile.TemporaryDirectory() as temp:
         local=Path(temp)/'libil2cpp.so';shutil.copy2(lib,local)
@@ -260,4 +264,4 @@ if __name__=='__main__':
     integration(lib,836,ai=True)
     integration(lib,843,ai=True)
     integration(lib,843,ai=True,provider='openrouter')
-    print('68 synthetic browser cases and fixed/AI-chain integrations passed. No live dialog selection verified.')
+    print('Synthetic browser cases and fixed/AI-chain integrations passed. No live dialog selection verified.')

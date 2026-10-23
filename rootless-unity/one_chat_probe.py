@@ -131,31 +131,45 @@ COLLECT = r'''
        (!chatId.startsWith('-')&&chatId!==who.chat))fail('message-invalid');
     return {id,sender,chatId,mine};
    };
-   // Validate ALL identity headers before reading any message body.
-   for(let i=0;i<first;i++){
-    n.message_slot=i;
-    const message=messageAt(i),handle=own(message),bits=messageHeader(message);
-    if(seenIds.has(bits.id))fail('message-invalid');seenIds.add(bits.id);
-    if(bits.chatId.startsWith('-'))localOwn++;
-    else if(bits.sender===who.peer&&!bits.mine&&bits.chatId===who.chat)peerAnchors++;
-    headers.push({message,handle,bits});messageBindings.push(bits);
-   }
-   if(localOwn>0&&peerAnchors===0)fail('local-own-message-unanchored');
-   verifyWho();
-   if(!call(s.messages,chat).equals(cm)||integer(s.count,cm)!==first)fail('identity-changed');
-   for(let i=0;i<headers.length;i++){
-    n.message_slot=i;const row=headers[i],message=messageAt(i);
-    if(!message.equals(row.message)||JSON.stringify(messageHeader(message))!==JSON.stringify(row.bits))fail('message-invalid');
-    const {id,sender}=row.bits;let text=null;
-    if(f.assignable(s.textMessage,f.objectClass(message))){
-     const value=call(s.messageText,message);if(value.isNull()||!f.objectClass(value).equals(s.stringClass))fail('message-invalid');const sh=own(value);
-     const length=f.stringLength(value);if(length<0||length>2048||(totalText+=length)>16384)fail('snapshot-too-large');
-     const chars=f.stringChars(value);if(chars.isNull()&&length!==0)fail('message-invalid');
-     text=length===0?'':chars.readUtf16String(length);if(text===null||text.includes('\u0000'))fail('message-invalid');releaseOne(sh);
+   // Resume only private value data between frames, never unrooted objects.
+   // Validate ALL headers before any body; two complete samples still gate send.
+   if(loading||!all||first!==second){state.historyChunk=null;invalidate(loading?'history-loading':!all?'history-not-loaded':'changing-count');return;}
+   const startChunk=()=>({identity:JSON.stringify(who),count:first,phase:'headers',headers:[],messages:[],totalText:0,localOwn:0,peerAnchors:0});
+   if(!state.historyChunk)state.historyChunk=startChunk();
+   const chunk=state.historyChunk;
+   if(chunk.identity!==JSON.stringify(who))fail('identity-changed');
+   if(chunk.count!==first){state.historyChunk=null;invalidate('changing-count');return;}
+   const end=Math.min(first,(chunk.phase==='headers'?chunk.headers.length:chunk.messages.length)+4);
+   if(chunk.phase==='headers'){
+    for(let i=chunk.headers.length;i<end;i++){
+     n.message_slot=i;const message=messageAt(i),handle=own(message),bits=messageHeader(message);
+     if(chunk.headers.some(row=>row.bits.id===bits.id))fail('message-invalid');
+     if(bits.chatId.startsWith('-'))chunk.localOwn++;
+     else if(bits.sender===who.peer&&!bits.mine&&bits.chatId===who.chat)chunk.peerAnchors++;
+     chunk.headers.push({pointer:message.toString(),bits});releaseOne(handle);
     }
-    messages.push({id,sender,text});releaseOne(row.handle);
+    if(chunk.headers.length<first){verifyWho();return;}
+    if(chunk.localOwn>0&&chunk.peerAnchors===0)fail('local-own-message-unanchored');
+    chunk.phase='bodies';if(first>0){verifyWho();return;}
+   }else if(chunk.phase==='bodies'){
+    for(let i=chunk.messages.length;i<end;i++){
+     n.message_slot=i;const row=chunk.headers[i],message=messageAt(i),handle=own(message);
+     if(message.toString()!==row.pointer||JSON.stringify(messageHeader(message))!==JSON.stringify(row.bits))fail('message-invalid');
+     const {id,sender}=row.bits;let text=null;
+     if(f.assignable(s.textMessage,f.objectClass(message))){
+      const value=call(s.messageText,message);if(value.isNull()||!f.objectClass(value).equals(s.stringClass))fail('message-invalid');const sh=own(value);
+      const length=f.stringLength(value);if(length<0||length>2048||(chunk.totalText+=length)>16384)fail('snapshot-too-large');
+      const chars=f.stringChars(value);if(chars.isNull()&&length!==0)fail('message-invalid');
+      text=length===0?'':chars.readUtf16String(length);if(text===null||text.includes('\u0000'))fail('message-invalid');releaseOne(sh);
+     }
+     chunk.messages.push({id,sender,text});releaseOne(handle);
+    }
+    if(chunk.messages.length===first)chunk.phase='complete';
+    verifyWho();return;
    }
-   verifyWho();
+   messages.push(...chunk.messages);messageBindings.push(...chunk.headers.map(row=>row.bits));
+   state.historyChunk=null;verifyWho();
+
 '''
 
 
@@ -166,6 +180,8 @@ def build(expected=None, *, read_name=False, scoped_traversal=False):
     # Use one stable key order on both sides; IDs are literal validated decimals.
     expected = {k: expected[k] for k in ('account', 'peer', 'chat')} if expected else None
     source = state.FUNCTION
+    source = replace_once(source, 'sample:null,waitSignature:null', 'sample:null,historyChunk:null,waitSignature:null')
+    source = replace_once(source, "n.wait_reason=reason;n.history_status='not-ready';", "state.historyChunk=null;n.wait_reason=reason;n.history_status='not-ready';")
     source = replace_once(source, "n.metadata_checkpoint='ready';return s;", "n.metadata_checkpoint='ready';return prepareOneChat(f,s,getClass);")
     source = PREPARE + source
     if read_name:

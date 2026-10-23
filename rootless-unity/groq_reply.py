@@ -26,8 +26,23 @@ ERRORS |= {p+'-'+s for p in ('groq','openrouter') for s in ('key-pool-invalid','
 ERRORS |= {p+'-token-limit' for p in ('groq','openrouter')}
 
 class GroqError(StateError):
-    def __init__(self, code):
+    def __init__(self, code, *, retry_after=None):
         super().__init__(code if code in ERRORS else 'groq-invalid-response')
+        # Numeric, bounded scheduling evidence only; never retain HTTP bodies.
+        self.retry_after = retry_after if type(retry_after) in (int, float) and 1 <= retry_after <= 86400 else None
+
+
+def retry_after_seconds(headers):
+    """Accept only a finite numeric Retry-After; unknown forms use normal backoff."""
+    import math
+    try:
+        raw = headers.get('Retry-After', '')
+        if not isinstance(raw, str) or not re.fullmatch(r'[0-9]{1,6}(?:\.[0-9]{1,6})?', raw.strip()):
+            return None
+        value = float(raw)
+        return min(86400, max(1, math.ceil(value))) if math.isfinite(value) else None
+    except Exception:
+        return None
 
 
 def key_value(value):
@@ -254,7 +269,7 @@ class Responder:
                 raise GroqError('groq-invalid-response')
             result = continuation(strict_json(message['content']), kind)
         except urllib.error.HTTPError as e:
-            raise GroqError(self.http_error(e.code)) from None
+            raise GroqError(self.http_error(e.code), retry_after=retry_after_seconds(e.headers)) from None
         except (TimeoutError, socket.timeout):
             raise GroqError('groq-timeout') from None
         except urllib.error.URLError as e:
