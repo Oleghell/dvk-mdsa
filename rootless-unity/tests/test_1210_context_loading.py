@@ -256,7 +256,7 @@ for name in dir(Context):
 class Gates(unittest.TestCase):
     def test_packaged_instructions_match_release_and_main_readme(self):
         from pathlib import Path
-        from version import VERSION
+        from mumu_version import VERSION
         root=Path(__file__).resolve().parents[2]
         guide=(root/'rootless-unity/ASSISTANT.md').read_text(encoding='utf-8')
         self.assertEqual(guide,(root/'README.md').read_text(encoding='utf-8'))

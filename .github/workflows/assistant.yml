@@ -49,6 +49,8 @@ jobs:
 
         python rootless-unity/smoke_assistant_pass.py ./assistant_fixture.so
 
+        python rootless-unity/smoke_mumu_claims.py ./assistant_fixture.so
+
         cc -shared -fPIC -O0 -pthread rootless-unity/fixtures/profile_navigation_fixture.c -o preview_fixture.so
 
         python rootless-unity/smoke_assistant_preview.py ./preview_fixture.so
@@ -93,6 +95,10 @@ jobs:
         if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
 
         python rootless-unity/smoke_assistant_pass.py ./assistant_fixture.dll
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        python rootless-unity/smoke_mumu_claims.py ./assistant_fixture.dll
 
         if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
 
@@ -203,9 +209,8 @@ jobs:
       with:
         path: ~/AppData/Local/pyinstaller
         key: pyinstaller-${{ runner.os }}-py313-mumu-${{ hashFiles('rootless-unity/*ci-requirements.txt') }}
-    - name: Build the single main executable
-      run: python -m PyInstaller --noconfirm --onefile --windowed --name DvkAssistant --distpath out/DvkAssistant-windows-x64
-        rootless-unity/assistant_app.py
+    - name: Build shared onedir GUI and independent MuMu worker
+      run: python -m PyInstaller --noconfirm --distpath out rootless-unity/mumu.spec
     - name: Copy external configuration beside the executable
       shell: powershell
       run: 'Copy-Item config out/DvkAssistant-windows-x64/config -Recurse
@@ -222,11 +227,16 @@ jobs:
         if ($app.ExitCode -ne 0) {throw ''GUI self-check failed''}
 
         '
+    - name: Verify packaged worker imports without device actions
+      shell: powershell
+      run: |
+        & out/DvkAssistant-windows-x64/DvkMumuWorker.exe --mumu-worker-self-check
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
     - name: Add editable settings, instructions and source checksum
       shell: powershell
       run: '$root=''out/DvkAssistant-windows-x64''
 
-        Copy-Item rootless-unity/ASSISTANT.md "$root/README.md"
+        Copy-Item rootless-unity/MUMU-MULTI.md "$root/README.md"
 
         Copy-Item START_ASSISTANT.bat "$root/START_ASSISTANT.bat"
 
@@ -239,7 +249,7 @@ jobs:
         '
     - name: Compress release once after manifest and self-check
       shell: powershell
-      run: '$version=python -c "import sys;sys.path.insert(0,''rootless-unity'');from version import VERSION;print(VERSION)"
+      run: '$version=python -c "import sys;sys.path.insert(0,''rootless-unity'');from mumu_version import VERSION;print(VERSION)"
 
         $archive="DvkAssistant-$version-windows-x64.zip"
 
@@ -281,7 +291,7 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: 'set -euo pipefail
 
-        version=$(python3 -c "import sys;sys.path.insert(0,''rootless-unity'');from version import VERSION;print(VERSION)")
+        version=$(python3 -c "import sys;sys.path.insert(0,''rootless-unity'');from mumu_version import VERSION;print(VERSION)")
 
         archive="DvkAssistant-$version-windows-x64.zip"
 

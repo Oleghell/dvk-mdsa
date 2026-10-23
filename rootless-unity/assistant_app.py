@@ -2,7 +2,13 @@
 
 No startup actions. Explicit Start authorizes this run; Stop revokes it.
 """
+import sys
+if __name__ == '__main__' and sys.argv[1:] in (['--mumu-worker'], ['--mumu-worker-self-check']):
+    from mumu_worker import main
+    raise SystemExit(main())
+
 import os
+from dataclasses import replace
 import queue
 import sys
 import threading
@@ -14,22 +20,24 @@ from assistant_monitor import run as monitor, summary as monitor_summary
 import telegram_notify
 import groq_reply
 import assistant_ai
-from version import VERSION
+from mumu_version import VERSION
+from mumu_common import load_ports, save_ports, parse as parse_ports, MumuError, device_directory
+from mumu_controller import run_many
 
 
 def launch(self_check=False):
     import tkinter as tk
     from tkinter import ttk, filedialog, messagebox
     root = tk.Tk()
-    root.title('DvkAssistant ' + VERSION + ' · ДругВокруг · MuMu №4')
-    root.geometry('700x520')
-    root.minsize(700, 520)
+    root.title('DvkAssistant ' + VERSION + ' · ДругВокруг · MuMu · несколько устройств')
+    root.geometry('880x730')
+    root.minsize(780, 650)
     frame = ttk.Frame(root, padding=20)
     frame.pack(fill='both', expand=True)
-    ttk.Label(frame, text='ДругВокруг · MuMu №4', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
+    ttk.Label(frame, text='ДругВокруг · MuMu · несколько устройств', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
     status = tk.StringVar(value='Готово • версия ' + VERSION)
     try:
-        settings = Settings() if self_check else load()
+        settings = replace(Settings() if self_check else load(),profile_interval=120,reply_interval=5)
     except StateError as error:
         settings = Settings()
         status.set(str(error))
@@ -45,6 +53,7 @@ def launch(self_check=False):
 
     def refresh():
         start.configure(state='disabled' if busy else 'normal')
+        ports_box.configure(state='disabled' if busy else 'normal')
         options.configure(state='disabled' if busy else 'normal')
         replies.configure(state='disabled' if busy else 'normal')
         stop.configure(state='normal' if busy else 'disabled')
@@ -53,14 +62,10 @@ def launch(self_check=False):
         stopped.set()
         status.set('Останавливаю. Выполненные действия не откатываются.')
 
-    def worker(current, mode, fresh):
-        try:
-            result = monitor(current, stopped, RunAuthorization(stopped),
-                             lambda text: events.put(('progress', text)),
-                             mode=mode, fresh_session=fresh)
-            events.put(('start-result', result))
-        except Exception:
-            events.put(('error', 'Остановлено до продолжения. Проверь пути и локальные файлы.'))
+    def worker(current, mode, fresh, ports):
+        results=run_many(ports,current,mode,fresh,stopped,
+            lambda n,text:events.put(('device-progress',(n,text))))
+        events.put(('devices-finished',results))
 
     def begin(mode='full'):
         nonlocal busy, first_profiles_run
@@ -68,6 +73,8 @@ def launch(self_check=False):
             return
         try:
             settings.check()
+            ports = parse_ports(ports_box.get('1.0','end'))
+            save_ports(ports)
             save(settings)
         except Exception as error:
             status.set(str(error) if isinstance(error, StateError) else 'Не удалось сохранить настройки. Запуск отменён.')
@@ -79,8 +86,10 @@ def launch(self_check=False):
         stopped.clear()
         busy = True
         refresh()
-        status.set('Запуск • проверяю диалоги')
-        threading.Thread(target=worker, args=(settings, mode, fresh), daemon=True).start()
+        device_table.delete(*device_table.get_children())
+        for n in ports:device_table.insert('', 'end', iid=str(n), values=(n,'Запускаю'))
+        status.set('Запускаю выбранные MuMu параллельно. Ошибка одного не останавливает другие.')
+        threading.Thread(target=worker, args=(settings, mode, fresh, ports), daemon=True).start()
 
     def configure():
         nonlocal dialog
@@ -100,8 +109,8 @@ def launch(self_check=False):
         adb = tk.StringVar(value=settings.adb)
         folder = tk.StringVar(value=settings.folder)
         limit = tk.StringVar(value=str(settings.profile_limit))
-        interval = tk.StringVar(value=str(settings.reply_interval))
-        profile_interval = tk.StringVar(value=str(settings.profile_interval))
+        interval = tk.StringVar(value='5')
+        profile_interval = tk.StringVar(value='120')
         enabled = tk.BooleanVar(value=settings.contacts_enabled)
         errors_enabled = tk.BooleanVar(value=settings.errors_enabled)
         ai_enabled = tk.BooleanVar(value=settings.groq_enabled)
@@ -133,11 +142,11 @@ def launch(self_check=False):
             ttk.Button(row, text='Выбрать', command=choose).pack(side='right', padx=(8, 0))
         ttk.Label(box, text='Подходящих анкет за одну порцию (1–20)').pack(anchor='w')
         ttk.Entry(box, textvariable=limit, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Label(box, text='Проверка диалогов (5–3600 секунд)').pack(anchor='w')
-        ttk.Entry(box, textvariable=interval, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Label(box, text='Отдых в личке перед новой порцией (30–86400 секунд)').pack(anchor='w')
-        ttk.Entry(box, textvariable=profile_interval, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Label(box, text='Во время отдыха проверяю входящие и отвечаю. Отправка с задержкой 35 слов/мин.\nСтарт разрешает автоматические сообщения; не трогай MuMu №4 во время работы.', wraplength=500).pack(anchor='w', pady=8)
+        ttk.Label(box, text='Опрос лички во время ожидания: каждые 5 секунд').pack(anchor='w')
+        ttk.Entry(box, textvariable=interval, width=8, state='readonly').pack(anchor='w', pady=(3, 10))
+        ttk.Label(box, text='Работа с личкой между порциями: 120 секунд').pack(anchor='w')
+        ttk.Entry(box, textvariable=profile_interval, width=8, state='readonly').pack(anchor='w', pady=(3, 10))
+        ttk.Label(box, text='Во время отдыха проверяю входящие и отвечаю. Отправка с задержкой 35 слов/мин.\nСтарт разрешает автоматические сообщения; не трогай выбранные MuMu во время работы.', wraplength=500).pack(anchor='w', pady=8)
         ttk.Checkbutton(ai_box, variable=ai_enabled, text='ИИ: короткие ответы по структуре цепочки').pack(anchor='w', pady=6)
         ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются выбранному сервису (для OpenRouter — также провайдеру модели). ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
         ttk.Label(ai_box, text='Сервис ИИ').pack(anchor='w', pady=(8, 0))
@@ -187,7 +196,7 @@ def launch(self_check=False):
                 models[provider]=ai_model.get().strip()
                 current = Settings(adb.get(), folder.get(), enabled.get(), int(interval.get()),
                                    int(limit.get()), ai_enabled.get(), models['groq'], errors_enabled.get(),
-                                   provider, models['openrouter'], int(profile_interval.get())).check()
+                                   provider, models['openrouter'], 120).check()
                 adapter=assistant_ai.module(provider)
                 if ai_key.get().strip():
                     adapter.save_key(ai_key.get())
@@ -293,10 +302,44 @@ def launch(self_check=False):
     options = ttk.Button(controls, text='Настройки', command=configure)
     options.pack(side='right')
 
+    devices_box=ttk.LabelFrame(frame,text='Порты MuMu ADB — по одному на строку',padding=8)
+    devices_box.pack(fill='both',expand=True,pady=12)
+    ports_box=tk.Text(devices_box,width=20,height=7)
+    ports_box.pack(side='left',fill='y')
+    try:initial_ports=load_ports() if not self_check else [5557,5559,5561,5563,5565]
+    except MumuError as error:
+        initial_ports=[];status.set(str(error))
+    ports_box.insert('1.0','\n'.join(map(str,initial_ports)))
+    device_table=ttk.Treeview(devices_box,columns=('port','status'),show='headings',height=7)
+    device_table.heading('port',text='ADB порт');device_table.heading('status',text='Состояние')
+    device_table.column('port',width=80,stretch=False);device_table.column('status',width=510)
+    scroll=ttk.Scrollbar(devices_box,orient='vertical',command=device_table.yview)
+    device_table.configure(yscrollcommand=scroll.set)
+    scroll.pack(side='right',fill='y');device_table.pack(side='left',fill='both',expand=True,padx=(8,0))
+    ttk.Label(frame,text='Одна общая база: защита от повторного приветствия на всех выбранных MuMu.\n'
+        'Пауза между порциями — 2 минуты с обработкой лички; печать — 35 слов/мин.\n'
+        'Проверки экрана и неизвестных отправок сохранены.',wraplength=780).pack(anchor='w')
+    def show_reports():
+        try:
+            selected=device_table.selection()
+            path=device_directory(int(selected[0])) if selected else data_directory()
+            path.mkdir(parents=True,exist_ok=True);os.startfile(str(path))
+        except (OSError,AttributeError,ValueError):status.set('Отчёты: %LOCALAPPDATA%/DvkAssistant; остальные порты — devices/<порт>.')
+    ttk.Button(frame,text='Открыть отчёты выбранного MuMu',command=show_reports).pack(anchor='w',pady=6)
+
     def poll():
         nonlocal busy
         while not events.empty():
             kind, value = events.get_nowait()
+            if kind == 'device-progress':
+                n,text=value
+                if device_table.exists(str(n)):device_table.item(str(n),values=(n,text))
+                continue
+            if kind == 'devices-finished':
+                busy=False
+                status.set('Все выбранные процессы завершены. Причины — в таблице и отчётах каждого MuMu.')
+                refresh()
+                continue
             if kind == 'progress':
                 if not stopped.is_set():
                     status.set(value)

@@ -67,7 +67,7 @@ class CompactWindow(unittest.TestCase):
              patch.object(app.threading,'Thread') as thread:
             app.launch()
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
-            self.assertEqual(labels,['Старт','Только ответы','Стоп','Настройки'])
+            self.assertEqual(labels,['Старт','Только ответы','Стоп','Настройки','Открыть отчёты выбранного MuMu'])
             start.assert_not_called();credentials.assert_not_called();telegram.assert_not_called();thread.assert_not_called()
 
 
@@ -78,12 +78,13 @@ class CompactWindow(unittest.TestCase):
         tk, ttk = MagicMock(), MagicMock()
         tk.ttk = ttk
         tk.messagebox.askyesno.return_value = True
+        tk.Text.return_value.get.return_value = '5557\n5563'
         stopped_result = dict(assistant_monitor.report('full'), status='cancelled')
         with patch.dict(sys.modules, {'tkinter': tk, 'tkinter.ttk': ttk,
                                      'tkinter.filedialog': tk.filedialog}), \
              patch.object(app, 'load', return_value=cfg.Settings()), \
-             patch.object(app, 'save'), \
-             patch.object(app, 'monitor', return_value=stopped_result) as monitor, \
+             patch.object(app, 'save'), patch.object(app,'save_ports'), \
+             patch.object(app, 'run_many', return_value={}) as many, \
              patch.object(app.threading, 'Thread') as thread:
             app.launch()
             commands = {c.kwargs['text']: c.kwargs['command'] for c in ttk.Button.call_args_list}
@@ -95,10 +96,8 @@ class CompactWindow(unittest.TestCase):
             commands['Стоп']()
             call = thread.call_args
             call.kwargs['target'](*call.kwargs['args'])
-            self.assertTrue(monitor.call_args.args[1].is_set())
-            permission = monitor.call_args.args[2]
-            self.assertTrue(permission.automatic_send)
-            self.assertFalse(permission('greeting', 'Привет', lambda: False))
+            self.assertEqual(many.call_args.args[0], [5557,5563])
+            self.assertTrue(many.call_args.args[4].is_set())
             tk.Toplevel.assert_not_called()
             poll()
             self.assertEqual(thread.call_count, 1)  # No auto-restart on completion.
@@ -219,7 +218,7 @@ class PackagedConfiguration(unittest.TestCase):
             self.assertFalse(value['auto_start']); self.assertFalse(value['explicit_run_confirmation']); self.assertTrue(value['explicit_start_click'])
             self.assertFalse(value['per_message_confirmation']); self.assertTrue(value['automatic_send'])
             self.assertTrue(value['features']['read_tracked_dialog_recovery'])
-            self.assertEqual(value['features']['profile_interval_seconds'], 300)
+            self.assertEqual(value['features']['profile_interval_seconds'], 120)
             self.assertFalse(value['production_ready'])
             (folder/'config'/'groq-rules.txt').unlink()
             with self.assertRaises(FileNotFoundError): build_manifest.main(folder)

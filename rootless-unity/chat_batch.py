@@ -136,10 +136,15 @@ def build(variants=None):
 def build_random():return build([choose_index() for _ in range(LIMIT)])
 FUNCTION=build()
 
-def validate(value):
+def validate(value, *, skipped_empty=False):
     v=copy.deepcopy(value)
     if not isinstance(v,dict) or not isinstance(v.get('navigation'),dict):raise ValueError('Missing automatic navigation')
     n=v['navigation']
+    if type(skipped_empty) is not bool:raise ValueError('Invalid empty skip')
+    if skipped_empty and (n.get('stage')!='navigation-ready' or n.get('phase')!='done' or
+        n.get('error')!='none' or n.get('history_status')!='empty' or n.get('message_count')!=0 or
+        n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
+        n.get('return_verified') is not True):raise ValueError('Unverified empty skip')
     if not set(DEFAULTS)<=set(n):raise ValueError('Missing chat cycle fields')
     x={k:n.pop(k) for k in DEFAULTS}
     if type(x['cycle_timeout_ms']) is not int or x['cycle_timeout_ms']!=CYCLE_TIMEOUT_MS:raise ValueError('Invalid cycle timeout')
@@ -181,7 +186,7 @@ def validate(value):
     if n.get('stage')=='navigation-ready':
         if n.get('friends_eligible'):
             if not x['chat_return_verified'] or not classified:raise ValueError('Unfinished chat cycle')
-            if x['history_status']=='empty' and not x['send_handler_returned']:raise ValueError('Empty cycle did not submit')
+            if x['history_status']=='empty' and not x['send_handler_returned'] and not skipped_empty:raise ValueError('Empty cycle did not submit')
         elif x['chat_open_attempted']:raise ValueError('Skipped profile opened chat')
     if n.get('phase') in PHASES:n['phase']='confirm-profile'
     for k in ('root_top_kind','last_presented_kind'):

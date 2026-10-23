@@ -37,10 +37,14 @@ def build(text, visited=()):
     source = replace_once(source, 'finish(\'callback-timeout\');},30000);',
                           'finish(\'callback-timeout\');},90000);')
     source = replace_once(source, '"cycle_timeout_ms":30000', '"cycle_timeout_ms":90000')
+    import os
+    if os.environ.get('DVK_MUMU_MULTI') == '1':
+        from mumu_claims import specialize
+        source = specialize(source)
     return 'let assistantSelectedPeer=null;\n' + source
 
 
-def validate(value):
+def validate(value, *, shared_peer_skipped=False):
     # Only normalize the declared timeout for the existing strict validator.
     # Never normalize a send flag, identity, history classification or result.
     import copy
@@ -48,7 +52,13 @@ def validate(value):
     if type(checked['navigation']['cycle_timeout_ms']) is not int or checked['navigation']['cycle_timeout_ms'] != CYCLE_TIMEOUT_MS:
         raise ValueError('Invalid manual-cycle deadline')
     checked['navigation']['cycle_timeout_ms'] = chat_batch.CYCLE_TIMEOUT_MS
-    chat_batch.validate(checked)
+    import os
+    native_skip = checked['navigation'].pop('shared_peer_skipped', False)
+    if type(native_skip) is not bool or type(shared_peer_skipped) is not bool or native_skip != shared_peer_skipped:
+        raise ValueError('Unverified shared peer skip')
+    if native_skip and os.environ.get('DVK_MUMU_MULTI') != '1':
+        raise ValueError('Shared skip outside MuMu worker')
+    chat_batch.validate(checked, skipped_empty=native_skip)
     return value
 
 
@@ -62,6 +72,12 @@ def monitor(script, store, text, approve, done, cancelled, state):
             pending = dict(cohort_pass.Store.check(pending))
             if cancelled() or done.is_set():
                 return
+            # A current shared claim skips before typing; reserve below still
+            # checks atomically again in case another worker wins during typing.
+            if getattr(store, 'mumu_shared_claims', False) is True and store.peer_claimed(pending):
+                from mumu_claims import skip
+                skip(script, pending, state)
+                return
             # No reservation (and no send authorization) on No, Stop or timeout.
             if approve(dict(pending), text, lambda: cancelled() or done.is_set()) is not True:
                 state['declined'] = True
@@ -69,7 +85,15 @@ def monitor(script, store, text, approve, done, cancelled, state):
                 return
             if cancelled() or done.is_set():
                 return
-            state['action_id'] = store.reserve(pending, text, approved=True)
+            try:
+                state['action_id'] = store.reserve(pending, text, approved=True)
+            except StateError as error:
+                from mumu_store import SharedPeerClaimed
+                if not isinstance(error, SharedPeerClaimed):
+                    raise
+                from mumu_claims import skip
+                skip(script, pending, state)
+                return
             if cancelled() or done.is_set():
                 return  # Durable unknown reservation is intentionally retained.
             if not script.exports_sync.cohortack(pending):
@@ -135,7 +159,8 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
                 thread = threading.Thread(target=target, args=args, daemon=True)
                 threads.append(thread)
                 thread.start()
-            value = validate(script.exports_sync.root())
+            raw = script.exports_sync.root()
+            value = validate(raw, shared_peer_skipped=state.get('shared_peer_skipped', False))
             done.set()
             for thread in threads:
                 thread.join(timeout=2)
