@@ -32,7 +32,7 @@ class Clock:
 class Context(guide.WholeChain):
     # Reuse fixture helpers, not inherited tests.
     def send(self,before,text):
-        kind='clarify' if text==clarify.TEXT else 'contact' if text==CONTACT_TEXT else 'question'
+        kind='followup' if text==__import__('assistant_contact_followup').TEXT else 'clarify' if text==clarify.TEXT else 'contact' if text==CONTACT_TEXT else 'question'
         with self.store.connection() as db:
             self.assertEqual(db.execute('SELECT status FROM chain_actions WHERE chat=? AND kind=?',('300',kind)).fetchone()[0],'reserved-unknown')
         self.sent.append(text);return dict(attempted=True,handler_returned=True)
@@ -64,8 +64,12 @@ class Context(guide.WholeChain):
         out=self.walk([first,first,seen],until_waiting=True)
         self.assertEqual(self.sent,[clarify.TEXT]);self.assertEqual(out['reason'],'contact-clarification-sent')
         self.chain=guided.GuidedChain(self.store,choose=lambda:0,seal=lambda v:v,unseal=lambda v:v)
-        out=self.walk([guide.snapshot(*h,(clarify.TEXT,True),('Тг лучше',False))],until_waiting=True)
-        self.assertEqual(out['submission_calls'],0);self.assertEqual(self.sent,[clarify.TEXT])
+        new=guide.snapshot(*h,(clarify.TEXT,True),('Тг лучше',False))
+        follow=__import__('assistant_contact_followup').TEXT
+        observed=guide.snapshot(*h,(clarify.TEXT,True),('Тг лучше',False),(follow,True))
+        out=self.walk([new,new,observed],until_waiting=True)
+        self.assertEqual(out['submission_calls'],1);self.assertEqual(self.sent,[clarify.TEXT,follow])
+        self.assertEqual(self.sent.count(clarify.TEXT),1)
 
     def test_refusal_and_unavailable_messenger_do_not_request_again(self):
         for text in ('Не хочу общаться','Тг не работает, давай потом','Не пиши мне, лучше тг'):

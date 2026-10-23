@@ -27,7 +27,7 @@ static Text text_a={{&greeting_string_class,0},5,{'H','e','l','l','o'}},text_b={
 static Object outgoing={&text_class,0},incoming={&text_class,0};
 static int body_reads,items,name_reads,own_chat_reads;
 static Object read_parents[31];
-static Object batch_messages[18];
+static Object batch_messages[128];
 static Text display_name={{&greeting_string_class,0},4,{0x410,0x43d,0x43d,0x430}}, changed_name={{&greeting_string_class,0},4,{0x418,0x43d,0x43d,0x430}};
 static Method extra[]={
  {"get_MessagesManager",&cc[1],0,&manager_type,100},
@@ -76,16 +76,16 @@ API Object *il2cpp_string_new(const char *text){
  if(!text||strcmp(text,expected_reply[0]?expected_reply:reply_texts[reply_variant]))greeting_bad++;
  return mode==604?NULL:&greeting_string;
 }
-API int il2cpp_string_length(Text *s){return mode==504?2049:s->length;}
+API int il2cpp_string_length(Text *s){return mode==504?8193:s->length;}
 API const uint16_t *il2cpp_string_chars(Text *s){return s->chars;}
 API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  int batch_index=-1;
- for(int bi=0;bi<18;bi++)if(obj==&batch_messages[bi])batch_index=bi;
+ for(int bi=0;bi<128;bi++)if(obj==&batch_messages[bi])batch_index=bi;
  int in=obj==&incoming||batch_index>0;if(exc)*exc=NULL;
- if(mode>=570&&mode<=574&&m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=mode==572&&items<4?16:18;return &integer_box;}
- if(mode>=570&&mode<=574&&m->action==109){
+ if(mode>=570&&mode<=575&&m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=mode==575?65:mode==572&&items<4?16:18;return &integer_box;}
+ if(mode>=570&&mode<=575&&m->action==109){
   managed_calls++;if(TID()!=main_id)off_thread_calls++;items++;
-  if(!args||!args[0]||*(int *)args[0]<0||*(int *)args[0]>=18){*exc=&exception;return NULL;}
+  if(!args||!args[0]||*(int *)args[0]<0||*(int *)args[0]>=(mode==575?65:18)){*exc=&exception;return NULL;}
   if(mode==571){
 #ifdef _WIN32
    Sleep(8);

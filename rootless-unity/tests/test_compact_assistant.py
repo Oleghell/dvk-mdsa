@@ -67,7 +67,7 @@ class CompactWindow(unittest.TestCase):
              patch.object(app.threading,'Thread') as thread:
             app.launch()
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
-            self.assertEqual(labels,['Старт','Только ответы','Стоп','Настройки','Открыть отчёты выбранного MuMu'])
+            self.assertEqual(labels,['Старт','Только ответы','Стоп','Настройки','Отчёты выбранного MuMu'])
             start.assert_not_called();credentials.assert_not_called();telegram.assert_not_called();thread.assert_not_called()
 
 

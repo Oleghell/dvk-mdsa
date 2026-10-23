@@ -11,4 +11,7 @@ def chosen(messages):
     from shared_contact import contact_items
     if any(contact_items(text,allow_unformatted=True) for text in texts):
         return False  # Do not ask for a contact already present but not safely self-attributed.
-    return bool(PLATFORM.search(value) and CHOICE.search(value) and not NEGATIVE.search(value))
+    # A terse list is an explicit choice in this already-requested-contact stage.
+    # Do not treat questions/objections mentioning an app as agreement.
+    short = re.fullmatch(r'\s*(?:тг|телеграм(?:м)?|телега|telegram|whats\s?app|ватсап|вацап|ватцап|вотсап)(?:[\s,/]+(?:или\s+)?(?:макс|max|тг|телеграм|whatsapp|ватсап|вацап))*[.!)]*\s*', value, re.I)
+    return bool(PLATFORM.search(value) and (CHOICE.search(value) or short) and not NEGATIVE.search(value))

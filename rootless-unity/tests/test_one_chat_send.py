@@ -108,7 +108,7 @@ class DurableSend(unittest.TestCase):
         self.assertNotIn(TEST_TEXT,json.dumps(public,ensure_ascii=False))
 
     def test_empty_or_full_history_is_not_submittable(self):
-        for messages in ([],[message(str(2000+i),'200',TEST_TEXT) for i in range(20)]):
+        for messages in ([],[message(str(2000+i),'200',TEST_TEXT) for i in range(128)]):
             with self.assertRaises(ValueError):sender.checked(dict(identity=WHO,messages=messages))
 
 

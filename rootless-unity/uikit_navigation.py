@@ -267,7 +267,7 @@ FUNCTION=FUNCTION.replace("timer=setTimeout(()=>finish('callback-timeout'),8000)
    finish('callback-timeout');},16000);""")
 
 
-def validate(value, *, max_frames=MAX_FRAMES, phases=PHASES, errors=ERRORS, kinds=KINDS, allow_ui_text=False):
+def validate(value, *, max_calls=MAX_CALLS, max_frames=MAX_FRAMES, phases=PHASES, errors=ERRORS, kinds=KINDS, allow_ui_text=False):
     if not isinstance(value,dict) or 'navigation' not in value:raise ValueError('Missing navigation report')
     n=value['navigation']
     flags={'cleanup_failed','search_verified','filters_verified','return_verified','open_attempted',
@@ -278,7 +278,7 @@ def validate(value, *, max_frames=MAX_FRAMES, phases=PHASES, errors=ERRORS, kind
     if n['stage'] not in {'not-attempted','navigation-running','navigation-ready','navigation-stopped','cleanup-failed'} or n['phase'] not in phases or n['error'] not in errors:raise ValueError('Invalid navigation state')
     if n['stage']=='navigation-running':raise ValueError('Unfinished navigation')
     if any(type(n[k]) is not bool for k in flags):raise ValueError('Invalid navigation flag')
-    for key,limit in [('frames',max_frames),('managed_calls',MAX_CALLS),('handles_acquired',max_frames*64+2),('handles_released',max_frames*64+2)]:
+    for key,limit in [('frames',max_frames),('managed_calls',max_calls),('handles_acquired',max_frames*64+2),('handles_released',max_frames*64+2)]:
         if type(n[key]) is not int or not 0<=n[key]<=limit:raise ValueError('Invalid navigation count')
     if n['handles_released']>n['handles_acquired'] or (not n['cleanup_failed'] and n['handles_acquired']!=n['handles_released']):raise ValueError('Unreported handle leak')
     if any(n[k] not in kinds for k in ('root_top_kind','last_presented_kind')) or n['action_backend']!='semantic-controller-handlers' or (n['ui_text_read'] and not allow_ui_text):raise ValueError('Unexpected backend or screen data')

@@ -30,21 +30,20 @@ def launch(self_check=False):
     from tkinter import ttk, filedialog, messagebox
     root = tk.Tk()
     root.title('DvkAssistant ' + VERSION + ' · ДругВокруг · MuMu · несколько устройств')
-    root.geometry('880x730')
-    root.minsize(780, 650)
-    frame = ttk.Frame(root, padding=20)
+    root.geometry('760x430')
+    root.minsize(680, 380)
+    frame = ttk.Frame(root, padding=12)
     frame.pack(fill='both', expand=True)
-    ttk.Label(frame, text='ДругВокруг · MuMu · несколько устройств', font=('Segoe UI', 18, 'bold')).pack(anchor='w')
+    ttk.Label(frame, text='ДругВокруг · MuMu', font=('Segoe UI', 14, 'bold')).pack(anchor='w')
     status = tk.StringVar(value='Готово • версия ' + VERSION)
     try:
         settings = replace(Settings() if self_check else load(),profile_interval=120,reply_interval=5)
     except StateError as error:
         settings = Settings()
         status.set(str(error))
-    ttk.Label(frame, textvariable=status, wraplength=520).pack(anchor='w', pady=(18, 12))
-    ttk.Label(frame, text='Старт: анкеты + ответы. Только ответы: без поиска анкет.\nИИ: сначала ключи Groq, затем бесплатный OpenRouter; Telegram — контакты и коды ошибок.', wraplength=640).pack(anchor='w')
+    ttk.Label(frame, textvariable=status, wraplength=700).pack(anchor='w', pady=(8, 6))
     controls = ttk.Frame(frame)
-    controls.pack(fill='x', pady=(18, 0))
+    controls.pack(fill='x', pady=(8, 0))
     events = queue.Queue()
     stopped = threading.Event()
     busy = False
@@ -304,28 +303,26 @@ def launch(self_check=False):
 
     devices_box=ttk.LabelFrame(frame,text='Порты MuMu ADB — по одному на строку',padding=8)
     devices_box.pack(fill='both',expand=True,pady=12)
-    ports_box=tk.Text(devices_box,width=20,height=7)
+    ports_box=tk.Text(devices_box,width=9,height=6)
     ports_box.pack(side='left',fill='y')
     try:initial_ports=load_ports() if not self_check else [5557,5559,5561,5563,5565]
     except MumuError as error:
         initial_ports=[];status.set(str(error))
     ports_box.insert('1.0','\n'.join(map(str,initial_ports)))
-    device_table=ttk.Treeview(devices_box,columns=('port','status'),show='headings',height=7)
+    device_table=ttk.Treeview(devices_box,columns=('port','status'),show='headings',height=6)
     device_table.heading('port',text='ADB порт');device_table.heading('status',text='Состояние')
     device_table.column('port',width=80,stretch=False);device_table.column('status',width=510)
     scroll=ttk.Scrollbar(devices_box,orient='vertical',command=device_table.yview)
     device_table.configure(yscrollcommand=scroll.set)
     scroll.pack(side='right',fill='y');device_table.pack(side='left',fill='both',expand=True,padx=(8,0))
-    ttk.Label(frame,text='Одна общая база: защита от повторного приветствия на всех выбранных MuMu.\n'
-        'Пауза между порциями — 2 минуты с обработкой лички; печать — 35 слов/мин.\n'
-        'Проверки экрана и неизвестных отправок сохранены. Отчёты 5563 — в корне DvkAssistant.',wraplength=780).pack(anchor='w')
+    ttk.Label(frame,text='Общая база · 35 слов/мин · 2 минуты в личке между порциями').pack(anchor='w')
     def show_reports():
         try:
             selected=device_table.selection()
             path=device_directory(int(selected[0])) if selected else data_directory()
             path.mkdir(parents=True,exist_ok=True);os.startfile(str(path))
         except (OSError,AttributeError,ValueError):status.set('Отчёты: %LOCALAPPDATA%/DvkAssistant; остальные порты — devices/<порт>.')
-    ttk.Button(frame,text='Открыть отчёты выбранного MuMu',command=show_reports).pack(anchor='w',pady=6)
+    ttk.Button(frame,text='Отчёты выбранного MuMu',command=show_reports).pack(anchor='w',pady=6)
 
     def poll():
         nonlocal busy

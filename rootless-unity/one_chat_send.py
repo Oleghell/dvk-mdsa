@@ -4,6 +4,8 @@ Caller commits authorization before submission. Default retains the manual
 test question; automatic callers may use templates or validated AI drafts.
 No arbitrary text, navigation, typing imitation or retries.
 """
+from chat_limits import MAX_MESSAGES, MAX_TEXT, MAX_TOTAL_TEXT
+
 import copy
 import json
 from one_chat_preview import QUESTION
@@ -19,7 +21,7 @@ def checked(snapshot):
         raise ValueError('Invalid submission snapshot')
     who = reader.identity(snapshot['identity'])
     messages = snapshot['messages']
-    if not isinstance(messages, list) or not 1 <= len(messages) < 20:
+    if not isinstance(messages, list) or not 1 <= len(messages) < MAX_MESSAGES:
         raise ValueError('No room for one test reply')
     seen = set()
     for m in messages:
@@ -29,9 +31,9 @@ def checked(snapshot):
         if m['id'] in seen or m['sender'] not in {who['account'],who['peer']}:
             raise ValueError('Invalid submission identity')
         seen.add(m['id'])
-        if m['text'] is not None and (not isinstance(m['text'],str) or len(m['text'])>2048 or '\0' in m['text']):
+        if m['text'] is not None and (not isinstance(m['text'],str) or len(m['text'])>MAX_TEXT or '\0' in m['text']):
             raise ValueError('Invalid submission text')
-    if sum(len(m['text'] or '') for m in messages)>16384:
+    if sum(len(m['text'] or '') for m in messages)>MAX_TOTAL_TEXT:
         raise ValueError('Too much submission text')
     return copy.deepcopy(snapshot)
 

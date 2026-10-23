@@ -83,7 +83,7 @@ class Adapter(unittest.TestCase):
         self.assertEqual(len(history), 19)
         self.assertEqual([m['text'] for m in history], [m['text'] for m in v['messages']])
         with self.assertRaises(ValueError):
-            g.public_context(snapshot(*[('x'*500, False) for _ in range(20)]))
+            g.public_context(snapshot(*[('x'*500, False) for _ in range(128)]))
 
     def test_auth_rate_limit_server_and_other_http_errors_are_fixed(self):
         for status, reason in ((401, 'groq-unauthorized'), (403, 'groq-unauthorized'),
@@ -234,7 +234,7 @@ class Drafts(unittest.TestCase):
 
     def walk(self, values, sender=None):
         return guided.walk(self.chain,WHO,self.stop,RunAuthorization(self.stop, wait=lambda _: False),
-           MagicMock(side_effect=copy.deepcopy(values)),sender or MagicMock(),approved=True,
+           MagicMock(side_effect=__import__('test_guided_chain').stable_snapshots(copy.deepcopy(values))),sender or MagicMock(),approved=True,
            greetings=(GREETING,),pause=lambda _:False,until_waiting=True,max_polls=8)
 
     def test_history_changed_after_generation_cannot_send(self):

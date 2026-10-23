@@ -83,7 +83,7 @@ def ai_chain(library):
         after = copy.deepcopy(BEFORE)
         after['messages'].append(dict(id='1003', sender='100', text=text))
         stop = Event()
-        reads = MagicMock(side_effect=[BEFORE, BEFORE, after])
+        reads = MagicMock(side_effect=[BEFORE, BEFORE, after, after])
         sent = []
         def send(snapshot, draft):
             sent.append(draft)

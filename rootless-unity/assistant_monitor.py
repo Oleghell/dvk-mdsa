@@ -131,27 +131,6 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     pass
             raise
 
-    last_between_check = clock()
-    def between_profiles():
-        nonlocal last_between_check
-        check_stop()
-        if clock() - last_between_check < settings.reply_interval:
-            return
-        navigate('list','search')
-        current = inbox(settings,stopped,approve,progress,entry='dialogs',return_to='dialogs')
-        out['last_pass'] = current
-        add_counters(current)
-        check_stop()
-        if (current['status'] not in ('inbox-completed','inbox-empty') or
-                current['status'] != 'inbox-empty' and not current.get('dialogs_verified') or
-                set(current['outcomes']) & PAUSE_OUTCOMES):
-            raise StateError('between-profile-inbox-stopped')
-        out['passes_completed'] += 1
-        out['between_profile_checks'] += 1
-        navigate('return','dialogs')
-        last_between_check = clock()
-        out.update(status='checking',reason='between-profile-inbox')
-        publish()
 
 
     try:
@@ -168,8 +147,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 phase = 'initial-pass-stopped'
                 out['ui_may_remain_open'] = True
                 first = initial(settings, stopped, approve, progress,
-                                mode='full', fresh_session=fresh_session, lock=nullcontext,
-                                between_profiles=between_profiles)
+                                mode='full', fresh_session=fresh_session, lock=nullcontext)
                 out['initial_run'] = first
                 out['last_preparation_failure']=run_preparation.from_report(first)
                 if first.get('inbox'):
@@ -227,7 +205,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     phase = 'profile-repeat-stopped'
                     out.update(dialogs_verified=False, ui_may_remain_open=True)
                     batch = repeat(settings, stopped, approve, progress, mode='profiles',
-                                   fresh_session=True, lock=nullcontext, between_profiles=between_profiles)
+                                   fresh_session=True, lock=nullcontext)
                     out['last_profile_run'] = batch
                     out['last_preparation_failure']=run_preparation.from_report(batch)
                     check_stop()

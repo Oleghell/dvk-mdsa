@@ -2,6 +2,8 @@
 
 Never sent to GitHub/Telegram/agent. Not a complete chronological archive.
 """
+from chat_limits import MAX_MESSAGES, MAX_TEXT, MAX_TOTAL_TEXT
+
 import json
 import os
 import tempfile
@@ -13,7 +15,7 @@ def validate(snapshot, expected):
     if not isinstance(snapshot,dict) or set(snapshot) != {'identity','messages'} or identity(snapshot['identity']) != identity(expected):
         raise ValueError('Wrong local transcript binding')
     messages = snapshot['messages']
-    if not isinstance(messages,list) or len(messages)>20:
+    if not isinstance(messages,list) or len(messages)>MAX_MESSAGES:
         raise ValueError('Invalid local transcript size')
     seen=set()
     for m in messages:
@@ -23,9 +25,9 @@ def validate(snapshot, expected):
         if m['id'] in seen or m['sender'] not in (expected['account'],expected['peer']):
             raise ValueError('Invalid local transcript identity')
         seen.add(m['id'])
-        if m['text'] is not None and (not isinstance(m['text'],str) or len(m['text'])>2048 or '\0' in m['text']):
+        if m['text'] is not None and (not isinstance(m['text'],str) or len(m['text'])>MAX_TEXT or '\0' in m['text']):
             raise ValueError('Invalid local transcript text')
-    if sum(len(m['text'] or '') for m in messages)>16384:
+    if sum(len(m['text'] or '') for m in messages)>MAX_TOTAL_TEXT:
         raise ValueError('Local transcript limit')
     return snapshot
 

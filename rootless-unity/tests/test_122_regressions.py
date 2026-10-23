@@ -59,7 +59,7 @@ class LocalReadIsolation(Base):
         self.assertEqual((out['dialogs_processed'], out['isolated_dialogs']), (2, 1))
         self.assertEqual(out['isolated_reasons'], {'local-own-message-unanchored': 1})
         self.assertEqual(self.sent, ['Как дела?)'])
-        self.assertEqual(self.reader.call_count, 4)  # bad chat is not retried
+        self.assertEqual(self.reader.call_count, 5)  # bad chat is not retried
         self.assertEqual(out['outcomes']['isolated:local-own-message-unanchored'], 1)
         self.assertNotIn('PRIVATE', json.dumps(out))
         with self.store.connection() as db:
@@ -209,8 +209,8 @@ class Continuation(unittest.TestCase):
             self.assertNotIn(secret,encoded)
 
     def test_oversized_or_invalid_context_never_makes_http_request(self):
-        cases=[snapshot(*[('x',False) for _ in range(20)]), snapshot(('x'*2049,False)),
-               snapshot(*[('x'*2048,False) for _ in range(9)])]
+        cases=[snapshot(*[('x',False) for _ in range(128)]), snapshot(('x'*8193,False)),
+               snapshot(*[('x'*8192,False) for _ in range(9)])]
         wrong=snapshot(('Привет',False));wrong['_reply_ids']=['1001'];cases.append(wrong)
         for value in cases:
             client=groq_tests.Adapter().client()

@@ -136,8 +136,11 @@ def with_seen_ids(chain, allowed):
     out=[]
     with chain.store.connection() as db:
         for who in allowed:
-            rows=db.execute('SELECT message FROM chain_seen WHERE chat=? LIMIT 21', (who['chat'],)).fetchall()
-            if len(rows)>20:raise StateError('observed-history-too-large')
+            from assistant_reply_audit import initialize
+            initialize(db)
+            rows=db.execute('''SELECT message FROM chain_seen WHERE chat=? AND message NOT IN
+              (SELECT message FROM chain_reply_receipts WHERE chat=? AND status='pending') LIMIT 129''', (who['chat'],who['chat'])).fetchall()
+            if len(rows)>128:raise StateError('observed-history-too-large')
             out.append(dict(who,seen_ids=[r[0] for r in rows]))
     return targets(out)
 
@@ -307,6 +310,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 out['personal_data_exported'] = True
             deferred = result['reason'] in ('history-loading-timeout','history-read-budget-timeout','history-snapshot-too-large')
             ai_deferred=result['reason']=='ai-temporarily-unavailable'
+            answer_deferred=result['reason']=='incoming-answer-pending'
             evidence = result['diagnostics']
             deferred_valid = ((result['reason'] == 'history-loading-timeout'
                     and evidence.get('history_wait_exhausted') is True
@@ -330,8 +334,11 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 # Global/API/read/identity errors must not be treated as local.
                 out.update(status='inbox-stopped', reason='chat-' + result['reason'])
                 return out
+            from assistant_reply_audit import pending as pending_replies
+            unanswered=pending_replies(chain,who)
+            result['unanswered_messages']=len(unanswered)
             notice_needed=(not result['notifications']['accepted']
-                    and (not result['outgoing_observed_this_run'] or result['stages']['peer_contact']))
+                    and (bool(unanswered) or not result['outgoing_observed_this_run'] or result['stages']['peer_contact']))
             exit_image=None;exit_image_status=None
             capture_needed=notice_needed and exit_notifier is not None and exit_photo is not None
             if capture_needed:
@@ -355,7 +362,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             call('back', expected=who)
             # Only a successful, SAME-chat back may make a read failure local.
             # Do not change chain stage, reservations, consumed messages or review state.
-            if deferred or ai_deferred:
+            if deferred or ai_deferred or answer_deferred:
                 history_wait.defer(chain.store,who,clock=clock)
                 out['history_deferred'] += 1
                 progress('ИИ не дал проверенный ответ. Проверю чат позже.' if ai_deferred else 'Не удалось дочитать историю. Вернулся в личку; проверю этот чат позже.')
@@ -380,7 +387,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 progress('Диалоги • один чат на проверке, продолжаю остальные')
             out['dialogs_processed'] += 1
             processed.add((who['account'],who['peer']))
-            if not deferred and not ai_deferred:
+            if not deferred and not ai_deferred and not answer_deferred and not unanswered:
                 record_checked(chain, who)
             for group in groups:
                 group[0][:] = [x for x in group[0] if (x['account'], x['peer']) != (who['account'], who['peer'])]

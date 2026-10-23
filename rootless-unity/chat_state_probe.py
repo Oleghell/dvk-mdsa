@@ -151,7 +151,7 @@ def build():
 FUNCTION=build()
 
 
-def validate(value):
+def validate(value, *, max_calls=base.MAX_CALLS):
     if not isinstance(value,dict) or not isinstance(value.get('navigation'),dict):raise ValueError('Missing chat state')
     v=copy.deepcopy(value);n=v['navigation']
     extras={'read_checkpoint','wait_reason','model_actual','model_draft','model_has_cm','cm_present','loaded_field_present','metadata_checkpoint','loaded_value_method_found','loaded_value_return_kind','loaded_value_byref','loaded_value_owner_verified','loaded_value_owner_inherited','loaded_value_owner_scope','loaded_value_static','loaded_value_abstract','loaded_value_arity','history_status','message_count','history_fully_loaded','history_loading','last_message_present','samples','sample_interval_ms','chat_identity_verified','app_actions_attempted','messages_sent'}
@@ -192,5 +192,5 @@ def validate(value):
     n['action_backend']='semantic-controller-handlers'
     if n.get('stage')=='navigation-ready':
         for k in forbidden:n[k]=True
-    base.validate(v)
+    base.validate(v,max_calls=max_calls)
     return value

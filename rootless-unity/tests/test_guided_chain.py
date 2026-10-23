@@ -1,5 +1,6 @@
 """Whole-chain synthetic integration tests. No real accounts or network."""
 import copy
+import itertools
 import json
 from pathlib import Path
 import tempfile
@@ -41,6 +42,10 @@ def sequence(choice=0):
             snapshot(hello, question, mood, contact, (CONTACT, False))]
 
 
+def stable_snapshots(values):
+    values=list(values)
+    return itertools.chain(values,itertools.repeat(copy.deepcopy(values[-1]))) if values and isinstance(values[-1],dict) else iter(values)
+
 class WholeChain(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -67,7 +72,7 @@ class WholeChain(unittest.TestCase):
                         pause=lambda _: False, max_polls=12)
         defaults.update(kwargs)
         return guided.walk(self.chain, WHO, self.stop, self.approve,
-                           MagicMock(side_effect=sequence() if history is None else history),
+                           MagicMock(side_effect=stable_snapshots(sequence() if history is None else history)),
                            self.send, **defaults)
 
     def test_all_stages_in_one_run_both_question_variants(self):

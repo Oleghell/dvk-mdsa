@@ -130,7 +130,7 @@ def rules(path=None):
 
 def public_context(snapshot):
     # All of the verified bounded snapshot, not a guessed chronological window.
-    # Keep native limits: <20 messages, <=2048 chars each, <=16384 in total.
+    # Shared full-history bounds: <128 messages, <=8192 chars each, <=65536 total.
     # No identifiers, profile/name, timestamps or attachments are exported.
     from one_chat_send import checked
     value = checked({key: snapshot[key] for key in ('identity', 'messages')})

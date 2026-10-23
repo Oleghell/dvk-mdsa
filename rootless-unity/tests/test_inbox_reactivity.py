@@ -145,18 +145,18 @@ class ProfileInterleaving(unittest.TestCase):
         def navf(operation,*a,**k):
             events.append(operation)
             return list_result() if operation=='list' else dict(list_result(),state='search-ready')
-        def initial(*args,between_profiles,**kwargs):
+        def initial(*args,between_profiles=None,**kwargs):
             events.append('profile-one');now[0]=6
-            between_profiles()
+            self.assertIsNone(between_profiles)
             events.append('profile-two')
             return dict(status='completed',report_name='last-run.json')
         def inboxf(*a,**k):events.append('inbox');return inbox_result()
         def wait(delay):stop.set();return True
         out=monitor.run(settings.Settings(),stop,lambda _:True,initial=initial,inbox=inboxf,navigator=navf,
             lock=nullcontext,write=lambda _:'last-monitor.json',clock=lambda:now[0],wait=wait)
-        self.assertEqual(out['status'],'cancelled');self.assertEqual(out['between_profile_checks'],1)
+        self.assertEqual(out['status'],'cancelled');self.assertEqual(out['between_profile_checks'],0)
         begin=events.index('profile-one');end=events.index('profile-two')
-        self.assertEqual(events[begin:end],['profile-one','list','inbox','return'])
+        self.assertEqual(events[begin:end],['profile-one'])
         self.assertTrue(out['dialogs_verified'])
 
     def test_callback_failure_stops_next_profile_cycle(self):

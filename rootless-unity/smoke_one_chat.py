@@ -32,10 +32,10 @@ def one(library, mode, expected=None):
         if expected is None and mode!=509:
             assert private==dict(identity=dict(account='100',peer='200',chat='300'),messages=None),(mode,out)
             assert counts['bodies']==counts['items']==0
-        elif mode in (570,571,572):
+        elif mode in (570,571,572,575):
             assert private is not None,(mode,out,counts)
-            assert len(private['messages'])==18,(mode,out)
-            assert [x['id'] for x in private['messages']]==[str(1001+i) for i in range(18)]
+            assert len(private['messages'])==(65 if mode==575 else 18),(mode,out)
+            assert [x['id'] for x in private['messages']]==[str(1001+i) for i in range(65 if mode==575 else 18)]
             assert all(x['text']=='Reply' for x in private['messages'][1:])
         elif mode in (500,507,550,560,567,568) and expected['peer']=='200':
             assert private is not None,(mode,out,counts)
@@ -78,6 +78,6 @@ if __name__=='__main__':
     lib=Path(sys.argv[1]).resolve(strict=True)
     one(lib,500)
     who=dict(account='100',peer='200',chat='300')
-    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574):one(lib,mode,who)
+    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575):one(lib,mode,who)
     one(lib,500,dict(account='100',peer='201',chat='300'))
     print('Synthetic read-only ABI passed; live Android has not been tested.')

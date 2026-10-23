@@ -191,6 +191,9 @@ class GuidedChain(Chain):
         return True
 
     def proposal(self, snapshot):
+        from assistant_reply_audit import observe, recycle_followup
+        observe(self,snapshot)
+        recycle_followup(self,snapshot)
         who = snapshot['identity']
         with self.store.connection() as db:
             unapproved = {row[0] for row in db.execute(
@@ -218,6 +221,7 @@ class GuidedChain(Chain):
                             seen = {r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?', (who['chat'],))}
         reply_ids = [m['id'] for m in snapshot['messages'] if m['sender'] == who['peer'] and m['id'] not in seen]
         stage, action = self.consume(snapshot)
+        observe(self,snapshot,input_ids=reply_ids)
         if ((stage == 'wait-mood' and 'question' in unapproved) or
                 (stage == 'wait-contact' and 'contact' in unapproved)):
             self.mark_review(who)
@@ -494,6 +498,21 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     wait_reason='contact-clarification-sent'
                 if stage == 'wait-contact' and observed.get('followup') == 'outgoing-observed':
                     wait_reason='contact-followup-sent'
+                from assistant_reply_audit import synchronize,pending
+                synchronize(chain,before)
+                if out['submission_calls'] and not out['diagnostics'].get('post_send_checked'):
+                    fresh=read()
+                    out['diagnostics']['post_send_checked']=True
+                    if not same_snapshot(before,fresh):
+                        if not extends_snapshot(before,fresh):raise StateError('guided-contact-history-changed')
+                        before=fresh
+                        continue
+                remaining=pending(chain,who)
+                out['unanswered_messages']=len(remaining)
+                if remaining:
+                    wait_reason='incoming-answer-pending'
+                    if exit_capture is not None:
+                        exit_capture([m['text'] if isinstance(m['text'],str) else '[нет текста]' for m in before['messages'] if m['id'] in remaining and m['sender']==who['peer']])
                 out.update(status='chain-waiting', reason=wait_reason)
                 return out
             if action is not None:
@@ -551,6 +570,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     out['diagnostics']['failure_point'] = 'send-handler-unconfirmed'
                 out['handler_returns'] += int(returned)
                 chain.finish(who, action, returned)
+                out['diagnostics']['post_send_checked']=False
                 if send_failure is not None:
                     out['diagnostics']['failure_point'] = send_failure
                     out.update(reason=send_failure)

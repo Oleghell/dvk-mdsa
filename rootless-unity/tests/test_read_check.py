@@ -201,7 +201,7 @@ class ReadCheck(unittest.TestCase):
     def test_malformed_snapshot_never_reaches_analysis(self):
         bad=[]
         value=snapshot();value['peer_name']='PRIVATE';bad.append(value)
-        value=snapshot();value['messages'][0]['text']='x'*2049;bad.append(value)
+        value=snapshot();value['messages'][0]['text']='x'*8193;bad.append(value)
         value=snapshot();value['messages'][1]['id']='1001';bad.append(value)
         value=snapshot();value['messages'][1]['sender']='999';bad.append(value)
         for value in bad:

@@ -15,8 +15,9 @@ REASONS = {
  'history-loading-timeout':'История диалога не загрузилась. Пока пропустил, проверю позже.',
  'contact-photo-unavailable':'Контакт сохранён. Не удалось проверить снимок профиля; отправка отложена.',
  'contact-clarification-sent':'Номер или ник уже уточнил. Жду контакт, повторный запрос не отправлен.',
+ 'incoming-answer-pending':'Ответ на новые сообщения ещё не подтверждён. Чат остаётся в очереди, проверю позже.',
  'wait-contact':'Жду добровольный контакт или новое сообщение.',
- 'contact-followup-sent':'На сообщение ответил. Пока продолжаем здесь; контакт повторно не прошу.',
+ 'contact-followup-sent':'Ответ подтверждён в переписке. Повторный запрос контакта не отправлен.',
  'wait-reply':'Нового сообщения для ответа нет.',
  'wait-mood':'Жду ответ на уже отправленный вопрос.',
  'incoming-burst-pending':'Ещё приходят сообщения. Отвечу после следующей проверки.',
@@ -54,7 +55,10 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
         salt = row[0] if row else 'exit-notice-v1'
         ref = hmac.new(salt.encode(), who['chat'].encode(), hashlib.sha256).hexdigest()[:10]
         seen = db.execute('SELECT message,fingerprint FROM chain_seen WHERE chat=? ORDER BY message', (who['chat'],)).fetchall()
-        signature = hashlib.sha256(json.dumps([reason,cause,seen],ensure_ascii=True).encode()).hexdigest()
+        # Distinct unread batches must not be hidden by an older notice.
+        excerpts=result.get('_exit_messages',[])
+        batch=hashlib.sha256(json.dumps(excerpts if isinstance(excerpts,list) else [],ensure_ascii=True).encode()).hexdigest()
+        signature = hashlib.sha256(json.dumps([reason,cause,seen,batch],ensure_ascii=True).encode()).hexdigest()
         db.execute('CREATE TABLE IF NOT EXISTS chain_exit_notices(chat TEXT,signature TEXT,status TEXT NOT NULL,PRIMARY KEY(chat,signature))')
         previous = db.execute('SELECT status FROM chain_exit_notices WHERE chat=? AND signature=?', (who['chat'],signature)).fetchone()
         if previous:
@@ -98,7 +102,7 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
     if reason=='ai-temporarily-unavailable':
         from mumu_ai import failure_explanation
         explanation=failure_explanation((result.get('diagnostics') or {}).get('ai_failures',[]))
-    text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Сообщение собеседника прочитать не удалось.\n') + 'Пропущено: ' + explanation
+    text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Сообщение собеседника прочитать не удалось.\n') + ('Статус: ' if reason in ('contact-followup-sent','contact-clarification-sent') else 'Пропущено: ') + explanation
     if photo_status=='unavailable':text+='\nСнимок переписки получить не удалось.'
     text=text[:950]  # reserve room for the port label in the 1024-char caption
     try:

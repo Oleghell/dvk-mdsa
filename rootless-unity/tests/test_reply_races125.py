@@ -28,7 +28,7 @@ class Burst(Base):
         fresh=snap(msg(1002,'Привет'),msg(1003,'Я на работе'))
         after=snap(msg(1002,'Привет'),msg(1003,'Я на работе'),msg(1004,QUESTIONS[0],True))
         approve=MagicMock(return_value=True);sender=MagicMock(return_value=dict(attempted=True,handler_returned=True))
-        out=guided.walk(chain,WHO,self.stop,approve,MagicMock(side_effect=[first,fresh,fresh,after]),sender,
+        out=guided.walk(chain,WHO,self.stop,approve,MagicMock(side_effect=[first,fresh,fresh,after,after]),sender,
                         approved=True,greetings=('Привет 🙂',),pause=lambda _:False,until_waiting=True,max_polls=8)
         self.assertEqual(out['status'],'chain-waiting');self.assertEqual(out['stage'],'wait-mood')
         self.assertEqual(out['diagnostics']['incoming_draft_refreshes'],1)

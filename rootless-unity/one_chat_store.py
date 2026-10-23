@@ -1,4 +1,6 @@
 """Separate one-chat test state: IDs and salted fingerprints, never bodies."""
+from chat_limits import MAX_MESSAGES, MAX_TEXT, MAX_TOTAL_TEXT
+
 import hashlib
 import hmac
 import json
@@ -60,7 +62,7 @@ class TestChatStore:
     def consume(self, snapshot, *, preview=False):
         who = identity(snapshot['identity'])
         messages = snapshot['messages']
-        if not isinstance(messages, list) or len(messages) > 20:
+        if not isinstance(messages, list) or len(messages) > MAX_MESSAGES:
             raise ValueError('Invalid test snapshot')
         self.db.execute('BEGIN IMMEDIATE')
         try:
@@ -75,7 +77,7 @@ class TestChatStore:
                 identity(dict(account=who['account'], peer=who['peer'], chat=m['id']))
                 if m['sender'] not in (who['account'],who['peer']):
                     raise ValueError('Invalid sender')
-                if m['text'] is not None and (not isinstance(m['text'],str) or len(m['text'])>2048 or '\x00' in m['text']):
+                if m['text'] is not None and (not isinstance(m['text'],str) or len(m['text'])>MAX_TEXT or '\x00' in m['text']):
                     raise ValueError('Invalid text')
                 key = self._hash(m['id'])
                 if key in records:
@@ -83,7 +85,7 @@ class TestChatStore:
                 records[key] = self._hash(m)
                 if m['sender'] == who['peer']:
                     incoming.add(key)
-            if sum(len(m['text'] or '') for m in messages) > 16384:
+            if sum(len(m['text'] or '') for m in messages) > MAX_TOTAL_TEXT:
                 raise ValueError('Too much text')
             if not set(old) <= set(records) or any(records[k] != v for k,v in old.items()):
                 raise ValueError('History changed; nothing consumed')

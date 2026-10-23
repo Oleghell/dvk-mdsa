@@ -2,6 +2,7 @@
 import math
 import time
 from one_chat_probe import identity
+from chat_limits import MAX_MESSAGES
 
 WAIT_SECONDS = 15.0
 WAIT_INTERVAL = 1.0
@@ -34,7 +35,7 @@ def verified_read_budget(value):
         and value.get("scalar_state") == "positive"
         and value.get("wait_reason") == "none"
         and type(value.get("message_slot")) is int
-        and 0 <= value["message_slot"] < 20)
+        and 0 <= value["message_slot"] < MAX_MESSAGES)
 
 
 def verified_loading(value):

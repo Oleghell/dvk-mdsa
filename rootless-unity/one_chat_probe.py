@@ -12,8 +12,7 @@ import uikit_navigation as nav
 from uikit_profile_navigation import replace_once
 
 VERSION = '0.3.35'
-MAX_MESSAGES = 20
-MAX_TEXT = 2048
+from chat_limits import MAX_MESSAGES, MAX_TEXT, MAX_TOTAL_TEXT, READ_MAX_CALLS
 STATE_FIELDS = {'read_checkpoint','wait_reason','model_actual','model_draft','model_has_cm','cm_present','loaded_field_present','metadata_checkpoint','loaded_value_method_found','loaded_value_return_kind','loaded_value_byref','loaded_value_owner_verified','loaded_value_owner_inherited','loaded_value_owner_scope','loaded_value_static','loaded_value_abstract','loaded_value_arity','history_status','message_count','history_fully_loaded','history_loading','last_message_present','samples','sample_interval_ms','chat_identity_verified','app_actions_attempted','messages_sent'}
 ERRORS = state.ERRORS | {'identity-not-bound', 'snapshot-too-large', 'message-invalid', 'snapshot-changing', 'nonpositive-message-id', 'nonpositive-message-sender-id', 'nonpositive-message-chat-id', 'local-own-message-unanchored'}
 
@@ -109,7 +108,7 @@ BIND = r'''
 '''
 COLLECT = r'''
    // Only exact bound IDs reach this point. No collection-order assumption.
-   if(first>20)fail('snapshot-too-large');
+   if(first>__MAX_MESSAGES__)fail('snapshot-too-large');
    const messages=[],seenIds=new Set();let totalText=0;
    const headers=[],messageBindings=[];let localOwn=0,peerAnchors=0;
    const releaseOne=h=>{f.release(h);n.handles_released++;held.splice(held.indexOf(h),1);};
@@ -158,7 +157,7 @@ COLLECT = r'''
      const {id,sender}=row.bits;let text=null;
      if(f.assignable(s.textMessage,f.objectClass(message))){
       const value=call(s.messageText,message);if(value.isNull()||!f.objectClass(value).equals(s.stringClass))fail('message-invalid');const sh=own(value);
-      const length=f.stringLength(value);if(length<0||length>2048||(chunk.totalText+=length)>16384)fail('snapshot-too-large');
+      const length=f.stringLength(value);if(length<0||length>__MAX_TEXT__||(chunk.totalText+=length)>__MAX_TOTAL_TEXT__)fail('snapshot-too-large');
       const chars=f.stringChars(value);if(chars.isNull()&&length!==0)fail('message-invalid');
       text=length===0?'':chars.readUtf16String(length);if(text===null||text.includes('\u0000'))fail('message-invalid');releaseOne(sh);
      }
@@ -192,7 +191,7 @@ def build(expected=None, *, read_name=False, scoped_traversal=False):
     source = replace_once(source, "if(!f.classFromType(f.returnType(m)).equals(s.vc))fail('signature-mismatch');", "if(!f.classFromType(f.returnType(m)).equals(entry.result||s.vc))fail('signature-mismatch');")
     source = replace_once(source, "messages_sent:0};}", "messages_sent:0,private_result:null,scalar_checkpoint:'not-read',scalar_state:'not-read',identity_checkpoint:'not-checked',message_slot:-1,message_kind:'not-read',message_direction:'not-read'};}")
     source = replace_once(source, "save('origin',current);save('card',chat);save('user',user);n.chat_identity_verified=true;", "save('origin',current);save('card',chat);save('user',user);n.chat_identity_verified=true;" + BIND)
-    source = replace_once(source, "n.read_checkpoint='recheck';", COLLECT + "\n   n.read_checkpoint='recheck';")
+    source = replace_once(source, "n.read_checkpoint='recheck';", COLLECT.replace('__MAX_MESSAGES__',str(MAX_MESSAGES)).replace('__MAX_TEXT__',str(MAX_TEXT)).replace('__MAX_TOTAL_TEXT__',str(MAX_TOTAL_TEXT)) + "\n   n.read_checkpoint='recheck';")
     source = replace_once(source, "const sample={count:first,last:!lastMessage.isNull(),draft:n.model_draft};", "verifyWho();\n   const sample={count:first,last:!lastMessage.isNull(),draft:n.model_draft,identity:who,messages,messageBindings};")
     source = replace_once(source, "state.sample.draft!==sample.draft", "state.sample.draft!==sample.draft||JSON.stringify(state.sample)!==JSON.stringify(sample)")
     source = replace_once(source, "n.read_checkpoint='complete';n.samples=2;", "n.private_result={identity:who,messages};n.read_checkpoint='complete';n.samples=2;")
@@ -214,6 +213,7 @@ def build(expected=None, *, read_name=False, scoped_traversal=False):
         source = replace_once(source, "   n.read_checkpoint='recheck';", name_read + "   n.read_checkpoint='recheck';")
         source = replace_once(source, 'draft:n.model_draft,identity:who,messages,messageBindings};', 'draft:n.model_draft,identity:who,messages,peer_name:peerName};')
         source = replace_once(source, 'n.private_result={identity:who,messages};', 'n.private_result={identity:who,messages,peer_name:peerName};')
+    source=source.replace('n.managed_calls>=6000',f'n.managed_calls>={READ_MAX_CALLS}')
     if scoped_traversal:
         from navigation_handles import scoped_traversals
         source=scoped_traversals(source)
@@ -241,7 +241,7 @@ def private_snapshot(value, expected=None, *, read_name=False):
     if n.get('stage') != 'navigation-ready':
         if private is not None:
             raise ValueError('Private data on failed read')
-        state.validate(result)
+        state.validate(result,max_calls=READ_MAX_CALLS)
         return None
     fields = {'identity', 'messages', 'peer_name'} if read_name else {'identity', 'messages'}
     if read_name and expected is None:
@@ -276,7 +276,7 @@ def private_snapshot(value, expected=None, *, read_name=False):
             n[key] = True  # Common validator's success chain, not actual actions.
         nav.validate(result)
     else:
-        state.validate(result)
+        state.validate(result,max_calls=READ_MAX_CALLS)
         messages = private['messages']
         if not isinstance(messages, list) or len(messages) != n['message_count'] or len(messages) > MAX_MESSAGES:
             raise ValueError('Invalid history size')
@@ -290,7 +290,7 @@ def private_snapshot(value, expected=None, *, read_name=False):
             seen.add(m['id'])
             if m['text'] is not None and (not isinstance(m['text'], str) or len(m['text']) > MAX_TEXT or '\x00' in m['text']):
                 raise ValueError('Invalid message body')
-        if sum(len(m['text'] or '') for m in messages) > 16384:
+        if sum(len(m['text'] or '') for m in messages) > MAX_TOTAL_TEXT:
             raise ValueError('Too much text')
     return private
 

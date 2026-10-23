@@ -3,6 +3,8 @@
 No sender, notifier, Store creation, persistent stage changes, scrolling or city
 cycle. The native reader receives exact authorized IDs; snapshots never leave RAM.
 """
+from chat_limits import MAX_MESSAGES, MAX_TEXT, MAX_TOTAL_TEXT
+
 from contextlib import closing, contextmanager
 from pathlib import Path
 import sqlite3
@@ -83,7 +85,7 @@ def checked_snapshot(value,who):
     if not isinstance(value,dict) or set(value)!={'identity','messages'} or identity(value['identity'])!=who:
         raise ValueError('Invalid read binding')
     messages=value['messages']
-    if not isinstance(messages,list) or len(messages)>20:
+    if not isinstance(messages,list) or len(messages)>MAX_MESSAGES:
         raise ValueError('Invalid read size')
     seen=set()
     for m in messages:
@@ -93,9 +95,9 @@ def checked_snapshot(value,who):
         if m['id'] in seen or m['sender'] not in (who['account'],who['peer']):
             raise ValueError('Invalid read identity')
         seen.add(m['id'])
-        if m['text'] is not None and (not isinstance(m['text'],str) or len(m['text'])>2048 or '\0' in m['text']):
+        if m['text'] is not None and (not isinstance(m['text'],str) or len(m['text'])>MAX_TEXT or '\0' in m['text']):
             raise ValueError('Invalid read text')
-    if sum(len(m['text'] or '') for m in messages)>16384:
+    if sum(len(m['text'] or '') for m in messages)>MAX_TOTAL_TEXT:
         raise ValueError('Invalid read text size')
     return value
 
@@ -162,7 +164,7 @@ def walk(settings,stopped,progress=lambda _:None, *, navigator=perform,reader=ca
                 out['outgoing_messages']+=sum(m['sender']==who['account'] for m in messages)
                 out['nontext_messages']+=sum(m['text'] is None for m in messages)
                 phase='analysis';check_stop()
-                if readonly or not 1<=len(messages)<20:
+                if readonly or not 1<=len(messages)<MAX_MESSAGES:
                     stage,action='manual-review',None
                 else:
                     try:

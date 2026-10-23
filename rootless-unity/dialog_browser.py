@@ -38,7 +38,7 @@ def targets(values):
         checked['chat']=value['chat']
         if 'seen_ids' in value:
             ids=value['seen_ids']
-            if not isinstance(ids,list) or len(ids)>20 or any(not isinstance(i,str) for i in ids) or len(set(ids))!=len(ids):raise ValueError('Invalid observed IDs')
+            if not isinstance(ids,list) or len(ids)>128 or any(not isinstance(i,str) for i in ids) or len(set(ids))!=len(ids):raise ValueError('Invalid observed IDs')
             for message in ids:identity(dict(account=checked['account'],peer=checked['peer'],chat=message))
             checked['seen_ids']=list(ids)
         key=(checked['account'],checked['peer'])

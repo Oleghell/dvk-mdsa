@@ -11,6 +11,7 @@ class Responder:
         self.cancelled=cancelled;self.collector=collector or self.collect;self.factory=factory
         self.models={'groq':model if provider=='groq' else g.MODEL,
                      'openrouter':model if provider=='openrouter' and model!='minimax/minimax-m3.1-flash:free' else o.MODEL}
+        self.safe_greeting_fallbacks=0
         self.pools={};self.errors=[];self.failure_summary=[];self.failure_history=[]
     def note(self,code):
         if code in g.ERRORS and code not in self.errors:self.errors.append(code)
@@ -49,6 +50,10 @@ class Responder:
                 code=str(e)
                 if code.endswith('-cancelled') or code.removeprefix(provider+'-') not in pool.RETRY_SUFFIXES|{'key-pool-exhausted','key-pool-invalid'}:raise
                 self.note(code)
+        fallback=safe_greeting_reply(kind,snapshot)
+        if fallback is not None:
+            self.safe_greeting_fallbacks+=1
+            return fallback
         raise g.GroqError('groq-key-pool-exhausted') from None
 
     def capture_failures(self,provider):
@@ -80,3 +85,32 @@ def failure_explanation(values):
     if codes and codes<={'invalid-response','unsafe-reply','repeat-greeting','token-limit'}:
         return 'ИИ: полученные ответы не прошли проверку. Проверю чат позже.'
     return 'Доступные ключи ИИ не дали проверенного ответа. Проверю чат позже.'
+
+
+def safe_greeting_reply(kind,snapshot):
+    """Only a whole batch of simple greetings/emoji, after every provider failed.
+
+    No fallback for questions, objections, moods, media, refusal or contacts.
+    The same normal reply gate, durable draft and native send checks still apply.
+    """
+    import re,unicodedata
+    if kind!='question' or not isinstance(snapshot,dict):return None
+    ids=snapshot.get('_reply_ids',[])
+    if not isinstance(ids,(list,tuple)) or not ids:return None
+    try:
+        g.public_context(snapshot)  # validate the full identity-bound context
+        peer=snapshot['identity']['peer']
+        rows=[m for m in snapshot['messages'] if m['id'] in ids and m['sender']==peer]
+        if {m['id'] for m in rows}!=set(ids):return None
+        greeting=False
+        pattern=r'(?:привет(?:ик)?|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|доброго\s+(?:дня|вечера|утра)|хай|hello|hi)(?:\s+(?:красавец|красавица|милый|милая|сударь|сударыня))?'
+        for m in rows:
+            if not isinstance(m['text'],str) or '?' in m['text']:return None
+            words=''.join(c if c.isalnum() or c.isspace() else ' ' for c in m['text']).strip().lower()
+            words=' '.join(words.split())
+            if words:
+                if not re.fullmatch(pattern,words):return None
+                greeting=True
+            elif not m['text'].strip() or any(unicodedata.category(c)[0] not in 'PSZ' and not c.isspace() for c in m['text']):return None
+        return g.continuation(dict(decision='reply',text='Как настроение?'),'question') if greeting else None
+    except (KeyError,TypeError,ValueError,g.GroqError):return None

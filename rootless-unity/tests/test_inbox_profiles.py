@@ -66,7 +66,8 @@ class Base(unittest.TestCase):
 
     def walk(self, navigations, reads, **kwargs):
         self.nav = MagicMock(side_effect=navigations)
-        self.reader = MagicMock(side_effect=reads)
+        from test_guided_chain import stable_snapshots
+        self.reader = MagicMock(side_effect=stable_snapshots(reads))
         return inbox.walk(self.settings, self.stop, self.approve, lambda _: None,
                           kwargs.pop('chain', None) or self.chain(), navigator=self.nav,
                           reader=self.reader, sender=kwargs.pop('sender', self.sender),

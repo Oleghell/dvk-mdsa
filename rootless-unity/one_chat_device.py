@@ -130,7 +130,7 @@ def report(outcome=None, *, failure=False):
         if set(outcome) != allowed or outcome['status'] not in ('baseline-recorded','read-complete'):
             raise ValueError('Invalid diagnostic outcome')
         for key in ('observed_messages','incoming_messages','new_incoming'):
-            if type(outcome[key]) is not int or not 0 <= outcome[key] <= 20:
+            if type(outcome[key]) is not int or not 0 <= outcome[key] <= probe.MAX_MESSAGES:
                 raise ValueError('Invalid diagnostic count')
         if outcome['baseline_recorded'] is not True:
             raise ValueError('Invalid baseline')

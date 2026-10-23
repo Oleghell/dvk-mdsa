@@ -40,7 +40,7 @@ class Schema(unittest.TestCase):
         mutations=[lambda r:r['navigation']['private_result']['identity'].update(peer='201'),
                    lambda r:r['navigation']['private_result']['messages'][0].update(sender='999'),
                    lambda r:r['navigation']['private_result']['messages'][0].update(id=True),
-                   lambda r:r['navigation']['private_result']['messages'][0].update(text='x'*2049),
+                   lambda r:r['navigation']['private_result']['messages'][0].update(text='x'*8193),
                    lambda r:r['navigation']['private_result']['messages'][0].update(text='x\x00'),
                    lambda r:r['navigation'].update(private_extra='PRIVATE'),
                    lambda r:r['navigation'].update(messages_sent=1),
@@ -61,7 +61,7 @@ class Schema(unittest.TestCase):
             self.assertNotIn(forbidden,source)
         self.assertLess(source.index("JSON.stringify(who)!==JSON.stringify(expectedIdentity)"),source.index('const messages=[],seenIds'))
         self.assertIn('JSON.stringify(state.sample)!==JSON.stringify(sample)',source)
-        self.assertIn('first>20',source)
+        self.assertIn('first>128',source)
         self.assertIn('readS64()',source)
         self.assertNotIn('readS64().toNumber',source)
         for who in (dict(account='100',peer='200;evil()',chat='300'),dict(account='100',peer='100',chat='300'),dict(account='100',peer='200',chat='9223372036854775808')):
@@ -259,7 +259,7 @@ class ScalarDiagnostics(unittest.TestCase):
         for label in p.SCALAR_CHECKPOINTS:
             d=dict(scalar_checkpoint=label,scalar_state='not-read',identity_checkpoint='initial-ids',message_slot=-1,message_kind='not-read',message_direction='not-read')
             self.assertEqual(p.diagnostic(d),d)
-        for key,bad in [('scalar_checkpoint','PRIVATE'),('scalar_state','-1234'),('identity_checkpoint','PRIVATE'),('message_slot',True),('message_slot',20)]:
+        for key,bad in [('scalar_checkpoint','PRIVATE'),('scalar_state','-1234'),('identity_checkpoint','PRIVATE'),('message_slot',True),('message_slot',128)]:
             d=dict(scalar_checkpoint='message-id',scalar_state='zero',identity_checkpoint='recheck',message_slot=0,message_kind='text',message_direction='own')
             d[key]=bad
             with self.assertRaises(ValueError):p.diagnostic(d)
