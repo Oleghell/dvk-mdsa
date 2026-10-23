@@ -18,7 +18,9 @@ _installed=False
 class Timings:
     def __init__(self):
         self.lock=threading.Lock()
-        self.values={k:dict(calls=0,failures=0,total_ms=0,max_ms=0) for k in ('socket_read','cli')}
+        self.values={k:dict(calls=0,failures=0,total_ms=0,max_ms=0) for k in ('socket_read','cli','forward_open','forward_close','forward_lease',
+            'gadget_connect','gadget_cleanup','gadget_enumerate','gadget_attach','gadget_detach',
+            'script_create','script_load','script_unload','gadget_rpc','ai_groq','ai_openrouter')}
     def record(self,kind,elapsed,failed):
         milliseconds=max(0,round(elapsed*1000))
         with self.lock:

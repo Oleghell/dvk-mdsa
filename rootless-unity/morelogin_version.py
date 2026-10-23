@@ -1,2 +1,2 @@
-VERSION = '2.0.0-beta.12'
+VERSION = '2.0.0-beta.13'
 ENGINE_VERSION = '1.2.17'

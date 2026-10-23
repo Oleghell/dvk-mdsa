@@ -57,7 +57,6 @@ def run(spec, stopped, progress, *, connect=None, runner=None):
         from target_only import TargetOnlyAdb, preflight, recheck
         from test_device import bundle_token
         from assistant_authorization import RunAuthorization
-        from assistant_monitor import run as monitor, summary
         settings = Settings(**spec['settings']).check()
         folder = Path(settings.folder).resolve(strict=True)
         try:
@@ -75,6 +74,19 @@ def run(spec, stopped, progress, *, connect=None, runner=None):
                 try:atomic_json(phone_directory(cloud_id)/'last-performance.json',performance.snapshot())
                 except OSError:pass
             stack.callback(record_performance)
+            from morelogin_session import transport as gadget_session
+            stack.enter_context(gadget_session(serial,stopped.is_set,performance))
+            from morelogin_ai import runtime as ai_runtime
+            ai_totals=stack.enter_context(ai_runtime(stopped.is_set,metrics=performance,
+                models=dict(groq=settings.groq_model,openrouter=settings.openrouter_model)))
+            from assistant_monitor import run as monitor, summary
+            def ai_report(value):
+                value.update(ai_provider_order=['groq','openrouter'],
+                    groq_context_export_enabled=settings.groq_enabled,
+                    openrouter_context_export_enabled=settings.groq_enabled)
+                if isinstance(value.get('totals'),dict):
+                    value['totals'].update(groq_requests=ai_totals['groq'],openrouter_requests=ai_totals['openrouter'],
+                        ai_requests=ai_totals['groq']+ai_totals['openrouter'])
             adb = TargetOnlyAdb(settings.adb, folder)
             boot = preflight(adb)
             stack.enter_context(operation_lock(root_directory()/'locks'/('boot-'+boot+'.lock')))
@@ -84,6 +96,7 @@ def run(spec, stopped, progress, *, connect=None, runner=None):
             def write(value):
                 from morelogin_version import VERSION, ENGINE_VERSION
                 from morelogin_common import atomic_json
+                ai_report(value)
                 value.update(tool_version=VERSION, engine_version=ENGINE_VERSION,
                              platform='MoreLogin', cloud_phone_id=cloud_id)
                 atomic_json(phone_directory(cloud_id)/'last-performance.json',performance.snapshot())
@@ -92,6 +105,7 @@ def run(spec, stopped, progress, *, connect=None, runner=None):
             result = (monitor if runner is None else runner)(settings, stopped, RunAuthorization(stopped), progress,
                        mode=spec['mode'], fresh_session=spec['mode']=='full', write=write)
             from morelogin_version import VERSION, ENGINE_VERSION
+            ai_report(result)
             result['tool_version'] = VERSION
             result['engine_version'] = ENGINE_VERSION
             result['platform'] = 'MoreLogin'
