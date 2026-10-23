@@ -189,11 +189,11 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  managed_calls++;if(TID()!=main_id)off_thread_calls++;
  switch(m->action){
  case 920:model_count_reads++;modal_count=mode==871?130:(mode==883&&model_count_reads>=2)?3:2;return &countbox;
- case 921:{int index=*(int *)args[0];if(mode==880){*exc=&exception;return NULL;}if(mode==871)return index==129?&browser_chats[1]:NULL;return index>=0&&index<2?&browser_chats[index]:NULL;}
+ case 921:{if(mode==890&&model_count_reads==1)slow();if(mode==891)slow();int index=*(int *)args[0];if(mode==880){*exc=&exception;return NULL;}if(mode==871)return index==129?&browser_chats[1]:NULL;return index>=0&&index<2?&browser_chats[index]:NULL;}
  case 922:return &model_cm;
  case 923:return &model_router;
  case 924:
-  model_clicks++;if(obj!=&model_router||!args||args[0]!=&browser_chats[1]||!args[1]||!args[2]||*(int *)args[1]!=58||*(int *)args[2]!=4)route_bad++;
+  model_clicks++;if(mode==892)slow();if(obj!=&model_router||!args||args[0]!=&browser_chats[1]||!args[1]||!args[2]||*(int *)args[1]!=58||*(int *)args[2]!=4)route_bad++;
   browser_selected=mode==877?&browser_chats[0]:args[0];browser_seen=1;phase=3;return NULL;
 
  case 900:return &contact_content_obj;

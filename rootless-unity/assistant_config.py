@@ -42,8 +42,8 @@ def entries(folder, key, limit):
     if not isinstance(value, dict) or set(value) != {key}:
         raise ConfigError('Неверная структура config/' + key + '.json.',field=key,reason='invalid-structure')
     items = value[key]
-    if not isinstance(items, list) or not 1 <= len(items) <= 100:
-        raise ConfigError('В списке настроек должно быть от 1 до 100 строк.',field=key,reason='invalid-structure')
+    if not isinstance(items, list) or not items or (key != 'cities' and len(items) > 100):
+        raise ConfigError('Нужен непустой список городов.' if key == 'cities' else 'В списке настроек должно быть от 1 до 100 строк.',field=key,reason='invalid-structure')
     if any(not isinstance(s, str) or s != s.strip() or not 1 <= len(s) <= limit
            or any(ord(c) < 32 or 127 <= ord(c) < 160 for c in s) for s in items):
         raise ConfigError('В настройках есть пустая, длинная или недопустимая строка.',field=key,reason='invalid-text')

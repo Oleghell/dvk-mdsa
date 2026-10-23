@@ -529,10 +529,13 @@ def launch(self_check=False):
             refresh()
         root.after(100, poll)
 
+    statistics_stop = None
+
     def close():
         if busy:
             cancel()
         else:
+            if statistics_stop is not None:statistics_stop.set()
             root.destroy()
     root.protocol('WM_DELETE_WINDOW', close)
     if self_check:
@@ -547,8 +550,11 @@ def launch(self_check=False):
         assert dialog.winfo_viewable() and events.empty()
         root.destroy()
         return
+    import telegram_statistics
+    statistics_stop=telegram_statistics.start()
     root.after(100, poll)
     root.mainloop()
+    statistics_stop.set()
 
 
 if __name__ == '__main__':

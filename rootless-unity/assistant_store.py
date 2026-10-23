@@ -32,6 +32,8 @@ class Store:
         self.legacy = (Path(legacy_directory) if legacy_directory is not None
                        else self.path.parent.parent / 'DvkRootless')
         with self.connection() as db:
+            from assistant_statistics import initialize
+            initialize(db)
             db.execute('''CREATE TABLE IF NOT EXISTS manual_actions(
               id INTEGER PRIMARY KEY, account TEXT NOT NULL, peer TEXT NOT NULL,
               initial_chat TEXT NOT NULL, text_hash TEXT NOT NULL,
@@ -110,6 +112,8 @@ class Store:
             cur = db.execute('''INSERT INTO manual_actions
               (account,peer,initial_chat,text_hash,confirmed,status) VALUES(?,?,?,?,1,'reserved-unknown')''',
               (pending['account'], pending['peer'], pending['chat'], hashlib.sha256(text.encode()).hexdigest()))
+            from assistant_statistics import remember_city
+            remember_city(db,pending['account'],pending['peer'])
             return cur.lastrowid
 
     def finish(self, action_id, navigation):

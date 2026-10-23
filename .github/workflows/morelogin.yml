@@ -10,6 +10,9 @@ name: Build DvkAssistant MoreLogin
     - README.md
     - MORELOGIN_RELEASE_NOTES.md
     - .github/workflows/morelogin.yml
+    - shared-core.json
+    - SHARED_RELEASE_NOTES.md
+    - tools/sync_shared_core.py
   workflow_dispatch:
     inputs:
       maintenance:
@@ -39,12 +42,15 @@ jobs:
         cache-dependency-path: rootless-unity/morelogin-ci-requirements.txt
     - name: Install pinned SSH client for synthetic tests
       run: python -m pip install paramiko==4.0.0
+    - name: Verify exact shared core hashes
+      run: python tools/sync_shared_core.py --target . --check
     - name: Unit tests without accounts or Android
       run: python rootless-unity/run_unit_tests.py
     - name: Standalone diagnostic syntax and sanitizer without credentials
       if: runner.os == 'Windows'
       shell: powershell
-      run: 'powershell.exe -NoLogo -NoProfile -NonInteractive -File rootless-unity/tools/Check-MoreLogin-Format.ps1 -SelfTest
+      run: 'powershell.exe -NoLogo -NoProfile -NonInteractive -File rootless-unity/tools/Check-MoreLogin-Format.ps1
+        -SelfTest
 
         if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}'
   package:
@@ -61,54 +67,75 @@ jobs:
         cache-dependency-path: rootless-unity/morelogin-ci-requirements.txt
     - name: Install pinned packaging dependencies
       run: python -m pip install frida==17.24.1 paramiko==4.0.0 pyinstaller==6.16.0
+    - uses: actions/cache@v4
+      with:
+        path: ~/AppData/Local/pyinstaller
+        key: pyinstaller-${{ runner.os }}-py313-morelogin-${{ hashFiles('rootless-unity/*ci-requirements.txt') }}
     - name: Build three launchers with one shared runtime
       shell: powershell
-      run: 'python -m PyInstaller --clean --noconfirm --distpath out rootless-unity/morelogin_bundle.spec
-  
+      run: 'python -m PyInstaller --noconfirm --distpath out rootless-unity/morelogin_bundle.spec
+
         if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}'
     - name: Copy external configuration beside the executable
       shell: powershell
       run: 'Copy-Item config out/DvkAssistant-windows-x64/config -Recurse
-  
+
         Copy-Item config/ai-keys.example.txt out/DvkAssistant-windows-x64/config/ai-keys.txt
-  
+
         '
     - name: Verify the packaged window starts with no device activity
       shell: powershell
       run: "$checkRoot=Join-Path $env:RUNNER_TEMP 'Dvk compact release check'\nMove-Item out/DvkAssistant-windows-x64\
-        \ $checkRoot\ntry {\n  foreach ($name in @('DvkAssistant','DvkCloudWorker','DvkCloudInstaller')) {\n    $app=Start-Process\
-        \ (Join-Path $checkRoot \"$name.exe\") -ArgumentList '--self-check' -WorkingDirectory $env:RUNNER_TEMP -PassThru\n\
-        \    if (-not $app.WaitForExit(45000)) {$app.Kill(); throw \"$name self-check timed out\"}\n    if ($app.ExitCode\
-        \ -ne 0) {throw \"$name self-check failed\"}\n  }\n} finally {Move-Item $checkRoot out/DvkAssistant-windows-x64}\n\
-        $runtime=Get-ChildItem out/DvkAssistant-windows-x64/_internal -File -Recurse | Measure-Object -Property Length\
-        \ -Sum\nWrite-Output (\"Shared runtime bytes: \" + $runtime.Sum)\n"
+        \ $checkRoot\ntry {\n  foreach ($name in @('DvkAssistant','DvkCloudWorker','DvkCloudInstaller')) {\n   \
+        \ $app=Start-Process (Join-Path $checkRoot \"$name.exe\") -ArgumentList '--self-check' -WorkingDirectory\
+        \ $env:RUNNER_TEMP -PassThru\n    if (-not $app.WaitForExit(45000)) {$app.Kill(); throw \"$name self-check\
+        \ timed out\"}\n    if ($app.ExitCode -ne 0) {throw \"$name self-check failed\"}\n  }\n} finally {Move-Item\
+        \ $checkRoot out/DvkAssistant-windows-x64}\n$runtime=Get-ChildItem out/DvkAssistant-windows-x64/_internal\
+        \ -File -Recurse | Measure-Object -Property Length -Sum\nWrite-Output (\"Shared runtime bytes: \" + $runtime.Sum)\n"
     - name: Add editable settings, instructions and source checksum
       shell: powershell
       run: '$root=''out/DvkAssistant-windows-x64''
-  
+
         Copy-Item rootless-unity/MORELOGIN.md "$root/README.md"
-  
+
         Copy-Item START_ASSISTANT.bat "$root/START_ASSISTANT.bat"
-  
+
         Copy-Item MORELOGIN_RELEASE_NOTES.md "$root/RELEASE_NOTES.md"
-  
+
         python rootless-unity/build_morelogin_manifest.py $root
-  
+
         if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
-  
+
+        '
+    - name: Compress release once after manifest and self-check
+      shell: powershell
+      run: '$version=python -c "import sys;sys.path.insert(0,''rootless-unity'');from morelogin_version import VERSION;print(VERSION)"
+
+        $archive="DvkAssistant-MoreLogin-$version-windows-x64.zip"
+
+        7z a -tzip -mx=3 -mmt=on "$archive" ./out/DvkAssistant-windows-x64/*
+
+        if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
+
+        $hash=(Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+
+        "$hash  $archive" | Out-File "$archive.sha256" -Encoding ascii
+
         '
     - uses: actions/upload-artifact@v4
       with:
         name: DvkAssistant-MoreLogin-windows-x64
-        path: out/DvkAssistant-windows-x64/
+        path: DvkAssistant-MoreLogin-*-windows-x64.zip*
+        compression-level: 0
+        retention-days: 3
         if-no-files-found: error
-        retention-days: 14
   release:
     needs:
     - verify
     - native
     - package
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[morelogin-release]'))
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message,
+      '[morelogin-release]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -120,26 +147,30 @@ jobs:
     - uses: actions/download-artifact@v4
       with:
         name: DvkAssistant-MoreLogin-windows-x64
-        path: DvkAssistant-MoreLogin-windows-x64
+        path: release
     - name: Publish explicitly marked MoreLogin prerelease
       env:
         GH_TOKEN: ${{ github.token }}
-      run: 'version=$(python3 -c "import sys;sys.path.insert(0,''rootless-unity'');from morelogin_version import VERSION;print(VERSION)")
+      run: 'set -euo pipefail
+
+        version=$(python3 -c "import sys;sys.path.insert(0,''rootless-unity'');from morelogin_version import VERSION;print(VERSION)")
 
         archive="DvkAssistant-MoreLogin-$version-windows-x64.zip"
 
-        (cd DvkAssistant-MoreLogin-windows-x64 && zip -qr "../$archive" .)
+        (cd release && sha256sum -c "$archive.sha256")
 
-        sha256sum "$archive" > "$archive.sha256"
+        gh release create "morelogin-v$version" "release/$archive" "release/$archive.sha256" --repo "$GITHUB_REPOSITORY"
+        --target "$GITHUB_SHA" --title "DvkAssistant-MoreLogin $version" --notes-file MORELOGIN_RELEASE_NOTES.md
+        --prerelease --latest=false
 
-        gh release create "morelogin-v$version" "$archive" "$archive.sha256" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "DvkAssistant
-        MoreLogin $version" --notes-file MORELOGIN_RELEASE_NOTES.md --prerelease --latest=false'
+        '
   archive-old-branches:
     needs:
     - verify
     - native
     - package
-    if: github.ref == 'refs/heads/main' && (inputs.maintenance == true || contains(github.event.head_commit.message, '[archive-old-branches]'))
+    if: github.ref == 'refs/heads/main' && (inputs.maintenance == true || contains(github.event.head_commit.message,
+      '[archive-old-branches]'))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -204,10 +235,11 @@ jobs:
     - name: Cancel explicitly superseded pre-release builds only
       env:
         GH_TOKEN: ${{ github.token }}
-      run: "set -euo pipefail\nfor sha in 326904c4f89399fc245c6cc27385ca33d65b320d fd35b40968776d99fc0b83fa6c3619e04586ef94 cf3f17b2b086d8e7f60d5dabd205c03828303364\
-        \ 230b264b16e5db8bb1126fcca4129ecb93e15a73; do\n  runs=$(gh api \"repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$sha&per_page=50\" --jq\
-        \ '.workflow_runs[] | select(.name == \"Build DvkAssistant MoreLogin\" and .status != \"completed\") | .id')\n  for run in $runs; do gh\
-        \ api --method POST \"repos/$GITHUB_REPOSITORY/actions/runs/$run/cancel\" || true; done\ndone"
+      run: "set -euo pipefail\nfor sha in 326904c4f89399fc245c6cc27385ca33d65b320d fd35b40968776d99fc0b83fa6c3619e04586ef94\
+        \ cf3f17b2b086d8e7f60d5dabd205c03828303364 230b264b16e5db8bb1126fcca4129ecb93e15a73; do\n  runs=$(gh api\
+        \ \"repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$sha&per_page=50\" --jq '.workflow_runs[] | select(.name\
+        \ == \"Build DvkAssistant MoreLogin\" and .status != \"completed\") | .id')\n  for run in $runs; do gh api\
+        \ --method POST \"repos/$GITHUB_REPOSITORY/actions/runs/$run/cancel\" || true; done\ndone"
   native:
     name: Native ${{ matrix.os }} / ${{ matrix.suite }}
     strategy:
@@ -376,6 +408,40 @@ jobs:
         if ($LASTEXITCODE -ne 0) {exit $LASTEXITCODE}
 
         '
+  sync-core:
+    needs:
+    - verify
+    - native
+    - package
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      actions: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - uses: actions/checkout@v4
+      with:
+        ref: mumu
+        path: mumu-target
+        persist-credentials: false
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+    - name: Copy exact shared core, then test MuMu before push
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: "set -euo pipefail\npython tools/sync_shared_core.py --source . --target mumu-target\npython tools/sync_shared_core.py\
+        \ --source . --target mumu-target --check\n(cd mumu-target && python rootless-unity/run_unit_tests.py)\n\
+        if [ -n \"$(git -C mumu-target status --porcelain)\" ]; then\n git -C mumu-target config user.name 'github-actions[bot]'\n\
+        \ git -C mumu-target config user.email '41898282+github-actions[bot]@users.noreply.github.com'\n git -C\
+        \ mumu-target add rootless-unity shared-core.json SHARED_RELEASE_NOTES.md README.md RELEASE_NOTES.md\n git\
+        \ -C mumu-target commit -m \"[shared-core] Sync verified engine from $GITHUB_SHA\"\n gh auth setup-git\n\
+        \ git -C mumu-target push https://github.com/$GITHUB_REPOSITORY.git HEAD:mumu\n gh workflow run assistant.yml\
+        \ --repo \"$GITHUB_REPOSITORY\" --ref mumu -f publish=true\nfi\n"
 concurrency:
-  group: morelogin-${{ github.ref }}
+  group: morelogin.yml-${{ github.ref }}
   cancel-in-progress: true

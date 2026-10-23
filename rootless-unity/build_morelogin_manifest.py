@@ -12,7 +12,7 @@ def main(folder):
         runtime_sha256={x.relative_to(folder).as_posix():sha(x) for x in sorted((folder/'_internal').rglob('*')) if x.is_file()},
         exe_sha256={name:sha(folder/name) for name in ('DvkAssistant.exe','DvkCloudWorker.exe','DvkCloudInstaller.exe')},
         config_sha256={x.name:sha(x) for x in sorted((folder/'config').iterdir()) if x.is_file()},
-        features=dict(explicit_cloud_ids=True,parallel_phone_processes=True,
+        features=dict(city_count_limit=None, shared_core_manifest=True, model_scan_rows_per_frame=1, readonly_scan_budget_yields=12, telegram_statistics_commands=['/today','/yesterday','/week','/month','/city'], statistics_historical_backfill=False, explicit_cloud_ids=True,parallel_phone_processes=True,
             common_local_sqlite=True,shared_atomic_peer_claims=True,phone_isolated_journals=True,
             app_id_secret_key=True,windows_dpapi=True,ssh_host_key_pinning=True,
             auto_start=False,unknown_send_auto_retry=False,automatic_app_install=False,explicit_single_phone_installer=True,typed_delete_confirmation=True,apk_only_backup=True,read_only_installed_gadget_check=True,post_install_apk_hash_check=True,file_first_package_session=True,remote_apk_sha256_check=True,commit_auto_retry=False,

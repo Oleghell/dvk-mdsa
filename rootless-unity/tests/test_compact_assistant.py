@@ -50,6 +50,10 @@ class Settings(unittest.TestCase):
 
 
 class CompactWindow(unittest.TestCase):
+    def setUp(self):
+        self.statistics=patch('telegram_statistics.start',return_value=threading.Event())
+        self.statistics.start();self.addCleanup(self.statistics.stop)
+
     def test_main_buttons_and_no_startup_activity(self):
         import sys
         import assistant_app as app

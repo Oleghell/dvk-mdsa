@@ -135,6 +135,8 @@ class Propagation(unittest.TestCase):
                 self.assertIn('prepare-inbox-chain-failed',str(send.call_args))
                 self.assertNotIn(PRIVATE,str(send.call_args))
 
+import importlib.util
+@unittest.skipIf(importlib.util.find_spec('morelogin_preparation_check') is None,'Cloud preflight not in MuMu')
 class PackagedPreflight(unittest.TestCase):
     def test_disposable_shared_database_no_credentials_or_network(self):
         from morelogin_preparation_check import check

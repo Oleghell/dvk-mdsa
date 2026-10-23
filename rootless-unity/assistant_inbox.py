@@ -391,7 +391,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None):
     """Caller must hold the shared device lock."""
     with checkpoint('inbox-imports'):
-        from assistant_config import load
+        from assistant_config import config_directory, entries
         from assistant_store import Store
         from one_chat_device import capture
         from one_chat_send_device import submit
@@ -425,7 +425,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
             from dialog_models import perform as model_navigation
             navigator=model_navigation
     with checkpoint('inbox-config'):
-        prepared_greetings=load().greetings if greetings is None else greetings
+        prepared_greetings=entries(config_directory(),'greetings',256) if greetings is None else greetings
     # No screen paging, automatic swipes or return-to-top scan.
     with checkpoint('inbox-walk'):
         result = walk(settings, stopped, approve, progress, chain,

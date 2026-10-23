@@ -87,7 +87,7 @@ class SharedStore(BaseStore):
                     return sqlite3.SQLITE_DENY
                 if action in (sqlite3.SQLITE_READ, sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE,
                               sqlite3.SQLITE_DELETE, sqlite3.SQLITE_CREATE_TABLE, sqlite3.SQLITE_DROP_TABLE):
-                    allowed = {'sqlite_master','sqlite_sequence','global_peer_claims','global_profile_visits'}
+                    allowed = {'sqlite_master','sqlite_sequence','global_peer_claims','global_profile_visits','global_contact_statistics','global_peer_city'}
                     if table not in allowed and table not in {self.prefix+x for x in TABLES}:
                         return sqlite3.SQLITE_DENY
                 return sqlite3.SQLITE_OK
@@ -118,6 +118,8 @@ class SharedStore(BaseStore):
             cur = db.execute('''INSERT INTO manual_actions
               (account,peer,initial_chat,text_hash,confirmed,status) VALUES(?,?,?,?,1,'reserved-unknown')''',
               (pending['account'],pending['peer'],pending['chat'],hashlib.sha256(text.encode()).hexdigest()))
+            from assistant_statistics import remember_city
+            remember_city(db,pending['account'],pending['peer'])
             return cur.lastrowid
 
     def visited_peers(self):

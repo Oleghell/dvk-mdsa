@@ -325,7 +325,7 @@ def normalize_city(city):
 
 
 def check_cities(cities):
-    if not isinstance(cities, (list, tuple)) or not 1 <= len(cities) <= 100:
+    if not isinstance(cities, (list, tuple)) or not cities:
         raise ConfigError('Нужен непустой список городов.')
     normalized = [normalize_city(city) for city in cities]
     if len(set(normalized)) != len(normalized):

@@ -115,9 +115,9 @@ UTILS=r'''
    if(state.scanIndex>count)fail('selection-count-changed');
    n.private_model_scan.count=count;n.scan_batches++;
    if(state.scanStarted===undefined)state.scanStarted=Date.now();
-   for(let batch=0;batch<2&&state.scanIndex<count&&state.scanIndex<modelOffset+64&&(state.scanIndex===modelOffset||Date.now()-state.scanStarted<4000);batch++,state.scanIndex++){
+   for(let batch=0;batch<1&&state.scanIndex<count&&state.scanIndex<modelOffset+64&&(state.scanIndex===modelOffset||Date.now()-state.scanStarted<4000);batch++,state.scanIndex++){
     const opened=scope(()=>{
-     n.rows_scanned++;const chat=modelAt(cm,state.scanIndex);if(chat.isNull())return false;own(chat);
+     if(state.countedIndex!==state.scanIndex){n.rows_scanned++;state.countedIndex=state.scanIndex;}const chat=modelAt(cm,state.scanIndex);if(chat.isNull())return false;own(chat);
      const model=modelIdentity(chat);if(model===null||!permitted(model.who))return false;
      if(!model.manager.equals(manager)||id64(s.accountId,manager)!==model.who.account)fail('identity-not-bound');
      n.selection_checkpoint='unread';let unread=null,header=null;
@@ -172,15 +172,27 @@ def build(*,allowed=(),entry='dialogs',unread_only=False,needs_reply_only=False,
  s=s[:start]+s[end:]
  start=s.index('  const scan=(current,candidate)=>');end=s.index('  try {\n   const root=call',start)
  s=s[:start]+UTILS.replace('4000',str(SCAN_MILLISECONDS))+s[end:]
- s=replace_once(s,"phase:'entry',entry_verified:false", "private_model_scan:{next:null,count:0,skipped_headers:0},phase:'entry',entry_verified:false")
+ s=replace_once(s,"phase:'entry',entry_verified:false", "private_model_scan:{next:null,count:0,skipped_headers:0,budget_yields:0},phase:'entry',entry_verified:false")
+ # A read-only row may yield to another UI frame, but no action is repeated.
+ s=replace_once(s,"} catch(e){\n   if(e==='frame-budget'", """} catch(e){
+   if(e==='frame-budget'&&n.phase==='scan'&&n.entry_verified&&n.list_verified&&
+      !n.action_attempted&&!n.action_completed&&state.stop===null&&
+      !fixedCancellationRequested&&!n.cleanup_failed){
+    if(state.budgetIndex!==state.scanIndex){state.budgetIndex=state.scanIndex;state.rowBudgetYields=0;}
+    if(state.rowBudgetYields<3&&n.private_model_scan.budget_yields<12){
+     state.rowBudgetYields++;n.private_model_scan.budget_yields++;return;
+    }
+   }
+   if(e==='frame-budget'""")
  # The baseline wraps traversal in short handle scopes; preserve the same rule.
  s=s.replace('checkView(current)', 'scope(()=>checkView(current))').replace('resolve(candidate).equals(current)', 'scope(()=>resolve(candidate).equals(current))')
  return s
 
 def validate(raw,*,allowed=(),unread_only=False,needs_reply_only=False,offset=0):
  raw=copy.deepcopy(raw);n=raw.get('navigation',{});scan=n.pop('private_model_scan',None)
- if not isinstance(scan,dict) or set(scan)!={'next','count','skipped_headers'}:raise ValueError('Invalid model evidence')
+ if not isinstance(scan,dict) or set(scan) not in ({'next','count','skipped_headers'},{'next','count','skipped_headers','budget_yields'}):raise ValueError('Invalid model evidence')
  if type(scan['count']) is not int or not 0<=scan['count']<=MAX_MODELS or type(scan['skipped_headers']) is not int or not 0<=scan['skipped_headers']<=SLICE:raise ValueError('Invalid model bounds')
+ if type(scan.get('budget_yields',0)) is not int or not 0<=scan.get('budget_yields',0)<=12:raise ValueError('Invalid budget yields')
  nxt=scan['next']
  if nxt is not None and (type(nxt) is not int or not offset<nxt<=offset+SLICE or not nxt<scan['count']):raise ValueError('Invalid model cursor')
  result=browser.validate(raw,'open',allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only)
