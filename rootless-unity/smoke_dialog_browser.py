@@ -1,15 +1,15 @@
 """Real fixed browser JS against owned synthetic ABI objects, no live account."""
 from pathlib import Path
-import queue,subprocess,sys,threading,time
+import queue,subprocess,sys,threading,time,shutil,tempfile
 import frida
 from dialog_browser import build,validate
 WHO=dict(account='100',peer='200',chat='300')
 TARGET=dict(WHO,chat='-1')
 
 
-def one(library,mode,operation='open',entry='search',unread_only=False,start_override=None,needs_reply_only=False):
+def one(library,mode,operation='open',entry='search',unread_only=False,start_override=None,needs_reply_only=False,local_engine=False):
     code='''import ctypes,sys,time
-lib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)
+lib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_LOCAL if sys.argv[4]=='1' else ctypes.RTLD_GLOBAL)
 lib.fixture_init(int(sys.argv[2]));lib.fixture_browser_entry(int(sys.argv[3]))
 print('ready',flush=True)
 for _ in range(12000):
@@ -21,14 +21,14 @@ for _ in range(12000):
     expected=(dict(WHO,peer='201') if mode==809 else WHO) if operation=='back' else None
     start=3 if operation=='back' else 1 if operation=='return' or entry=='dialogs' else 0
     if start_override is not None:start=start_override
-    child=subprocess.Popen([sys.executable,'-u','-c',code,str(library),str(mode),str(start)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    child=subprocess.Popen([sys.executable,'-u','-c',code,str(library),str(mode),str(start),'1' if local_engine else '0'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     session=script=monitor=None
     try:
         q=queue.Queue();threading.Thread(target=lambda:q.put(child.stdout.readline()),daemon=True).start();assert q.get(timeout=10).strip()=='ready'
         session=frida.get_local_device().attach(child.pid)
         script=session.create_script(build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)+'''
 rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},counts(){
- const read=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
+ const read=n=>new NativeFunction(findIl2cppExport(n),'int',[])();
  return {handles:read('fixture_handles'),bad:read('fixture_bad_frees'),off:read('fixture_off_thread_calls'),
  unread_reads:read('fixture_browser_unread_reads'),clicks:read('fixture_browser_clicks'),backs:read('fixture_browser_backs'),route_bad:read('fixture_route_bad')};}};''')
         script.load()
@@ -248,6 +248,11 @@ if __name__=='__main__':
         one(lib,mode,'list',entry='dialogs')
         one(lib,mode,'list',entry='either')
         one(lib,mode,'list',entry='either',start_override=1)
+    # Named engine in a local loader namespace: no reliance on global exports.
+    with tempfile.TemporaryDirectory() as temp:
+        local=Path(temp)/'libil2cpp.so';shutil.copy2(lib,local)
+        one(local,800,'list',entry='either',local_engine=True)
+        one(local,800,'list',entry='either',start_override=1,local_engine=True)
     for mode in range(844,856):one(lib,mode,needs_reply_only=True)
     one(lib,846,unread_only=True,needs_reply_only=True)
     integration(lib)

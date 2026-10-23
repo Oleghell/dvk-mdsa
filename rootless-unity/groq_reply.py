@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from assistant_store import StateError, data_directory
+from assistant_store import StateError, data_directory, credential_directory
 from telegram_notify import protect, NoRedirect
 
 MODEL = 'qwen/qwen3.8-27b'
@@ -36,7 +36,7 @@ def key_value(value):
 
 def save_key(value, path=None, encoder=protect):
     value = key_value(value.strip())
-    path = data_directory() / 'groq.dpapi' if path is None else Path(path)
+    path = credential_directory() / 'groq.dpapi' if path is None else Path(path)
     encrypted = encoder(value.encode())
     if not isinstance(encrypted, bytes) or not encrypted:
         raise GroqError('groq-draft-protection-failed')
@@ -51,7 +51,7 @@ def save_key(value, path=None, encoder=protect):
 
 def load_key(path=None, decoder=lambda data: protect(data, decrypt=True)):
     try:
-        path = data_directory() / 'groq.dpapi' if path is None else Path(path)
+        path = credential_directory() / 'groq.dpapi' if path is None else Path(path)
         if not 1 <= path.stat().st_size <= 8192:
             raise ValueError()
         return key_value(decoder(path.read_bytes()).decode())

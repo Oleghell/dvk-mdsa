@@ -1,2 +1,2 @@
-"""Single source of the packaged DvkAssistant version."""
-VERSION = '1.2.16'
+"""Shared engine version for MuMu and MoreLogin."""
+VERSION = '1.2.17'

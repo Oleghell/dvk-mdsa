@@ -1,5 +1,6 @@
 """Fixed, metadata-only IL2CPP graph. No objects, invocation, hooks or UI actions."""
 import json
+from il2cpp_exports import with_module_exports
 
 VERSION='0.3.27'
 ROOTS=[('DV.Profile.dll','DV.Profiles','ProfilesQueueViewController'),
@@ -25,7 +26,7 @@ APIS={'domain_get':('pointer',[]),'thread_current':('pointer',[]),'thread_attach
       'class_from_type':('pointer',['pointer'])}
 STEPS={'resolve-api','domain','thread','assemblies','roots','types','done'}
 REASONS={'none','api-missing','domain-unavailable','thread-unavailable','invalid-metadata','limits','native-call-failed','cleanup-failed'}
-_TEMPLATE=r'''
+_TEMPLATE=with_module_exports(r'''
 function nativeMetadata(){
  const roots=__ROOTS__,images=__IMAGES__,api=__APIS__;
  const r={stage:'chat-runtime-stopped',step:'resolve-api',reason:'none',api_available:false,
@@ -97,7 +98,7 @@ function nativeMetadata(){
  finally{if(attached){try{raw.thread_detach(thread);r.thread_detach_confirmed=raw.thread_current().isNull();if(!r.thread_detach_confirmed)r.cleanup_failed=true;}catch(_){r.cleanup_failed=true;}if(r.cleanup_failed){r.stage='chat-runtime-stopped';r.reason='cleanup-failed';}}}
  return r;
 }
-'''
+''')
 FUNCTION=(_TEMPLATE.replace('__ROOTS__',json.dumps(ROOTS)).replace('__IMAGES__',json.dumps(IMAGES))
           .replace('__APIS__',json.dumps(APIS)).replace('__REASONS__',json.dumps(sorted(REASONS))))
 

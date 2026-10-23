@@ -8,6 +8,7 @@ from contextlib import nullcontext
 import json
 import time
 import math
+import run_preparation
 
 from assistant_lock import operation_lock
 from assistant_store import StateError, data_directory
@@ -40,7 +41,7 @@ def report(mode):
     return dict(tool_version=VERSION, mode=mode, status='stopped', reason='not-started',
                 initial_run=None, last_pass=None, passes_completed=0,
                 totals={key: 0 for key in COUNTERS}, dialogs_verified=False,
-                ui_may_remain_open=False, last_navigation=None, last_navigation_failure=None,
+                ui_may_remain_open=False, last_navigation=None, last_navigation_failure=None, last_preparation_failure=None,
                 per_message_confirmation=True, automatic_send=False,
                 automatic_profile_repeat=False, profile_interval_seconds=PROFILE_INTERVAL,
                 profile_batches_completed=0, profile_next_in_seconds=None, last_profile_run=None, error_notification='not-needed',
@@ -170,6 +171,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                                 mode='full', fresh_session=fresh_session, lock=nullcontext,
                                 between_profiles=between_profiles)
                 out['initial_run'] = first
+                out['last_preparation_failure']=run_preparation.from_report(first)
                 if first.get('inbox'):
                     add_counters(first['inbox'])
                 check_stop()
@@ -227,6 +229,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     batch = repeat(settings, stopped, approve, progress, mode='profiles',
                                    fresh_session=True, lock=nullcontext, between_profiles=between_profiles)
                     out['last_profile_run'] = batch
+                    out['last_preparation_failure']=run_preparation.from_report(batch)
                     check_stop()
                     if batch['status'] == 'paused':
                         raise StateError('profile-pass-paused')
@@ -252,6 +255,11 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     out.update(status='cancelled', reason='cancelled')
                     break
     except Exception as error:
+        prepared=run_preparation.clean(getattr(error,'_dvk_preparation',None))
+        if prepared:
+            out['last_preparation_failure']=prepared
+        elif phase=='inbox-pass-stopped' and not out.get('last_pass'):
+            out['last_preparation_failure']=run_preparation.record(error,'run-inbox')
         known = {'cancelled', 'report-write-failed', 'initial-pass-stopped',
                  'inbox-pass-stopped', 'dialog-list-not-verified', 'initial-pass-paused',
                  'profile-pass-paused', 'profile-pass-stopped', 'profile-repeat-stopped'}
@@ -307,7 +315,8 @@ def summary(result):
     codes=reasons(result)
     reason=next((c for c in codes if c in GROQ_ERRORS),result['reason'])
     from startup_failure import message as failure_message
-    detail = failure_message(result.get('last_navigation_failure'))
+    from navigation_root_diagnostic import message as root_message
+    detail = run_preparation.message(result) or root_message(result.get('last_navigation')) or failure_message(result.get('last_navigation_failure'))
     text=('Пауза' if status=='paused' else 'Ошибка')+' • '+reason
     if detail:
         text += '\n' + detail

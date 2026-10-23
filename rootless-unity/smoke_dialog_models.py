@@ -25,9 +25,11 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFun
    if nxt is None:break
    assert result['state']=='exhausted' and not n['action_attempted']
    script.unload();script=None;offset=nxt
-  if mode in (870,871,872):
+  if mode in (870,871,872,890,892):
    assert result['state']=='opened' and result['identity']==WHO and c[7]==1,(mode,n,c)
    assert skipped==(1 if mode==872 else 0),(mode,skipped)
+   if mode==890:assert n['private_model_scan']['budget_yields']>=1 and n['rows_scanned']==2,(mode,n)
+   if mode==892:assert n['private_model_scan']['budget_yields']==0,(mode,n)
    if mode==871:assert (slices>3 if slow else slices==3),(slices,n)
   elif mode in (873,874,882):
    assert result['state']=='exhausted' and c[7]==0,(mode,n,c)
@@ -35,7 +37,8 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFun
   else:
    assert result['state']=='stopped',(mode,n,c)
    if mode==877:assert n['error']=='identity-changed' and c[7]==1,(mode,n,c)
-   else:assert c[7]==0,(mode,n,c)
+   elif mode!=892:assert c[7]==0,(mode,n,c)
+   if mode==891:assert n['error']=='frame-budget' and c[7]==0 and n['private_model_scan']['budget_yields']==3,(mode,n,c)
    if mode==876:assert n['error']=='identity-not-bound' and skipped==0,(mode,n)
   print('Synthetic cached models',mode,result['state'],'slices',slices,'header skips',skipped,'passed',flush=True)
  finally:
@@ -51,7 +54,7 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFun
   child.stdout.close();child.stderr.close()
 if __name__=='__main__':
  library=Path(sys.argv[1]).resolve(strict=True)
- for mode in range(870,890):one(library,mode)
+ for mode in range(870,893):one(library,mode)
  one(library,871,slow=True)
 
  from smoke_dialog_browser import integration

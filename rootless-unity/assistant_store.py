@@ -18,6 +18,10 @@ def data_directory():
     base = os.environ.get('LOCALAPPDATA')
     if not base:
         raise StateError('Не найдена папка данных Windows.')
+    if os.environ.get('DVK_MORELOGIN') == '1':
+        from morelogin_common import root_directory, phone_directory
+        cloud_id = os.environ.get('DVK_MORELOGIN_PHONE_ID')
+        return phone_directory(cloud_id) if cloud_id else root_directory()
     return Path(base) / 'DvkAssistant'
 
 
@@ -28,6 +32,8 @@ class Store:
         self.legacy = (Path(legacy_directory) if legacy_directory is not None
                        else self.path.parent.parent / 'DvkRootless')
         with self.connection() as db:
+            from assistant_statistics import initialize
+            initialize(db)
             db.execute('''CREATE TABLE IF NOT EXISTS manual_actions(
               id INTEGER PRIMARY KEY, account TEXT NOT NULL, peer TEXT NOT NULL,
               initial_chat TEXT NOT NULL, text_hash TEXT NOT NULL,
@@ -106,6 +112,8 @@ class Store:
             cur = db.execute('''INSERT INTO manual_actions
               (account,peer,initial_chat,text_hash,confirmed,status) VALUES(?,?,?,?,1,'reserved-unknown')''',
               (pending['account'], pending['peer'], pending['chat'], hashlib.sha256(text.encode()).hexdigest()))
+            from assistant_statistics import remember_city
+            remember_city(db,pending['account'],pending['peer'])
             return cur.lastrowid
 
     def finish(self, action_id, navigation):
@@ -126,3 +134,10 @@ class Store:
         with self.connection() as db:
             rows = db.execute('SELECT status,COUNT(*) FROM manual_actions GROUP BY status').fetchall()
         return dict(reserved=sum(n for _, n in rows), statuses=dict(rows), delivery_confirmed=False)
+
+
+def credential_directory():
+    if os.environ.get('DVK_MORELOGIN') == '1':
+        from morelogin_common import root_directory
+        return root_directory()
+    return data_directory()

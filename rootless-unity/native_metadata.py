@@ -1,5 +1,6 @@
 """Bounded IL2CPP metadata-only C API probe; never invokes managed/UI methods."""
 import json
+from il2cpp_exports import with_module_exports
 
 EXPORTS=['il2cpp_domain_get','il2cpp_thread_current','il2cpp_thread_attach','il2cpp_thread_detach',
          'il2cpp_domain_get_assemblies','il2cpp_assembly_get_image','il2cpp_image_get_name',
@@ -39,7 +40,7 @@ STAGES={'not-started','unsupported-pointer-size','metadata-api-incomplete','doma
 STEPS={'not-started','resolve-api','bind-api','domain-get','thread-current','thread-attach',
        'domain-assemblies','image-name','class-lookup','method-lookup','done'}
 
-_TEMPLATE = r'''
+_TEMPLATE = with_module_exports(r'''
 function nativeMetadata() {
   const typeSpecs=__TYPES__;
   const methodSpecs=__METHODS__;
@@ -147,7 +148,7 @@ function nativeMetadata() {
   }
   return result;
 }
-'''
+''')
 
 
 def build_native_function(types,methods,images):

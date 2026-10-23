@@ -7,7 +7,9 @@ import sys
 
 
 class ConfigError(ValueError):
-    pass
+    def __init__(self,message,*,field=None,reason=None):
+        super().__init__(message)
+        self.field,self.reason=field,reason
 
 
 def unique_object(pairs):
@@ -29,20 +31,24 @@ def entries(folder, key, limit):
     path = Path(folder) / (key + '.json')
     try:
         if path.stat().st_size > 65536:
-            raise ConfigError('Слишком большой файл настроек.')
+            raise ConfigError('Слишком большой файл настроек.',field=key,reason='invalid-structure')
         value = json.loads(path.read_text(encoding='utf-8-sig'), object_pairs_hook=unique_object)
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        raise ConfigError('Не удалось прочитать config/' + key + '.json.') from None
+    except ConfigError:
+        raise ConfigError('Неверная структура config/' + key + '.json.',field=key,reason='invalid-structure') from None
+    except OSError:
+        raise ConfigError('Не удалось прочитать config/' + key + '.json.',field=key,reason='file-unavailable') from None
+    except (UnicodeError,json.JSONDecodeError):
+        raise ConfigError('Не удалось прочитать config/' + key + '.json.',field=key,reason='invalid-json') from None
     if not isinstance(value, dict) or set(value) != {key}:
-        raise ConfigError('Неверная структура config/' + key + '.json.')
+        raise ConfigError('Неверная структура config/' + key + '.json.',field=key,reason='invalid-structure')
     items = value[key]
-    if not isinstance(items, list) or not 1 <= len(items) <= 100:
-        raise ConfigError('В списке настроек должно быть от 1 до 100 строк.')
+    if not isinstance(items, list) or not items or (key != 'cities' and len(items) > 100):
+        raise ConfigError('Нужен непустой список городов.' if key == 'cities' else 'В списке настроек должно быть от 1 до 100 строк.',field=key,reason='invalid-structure')
     if any(not isinstance(s, str) or s != s.strip() or not 1 <= len(s) <= limit
            or any(ord(c) < 32 or 127 <= ord(c) < 160 for c in s) for s in items):
-        raise ConfigError('В настройках есть пустая, длинная или недопустимая строка.')
+        raise ConfigError('В настройках есть пустая, длинная или недопустимая строка.',field=key,reason='invalid-text')
     if len(set(items)) != len(items):
-        raise ConfigError('Повторяющиеся строки в настройках.')
+        raise ConfigError('Повторяющиеся строки в настройках.',field=key,reason='duplicate-text')
     return tuple(items)
 
 

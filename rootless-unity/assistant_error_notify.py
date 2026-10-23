@@ -3,8 +3,9 @@ from groq_reply import ERRORS as GROQ_ERRORS
 from dialog_browser import ERRORS as NAV_ERRORS
 import telegram_notify
 from startup_failure import ERRORS as STARTUP_ERRORS, message as failure_message
+import run_preparation
 
-KNOWN = GROQ_ERRORS | NAV_ERRORS | STARTUP_ERRORS | {'contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
+KNOWN = GROQ_ERRORS | NAV_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed'} | {'contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
     'send-native-check-failed', 'send-device-check-failed', 'send-validation-failed',
     'settings-check-stopped', 'device-busy-or-monitor-check-stopped', 'initial-pass-stopped',
     'search-screen-not-verified', 'dialog-list-not-verified', 'initial-pass-paused',
@@ -35,7 +36,7 @@ def reasons(report):
                 if v in KNOWN and v not in ('none', 'cancelled') and v not in result:
                     result.append(v)
         for key in ('last_pass', 'initial_run', 'last_profile_run', 'inbox', 'profiles',
-                    'last_navigation', 'last_navigation_failure', 'last_city_navigation', 'last_chat_diagnostics', 'last_read_failure'):
+                    'last_navigation', 'last_navigation_failure', 'last_preparation_failure', 'preparation_failure', 'last_city_navigation', 'last_chat_diagnostics', 'last_read_failure'):
             visit(value.get(key), depth+1)
         for v in (value.get('outcomes') or {}):
             if v in KNOWN and v not in result:
@@ -51,7 +52,8 @@ def notify(report, *, loader=telegram_notify.load, sender=telegram_notify.send):
         token, chat = loader()
     except Exception:
         return 'not-configured'
-    detail = failure_message(report.get('last_navigation_failure'))
+    from navigation_root_diagnostic import message as root_message
+    detail = run_preparation.message(report) or root_message(report.get('last_navigation')) or failure_message(report.get('last_navigation_failure'))
     message = ('⚠️ DvkAssistant: цикл ' + ('на паузе' if report['status'] == 'paused' else 'остановлен') +
                '.\n' + ((detail + '\n') if detail else '') + 'Причина: ' + ', '.join(reasons(report)) +
                '\nОтчёт: last-monitor.json. Неизвестные отправки не повторяются.')

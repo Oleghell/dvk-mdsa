@@ -42,7 +42,7 @@ def main(folder):
         device_scope='MuMu-4-only', auto_start=False, explicit_run_confirmation=False, explicit_start_click=True,
         per_message_confirmation=False, automatic_send=True, config_sha256=config_hashes,
         start_flow=['inbox-chain-pass', 'new-profiles-pass'],
-        features=dict(inbox_chain_pass=True, new_profiles_pass=True, friends_limit='<50',
+        features=dict(city_count_limit=None, shared_core_manifest=True, model_scan_rows_per_frame=1, readonly_scan_budget_yields=12, telegram_statistics_commands=['/today','/yesterday','/week','/month','/city'], statistics_historical_backfill=False, inbox_chain_pass=True, new_profiles_pass=True, friends_limit='<50',
                       online_only_filter=True, random_city_from_config=True,
                       guided_open_chat=False, guided_reset=False, telegram_contact_only=False,
                       telegram_error_alerts=True, profile_interval_seconds=300, typing_words_per_minute=35,

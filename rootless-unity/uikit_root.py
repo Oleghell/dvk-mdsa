@@ -4,6 +4,7 @@ Hooks only the exported IL2CPP invocation API, not guessed MethodInfo code offse
 It never invokes frame methods, writes arguments/returns or traverses UI contents.
 """
 import json
+from il2cpp_exports import with_module_exports
 
 APIS=['il2cpp_domain_get','il2cpp_thread_current','il2cpp_thread_attach','il2cpp_thread_detach',
  'il2cpp_domain_get_assemblies','il2cpp_assembly_get_image','il2cpp_image_get_name','il2cpp_class_from_name',
@@ -16,7 +17,7 @@ STAGES={'not-started','unsupported-pointer-size','api-incomplete','metadata-not-
  'callback-timeout','off-main-thread','runtime-not-ready','window-not-ready','object-class-mismatch',
  'root-ready','cleanup-failed'}
 STEPS={'not-started','resolve-api','metadata','prepare-observer','observe-frame','main-thread-check','runtime-get','window-get','done'}
-_TEMPLATE=r'''
+_TEMPLATE=with_module_exports(r'''
 function probeUIKitRoot() {
  __INIT_HELPERS__
  const r={stage:'not-started',step:'not-started',api_available:false,metadata_ready:false,
@@ -150,7 +151,7 @@ function probeUIKitRoot() {
   }catch(_){finish('hook-unavailable');}
  });
 }
-'''
+''')
 
 
 def build_function(*,extra_apis=(),helpers='',init='',bindings='',setup='',body=''):

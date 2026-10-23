@@ -396,7 +396,9 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     if not isinstance(bn['controller_path'],list):raise ValueError('Invalid controller path')
     bn['controller_path']=[old(k) for k in bn['controller_path']]
     nav.validate(base,errors=ERRORS)
+    from navigation_root_diagnostic import extract
     diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped','back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped')}
+    diagnostic['root_probe']=extract(value)
     return dict(state=('exhausted' if n['exhausted'] else 'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready') if ready else 'stopped',identity=private,diagnostic=diagnostic)
 
 

@@ -164,6 +164,8 @@ class Chain:
                     # Preserve unknown/returned action records; do not infer delivery.
                     if pending_contact_observed:
                         db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind=?", (chat,pending_contact_kind))
+                    from assistant_statistics import received
+                    received(db,who['account'],who['peer'],chat,items)
                     stage = 'done'
             elif stage.startswith('pending-'):
                 kind = stage.removeprefix('pending-')
@@ -340,6 +342,8 @@ class Chain:
         with self.store.connection() as db:
             db.execute('UPDATE chain_contact_outbox SET status=? WHERE chat=?', (outcome, who['chat']))
             db.execute('DELETE FROM chain_contact_media WHERE chat=?',(who['chat'],))
+            from assistant_statistics import notified
+            notified(db,who['account'],who['peer'],who['chat'],outcome)
         return outcome
 
 
