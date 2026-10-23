@@ -20,7 +20,7 @@ DEFAULTS = dict(city_open_attempted=False, city_open_completed=False, city_query
                 city_query_completed=False, city_result_verified=False, city_select_attempted=False,
                 city_select_completed=False, city_form_verified=False, city_verified=False,
                 city_scan_samples=0, city_visible_rows=0, city_total_rows=0,
-                city_matches=0, city_selected_name=None, city_transition_overruns=0,
+                city_matches=0, city_selected_name=None, city_transition_overruns=0, city_read_budget_retries=0,
                 city_checkpoint='not-checked', city_prepare='not-checked', city_identity='none')
 PREPARE_STEPS = None  # filled below from the native source (fixed labels only)
 IDENTITY = {'none', 'select-recheck', 'scan-controller', 'query-controller'}
@@ -245,6 +245,18 @@ def build(city):
     s = replace(s, "if(!ex.readPointer().isNull())fail('managed-exception');return out;",
                 "if(!ex.readPointer().isNull())fail('managed-exception');if(fixedCancellationRequested)fail('cancelled');if(Date.now()>deadline){if(entry!==cityTransitionEntry)fail('frame-budget');n.city_transition_overruns++;}return out;")
 
+    # Retry only a fresh read-only search observation, before ANY invocation
+    # that changes UI/model state. Never retry an uncertain mutating call.
+    s = replace(s, 'const deadline=Date.now()+100;', 'const deadline=Date.now()+100;let cityFrameMutated=false;')
+    s = replace(s, 'const out=f.invoke(m,obj,params,ex);',
+        'if([s.open,s.cityOpen,s.cityTextSet,s.citySearch,s.citySelect,s.onlineSet,s.distanceSet,s.refreshForm,s.apply].includes(entry))cityFrameMutated=true;const out=f.invoke(m,obj,params,ex);')
+    s = replace(s, "} catch(e){n.error=", "} catch(e){if(e==='frame-budget'&&!cityFrameMutated&&n.phase==='search'&&!n.open_completed&&n.city_read_budget_retries<4){n.city_read_budget_retries++;return;}n.error=")
+    # A repeated observation must release its old persisted handles, including
+    # the origin captured immediately before a pre-invoke budget rejection.
+    s = replace(s, 'const saveOnline=(key,obj)=>{const h=own(obj);',
+        "const saveOnline=(key,obj)=>{if(state[key]&&!state[key].isNull()){f.release(state[key]);n.handles_released++;state[key]=ptr(0);}const h=own(obj);")
+    s = replace(s, 'state.origin=own(current);held.splice(held.indexOf(state.origin),1);', "saveOnline('origin',current);")
+
     # The real picker is presented by the people form (a child controller), not by the card/root list.
     s = replace(s, "   const current=resolve(candidate);if(current.isNull())return;\n   const k=kind(current);",
                 "   let current=resolve(candidate);if(current.isNull())return;\n   let k=kind(current);\n"
@@ -280,7 +292,7 @@ def validate(value, *, expected_city=None):
     for key,default in DEFAULTS.items():
         if type(default) is bool and type(extra[key]) is not bool:
             raise ValueError('Invalid city flag')
-    for key,limit in [('city_scan_samples',2),('city_visible_rows',12),('city_total_rows',200),('city_matches',12),('city_transition_overruns',5)]:
+    for key,limit in [('city_scan_samples',2),('city_visible_rows',12),('city_total_rows',200),('city_matches',12),('city_transition_overruns',5),('city_read_budget_retries',4)]:
         if type(extra[key]) is not int or not 0<=extra[key]<=limit:
             raise ValueError('Invalid city counter')
     if extra['city_checkpoint'] not in CHECKPOINTS or extra['city_prepare'] not in PREPARE_STEPS or extra['city_identity'] not in IDENTITY:

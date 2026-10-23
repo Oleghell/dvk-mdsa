@@ -49,7 +49,7 @@ def main(folder):
                       default_dialog_interval_seconds=5, read_tracked_dialog_recovery=True,
                       groq_opt_in=True, groq_rules_file='config/groq-rules.txt',
                       openrouter_opt_in=True, openrouter_only_free=True,
-                      openrouter_paid_fallback=False, provider_auto_switch=False,
+                      openrouter_paid_fallback=False, provider_auto_switch=True, provider_order=['groq','openrouter'], city_read_budget_retries=4,
                       entered_key_test=True, independent_ai_key_save=True,
                       validated_dynamic_ai_send=True, chat_local_error_isolation=True,
                       unknown_send_auto_retry=False, api_key_pool_file='config/ai-keys.txt',

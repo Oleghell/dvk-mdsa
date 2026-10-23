@@ -19,7 +19,7 @@ class Settings:
     groq_model: str = 'qwen/qwen3.8-27b'
     errors_enabled: bool = True
     ai_provider: str = 'groq'
-    openrouter_model: str = 'minimax/minimax-m3.1-flash:free'
+    openrouter_model: str = 'dots-studio/dots-3-note-preview:free'
     profile_interval: int = 300
 
     def check(self):
@@ -92,6 +92,8 @@ def load(directory=None):
                 # value as profile rest, not as a multi-minute inbox blind spot.
                 config['profile_interval'] = legacy_interval if type(legacy_interval) is int and legacy_interval > 30 and not (schema == 1 and legacy_interval == 120) else 300
                 config['reply_interval'] = 5
+        if config.get('openrouter_model')=='minimax/minimax-m3.1-flash:free':
+            config['openrouter_model']='dots-studio/dots-3-note-preview:free'
         return Settings(saved['adb'], saved['test_apks'], **config).check()
     except Exception:
         raise StateError('Не удалось прочитать настройки. Проверь их в окне «Настройки».') from None

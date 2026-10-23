@@ -5,8 +5,8 @@ import groq_reply as g
 from assistant_store import data_directory, credential_directory
 from telegram_notify import protect
 
-MODEL = 'minimax/minimax-m3.1-flash:free'
-MODELS = (MODEL, 'dots-studio/dots-3-note-preview:free')
+MODEL = 'dots-studio/dots-3-note-preview:free'
+MODELS = (MODEL,)
 ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
 

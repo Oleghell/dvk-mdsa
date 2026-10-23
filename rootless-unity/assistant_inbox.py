@@ -444,8 +444,14 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         result['isolation_notification'] = notify_isolated(result)
     result['ai_provider'], result['ai_model'] = settings.ai_provider, settings.ai_model
     result['ai_requests'] = responder.calls if responder is not None else 0
-    result['groq_requests'] = result['ai_requests'] if settings.ai_provider == 'groq' else 0
-    result['openrouter_requests'] = result['ai_requests'] if settings.ai_provider == 'openrouter' else 0
+    counts=getattr(responder,'provider_calls',None) if responder is not None else None
+    if type(counts) is dict:
+        result['groq_requests']=counts['groq'];result['openrouter_requests']=counts['openrouter']
+        result['ai_key_failures']=list(responder.errors)
+        result['ai_strategy']='groq-then-openrouter'
+    else:
+        result['groq_requests'] = result['ai_requests'] if settings.ai_provider == 'groq' else 0
+        result['openrouter_requests'] = result['ai_requests'] if settings.ai_provider == 'openrouter' else 0
     result['groq_context_export_enabled'] = settings.groq_enabled and settings.ai_provider == 'groq'
     result['openrouter_context_export_enabled'] = settings.groq_enabled and settings.ai_provider == 'openrouter'
     if result['ai_requests']:

@@ -115,9 +115,9 @@ class ConnectionAndSettings(unittest.TestCase):
 
     def test_save_load_schema4_and_migrate_old_default_without_touching_keys(self):
         with tempfile.TemporaryDirectory() as temp:
-            value=cfg.Settings(groq_enabled=True,ai_provider='openrouter',openrouter_model=o.MODELS[1])
+            value=cfg.Settings(groq_enabled=True,ai_provider='openrouter',openrouter_model='fixture/custom:free')
             cfg.save(value,temp);self.assertEqual(cfg.load(temp),value)
-            self.assertEqual(cfg.load(temp).ai_model,o.MODELS[1])
+            self.assertEqual(cfg.load(temp).ai_model,'fixture/custom:free')
             path=Path(temp)/'workflow-settings.json'
             body=json.loads(path.read_text());body.update(settings_version=3,groq_model='llama-3.3-70b-versatile')
             body.pop('profile_interval');body.pop('ai_provider');body.pop('openrouter_model');path.write_text(json.dumps(body))

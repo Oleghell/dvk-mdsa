@@ -60,7 +60,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
                     312:'navigation-ready',313:'identity-changed',314:'screen-not-ready',315:'navigation-ready',
                     316:'managed-exception',317:'screen-not-ready',318:'screen-not-ready',319:'navigation-ready',320:'city-results-incomplete',321:'managed-exception',322:'cancelled',323:'cancelled',324:'navigation-ready',325:'navigation-ready',
                     326:'city-not-found',327:'city-not-found',328:'identity-changed',
-                    329:'identity-changed',330:'navigation-ready',331:'identity-changed',334:'navigation-ready',335:'navigation-ready',336:'city-not-found',337:'city-results-incomplete',338:'navigation-ready',339:'navigation-ready',340:'navigation-ready',341:'navigation-ready',342:'frame-budget',343:'managed-exception',345:'call-limit',346:'frame-budget'}.get(mode,expected_result)
+                    329:'identity-changed',330:'navigation-ready',331:'identity-changed',334:'navigation-ready',335:'navigation-ready',336:'city-not-found',337:'city-results-incomplete',338:'navigation-ready',339:'navigation-ready',340:'navigation-ready',341:'navigation-ready',342:'frame-budget',343:'managed-exception',345:'call-limit',346:'frame-budget',347:'navigation-ready',348:'frame-budget'}.get(mode,expected_result)
         if expected_result is not None:
             expected = expected_result
         actual = n['stage'] if n['stage'] in ('navigation-ready','not-attempted') else n['error']
@@ -79,6 +79,8 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         if mode in (315,338,339,340,341) and actual=='navigation-ready':assert n['city_transition_overruns']==1,(mode,n,c)
         if mode in (343,345):assert c['opens']==1 and c['cityopens']==c['searches']==c['selects']==c['applies']==0,(mode,c)
         if mode==342:assert c['searches']==c['selects']==c['applies']==0,(mode,c)
+        if mode==347:assert n['city_read_budget_retries']==1,(mode,n)
+        if mode==348:assert n['city_read_budget_retries']==4 and c['opens']==0,(mode,n,c)
         if mode==346:assert c['opens']==c['cityopens']==0,(mode,c)
         if mode in (301,302,303):assert c['opens']==c['cityopens']==c['selects']==c['applies']==0,c
         if mode in (306,307,308,310,311,317,320,326,327,331,336,337):assert c['selects']==c['applies']==0,c
@@ -116,7 +118,7 @@ if __name__ == '__main__':
     one(Path(sys.argv[1]).resolve(strict=True),338,
         source=FUNCTION.replace('cityTransition(s.open,current);','call(s.open,current);'),
         expected_result='frame-budget')
-    modes = list(range(300,332)) + [334,335,336,337,338,339,340,341,342,343,345,346]
+    modes = list(range(300,332)) + [334,335,336,337,338,339,340,341,342,343,345,346,347,348]
     for mode in modes:
         one(Path(sys.argv[1]).resolve(strict=True), mode)
     print(str(len(modes))+' synthetic city cases passed. Updated city selection on MuMu is NOT verified.')

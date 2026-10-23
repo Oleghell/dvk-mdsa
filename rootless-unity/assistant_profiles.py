@@ -78,7 +78,7 @@ def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics
             'city_matches', 'city_select_attempted', 'city_select_completed', 'city_verified',
             'open_attempted', 'open_completed', 'city_open_attempted', 'city_open_completed',
             'city_query_attempted', 'city_query_completed', 'apply_attempted', 'apply_completed',
-            'settings_checkpoint', 'city_transition_overruns')}
+            'settings_checkpoint', 'city_transition_overruns', 'city_read_budget_retries')}
         if n['stage'] != 'navigation-ready':
             diagnostics['last_error'] = n['error']
     if n['stage'] != 'navigation-ready':

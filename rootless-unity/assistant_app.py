@@ -42,7 +42,7 @@ def launch(self_check=False):
         settings = Settings()
         status.set(str(error))
     ttk.Label(frame, textvariable=status, wraplength=520).pack(anchor='w', pady=(18, 12))
-    ttk.Label(frame, text='Старт: анкеты + ответы. Только ответы: без поиска анкет.\nВыбранный ИИ получает контекст чата; Telegram — контакты и коды ошибок.', wraplength=640).pack(anchor='w')
+    ttk.Label(frame, text='Старт: анкеты + ответы. Только ответы: без поиска анкет.\nИИ: сначала ключи Groq, затем бесплатный OpenRouter; Telegram — контакты и коды ошибок.', wraplength=640).pack(anchor='w')
     controls = ttk.Frame(frame)
     controls.pack(fill='x', pady=(18, 0))
     events = queue.Queue()
@@ -148,7 +148,7 @@ def launch(self_check=False):
         ttk.Entry(box, textvariable=profile_interval, width=8, state='readonly').pack(anchor='w', pady=(3, 10))
         ttk.Label(box, text='Во время отдыха проверяю входящие и отвечаю. Отправка с задержкой 35 слов/мин.\nСтарт разрешает автоматические сообщения; не трогай выбранные MuMu во время работы.', wraplength=500).pack(anchor='w', pady=8)
         ttk.Checkbutton(ai_box, variable=ai_enabled, text='ИИ: короткие ответы по структуре цепочки').pack(anchor='w', pady=6)
-        ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются выбранному сервису (для OpenRouter — также провайдеру модели). ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
+        ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются Groq, а при недоступности его ключей — OpenRouter и провайдеру модели. ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
         ttk.Label(ai_box, text='Сервис ИИ').pack(anchor='w', pady=(8, 0))
         provider_box=ttk.Combobox(ai_box, textvariable=ai_provider, values=tuple(assistant_ai.LABELS), state='readonly')
         provider_box.pack(fill='x')
@@ -183,7 +183,7 @@ def launch(self_check=False):
             except Exception:
                 note.set('Не удалось сохранить ключ ИИ. Нужна защита Windows DPAPI; открытый текст не записывается.')
         ttk.Button(ai_box, text='Сохранить ключ ИИ', command=save_ai_key).pack(anchor='w', pady=4)
-        ttk.Label(ai_box, text='Несколько ключей: заполни config/ai-keys.txt по образцу ai-keys.example.txt. Используются только ключи выбранного сервиса; при сбое — следующий. Файл содержит секреты: никому не отправляй.', wraplength=500).pack(anchor='w', pady=4)
+        ttk.Label(ai_box, text='Несколько ключей: заполни config/ai-keys.txt по образцу ai-keys.example.txt. MuMu: сначала ключи Groq, затем резерв OpenRouter; после всех отказов — пропуск текущего чата. Файл содержит секреты: никому не отправляй.', wraplength=500).pack(anchor='w', pady=4)
         ttk.Checkbutton(tg_box, variable=errors_enabled, text='Telegram: причины остановок, ошибок и выхода без ответа').pack(anchor='w', pady=8)
         ttk.Checkbutton(tg_box, variable=enabled, text='Telegram: уведомлять, когда человек сам прислал контакт').pack(anchor='w', pady=8)
         for label, var, mask in (('Токен бота', token, '*'), ('Chat ID получателя', recipient, '')):

@@ -15,15 +15,21 @@ def load(provider, path=None):
     from assistant_ai import module
     try:
         if not 1<=path.stat().st_size<=32768:raise ValueError()
-        result=[];section=None
+        result=[];section=None;invalid=False
         for line in path.read_text(encoding='utf-8-sig').splitlines():
             line=line.strip()
             if not line or line.startswith('#'):continue
             if line in ('[groq]','[openrouter]'):section=line[1:-1];continue
-            if section not in ('groq','openrouter'):raise ValueError()
-            if section==provider:
-                value=module(provider).key_value(line)
+            inferred='groq' if line.startswith('gsk_') else 'openrouter' if line.startswith('sk-or-v1-') else section
+            if inferred not in ('groq','openrouter'):
+                invalid=True;continue
+            if inferred==provider:
+                import re
+                if provider=='openrouter' and re.fullmatch('[0-9a-fA-F]{64}',line):line='sk-or-v1-'+line
+                try:value=module(provider).key_value(line)
+                except g.GroqError:invalid=True;continue
                 if value not in result:result.append(value)
+        if invalid and not result:raise ValueError()
         if len(result)>16:raise ValueError()
         return result
     except Exception:

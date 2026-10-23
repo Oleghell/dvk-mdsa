@@ -1,4 +1,4 @@
-"""Selected provider only; UI tests never need a saved key or touch MuMu."""
+"""Provider adapters; MuMu workers use ordered failover, explicit-key UI tests do not."""
 import groq_reply
 import openrouter_reply
 from assistant_store import StateError
@@ -14,6 +14,10 @@ def module(provider):
 
 
 def responder(provider, model, cancelled=lambda: False, *, entered_key=''):
+    import os
+    if os.environ.get('DVK_MUMU_MULTI')=='1' and not entered_key.strip():
+        from mumu_ai import Responder
+        return Responder(provider,model,cancelled)
     adapter = module(provider)
     options = dict(model=model, cancelled=cancelled)
     if entered_key.strip():
@@ -49,7 +53,7 @@ def explain(code):
     message = {
         'key-unavailable': 'Сохранённый ключ недоступен. Вставь ключ в поле и нажми «Тест ИИ» или «Сохранить ключ ИИ».',
         'key-pool-invalid':'Проверь config/ai-keys.txt: секции [groq]/[openrouter], один настоящий ключ на строку, до 16 на сервис.',
-        'key-pool-exhausted':'Все ключи выбранного сервиса временно недоступны. Неотправленный ответ сохранён, проверка продолжится позже.',
+        'key-pool-exhausted':'Все доступные ключи временно недоступны. Чат пропущен, проверка продолжится позже.',
         'key-invalid': 'Неверный формат ключа выбранного сервиса.',
         'unauthorized': 'Сервис отклонил ключ. Проверь его или выпусти новый.',
         'access-denied': 'Доступ запрещён настройками аккаунта или политикой сервиса.',

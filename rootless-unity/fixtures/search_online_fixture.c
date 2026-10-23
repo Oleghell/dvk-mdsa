@@ -82,7 +82,11 @@ static Object *online_invoke(Method *m,void *obj,void **args,void **exc){
  if(mode>=300&&m->action==210){if(mode==341)slow();city_apply();}
 #endif
  switch(m->action){
- case 200:return &model;
+ case 200:
+#ifdef CITY_FIXTURE
+  if(mode==347||mode==348){static int delayed=0;if(mode==348||!delayed++){slow();}}
+#endif
+  return &model;
  case 201:return &form_model;
  case 202:yes=mode!=204;break;
  case 203:yes=mode!=205;break;

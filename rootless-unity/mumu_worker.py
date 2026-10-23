@@ -83,6 +83,10 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                 def scope(v):
                     if type(v) is dict:
                         if 'device_scope' in v:v['device_scope']=serial(n)
+                        if 'groq_context_export_enabled' in v:
+                            v['groq_context_export_enabled']=bool(current.groq_enabled)
+                            v['openrouter_context_export_enabled']=bool(current.groq_enabled)
+                            v['ai_strategy']='groq-then-openrouter'
                         for child in v.values():scope(child)
                     elif type(v) is list:
                         for child in v:scope(child)
