@@ -78,7 +78,8 @@ def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics
             'city_matches', 'city_select_attempted', 'city_select_completed', 'city_verified',
             'open_attempted', 'open_completed', 'city_open_attempted', 'city_open_completed',
             'city_query_attempted', 'city_query_text_completed', 'city_query_completed', 'apply_attempted', 'apply_completed',
-            'settings_checkpoint', 'city_transition_overruns', 'city_read_budget_retries')}
+            'settings_checkpoint', 'city_transition_overruns', 'city_read_budget_retries',
+            'city_queries_started', 'city_query_text_returns', 'city_query_returns', 'city_candidates_skipped', 'city_result_waits')}
         if n['stage'] != 'navigation-ready':
             diagnostics['last_error'] = n['error']
     if n['stage'] != 'navigation-ready':
@@ -99,7 +100,9 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
     out['current_city'] = session.get('city')
     cycle_pending = False
     try:
+        from assistant_pause import boundary
         def new_city(text):
+            boundary(stopped)
             if stopped.is_set():
                 raise StateError('cancelled')
             progress(text)
@@ -112,6 +115,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
         if fresh_session or out['current_city'] is None:
             new_city('Поиск • выбираю город и «Только онлайн»')
         while out['qualified_profiles'] < limit:
+            boundary(stopped)
             if stopped.is_set():
                 raise StateError('cancelled')
             # Only between complete native cycles, on verified search; never
@@ -141,7 +145,8 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 'stage', 'error', 'phase', 'frames', 'managed_calls', 'metadata_checkpoint',
                 'selection_check', 'read_checkpoint', 'wait_reason', 'search_verified',
                 'open_attempted', 'open_completed', 'chat_open_attempted', 'chat_open_completed',
-                'send_attempted', 'send_handler_returned', 'return_verified') if key in n}
+                'send_attempted', 'send_handler_returned', 'return_verified',
+                'profile_read_budget_retries', 'greeting_frame_splits') if key in n}
             cycle_pending = False
             if n['send_attempted']:
                 out['send_attempts'] += 1

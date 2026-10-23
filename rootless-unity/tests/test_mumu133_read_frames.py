@@ -27,7 +27,7 @@ class ReadFrames(unittest.TestCase):
  def test_city_text_handler_returns_before_query_and_never_repeats(self):
   s=city.build('Псков')
   self.assertIn('if(!state.cityTextCommitted)',s)
-  self.assertIn('state.cityTextCommitted=true;n.city_query_text_completed=true;return;',s)
+  self.assertIn('state.cityTextCommitted=true;n.city_query_text_completed=true;n.city_query_text_returns++;return;',s)
   self.assertIn("(n.phase==='query-city'&&state.cityTextCommitted)",s)
   self.assertIn("if(!ex.readPointer().isNull())fail('managed-exception');if(fixedCancellationRequested)",s)
 

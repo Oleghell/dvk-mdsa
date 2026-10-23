@@ -17,7 +17,7 @@ def ready_city():
     n = value['navigation']
     n.update(city.DEFAULTS)
     n.update({k:True for k,v in city.DEFAULTS.items() if type(v) is bool})
-    n.update(city_scan_samples=2, city_visible_rows=1, city_total_rows=1,
+    n.update(city_queries_started=1,city_query_text_returns=1,city_query_returns=1,city_scan_samples=2, city_visible_rows=1, city_total_rows=1,
              city_matches=1,city_selected_name='Pskov',city_checkpoint='complete',city_prepare='ready')
     # A city operation has a separate bounded wait budget; online-only still
     # retains its original 180-frame validation budget.
@@ -122,7 +122,9 @@ class CitySchema(unittest.TestCase):
         self.assertIn("if(count>200||count>total)fail('city-results-incomplete');", source)
         self.assertIn("const scan=1;", source)
         self.assertIn("fingerprint:JSON.stringify({records,count,total})", source)
-        self.assertIn("if(found.match===null)fail('city-not-found');", source)
+        self.assertIn("if(found.match===null){", source)
+        self.assertIn("fail('city-not-found');",source)
+        self.assertIn("state.cityRemaining.shift()",source)
 
 
 class CityPrepare(unittest.TestCase):

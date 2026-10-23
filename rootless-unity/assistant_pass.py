@@ -37,6 +37,8 @@ def build(text, visited=()):
     source = replace_once(source, 'finish(\'callback-timeout\');},30000);',
                           'finish(\'callback-timeout\');},90000);')
     source = replace_once(source, '"cycle_timeout_ms":30000', '"cycle_timeout_ms":90000')
+    from assistant_profile_read import specialize
+    source = specialize(source)
     import os
     if os.environ.get('DVK_MUMU_MULTI') == '1':
         from mumu_claims import specialize
@@ -54,6 +56,8 @@ def validate(value, *, shared_peer_skipped=False):
     # Never normalize a send flag, identity, history classification or result.
     import copy
     checked = copy.deepcopy(value)
+    from assistant_profile_read import validate as validate_profile_read
+    validate_profile_read(checked['navigation'])
     if type(checked['navigation']['cycle_timeout_ms']) is not int or checked['navigation']['cycle_timeout_ms'] != CYCLE_TIMEOUT_MS:
         raise ValueError('Invalid manual-cycle deadline')
     checked['navigation']['cycle_timeout_ms'] = chat_batch.CYCLE_TIMEOUT_MS

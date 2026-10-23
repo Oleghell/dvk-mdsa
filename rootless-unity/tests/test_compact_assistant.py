@@ -71,7 +71,7 @@ class CompactWindow(unittest.TestCase):
             self.assertEqual(tk.Text.call_args.kwargs['width'],7)
             self.assertEqual(ttk.Treeview.call_args.kwargs['height'],5)
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
-            self.assertEqual(labels,['Старт','Только ответы','Стоп','Настройки','Отчёты выбранного MuMu'])
+            self.assertEqual(labels,['Старт','Только ответы','Стоп','Настройки','Отчёты выбранного MuMu','Пауза порта','Продолжить порт'])
             start.assert_not_called();credentials.assert_not_called();telegram.assert_not_called();thread.assert_not_called()
 
 

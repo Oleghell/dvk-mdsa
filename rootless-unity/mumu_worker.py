@@ -98,7 +98,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                     elif type(v) is list:
                         for child in v:scope(child)
                 scope(value)
-                value.update(tool_version=VERSION,engine_version='1.2.18',platform='MuMu',device_port=n,
+                value.update(tool_version=VERSION,engine_version='1.2.19',platform='MuMu',device_port=n,
                     device_scope=serial(n),shared_database=True)
                 atomic(device_directory(n)/'last-performance.json',dict(metrics.snapshot(),tool_version=VERSION,device_port=n))
                 atomic(device_directory(n)/REPORT,value)
@@ -122,10 +122,23 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
         raise MumuError('Этап: '+stage+'. Тип: '+report['error_type']+'. См. last-startup.json.') from None
 
 
+def pipe_line(fd,limit):
+    # Daemon readers must not hold Python BufferedReader's lock at shutdown.
+    # Read the initial spec AND commands unbuffered, so no prefetched command
+    # can be stranded in a different stream. Length bounds remain unchanged.
+    value=bytearray()
+    for _ in range(limit):
+        part=os.read(fd,1)
+        if not part:break
+        value.extend(part)
+        if part==b'\n':break
+    return bytes(value)
+
+
 def main():
     # The console worker is packed beside the GUI and has its own stdio pipes.
     if sys.argv[1:]==['--mumu-worker-self-check']:
-        import mumu_store,mumu_fast_adb,mumu_claims
+        import mumu_store,mumu_fast_adb,mumu_claims,mumu_pause,assistant_pause,assistant_profile_read
         assert serial(5557)=='127.0.0.1:5557'
         return 0
     if sys.argv[1:]!=['--mumu-worker']:return 2
@@ -133,9 +146,11 @@ def main():
     def emit(kind,value):
         with emit_lock:
             print(json.dumps(dict(kind=kind,value=value),ensure_ascii=True),flush=True)
-    stopped=threading.Event()
+    from mumu_pause import PauseGate
+    stopped=PauseGate(threading.Event(),lambda state:emit('control',state))
     try:
-        raw=sys.stdin.buffer.readline(32769)
+        input_fd=sys.stdin.fileno()
+        raw=pipe_line(input_fd,32769)
         if not raw or len(raw)>32768:raise MumuError('Invalid spec')
         # Validate settings WITHOUT importing engine stores before configure().
         value=json.loads(raw)
@@ -145,8 +160,14 @@ def main():
         def watch():
             # EOF means parent died: revoke permission, do not leave orphan senders.
             while True:
-                line=sys.stdin.buffer.readline(32)
+                try:line=pipe_line(input_fd,32)
+                except OSError:
+                    stopped.set();return
                 if not line or line==b'stop\n':
+                    stopped.set();return
+                if line in (b'pause\n',b'resume\n'):
+                    stopped.command(line.decode('ascii').strip())
+                else:
                     stopped.set();return
         threading.Thread(target=watch,daemon=True).start()
         out=run(value,stopped,lambda text:emit('progress',str(text)[:3000]))

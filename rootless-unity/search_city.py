@@ -20,7 +20,7 @@ DEFAULTS = dict(city_open_attempted=False, city_open_completed=False, city_query
                 city_query_text_completed=False, city_query_completed=False, city_result_verified=False, city_select_attempted=False,
                 city_select_completed=False, city_form_verified=False, city_verified=False,
                 city_scan_samples=0, city_visible_rows=0, city_total_rows=0,
-                city_matches=0, city_selected_name=None, city_transition_overruns=0, city_read_budget_retries=0,
+                city_matches=0, city_queries_started=0, city_query_text_returns=0, city_query_returns=0, city_candidates_skipped=0, city_result_waits=0, city_selected_name=None, city_transition_overruns=0, city_read_budget_retries=0,
                 city_checkpoint='not-checked', city_prepare='not-checked', city_identity='none')
 PREPARE_STEPS = None  # filled below from the native source (fixed labels only)
 IDENTITY = {'none', 'select-recheck', 'scan-controller', 'query-controller'}
@@ -182,18 +182,28 @@ PHASE_CODE = r'''
     n.city_checkpoint='query';const input=fieldObject(current,s.cityInputField,s.searchField);
     if(!cityAttached(input,input))fail('screen-not-ready');
     const text=f.newString(Memory.allocUtf8String(cityWanted));if(text.isNull())fail('unexpected-object');own(text);
-    if(!state.cityTextCommitted){n.city_query_attempted=true;cityTransition(s.cityTextSet,input,cityArgs([text]));state.cityTextCommitted=true;n.city_query_text_completed=true;return;}
+    if(!state.cityTextCommitted){n.city_query_attempted=true;n.city_queries_started++;cityTransition(s.cityTextSet,input,cityArgs([text]));state.cityTextCommitted=true;n.city_query_text_completed=true;n.city_query_text_returns++;return;}
     n.ui_text_read=true;if(cityString(call(s.cityTextGet,input))!==cityWanted)fail('city-query-changed');
-    call(s.citySearch,current);n.city_query_completed=true;state.cityNext=Date.now()+1000;n.phase='scan-city';return;
+    call(s.citySearch,current);n.city_query_completed=true;n.city_query_returns++;state.cityNext=Date.now()+1000;n.phase='scan-city';return;
    }
    if(n.phase==='scan-city'){
     if(k!=='city'||!current.equals(target(state.cityFinder)))cityId('scan-controller');
     n.city_checkpoint='results';if(Date.now()<state.cityNext)return;
     const found=citySnapshot(current);
-    if(found===null){state.cityFingerprint=null;state.cityNext=Date.now()+1000;return;}
+    if(found===null){state.cityFingerprint=null;n.city_result_waits++;state.cityEmptyWaits=(state.cityEmptyWaits||0)+1;if(state.cityEmptyWaits>=4)fail('city-results-incomplete');state.cityNext=Date.now()+1000;return;}
     if(state.cityFingerprint!==found.fingerprint){state.cityFingerprint=found.fingerprint;n.city_scan_samples=1;state.cityNext=Date.now()+1000;return;}
     n.city_scan_samples=2;
-    if(found.match===null)fail('city-not-found');
+    if(found.match===null){
+     // The first visible result is stable but not the exact configured CITY.
+     // Do not pick another result/GeoID. A NEW configured query may follow in
+     // this exact verified picker, only after both earlier calls returned.
+     if(state.cityRemaining&&state.cityRemaining.length&&n.city_query_returns<6){
+      if(!n.city_query_text_completed||!n.city_query_completed||n.city_select_attempted||n.apply_attempted)fail('city-not-found');
+      n.city_candidates_skipped++;cityWanted=state.cityRemaining.shift();state.cityTextCommitted=false;
+      state.cityFingerprint=null;state.cityEmptyWaits=0;n.city_scan_samples=0;n.city_matches=0;n.phase='query-city';return;
+     }
+     fail('city-not-found');
+    }
     n.city_result_verified=true;
     const cell=cityIndex(s.cityAt,found.list,found.match.index);own(cell);const record=call(s.cityItem,cell);own(record);
     if(cityString(call(s.geoID,record))!==found.match.id||cityString(call(s.geoName,record))!==found.match.name||
@@ -250,7 +260,7 @@ def build(city):
     s = replace(s, 'const deadline=Date.now()+100;', 'const deadline=Date.now()+100;let cityFrameMutated=false;')
     s = replace(s, 'const out=f.invoke(m,obj,params,ex);',
         'if([s.open,s.cityOpen,s.cityTextSet,s.citySearch,s.citySelect,s.onlineSet,s.distanceSet,s.refreshForm,s.apply].includes(entry))cityFrameMutated=true;const out=f.invoke(m,obj,params,ex);')
-    s = replace(s, "} catch(e){n.error=", "} catch(e){if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted))&&n.city_read_budget_retries<4){n.city_read_budget_retries++;return;}n.error=")
+    s = replace(s, "} catch(e){n.error=", "} catch(e){if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted)||(n.phase==='scan-city'&&!n.city_select_attempted))&&n.city_read_budget_retries<4){n.city_read_budget_retries++;if(n.phase==='scan-city'){state.cityFingerprint=null;n.city_scan_samples=0;}return;}n.error=")
     # A repeated observation must release its old persisted handles, including
     # the origin captured immediately before a pre-invoke budget rejection.
     s = replace(s, 'const saveOnline=(key,obj)=>{const h=own(obj);',
@@ -263,6 +273,9 @@ def build(city):
                 "   if(['wait-city','query-city','scan-city','wait-city-return'].includes(n.phase)&&k==='filters'&&current.equals(target(state.card))&&!state.cityPeople.isNull()){\n"
                 "    const hosted=modal(target(state.cityPeople));\n"
                 "    if(!hosted.isNull()&&f.objectClass(hosted).equals(s.city)){current=hosted;k='city';n.controller_path.push('city');}\n   }")
+    # Waiting for the next independent result sample must not consume one
+    # frame/call allowance on every Unity callback. Absolute 30s limit stays.
+    s = replace(s, 'if(!active)return;\n     r.observed_calls++;', "if(!active)return;\n     if(r.navigation.phase==='scan-city'&&Date.now()<navState.cityNext)return;\n     r.observed_calls++;")
     s = replace(s, '   const root=call(s.windowRoot,window);', "   if(n.phase==='scan-city'&&Date.now()<state.cityNext)return;\n   const root=call(s.windowRoot,window);")
     s = replace(s, "if(klass.equals(s.search))return 'search';", "if(klass.equals(s.city))return 'city';if(klass.equals(s.search))return 'search';")
     s = replace(s, "if(k==='search'||k==='filters'){", "if(k==='search'||k==='filters'||k==='city'){")
@@ -274,7 +287,7 @@ def build(city):
     for before,after in (
         ('call(s.open,current);n.open_completed=true;', 'cityTransition(s.open,current);n.open_completed=true;'),
         ('call(s.cityOpen,people);n.city_open_completed=true;', 'cityTransition(s.cityOpen,people);n.city_open_completed=true;'),
-        ('call(s.citySearch,current);n.city_query_completed=true;', 'cityTransition(s.citySearch,current);n.city_query_completed=true;'),
+        ('call(s.citySearch,current);n.city_query_completed=true;n.city_query_returns++;', 'cityTransition(s.citySearch,current);n.city_query_completed=true;n.city_query_returns++;'),
         ('call(s.citySelect,current,cityArgs([cell,record]));n.city_select_completed=true;', 'cityTransition(s.citySelect,current,cityArgs([cell,record]));n.city_select_completed=true;'),
         ('call(s.apply,current);n.apply_completed=true;', 'cityTransition(s.apply,current);n.apply_completed=true;')):
         s = replace(s,before,after)
@@ -292,7 +305,7 @@ def validate(value, *, expected_city=None):
     for key,default in DEFAULTS.items():
         if type(default) is bool and type(extra[key]) is not bool:
             raise ValueError('Invalid city flag')
-    for key,limit in [('city_scan_samples',2),('city_visible_rows',12),('city_total_rows',200),('city_matches',12),('city_transition_overruns',6),('city_read_budget_retries',4)]:
+    for key,limit in [('city_scan_samples',2),('city_visible_rows',12),('city_total_rows',200),('city_matches',12),('city_transition_overruns',16),('city_queries_started',6),('city_query_text_returns',6),('city_query_returns',6),('city_candidates_skipped',5),('city_result_waits',24),('city_read_budget_retries',4)]:
         if type(extra[key]) is not int or not 0<=extra[key]<=limit:
             raise ValueError('Invalid city counter')
     if extra['city_checkpoint'] not in CHECKPOINTS or extra['city_prepare'] not in PREPARE_STEPS or extra['city_identity'] not in IDENTITY:
@@ -300,8 +313,16 @@ def validate(value, *, expected_city=None):
     online.validate(checked, max_frames=MAX_FRAMES, phases=PHASES, errors=ERRORS, kinds=KINDS, allow_ui_text=True)
     if extra['city_transition_overruns'] and not n['open_completed']:
         raise ValueError('Transition overrun without returned open')
-    completed = sum((n['open_completed'], extra['city_open_completed'], extra['city_query_text_completed'], extra['city_query_completed'],
-                     extra['city_select_completed'], n['apply_completed']))
+    completed = sum((n['open_completed'], extra['city_open_completed'], extra['city_select_completed'], n['apply_completed'])) + extra['city_query_text_returns'] + extra['city_query_returns']
+    if not 0 <= extra['city_query_returns'] <= extra['city_query_text_returns'] <= extra['city_queries_started'] <= 6:
+        raise ValueError('Invalid city query ordering')
+    if extra['city_queries_started'] - extra['city_query_text_returns'] > 1 or extra['city_query_text_returns'] - extra['city_query_returns'] > 1:
+        raise ValueError('Unreturned city query was repeated')
+    if extra['city_candidates_skipped'] > extra['city_query_returns'] or (extra['city_queries_started'] and extra['city_candidates_skipped'] < extra['city_queries_started'] - 1):
+        raise ValueError('Unverified city candidate change')
+    for key,counter in (('city_query_attempted','city_queries_started'),('city_query_text_completed','city_query_text_returns'),('city_query_completed','city_query_returns')):
+        if extra[key] != bool(extra[counter]):
+            raise ValueError('Missing city query return evidence')
     if extra['city_transition_overruns'] > completed:
         raise ValueError('More overruns than completed transitions')
     if extra['city_query_completed'] and not n['ui_text_read']:
@@ -316,6 +337,8 @@ def validate(value, *, expected_city=None):
     if extra['city_result_verified'] and (extra['city_scan_samples']!=2 or not 1<=extra['city_matches']<=1<=extra['city_visible_rows']<=extra['city_total_rows']):
         raise ValueError('City selected without a stable verified first result')
     if extra['city_verified']:
+        if extra['city_queries_started'] != extra['city_query_returns'] or extra['city_candidates_skipped'] != extra['city_query_returns'] - 1:
+            raise ValueError('City verified after incomplete candidate query')
         selected = check_city(extra['city_selected_name'])
         if expected_city is not None:
             normalize = lambda text: unicodedata.normalize('NFC', check_city(text)).lower().replace('ё', 'е')
@@ -366,7 +389,7 @@ def build_next(cities, used=()):
     const alternatives=cityCandidates.filter(name=>cityNorm(name)!==cityNorm(previousCityName));
     if(alternatives.length===0)fail('city-no-alternative');
     const fresh=alternatives.filter(name=>!cityUsed.has(cityNorm(name)));
-    n.city_round_reset=fresh.length===0;cityWanted=(fresh.length?fresh:alternatives)[0];
+    n.city_round_reset=fresh.length===0;state.cityRemaining=(fresh.length?fresh:alternatives).slice(0,6);cityWanted=state.cityRemaining.shift();
 ''')
     source = replace(source, "state.cityID=found.match.id;n.city_checkpoint='select';",
                      "if(found.match.id===state.rotationCityID)fail('identity-changed');\n    state.cityID=found.match.id;n.city_checkpoint='select';")

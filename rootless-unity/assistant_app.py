@@ -23,6 +23,7 @@ import assistant_ai
 from mumu_version import VERSION
 from mumu_common import load_ports, save_ports, parse as parse_ports, MumuError, device_directory
 from mumu_controller import run_many
+from mumu_pause import PortControl
 
 
 def launch(self_check=False):
@@ -49,6 +50,7 @@ def launch(self_check=False):
     busy = False
     dialog = None
     first_profiles_run = True
+    port_controls = {}
 
     def refresh():
         start.configure(state='disabled' if busy else 'normal')
@@ -56,6 +58,7 @@ def launch(self_check=False):
         options.configure(state='disabled' if busy else 'normal')
         replies.configure(state='disabled' if busy else 'normal')
         stop.configure(state='normal' if busy else 'disabled')
+        refresh_port_buttons()
 
     def cancel():
         stopped.set()
@@ -63,7 +66,7 @@ def launch(self_check=False):
 
     def worker(current, mode, fresh, ports):
         results=run_many(ports,current,mode,fresh,stopped,
-            lambda n,text:events.put(('device-progress',(n,text))))
+            lambda n,text:events.put(('device-progress',(n,text))),controls=port_controls)
         events.put(('devices-finished',results))
 
     def begin(mode='full'):
@@ -83,6 +86,7 @@ def launch(self_check=False):
         if mode == 'full':
             first_profiles_run = False
         stopped.clear()
+        port_controls.clear();port_controls.update({n:PortControl() for n in ports})
         busy = True
         refresh()
         device_table.delete(*device_table.get_children())
@@ -322,8 +326,28 @@ def launch(self_check=False):
             path=device_directory(int(selected[0])) if selected else data_directory()
             path.mkdir(parents=True,exist_ok=True);os.startfile(str(path))
         except (OSError,AttributeError,ValueError):status.set('Отчёты: %LOCALAPPDATA%/DvkAssistant; остальные порты — devices/<порт>.')
-    reports_button=ttk.Button(frame,text='Отчёты выбранного MuMu',command=show_reports)
-    reports_button.pack(anchor='w',pady=(4,0))
+    device_actions=ttk.Frame(frame);device_actions.pack(fill='x',pady=(4,0))
+    reports_button=ttk.Button(device_actions,text='Отчёты выбранного MuMu',command=show_reports)
+    reports_button.pack(side='left')
+    def chosen_control():
+        selected=device_table.selection()
+        return port_controls.get(int(selected[0])) if selected else None
+    def refresh_port_buttons():
+        control=chosen_control();state=control.state() if control is not None else 'finished'
+        active=busy and not stopped.is_set() and state!='finished'
+        pause_port.configure(state='normal' if active and state in ('running','resume-requested') else 'disabled')
+        resume_port.configure(state='normal' if active and state in ('pause-requested','paused') else 'disabled')
+    def pause_selected(paused):
+        control=chosen_control()
+        if not busy or stopped.is_set() or control is None:return
+        if control.request(paused):
+            selected=device_table.selection()[0]
+            device_table.item(selected,values=(selected,'Пауза запрошена • завершаю текущую задачу' if paused else 'Возобновляю работу'))
+        refresh_port_buttons()
+    pause_port=ttk.Button(device_actions,text='Пауза порта',command=lambda:pause_selected(True),state='disabled')
+    resume_port=ttk.Button(device_actions,text='Продолжить порт',command=lambda:pause_selected(False),state='disabled')
+    pause_port.pack(side='left',padx=(8,4));resume_port.pack(side='left')
+    device_table.bind('<<TreeviewSelect>>',lambda event:refresh_port_buttons())
 
     def poll():
         nonlocal busy
@@ -331,7 +355,11 @@ def launch(self_check=False):
             kind, value = events.get_nowait()
             if kind == 'device-progress':
                 n,text=value
+                control=port_controls.get(n);state=control.state() if control is not None else 'finished'
+                if state=='pause-requested' and not text.startswith('Пауза запрошена'):text='Пауза запрошена • '+text
+                elif state=='paused':text='На паузе'
                 if device_table.exists(str(n)):device_table.item(str(n),values=(n,text))
+                refresh_port_buttons()
                 continue
             if kind == 'devices-finished':
                 busy=False
@@ -353,6 +381,7 @@ def launch(self_check=False):
                     except (OSError, AttributeError):
                         pass
             refresh()
+        refresh_port_buttons()
         root.after(100, poll)
 
     statistics_stop = None
@@ -369,7 +398,7 @@ def launch(self_check=False):
         assert root.winfo_viewable() and all(b.winfo_viewable() for b in
                                              (start, stop, replies, options))
         # Packaged Windows check: all controls stay within the smaller client area.
-        for control in (start, stop, replies, options, ports_box, device_table, reports_button):
+        for control in (start, stop, replies, options, ports_box, device_table, reports_button, pause_port, resume_port):
             assert control.winfo_viewable()
             x=control.winfo_rootx()-root.winfo_rootx();y=control.winfo_rooty()-root.winfo_rooty()
             assert 0 <= x and 0 <= y
@@ -377,6 +406,7 @@ def launch(self_check=False):
             assert y+control.winfo_height() <= root.winfo_height()
         assert not busy and not stopped.is_set() and events.empty()
         assert str(stop.cget('state')) == 'disabled'
+        assert str(pause_port.cget('state'))==str(resume_port.cget('state'))=='disabled'
         configure()
         root.update()
         assert dialog.winfo_viewable() and events.empty()

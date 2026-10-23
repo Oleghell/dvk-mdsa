@@ -34,6 +34,23 @@ def one(library, case):
             assert child.stdout.readline().strip() == 'ready'
             session = frida.get_local_device().attach(child.pid)
             source=manual.build(text, visited)
+            if case=='combined-frame-baseline':
+                from unittest.mock import patch
+                with patch('assistant_profile_read.specialize',side_effect=lambda value:value):
+                    source=manual.build(text,visited)
+                source=source.replace('r.navigation=emptyNavigation();','r.navigation=emptyNavigation();r.navigation.profile_read_budget_retries=0;r.navigation.greeting_frame_splits=0;')
+            if case in ('combined-frame','combined-frame-baseline'):
+                source=source.replace("n.read_checkpoint='identity';","{const until=Date.now()+65;while(Date.now()<until){}}n.read_checkpoint='identity';")
+                source=source.replace('const manager=call(s.cohortManager,chat);',"{const until=Date.now()+45;while(Date.now()<until){}}const manager=call(s.cohortManager,chat);")
+            if case in ('read-budget-once','read-budget-always','identity-after-budget'):
+                cond="n.profile_read_budget_retries===0" if case!='read-budget-always' else 'true'
+                inject="if("+cond+")fail('frame-budget');"
+                if case=='identity-after-budget':inject+="fail('identity-changed');"
+                source=source.replace("n.read_checkpoint='identity';",inject+"n.read_checkpoint='identity';")
+            if case=='history-after-approval':
+                source=source.replace("if(n.phase==='submit-greeting'){","if(n.phase==='submit-greeting'){fail('history-not-ready');")
+            if case=='send-return-budget':
+                source=source.replace('call(s.send,current,args);n.send_handler_returned=true;',"call(s.send,current,args);fail('frame-budget');n.send_handler_returned=true;")
             if case=='slow-profile-baseline':
                 source=source.replace("if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+100;",'')
             script = session.create_script(source + '''
@@ -73,21 +90,48 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
                 store.finish(state['action_id'], n)
             counts = script.exports_sync.counts()
             assert all(counts[k] == 0 for k in ('handles', 'off', 'pins', 'bad', 'timing')), (case, counts)
-            sends = 1 if case in ('approve', 'draft', 'handler-error', 'skip-visited', 'slow-profile') else 0
+            sends = 1 if case in ('approve', 'draft', 'handler-error', 'skip-visited', 'slow-profile','combined-frame','read-budget-once','send-return-budget') else 0
             assert counts['sends'] == sends, (case, counts, n['error'])
             assert counts['opens'] == (0 if case == 'crowded-search' else 1), (case, counts)
             if case == 'crowded-search':
                 assert n['error']=='call-limit' and n['phase']=='search' and n['managed_calls']==6000, n
                 assert not n['open_attempted'] and not n['chat_open_attempted'] and not approvals
+            if case=='combined-frame-baseline':
+                from unittest.mock import patch
+                with patch('assistant_profile_read.specialize',side_effect=lambda value:value):
+                    source=manual.build(text,visited)
+                source=source.replace('r.navigation=emptyNavigation();','r.navigation=emptyNavigation();r.navigation.profile_read_budget_retries=0;r.navigation.greeting_frame_splits=0;')
+            if case in ('combined-frame','combined-frame-baseline'):
+                source=source.replace("n.read_checkpoint='identity';","{const until=Date.now()+65;while(Date.now()<until){}}n.read_checkpoint='identity';")
+                source=source.replace('const manager=call(s.cohortManager,chat);',"{const until=Date.now()+45;while(Date.now()<until){}}const manager=call(s.cohortManager,chat);")
+            if case in ('read-budget-once','read-budget-always','identity-after-budget'):
+                cond="n.profile_read_budget_retries===0" if case!='read-budget-always' else 'true'
+                inject="if("+cond+")fail('frame-budget');"
+                if case=='identity-after-budget':inject+="fail('identity-changed');"
+                source=source.replace("n.read_checkpoint='identity';",inject+"n.read_checkpoint='identity';")
+            if case=='history-after-approval':
+                source=source.replace("if(n.phase==='submit-greeting'){","if(n.phase==='submit-greeting'){fail('history-not-ready');")
+            if case=='send-return-budget':
+                source=source.replace('call(s.send,current,args);n.send_handler_returned=true;',"call(s.send,current,args);fail('frame-budget');n.send_handler_returned=true;")
             if case=='slow-profile-baseline':
                 assert n['stage']=='navigation-stopped' and n['error'] in ('frame-limit','call-limit') and not approvals, n
             if case == 'slow-profile':
                 assert n['stage']=='navigation-ready' and n['managed_calls']<6000, n
+            if case in ('read-budget-once','read-budget-always','identity-after-budget'):
+                assert n['profile_read_budget_retries']==(4 if case=='read-budget-always' else 1),(case,n)
+            if case in ('read-budget-always','identity-after-budget','combined-frame-baseline'):
+                assert not approvals and store.summary()['reserved']==0,(case,n,state)
+                assert n['error']==('identity-changed' if case=='identity-after-budget' else 'frame-budget'),(case,n)
+            if case=='history-after-approval':
+                assert len(approvals)==1 and store.summary()['reserved']==1 and not n['send_attempted'],(case,n,state)
+            if case=='send-return-budget':
+                assert len(approvals)==1 and store.summary()['reserved']==1 and n['send_attempted'] and not n['send_handler_returned'],(case,n,state)
             if sends:
                 assert len(approvals) == 1 and store.summary()['reserved'] == 1
                 with Store(store.path, store.legacy).connection() as db:
                     row = db.execute('SELECT status,confirmed FROM manual_actions').fetchone()
                     assert row[1] == 1
+                    if case=='send-return-budget':assert row[0]=='attempted-unknown',row
                 try:
                     Store(store.path, store.legacy).reserve(approvals[0], text, approved=True)
                 except StateError:
@@ -129,6 +173,9 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
 
 if __name__ == '__main__':
     library = Path(sys.argv[1]).resolve(strict=True)
-    cases = sys.argv[2:] or ['approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure', 'crowded-search', 'slow-profile', 'slow-profile-baseline']
+    cases = sys.argv[2:] or ['approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure', 'crowded-search', 'slow-profile', 'slow-profile-baseline','combined-frame','combined-frame-baseline','read-budget-once','read-budget-always','identity-after-budget','history-after-approval','send-return-budget']
+    # Baseline construction patches a module function: keep it outside workers.
+    if 'combined-frame-baseline' in cases:
+        one(library,'combined-frame-baseline');cases.remove('combined-frame-baseline')
     with ThreadPoolExecutor(max_workers=3) as pool:
         list(pool.map(lambda case: one(library, case), cases))

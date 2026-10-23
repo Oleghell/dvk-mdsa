@@ -56,7 +56,7 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         c = script.exports_sync.counts()
         expected = {300:'navigation-ready',301:'not-attempted',302:'not-attempted',303:'not-attempted',
                     304:'managed-exception',305:'unexpected-screen',306:'city-query-changed',307:'managed-exception',
-                    308:'frame-limit',309:'navigation-ready',310:'city-not-found',311:'city-not-found',
+                    308:'city-results-incomplete',309:'navigation-ready',310:'city-not-found',311:'city-not-found',
                     312:'navigation-ready',313:'identity-changed',314:'screen-not-ready',315:'navigation-ready',
                     316:'managed-exception',317:'screen-not-ready',318:'screen-not-ready',319:'navigation-ready',320:'city-results-incomplete',321:'managed-exception',322:'cancelled',323:'cancelled',324:'navigation-ready',325:'navigation-ready',
                     326:'city-not-found',327:'city-not-found',328:'identity-changed',
@@ -68,9 +68,11 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         assert c['handles'] == c['bad'] == c['off'] == c['cancels'] == 0, (mode,c)
         assert n['handles_acquired'] == n['handles_released'], (mode,n)
         assert c['calls'] == result['managed_calls'] + n['managed_calls'], (mode,c,n)
-        assert all(c[k]<=1 for k in ('opens','cityopens','citytexts','searches','selects','sets','applies','refreshes')),c
+        assert all(c[k]<=1 for k in ('opens','cityopens','selects','sets','applies','refreshes')),c
+        assert 0<=c['citytexts']-n['city_query_text_returns']<=1 and 0<=c['searches']-n['city_query_returns']<=1,(mode,n,c)
         if actual == 'navigation-ready':
-            assert c['cityopens']==c['searches']==c['selects']==c['applies']==1,c
+            assert c['cityopens']==c['selects']==c['applies']==1,c
+            assert c['searches']==(2 if mode==351 else 1),c
             assert n['city_verified'] and n['online_verified'] and n['city_matches']==1,n
             assert c['sets']==(mode!=324),c
             assert n['city_selected_name']==('PSKOV' if mode==330 else 'Pskov'),n
@@ -137,4 +139,8 @@ if __name__ == '__main__':
         validator=lambda value:validate_next(value,['OldCity']),expected_result='city-no-alternative')
     one(Path(sys.argv[1]).resolve(strict=True),333,source=build_next(['OldCity','Pskov']),
         validator=lambda value:validate_next(value,['OldCity','Pskov']),expected_result='identity-changed')
+    cities=['OldCity','Missing','Pskov']
+    outcome=one(Path(sys.argv[1]).resolve(strict=True),351,source=build_next(cities),
+        validator=lambda value:validate_next(value,cities),expected_result='navigation-ready')
+    assert outcome['navigation']['city_queries_started']==2 and outcome['navigation']['city_candidates_skipped']==1
     print('5 next-city cases passed: current excluded, used skipped, new round, no alternative, same GeoID blocked.')

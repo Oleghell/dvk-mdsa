@@ -183,6 +183,7 @@ class ManualGate(unittest.TestCase):
     def test_validator_preserves_safety_and_only_changes_timeout_copy(self):
         value = cycle()
         value['navigation']['cycle_timeout_ms'] = 90000
+        value['navigation'].update(profile_read_budget_retries=0,greeting_frame_splits=1)
         before = copy.deepcopy(value)
         self.assertIs(manual.validate(value), value)
         self.assertEqual(value, before)

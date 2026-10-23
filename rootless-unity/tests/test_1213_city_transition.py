@@ -14,7 +14,7 @@ class CityTransitions(unittest.TestCase):
    'cityTransition(s.citySelect,current,cityArgs([cell,record]));n.city_select_completed=true;',
    'cityTransition(s.apply,current);n.apply_completed=true;'):
    self.assertIn(text,source)
-  self.assertIn('cityTransition(s.cityTextSet,input,cityArgs([text]));state.cityTextCommitted=true;n.city_query_text_completed=true;return;',source)
+  self.assertIn('cityTransition(s.cityTextSet,input,cityArgs([text]));state.cityTextCommitted=true;n.city_query_text_completed=true;n.city_query_text_returns++;return;',source)
   for name in ('distanceSet','onlineSet','refreshForm','geoGet','windowRoot'):
    self.assertNotIn('cityTransition(s.'+name+',',source)
  def test_slow_read_still_stops_and_pre_call_deadline_unchanged(self):
@@ -27,7 +27,7 @@ class CityTransitions(unittest.TestCase):
  def test_exception_and_cancel_are_checked_before_accepting_return(self):
   source=city.build('Псков')
   self.assertIn("if(!ex.readPointer().isNull())fail('managed-exception');if(fixedCancellationRequested)fail('cancelled');if(Date.now()>deadline)",source)
-  self.assertIn("if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted))&&n.city_read_budget_retries<4)",source)
+  self.assertIn("if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted)||(n.phase==='scan-city'&&!n.city_select_attempted))&&n.city_read_budget_retries<4)",source)
  def test_destination_still_verified_on_fresh_frame(self):
   source=city.build('Псков')
   self.assertIn("if(!current.equals(target(state.origin)))fail('identity-changed');",source)

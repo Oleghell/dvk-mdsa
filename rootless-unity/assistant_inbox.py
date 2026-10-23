@@ -269,6 +269,9 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         groups=[(targets(items[i:i+MAX_TARGETS]),unread_only,kind) for items,unread_only,kind in groups for i in range(0,len(items),MAX_TARGETS)]
         if pager is not None:pager.reset()
         while groups or pager is not None:
+            from assistant_pause import boundary
+            boundary(stopped)
+            if stopped.is_set():raise StateError('cancelled')
             if not groups:
                 if not pager.advance():
                     reason='available-exhausted'
@@ -454,6 +457,8 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         from functools import partial
         from one_chat_send_device import submit
         import telegram_notify
+    from assistant_pause import boundary
+    boundary(stopped)
     if stopped.is_set():
         return dict(report(), status='inbox-cancelled', reason='cancelled')
     with checkpoint('inbox-contacts'):

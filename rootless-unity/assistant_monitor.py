@@ -140,6 +140,8 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         settings.check()
         phase = 'device-busy-or-monitor-check-stopped'
         with lock():
+            from assistant_pause import boundary
+            boundary(stopped)
             check_stop()
             if mode == 'full':
                 phase = 'dialog-list-not-verified'
@@ -166,6 +168,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
             entry = 'search' if mode == 'full' else 'either'
             immediate_passes = 0
             while True:
+                boundary(stopped)
                 check_stop()
                 phase = 'dialog-list-not-verified'
                 navigate('list', entry)

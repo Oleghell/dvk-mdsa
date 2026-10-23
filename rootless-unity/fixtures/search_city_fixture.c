@@ -29,14 +29,14 @@ static Method cmeth[]={
 static Object city_controller={&cc[0],0},city_input={&cc[3],0},city_table={&cc[5],0},city_list={&cc[7],0},city_cell={&cc[1],0},city_cell2={&cc[1],0},city_record={&cc[2],0},city_record2={&cc[2],0},city_int_box={NULL,0};
 static Field input_field={&cc[0],&ctinput,3},table_field={&cc[0],&cttable,4},query_field={&cc[0],&otstring,5},enum_field={&cc[4],&ctenum,6};
 typedef struct CityString {Class *klass;int length;uint16_t chars[128];} CityString;
-static CityString wanted_string,old_id_string,new_id_string,other_id_string,old_name_string,other_name_string,similar_name_string,case_name_string;
+static CityString wanted_string,missing_string,old_id_string,new_id_string,other_id_string,old_name_string,other_name_string,similar_name_string,case_name_string;
 static int query_sent,city_pick_calls,city_open_calls,city_text_calls,city_search_calls,form_has_city,model_has_city,form_distance,model_distance,city_integer,picked_second,city_name_reads;
 static Object *input_text;
 static void init_string(CityString *s,const char *text){int i;s->klass=NULL;s->length=(int)strlen(text);for(i=0;i<s->length;i++)s->chars[i]=(uint16_t)text[i];s->chars[s->length]=0;}
 static void city_init(int m){
  query_sent=city_pick_calls=city_open_calls=city_text_calls=city_search_calls=form_has_city=model_has_city=0;
  form_distance=model_distance=1;input_text=NULL;picked_second=city_name_reads=0;
- init_string(&wanted_string,"Pskov");init_string(&old_id_string,"old-code");init_string(&new_id_string,"actual-returned-code");
+ init_string(&wanted_string,"Pskov");init_string(&missing_string,"Missing");init_string(&old_id_string,"old-code");init_string(&new_id_string,"actual-returned-code");
  init_string(&other_id_string,"different-real-code");init_string(&old_name_string,"OldCity");init_string(&other_name_string,"NotPskov");
  init_string(&similar_name_string,"Pskovsk");init_string(&case_name_string,"PSKOV");
  if(m==301)cmeth[5].arity=1;
@@ -80,7 +80,7 @@ static Object *city_invoke(Method *m,void *obj,void **args,void **exc){
  case 306:return (Object *)(obj==&city_record2?&other_id_string:&new_id_string);
  case 307:
   city_name_reads++;
-  if(mode==326||(mode==327&&obj==&city_record)||(mode==331&&city_name_reads>2))return (Object *)&similar_name_string;
+  if((mode==351&&input_text==(Object *)&missing_string)||mode==326||(mode==327&&obj==&city_record)||(mode==331&&city_name_reads>2))return (Object *)&similar_name_string;
   return (Object *)(mode==310?&other_name_string:mode==330?&case_name_string:&wanted_string);
  case 308:city_integer=(mode==311||(mode==336&&obj==&city_record))?2:1;return &city_int_box;
  case 309:
@@ -106,7 +106,7 @@ static Object *city_field_object(Object *obj,Field *f){(void)obj;
  if(f==&query_field)return query_sent?input_text:NULL;return NULL;}
 static int city_string_length(void *s){return ((CityString *)s)->length;}
 static uint16_t *city_string_chars(void *s){return ((CityString *)s)->chars;}
-API Object *il2cpp_string_new(const char *text){if(strcmp(text,"Pskov"))return NULL;return (Object *)&wanted_string;}
+API Object *il2cpp_string_new(const char *text){if(mode==351&&!strcmp(text,"Missing"))return (Object *)&missing_string;if(strcmp(text,"Pskov"))return NULL;return (Object *)&wanted_string;}
 API void il2cpp_field_static_get_value(Field *f,int *out){*out=f==&enum_field?1:-1;}
 API Type *il2cpp_class_enum_basetype(Class *c){return c==&cc[4]?&tint:NULL;}
 API int fixture_city_texts(void){return city_text_calls;}
