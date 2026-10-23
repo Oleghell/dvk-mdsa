@@ -24,7 +24,7 @@ def report(limit):
                 search_cycles=0, search_cycle_limit=MAX_SEARCH_CYCLES,
                 skipped_friends=0, skipped_existing_chat=0, greetings_offered=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
-                greetings_declined=0, city_changes=0,
+                greetings_declined=0, city_changes=0, search_budget_rotations=0, last_profile_diagnostics=None,
                 current_city=None, online_verified=False, per_message_confirmation=True,
                 automatic_send=False, delivery_confirmed=False, return_verified=False,
                 personal_data_exported=False, device_scope='MuMu-4-only', last_error=None, last_city_navigation=None)
@@ -136,6 +136,12 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             out['search_cycles'] += 1
             value = cycle(settings.adb, settings.folder, greeting, ask, stopped.is_set, store=store)
             n = value['navigation']
+            # Closed public diagnostics: no identity, message body or native pointers.
+            out['last_profile_diagnostics'] = {key: n[key] for key in (
+                'stage', 'error', 'phase', 'frames', 'managed_calls', 'metadata_checkpoint',
+                'selection_check', 'read_checkpoint', 'wait_reason', 'search_verified',
+                'open_attempted', 'open_completed', 'chat_open_attempted', 'chat_open_completed',
+                'send_attempted', 'send_handler_returned', 'return_verified') if key in n}
             cycle_pending = False
             if n['send_attempted']:
                 out['send_attempts'] += 1
@@ -145,6 +151,21 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             session.set('checked_at', datetime.now(timezone.utc).isoformat(timespec='seconds'))
             if offered:
                 out['greetings_offered'] += 1
+            # A crowded/previously visited search may exhaust its read budget.
+            # Recover ONLY before any profile/chat/send action or approval. The
+            # new-city probe independently verifies search before changing it;
+            # a failure there stops. Never retry a failed native/send operation.
+            scan_budget = (n['error'] == 'call-limit' and n['stage'] == 'navigation-stopped'
+                and n.get('cleanup_failed') is False and n.get('phase') == 'search'
+                and n.get('search_verified') is True and n.get('open_attempted') is False
+                and n.get('open_completed') is False
+                and n.get('chat_open_attempted') is False and n.get('chat_open_completed') is False
+                and n.get('send_attempted') is False and n.get('send_handler_returned') is False
+                and not offered)
+            if scan_budget:
+                out['search_budget_rotations'] += 1
+                new_city('Поиск • лимит чтения исчерпан до открытия анкеты, проверяю поиск и меняю город')
+                continue
             if n['error'] == 'selection-unavailable' and not n['open_attempted']:
                 if out['search_cycles'] >= MAX_SEARCH_CYCLES:
                     raise StateError('search-cycle-limit')

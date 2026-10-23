@@ -15,9 +15,9 @@ from greetings import get_greeting
 
 
 def one(library, case):
-    mode = 502 if case == 'nonempty' else 505 if case == 'handler-error' else 513
+    mode = 518 if case == 'crowded-search' else 519 if case in ('slow-profile','slow-profile-baseline') else 502 if case == 'nonempty' else 505 if case == 'handler-error' else 513
     flag = 4 if case == 'identity-change' else 3 if case == 'draft' else 0
-    visited = ['1', '2'] if case == 'friends-50' else ['1'] if case == 'skip-visited' else []
+    visited = list(map(str,range(1,25))) if case == 'crowded-search' else ['1', '2'] if case == 'friends-50' else ['1'] if case == 'skip-visited' else []
     child = subprocess.Popen([sys.executable, '-u', '-c',
         "import ctypes,sys,time\nl=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)\n"
         "l.fixture_init(int(sys.argv[2]));l.fixture_cohort_mode(int(sys.argv[3]))\n"
@@ -33,7 +33,10 @@ def one(library, case):
         try:
             assert child.stdout.readline().strip() == 'ready'
             session = frida.get_local_device().attach(child.pid)
-            script = session.create_script(manual.build(text, visited) + '''
+            source=manual.build(text, visited)
+            if case=='slow-profile-baseline':
+                source=source.replace("if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+100;",'')
+            script = session.create_script(source + '''
 rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
  cohortpending(){return cohortReservation();},cohortack(value){return cohortAcknowledge(value);},
  selectedpeer(){return assistantSelectedPeer;},
@@ -70,9 +73,16 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
                 store.finish(state['action_id'], n)
             counts = script.exports_sync.counts()
             assert all(counts[k] == 0 for k in ('handles', 'off', 'pins', 'bad', 'timing')), (case, counts)
-            sends = 1 if case in ('approve', 'draft', 'handler-error', 'skip-visited') else 0
+            sends = 1 if case in ('approve', 'draft', 'handler-error', 'skip-visited', 'slow-profile') else 0
             assert counts['sends'] == sends, (case, counts, n['error'])
-            assert counts['opens'] == 1, (case, counts)
+            assert counts['opens'] == (0 if case == 'crowded-search' else 1), (case, counts)
+            if case == 'crowded-search':
+                assert n['error']=='call-limit' and n['phase']=='search' and n['managed_calls']==6000, n
+                assert not n['open_attempted'] and not n['chat_open_attempted'] and not approvals
+            if case=='slow-profile-baseline':
+                assert n['stage']=='navigation-stopped' and n['error'] in ('frame-limit','call-limit') and not approvals, n
+            if case == 'slow-profile':
+                assert n['stage']=='navigation-ready' and n['managed_calls']<6000, n
             if sends:
                 assert len(approvals) == 1 and store.summary()['reserved'] == 1
                 with Store(store.path, store.legacy).connection() as db:
@@ -119,6 +129,6 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
 
 if __name__ == '__main__':
     library = Path(sys.argv[1]).resolve(strict=True)
-    cases = sys.argv[2:] or ['approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure']
+    cases = sys.argv[2:] or ['approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure', 'crowded-search', 'slow-profile', 'slow-profile-baseline']
     with ThreadPoolExecutor(max_workers=3) as pool:
         list(pool.map(lambda case: one(library, case), cases))

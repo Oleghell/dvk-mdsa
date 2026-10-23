@@ -5,20 +5,21 @@ import frida
 import dialog_models as models
 WHO=dict(account='100',peer='200',chat='300')
 OTHER=dict(account='100',peer='201',chat='301')
-def one(library,mode,slow=False):
+def one(library,mode,slow=False,baseline=False):
  child=subprocess.Popen([sys.executable,'-u','-c',
  "import ctypes,sys,time\nl=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)\nl.fixture_init(int(sys.argv[2]));l.fixture_browser_entry(1)\nprint('ready',flush=True)\nfor _ in range(20000):\n l.fixture_tick();time.sleep(float(sys.argv[3]))",str(library),str(mode),str(.45 if slow else .003)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
  session=script=None
  try:
   assert child.stdout.readline().strip()=='ready';session=frida.get_local_device().attach(child.pid)
-  allowed=[OTHER,WHO] if mode==872 else [WHO];offset=0;skipped=0;slices=0
+  allowed=[OTHER,WHO] if mode==872 else [WHO];offset=0;skipped=0;slices=0;total_frames=0
   while True:
    source=models.build(allowed=allowed,needs_reply_only=True,offset=offset)
+   if baseline:source=source.replace('batch<4&&','batch<1&&')
    script=session.create_script(source+'''
 rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();return [r('fixture_handles'),r('fixture_bad_frees'),r('fixture_off_thread_calls'),r('fixture_model_visible_calls'),r('fixture_browser_clicks'),r('fixture_browser_backs'),r('fixture_route_bad'),r('fixture_model_clicks')];}};''')
    script.load();raw=script.exports_sync.probe()
    result,nxt=models.validate(raw,allowed=allowed,needs_reply_only=True,offset=offset)
-   n=raw['navigation'];c=script.exports_sync.counts();slices+=1
+   n=raw['navigation'];c=script.exports_sync.counts();slices+=1;total_frames+=n['frames']
    assert c[:7]==[0]*7,(mode,n,c)
    assert n['handles_acquired']==n['handles_released'],(mode,n)
    skipped+=result['diagnostic']['header_rows_skipped']
@@ -41,6 +42,7 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFun
    if mode==891:assert n['error']=='frame-budget' and c[7]==0 and n['private_model_scan']['budget_yields']==3,(mode,n,c)
    if mode==876:assert n['error']=='identity-not-bound' and skipped==0,(mode,n)
   print('Synthetic cached models',mode,result['state'],'slices',slices,'header skips',skipped,'passed',flush=True)
+  return total_frames
  finally:
   if script:
    try:script.unload()
@@ -54,7 +56,13 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFun
   child.stdout.close();child.stderr.close()
 if __name__=='__main__':
  library=Path(sys.argv[1]).resolve(strict=True)
- for mode in range(870,893):one(library,mode)
+ fast_frames=None
+ for mode in range(870,893):
+  frames=one(library,mode)
+  if mode==871:fast_frames=frames
+ baseline_frames=one(library,871,baseline=True)
+ assert fast_frames<baseline_frames,(fast_frames,baseline_frames)
+ print('Synthetic 130-model scan frames:',baseline_frames,'->',fast_frames,flush=True)
  one(library,871,slow=True)
 
  from smoke_dialog_browser import integration

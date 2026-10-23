@@ -11,6 +11,7 @@ from uikit_profile_navigation import replace_once
 MAX_MODELS=100000
 SLICE=64
 SCAN_MILLISECONDS=4000
+ROWS_PER_FRAME=4
 EXTRA_APIS=['il2cpp_class_get_field_from_name','il2cpp_field_get_parent',
  'il2cpp_field_get_type','il2cpp_field_get_flags','il2cpp_field_get_value',
  'il2cpp_class_value_size','il2cpp_class_is_enum','il2cpp_class_enum_basetype',
@@ -115,7 +116,7 @@ UTILS=r'''
    if(state.scanIndex>count)fail('selection-count-changed');
    n.private_model_scan.count=count;n.scan_batches++;
    if(state.scanStarted===undefined)state.scanStarted=Date.now();
-   for(let batch=0;batch<1&&state.scanIndex<count&&state.scanIndex<modelOffset+64&&(state.scanIndex===modelOffset||Date.now()-state.scanStarted<4000);batch++,state.scanIndex++){
+   for(let batch=0;batch<__ROWS_PER_FRAME__&&state.scanIndex<count&&state.scanIndex<modelOffset+64&&(state.scanIndex===modelOffset||Date.now()-state.scanStarted<4000)&&(batch===0||Date.now()<deadline-40);batch++,state.scanIndex++){
     const opened=scope(()=>{
      if(state.countedIndex!==state.scanIndex){n.rows_scanned++;state.countedIndex=state.scanIndex;}const chat=modelAt(cm,state.scanIndex);if(chat.isNull())return false;own(chat);
      const model=modelIdentity(chat);if(model===null||!permitted(model.who))return false;
@@ -171,7 +172,7 @@ def build(*,allowed=(),entry='dialogs',unread_only=False,needs_reply_only=False,
  start=s.index('  const cellAt=');end=s.index('  const finish=',start)
  s=s[:start]+s[end:]
  start=s.index('  const scan=(current,candidate)=>');end=s.index('  try {\n   const root=call',start)
- s=s[:start]+UTILS.replace('4000',str(SCAN_MILLISECONDS))+s[end:]
+ s=s[:start]+UTILS.replace('4000',str(SCAN_MILLISECONDS)).replace('__ROWS_PER_FRAME__',str(ROWS_PER_FRAME))+s[end:]
  s=replace_once(s,"phase:'entry',entry_verified:false", "private_model_scan:{next:null,count:0,skipped_headers:0,budget_yields:0},phase:'entry',entry_verified:false")
  # A read-only row may yield to another UI frame, but no action is repeated.
  s=replace_once(s,"} catch(e){\n   if(e==='frame-budget'", """} catch(e){
@@ -200,7 +201,7 @@ def validate(raw,*,allowed=(),unread_only=False,needs_reply_only=False,offset=0)
  result['diagnostic']['header_rows_skipped']=scan['skipped_headers']
  return result,nxt
 
-def perform(operation,executable,folder,cancelled=lambda:False,*,allowed=(),expected=None,entry='search',unread_only=False,needs_reply_only=False):
+def perform(operation,executable,folder,cancelled=lambda:False,*,allowed=(),expected=None,entry='search',unread_only=False,needs_reply_only=False,progress=None):
  if operation!='open':return browser.perform(operation,executable,folder,cancelled,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
  if expected is not None:raise ValueError('Unexpected model binding')
  from one_chat_device import capture
@@ -208,6 +209,7 @@ def perform(operation,executable,folder,cancelled=lambda:False,*,allowed=(),expe
  offset=0;skipped=0
  while True:
   if cancelled():raise StateError('cancelled')
+  if progress is not None:progress(f'Проверяю очередь диалогов • с позиции {offset+1}')
   source=build(allowed=allowed,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset)
   def validator(raw):return validate(raw,allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset)
   result,nxt=capture(executable,folder,cancelled,inspector=lambda port,token,cancel,binding:inspect(port,token,cancel,source_function=source,validator=validator))

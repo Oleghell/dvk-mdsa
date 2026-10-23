@@ -594,7 +594,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                       'pending-question': 'Проверяю появление вопроса. Повторной отправки нет.',
                       'pending-contact': 'Проверяю появление предложения. Повторной отправки нет.'
                       }.get(stage, 'Проверяю подтверждённое состояние чата.'))
-            if stopped.is_set() or pause(5):
+            # Inbox processing never waits for a new peer message. After send,
+            # a fresh bound read itself observes native/UI progress; keep the
+            # same three-observation limit, without the artificial 5s sleep.
+            if stopped.is_set() or (not until_waiting and pause(5)):
                 break
             before = read()
         else:

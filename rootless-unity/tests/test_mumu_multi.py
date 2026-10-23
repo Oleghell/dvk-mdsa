@@ -258,7 +258,7 @@ print('isolated')
         # Static assertions supplement full engine authorization/monitor unit tests.
         text=(ROOT/'mumu_worker.py').read_text(encoding='utf-8')
         self.assertIn('profile_interval=120,reply_interval=5',text)
-        self.assertIn('RunAuthorization(stopped)',text)
+        self.assertIn('RunAuthorization(stopped,immediate_greeting=True,progress=progress)',text);self.assertIn('continuous=True',text)
         self.assertIn('preflight(adb)',text);self.assertIn('recheck(adb,boot)',text)
         self.assertNotIn('time.sleep',text)
         spec=(ROOT/'mumu.spec').read_text(encoding='utf-8');self.assertIn('console=True',spec);self.assertIn('console=False',spec)
@@ -285,6 +285,7 @@ mumu_worker.configure=configure
 def runner(settings,stopped,approve,progress,**kwargs):
  assert settings.profile_interval==120 and settings.reply_interval==5
  assert approve.automatic_send is True
+ assert approve.immediate_greeting is True and kwargs['continuous'] is True
  ready.touch()
  while not go.exists():time.sleep(.01)
  from assistant_monitor import report
@@ -316,7 +317,7 @@ except mumu_worker.MumuError:print('blocked');sys.exit(3)
                 (base/'finish').touch();out,err=first.communicate(timeout=15)
                 self.assertEqual(first.returncode,0,err);self.assertEqual(out.strip(),'ok')
                 report=json.loads((base/'DvkAssistant/devices/5557/last-monitor.json').read_text(encoding='utf-8'))
-                self.assertEqual(report['tool_version'],'1.3.6');self.assertEqual(report['device_scope'],'127.0.0.1:5557')
+                self.assertEqual(report['tool_version'],'1.3.7');self.assertEqual(report['device_scope'],'127.0.0.1:5557')
             finally:
                 if first.poll() is None:first.kill()
                 first.communicate()

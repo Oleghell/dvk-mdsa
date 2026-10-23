@@ -11,7 +11,7 @@ import assistant_profiles as profiles
 import assistant_run as run
 from assistant_guided_chain import GuidedChain
 from assistant_settings import Settings, load, save
-from assistant_store import Store
+from assistant_store import Store, StateError
 from conversation_engine import QUESTIONS, CONTACT_TEXT
 from test_assistant_dialogs import nav_result as plain_nav
 
@@ -380,6 +380,66 @@ class Profiles(Base):
         from search_city import DEFAULTS
         return dict(navigation=dict(DEFAULTS, stage='navigation-ready', error='none', phase='done', city_selected_name=name,
             open_attempted=True,open_completed=True,apply_attempted=True,apply_completed=True,settings_checkpoint='complete'))
+
+    def budget_result(self, **changes):
+        return cycle_result(stage='navigation-stopped', error='call-limit', phase='search',
+            **dict(dict(search_verified=True, open_attempted=False, open_completed=False,
+                chat_open_attempted=False, chat_open_completed=False, cleanup_failed=False,
+                frames=85, managed_calls=6000), **changes))
+
+    def test_read_only_search_budget_rotates_city_and_continues(self):
+        profiles.Session(self.store).set('city', 'Псков')
+        limited=self.budget_result();limited['navigation']['private_text']='PRIVATE'
+        greeted=cycle_result(send_attempted=True,send_handler_returned=True)
+        out=self.go([limited,greeted], cities=[self.city_value('Орск')], limit=1)
+        self.assertEqual(out['status'],'profiles-completed')
+        self.assertEqual(out['search_budget_rotations'],1)
+        self.assertEqual(out['search_cycles'],2)
+        self.assertEqual(out['profiles_checked'],1)
+        self.assertEqual(out['send_attempts'],1)
+        self.assertNotIn('PRIVATE',json.dumps(out))
+        self.approve.assert_not_called()
+
+    def test_post_open_budget_and_cleanup_failure_never_rotate(self):
+        profiles.Session(self.store).set('city','Псков')
+        for changes in (dict(open_attempted=True), dict(open_completed=True),
+                dict(chat_open_attempted=True),dict(chat_open_completed=True),
+                dict(cleanup_failed=True),dict(search_verified=False),dict(phase='check-chat'),
+                dict(send_attempted=True),dict(send_attempted=True,send_handler_returned=True,return_verified=False)):
+            with self.subTest(changes=changes):
+                value=self.budget_result();value['navigation'].update(changes)
+                out=self.go([value],limit=1)
+                self.assertEqual(out['status'],'profiles-stopped')
+                self.assertEqual(out['search_budget_rotations'],0)
+                self.city.assert_not_called();self.cycle.assert_called_once()
+
+    def test_search_budget_recovery_is_bounded_and_city_failure_stops(self):
+        profiles.Session(self.store).set('city','Псков')
+        self.cycle=MagicMock(return_value=self.budget_result())
+        with unittest.mock.patch.object(profiles,'MAX_SEARCH_CYCLES',2), \
+             unittest.mock.patch.object(profiles,'change_city',return_value='Орск') as city:
+            out=profiles.walk(self.settings,self.stop,self.approve,lambda _:None,self.store,
+                cycle=self.cycle,config=Config(),limit=1)
+        self.assertEqual(out['reason'],'search-cycle-limit')
+        self.assertEqual(self.cycle.call_count,2);self.assertEqual(city.call_count,2)
+        self.assertEqual(out['send_attempts'],0)
+        with unittest.mock.patch.object(profiles,'change_city',side_effect=StateError('city-not-verified')):
+            out=profiles.walk(self.settings,self.stop,self.approve,lambda _:None,self.store,
+                cycle=MagicMock(return_value=self.budget_result()),config=Config(),limit=1)
+        self.assertEqual(out['reason'],'city-not-verified')
+        self.assertEqual(out['send_attempts'],0)
+
+    def test_approved_or_unknown_cycle_is_not_search_recovery(self):
+        profiles.Session(self.store).set('city','Псков')
+        def offered(adb,folder,text,ask,cancelled,store):
+            ask({},text,cancelled)
+            return self.budget_result()
+        self.city=MagicMock()
+        out=profiles.walk(self.settings,self.stop,self.approve,lambda _:None,self.store,
+            cycle=offered,city_next=self.city,config=Config(),limit=1)
+        self.assertEqual(out['reason'],'profile-check-stopped')
+        self.assertEqual(out['last_profile_diagnostics']['managed_calls'],6000)
+        self.city.assert_not_called()
 
     def test_first_run_sets_city_then_counts_each_outcome(self):
         def greeted(adb, folder, text, ask, cancelled, store):

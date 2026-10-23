@@ -41,6 +41,11 @@ def build(text, visited=()):
     if os.environ.get('DVK_MUMU_MULTI') == '1':
         from mumu_claims import specialize
         source = specialize(source)
+    # Unready profile/return views used to spin on every Unity callback,
+    # burning frame/call budgets before the next UI update. Throttle only
+    # observations; existing action latches, 100ms frame and total budgets stay.
+    source = replace_once(source, 'const deadline=Date.now()+100;',
+        "const deadline=Date.now()+100;\n  if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+100;")
     return 'let assistantSelectedPeer=null;\n' + source
 
 

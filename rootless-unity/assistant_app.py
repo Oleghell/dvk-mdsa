@@ -30,9 +30,9 @@ def launch(self_check=False):
     from tkinter import ttk, filedialog, messagebox
     root = tk.Tk()
     root.title('DvkAssistant ' + VERSION + ' · ДругВокруг · MuMu · несколько устройств')
-    root.geometry('760x430')
-    root.minsize(680, 380)
-    frame = ttk.Frame(root, padding=12)
+    root.geometry('600x350')
+    root.minsize(560, 330)
+    frame = ttk.Frame(root, padding=8)
     frame.pack(fill='both', expand=True)
     ttk.Label(frame, text='ДругВокруг · MuMu', font=('Segoe UI', 14, 'bold')).pack(anchor='w')
     status = tk.StringVar(value='Готово • версия ' + VERSION)
@@ -41,9 +41,9 @@ def launch(self_check=False):
     except StateError as error:
         settings = Settings()
         status.set(str(error))
-    ttk.Label(frame, textvariable=status, wraplength=700).pack(anchor='w', pady=(8, 6))
+    ttk.Label(frame, textvariable=status, wraplength=540).pack(anchor='w', pady=(4, 2))
     controls = ttk.Frame(frame)
-    controls.pack(fill='x', pady=(8, 0))
+    controls.pack(fill='x', pady=(4, 0))
     events = queue.Queue()
     stopped = threading.Event()
     busy = False
@@ -141,11 +141,11 @@ def launch(self_check=False):
             ttk.Button(row, text='Выбрать', command=choose).pack(side='right', padx=(8, 0))
         ttk.Label(box, text='Подходящих анкет за одну порцию (1–20)').pack(anchor='w')
         ttk.Entry(box, textvariable=limit, width=8).pack(anchor='w', pady=(3, 10))
-        ttk.Label(box, text='Опрос лички во время ожидания: каждые 5 секунд').pack(anchor='w')
+        ttk.Label(box, text='Режим «Только ответы»: опрос каждые 5 секунд').pack(anchor='w')
         ttk.Entry(box, textvariable=interval, width=8, state='readonly').pack(anchor='w', pady=(3, 10))
-        ttk.Label(box, text='Работа с личкой между порциями: 120 секунд').pack(anchor='w')
+        ttk.Label(box, text='Повторная проверка лички: не позднее 120 секунд').pack(anchor='w')
         ttk.Entry(box, textvariable=profile_interval, width=8, state='readonly').pack(anchor='w', pady=(3, 10))
-        ttk.Label(box, text='Во время отдыха проверяю входящие и отвечаю. Отправка с задержкой 35 слов/мин.\nСтарт разрешает автоматические сообщения; не трогай выбранные MuMu во время работы.', wraplength=500).pack(anchor='w', pady=8)
+        ttk.Label(box, text='Когда доступные диалоги обработаны, сразу продолжаю поиск.\nПервое приветствие без задержки; ответы — 35 слов/мин.\nСтарт разрешает автоматические сообщения; не трогай выбранные MuMu во время работы.', wraplength=500).pack(anchor='w', pady=8)
         ttk.Checkbutton(ai_box, variable=ai_enabled, text='ИИ: короткие ответы по структуре цепочки').pack(anchor='w', pady=6)
         ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются Groq, а при недоступности его ключей — OpenRouter и провайдеру модели. ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
         ttk.Label(ai_box, text='Сервис ИИ').pack(anchor='w', pady=(8, 0))
@@ -295,34 +295,35 @@ def launch(self_check=False):
     start = ttk.Button(controls, text='Старт', command=begin)
     start.pack(side='left')
     replies = ttk.Button(controls, text='Только ответы', command=lambda: begin('inbox'))
-    replies.pack(side='left', padx=10)
+    replies.pack(side='left', padx=6)
     stop = ttk.Button(controls, text='Стоп', command=cancel, state='disabled')
     stop.pack(side='left')
     options = ttk.Button(controls, text='Настройки', command=configure)
     options.pack(side='right')
 
-    devices_box=ttk.LabelFrame(frame,text='Порты MuMu ADB — по одному на строку',padding=8)
-    devices_box.pack(fill='both',expand=True,pady=12)
-    ports_box=tk.Text(devices_box,width=9,height=6)
+    devices_box=ttk.LabelFrame(frame,text='Порты MuMu ADB — по одному на строку',padding=6)
+    devices_box.pack(fill='both',expand=True,pady=8)
+    ports_box=tk.Text(devices_box,width=7,height=5)
     ports_box.pack(side='left',fill='y')
     try:initial_ports=load_ports() if not self_check else [5557,5559,5561,5563,5565]
     except MumuError as error:
         initial_ports=[];status.set(str(error))
     ports_box.insert('1.0','\n'.join(map(str,initial_ports)))
-    device_table=ttk.Treeview(devices_box,columns=('port','status'),show='headings',height=6)
+    device_table=ttk.Treeview(devices_box,columns=('port','status'),show='headings',height=5)
     device_table.heading('port',text='ADB порт');device_table.heading('status',text='Состояние')
-    device_table.column('port',width=80,stretch=False);device_table.column('status',width=510)
+    device_table.column('port',width=65,stretch=False);device_table.column('status',width=360,stretch=True)
     scroll=ttk.Scrollbar(devices_box,orient='vertical',command=device_table.yview)
     device_table.configure(yscrollcommand=scroll.set)
     scroll.pack(side='right',fill='y');device_table.pack(side='left',fill='both',expand=True,padx=(8,0))
-    ttk.Label(frame,text='Общая база · 35 слов/мин · 2 минуты в личке между порциями').pack(anchor='w')
+    ttk.Label(frame,text='Без простоев · приветствие сразу · ответы 35 слов/мин').pack(anchor='w')
     def show_reports():
         try:
             selected=device_table.selection()
             path=device_directory(int(selected[0])) if selected else data_directory()
             path.mkdir(parents=True,exist_ok=True);os.startfile(str(path))
         except (OSError,AttributeError,ValueError):status.set('Отчёты: %LOCALAPPDATA%/DvkAssistant; остальные порты — devices/<порт>.')
-    ttk.Button(frame,text='Отчёты выбранного MuMu',command=show_reports).pack(anchor='w',pady=6)
+    reports_button=ttk.Button(frame,text='Отчёты выбранного MuMu',command=show_reports)
+    reports_button.pack(anchor='w',pady=(4,0))
 
     def poll():
         nonlocal busy
@@ -367,6 +368,13 @@ def launch(self_check=False):
         root.update()
         assert root.winfo_viewable() and all(b.winfo_viewable() for b in
                                              (start, stop, replies, options))
+        # Packaged Windows check: all controls stay within the smaller client area.
+        for control in (start, stop, replies, options, ports_box, device_table, reports_button):
+            assert control.winfo_viewable()
+            x=control.winfo_rootx()-root.winfo_rootx();y=control.winfo_rooty()-root.winfo_rooty()
+            assert 0 <= x and 0 <= y
+            assert x+control.winfo_width() <= root.winfo_width()
+            assert y+control.winfo_height() <= root.winfo_height()
         assert not busy and not stopped.is_set() and events.empty()
         assert str(stop.cget('state')) == 'disabled'
         configure()

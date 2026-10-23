@@ -231,6 +231,25 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){
                     greetings=(greeting,),pause=lambda _:False,entry='dialogs',return_to='dialogs',contact_photo=lambda who:photo)
                 assert again['status']==('inbox-completed' if cached_models else 'inbox-empty') and again['dialogs_opened']==0 and len(delivered)==1,again
                 if cached_models:assert contacted['header_rows_skipped']>0 and again['header_rows_skipped']>0,(contacted,again)
+            if cached_models:
+                # Full MuMu mode must leave the verified, drained inbox for
+                # search without spending the rest of the old 120s interval.
+                stop=threading.Event();rotations=[]
+                def initial_noop(*args,**kwargs):
+                    return dict(status='completed',report_name='last-run.json')
+                def next_profiles(*args,**kwargs):
+                    assert kwargs['mode']=='profiles'
+                    rotations.append('profiles');stop.set()
+                    return dict(status='completed',report_name='last-run.json')
+                def no_idle(seconds):raise AssertionError('Unexpected full-mode idle')
+                continuous=assistant_monitor.run(Settings(contacts_enabled=False,errors_enabled=False),stop,approve,
+                    mode='full',continuous=True,initial=initial_noop,repeat=next_profiles,
+                    inbox=inbox,navigator=navigator,lock=nullcontext,clock=lambda:0,
+                    write=lambda _: 'last-monitor.json',wait=no_idle)
+                assert rotations==['profiles'] and continuous['early_profile_batches']==1,continuous
+                assert continuous['totals']['submission_calls']==0,continuous
+                assert continuous['status']=='cancelled',continuous
+                print('Synthetic continuous MuMu: verified inbox -> search, no idle, no resend.',flush=True)
         print('Synthetic browser + durable chain + outgoing observation + return passed.',flush=True)
         print('Synthetic monitor: immediate inbox recheck, idle in dialogs, direct contact delivered once without reopening.',flush=True)
     finally:

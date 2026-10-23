@@ -267,7 +267,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 groups.pop(0)
                 continue
             phase = 'navigation'
-            progress(f'Диалоги • чат {out["dialogs_opened"] + 1}' +
+            progress(f'Ищу следующий чат • обработано {out["dialogs_processed"]}' +
                      (' • проверка прочитанного' if group_kind == 'read' else ''))
             selected = call('open', allowed=with_seen_ids(chain,allowed) if group_kind=='read' else allowed,
                             entry=entry, unread_only=unread_only, needs_reply_only=True)
@@ -279,6 +279,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 continue
             who = identity(selected['identity'])
             out['dialogs_opened'] += 1
+            progress(f'Читаю открытый диалог • {out["dialogs_opened"]}')
             if group_kind == 'read':
                 out['read_dialogs_checked'] += 1
             phase = 'chat'
@@ -359,6 +360,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             # Mark durably BEFORE leaving: a failed back cannot enable a resend.
             if isolated:
                 chain.mark_review(who)
+            progress('Исходящее подтверждено → возвращаюсь к списку.' if result['outgoing_observed_this_run'] and not unanswered else 'Возвращаюсь к списку диалогов.')
             call('back', expected=who)
             # Only a successful, SAME-chat back may make a read failure local.
             # Do not change chain stage, reservations, consumed messages or review state.
@@ -455,7 +457,8 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     with checkpoint('inbox-navigation-adapter'):
         if navigator is None:
             from dialog_models import perform as model_navigation
-            navigator=model_navigation
+            from functools import partial
+            navigator=partial(model_navigation,progress=progress)
     with checkpoint('inbox-config'):
         prepared_greetings=entries(config_directory(),'greetings',256) if greetings is None else greetings
     # No screen paging, automatic swipes or return-to-top scan.

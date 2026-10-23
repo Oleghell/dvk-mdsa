@@ -103,8 +103,8 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                 atomic(device_directory(n)/'last-performance.json',dict(metrics.snapshot(),tool_version=VERSION,device_port=n))
                 atomic(device_directory(n)/REPORT,value)
                 return REPORT
-            out=(runner or monitor)(current,stopped,RunAuthorization(stopped),progress,
-                  mode=spec['mode'],fresh_session=spec['fresh'],write=write)
+            out=(runner or monitor)(current,stopped,RunAuthorization(stopped,immediate_greeting=True,progress=progress),progress,
+                  mode=spec['mode'],fresh_session=spec['fresh'],write=write,continuous=True)
             write(out)
             atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,status='finished',stage='monitor',automatic_retry=False))
             return out

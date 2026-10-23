@@ -114,7 +114,7 @@ class SharedScan(unittest.TestCase):
  def test_yields_before_action_only_and_bounded(self):
   import dialog_models
   source=dialog_models.build()
-  self.assertIn('batch<1',source);self.assertIn('!n.action_attempted&&!n.action_completed',source)
+  self.assertIn('batch<4',source);self.assertIn('Date.now()<deadline-40',source);self.assertIn('!n.action_attempted&&!n.action_completed',source)
   self.assertIn('state.rowBudgetYields<3',source);self.assertIn('budget_yields<12',source)
   self.assertIn('state.countedIndex!==state.scanIndex',source)
  def test_invalid_private_budget_not_accepted(self):

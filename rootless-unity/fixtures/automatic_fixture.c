@@ -86,7 +86,7 @@ static Object model_obj={&profile_model,0},other_model={&profile_model,0};
 static Object longbox={NULL,0};static int64_t longnumber;
 static int model_reads,actual_reads,id_reads;
 static Method identity_getter={"get_Id",&pc[8],0,&tlong,68};
-static int batch_mode(void){return (mode>=250&&mode<=257)||(mode>=500&&mode<=517);}
+static int batch_mode(void){return (mode>=250&&mode<=257)||(mode>=500&&mode<=519);}
 static Object ptable={&pc[2],0},pvisiblelist={&pc[17],0},prow={&pc[10],0},precord={&pc[13],0},pcell={&pc[3],0},pentryobj={&pc[4],0},pavatar={&pc[6],0},puser={&pc[8],0},potheruser={&pc[8],0},pcontent={&pc[9],0},pothercontent={&pc[9],0};
 static Object preplacementrow={&pc[10],0};
 static Object ppromocell={&pc[3],0},ppromoentry={&pc[4],0};
@@ -96,7 +96,7 @@ static int entry_reads,avatar_reads,promo_reads;
 static Object stress_rows[24],stress_wrap[24][2],stress_cells[24],stress_parents[21];
 static int iterator_allocations,pin_errors,blocked,stress_current_row;
 static int stress_mode(void){return batch_mode()||(mode>=190&&mode<=197)||mode==207;}
-static int stress_count(void){if(batch_mode())return mode==252||mode==501?5:12;return mode==191||mode==192?24:8;}
+static int stress_count(void){if(mode==518)return 24;if(batch_mode())return mode==252||mode==501?5:12;return mode==191||mode==192?24:8;}
 static int stress_index(void *obj,Object *array,int length){int i;for(i=0;i<length;i++)if(obj==&array[i])return i;return -1;}
 static int pinned(void *obj){int i;for(i=0;i<HANDLE_COUNT;i++)if(handles[i].live&&handles[i].target==obj)return 1;return 0;}
 API int fixture_pin_errors(void){return pin_errors;}
@@ -363,7 +363,7 @@ static Object *tree_invoke(Method *m,void *obj,void **args,void **exc){
  case 55:if(mode==198||(mode==202&&entry_reads==1))return NULL;return &puser;
  case 56:avatar_reads++;return mode==135||mode==206||(mode==184&&avatar_reads==1)?&potheruser:&puser;
  case 57:yes=mode==136||(mode==193&&stress_current_row!=stress_count()-1);break;
- case 58:profile_reads++;if(mode==156)return &other;if(mode==137)return NULL;return mode==140&&profile_reads>2?&pothercontent:&pcontent;
+ case 58:profile_reads++;if(mode==519&&phase==1&&clock_ms()<(uint64_t)opened_ms+started_ms+6000)return NULL;if(mode==156)return &other;if(mode==137)return NULL;return mode==140&&profile_reads>2?&pothercontent:&pcontent;
  case 59:return mode==138||mode==189||(mode==220&&friend_reads>0)?&potheruser:&puser;
  case 60:
   if(stress_mode()&&(!pinned(&pentryobj)||!pinned(&pavatar)||!pinned(&puser)))pin_errors++;

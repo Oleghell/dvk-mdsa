@@ -66,6 +66,10 @@ class CompactWindow(unittest.TestCase):
              patch.object(app.telegram_notify,'send') as telegram, \
              patch.object(app.threading,'Thread') as thread:
             app.launch()
+            tk.Tk.return_value.geometry.assert_called_once_with('600x350')
+            tk.Tk.return_value.minsize.assert_called_once_with(560, 330)
+            self.assertEqual(tk.Text.call_args.kwargs['width'],7)
+            self.assertEqual(ttk.Treeview.call_args.kwargs['height'],5)
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
             self.assertEqual(labels,['Старт','Только ответы','Стоп','Настройки','Отчёты выбранного MuMu'])
             start.assert_not_called();credentials.assert_not_called();telegram.assert_not_called();thread.assert_not_called()

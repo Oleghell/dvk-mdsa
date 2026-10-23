@@ -54,11 +54,13 @@ def report(mode):
 def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         fresh_session=False, initial=initial_pass, inbox=inbox_pass,
         navigator=perform, lock=operation_lock, write=write_report, wait=None,
-        clock=time.monotonic, repeat=initial_pass, alert=None):
+        clock=time.monotonic, repeat=initial_pass, alert=None, continuous=False):
     """No startup/resume actions without an explicit UI Start. Begin on search or dialogs; unknown screens are rejected."""
+    if type(continuous) is not bool:raise ValueError('Invalid continuous mode')
     if mode not in ('full', 'inbox'):
         raise ValueError('Invalid monitor mode')
     out = report(mode)
+    out.update(continuous_work=continuous, early_profile_batches=0)
     out.update(flags(approve))
     out['profile_interval_seconds'] = settings.profile_interval
     out['recent_exit_events'] = []
@@ -190,15 +192,22 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 # the list with fresh journal targets BEFORE sleeping/profiles.
                 # Bounded burst avoids an unbounded busy loop/stale badges.
                 active = current.get('dialogs_processed',0) > 0
-                if active and immediate_passes < 3:
+                profile_due = mode == 'full' and clock() >= next_profiles
+                # One fresh drain after productive work, then fair rotation to
+                # search. Empty/deferred/review-only passes never cause idle.
+                if active and immediate_passes < (1 if continuous else 3) and not (continuous and profile_due):
                     immediate_passes += 1
                     out['immediate_rechecks'] += 1
                     out.update(status='checking',reason='drain-incoming')
                     publish()
                     continue
-                if mode == 'full' and clock() >= next_profiles:
+                if mode == 'full' and (continuous or profile_due):
                     # Only between completed inbox passes; never overlap device work
                     # or reset greeting reservations/profile/city history.
+                    if continuous and not profile_due:out['early_profile_batches'] += 1
+                    out.update(status='working',reason='next-profile-batch',profile_next_in_seconds=0)
+                    progress('Доступные диалоги обработаны → поиск новых анкет. Отложенные чаты сохранены.')
+                    publish()
                     phase = 'search-screen-not-verified'
                     navigate('return', 'dialogs')
                     check_stop()
