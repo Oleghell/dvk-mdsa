@@ -25,7 +25,7 @@ static int64_t long_value;
 typedef struct Text {Object header;int length;uint16_t chars[16];} Text;
 static Text text_a={{&greeting_string_class,0},5,{'H','e','l','l','o'}},text_b={{&greeting_string_class,0},5,{'R','e','p','l','y'}};
 static Object outgoing={&text_class,0},incoming={&text_class,0};
-static int body_reads,items,name_reads,own_chat_reads,sample_budget_checks;
+static int body_reads,items,name_reads,own_chat_reads,sample_budget_checks,latest_reads;
 static Object read_parents[31];
 static Object batch_messages[128];
 static Text display_name={{&greeting_string_class,0},4,{0x410,0x43d,0x43d,0x430}}, changed_name={{&greeting_string_class,0},4,{0x418,0x43d,0x43d,0x430}};
@@ -113,6 +113,10 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   for(int i=0;i<length;i++){read_parents[i].klass=&nc[0];read_parents[i].value=i;}
   if(obj==&view)return &read_parents[0];
   for(int i=0;i<length;i++)if(obj==&read_parents[i])return i+1<length?&read_parents[i+1]:&window;
+ }
+ if(mode>=579&&mode<=582&&m->action==48){
+  managed_calls++;if(TID()!=main_id)off_thread_calls++;
+  return mode==580?&outgoing:mode==581?&last_message:mode==582&&++latest_reads%2==0?&outgoing:&incoming;
  }
  if(m->action<100)return old_invoke(m,obj,args,exc);
  managed_calls++;if(TID()!=main_id)off_thread_calls++;

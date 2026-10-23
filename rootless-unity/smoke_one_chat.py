@@ -9,7 +9,7 @@ import frida
 import one_chat_probe as p
 
 
-def one(library, mode, expected=None):
+def one(library, mode, expected=None, *, read_latest=False, read_name=False):
     child=subprocess.Popen([sys.executable,'-u','-c',
       "import ctypes,sys,time\nlib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)\nlib.fixture_init(int(sys.argv[2]))\nprint('ready',flush=True)\nfor _ in range(10000):\n lib.fixture_tick()\n time.sleep(.003)",
       str(library),str(mode)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
@@ -18,7 +18,7 @@ def one(library, mode, expected=None):
         q=queue.Queue();threading.Thread(target=lambda:q.put(child.stdout.readline()),daemon=True).start()
         assert q.get(timeout=10).strip()=='ready'
         session=frida.get_local_device().attach(child.pid)
-        script=session.create_script(p.build(expected,scoped_traversal=True)+'''
+        script=session.create_script(p.build(expected,scoped_traversal=True,read_latest=read_latest,read_name=read_name)+'''
         rpc.exports={root(){return probeUIKitRoot();},counts(){
           const get=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
           return {handles:get('fixture_handles'),bad:get('fixture_bad_frees'),off:get('fixture_off_thread_calls'),
@@ -26,12 +26,16 @@ def one(library, mode, expected=None):
           bodies:get('fixture_body_reads'),items:get('fixture_item_reads')};}};''')
         script.load()
         out=script.exports_sync.root()
-        private=p.private_snapshot(out,expected)
+        private=p.private_snapshot(out,expected,read_latest=read_latest,read_name=read_name)
         counts=script.exports_sync.counts()
         assert counts['handles']==counts['bad']==counts['off']==counts['opens']==counts['closes']==counts['sends']==0,(mode,out,counts)
         if expected is None and mode!=509:
             assert private==dict(identity=dict(account='100',peer='200',chat='300'),messages=None),(mode,out)
             assert counts['bodies']==counts['items']==0
+        elif mode in (579,580,581):
+            assert private is not None,(mode,out,counts)
+            assert private['latest_message_id']==(None if mode==581 else '1001' if mode==580 else '1002'),(mode,out,counts)
+            assert len(private['messages'])==2
         elif mode in (570,571,572,575):
             assert private is not None,(mode,out,counts)
             assert len(private['messages'])==(65 if mode==575 else 18),(mode,out)
@@ -90,5 +94,7 @@ if __name__=='__main__':
     one(lib,500)
     who=dict(account='100',peer='200',chat='300')
     for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575,576,577,578):one(lib,mode,who)
+    for mode in (579,580,581,582):one(lib,mode,who,read_latest=True)
+    one(lib,579,who,read_latest=True,read_name=True)
     one(lib,500,dict(account='100',peer='201',chat='300'))
     print('Synthetic read-only ABI passed; live Android has not been tested.')

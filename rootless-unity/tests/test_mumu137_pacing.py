@@ -43,8 +43,8 @@ class FastChain(gf.WholeChain):
  def test_visible_outgoing_advances_without_any_five_second_sleep(self):
   pause=MagicMock(return_value=False)
   out=self.walk(gf.sequence()[1:],until_waiting=True,pause=pause)
-  self.assertEqual(out['submission_calls'],2);self.assertTrue(out['diagnostics']['post_send_checked'])
-  self.assertEqual(len(self.sent),2);pause.assert_not_called()
+  self.assertEqual(out['submission_calls'],1);self.assertTrue(out['diagnostics']['post_send_checked'])
+  self.assertEqual(len(self.sent),1);pause.assert_not_called()
  def test_missing_outgoing_is_bounded_and_never_repeats_send(self):
   before=gf.snapshot(('Привет',False));pause=MagicMock(return_value=False)
   out=self.walk([before],until_waiting=True,pause=pause)

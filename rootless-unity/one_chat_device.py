@@ -14,14 +14,14 @@ class ReadStopped(Exception):
         self.diagnostic = diagnostic
 
 
-def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=False):
+def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=False, read_latest=False):
     if frida_api is None:
         import frida as frida_api
     f = frida_api
     if f.__version__ != '17.24.1':
         raise ReadStopped('client-version')
     # Build only fixed code with validated decimal IDs; no user code is accepted.
-    source = probe.build(expected, read_name=read_name, scoped_traversal=True) + '''
+    source = probe.build(expected, read_name=read_name, scoped_traversal=True, read_latest=read_latest) + '''
     rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
       root(){return probeUIKitRoot();},cancel(){cancelNavigation();}};
     '''
@@ -61,7 +61,7 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
             monitor = threading.Thread(target=watch, daemon=True)
             monitor.start()
             result = script.exports_sync.root()
-            private = probe.private_snapshot(result, expected, read_name=read_name)
+            private = probe.private_snapshot(result, expected, read_name=read_name, read_latest=read_latest)
             n = result['navigation']
             if private is None:
                 # Only fixed stage names may leave the native result.
@@ -78,12 +78,12 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
         cleanup_frida(f, manager, address, script, session, device)
 
 
-def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect, read_name=False):
+def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect, read_name=False, read_latest=False):
     """Private data remains in memory; no JSON serialization in this layer."""
-    if read_name:
+    if read_name or read_latest:
         if expected is None or inspector is not inspect:
             raise ValueError('Name requires the fixed bound reader')
-        inspector = lambda port, token, cancel, who: inspect(port, token, cancel, who, read_name=True)
+        inspector = lambda port, token, cancel, who: inspect(port, token, cancel, who, read_name=read_name, read_latest=read_latest)
     from startup_failure import checkpoint
     with checkpoint('bundle-check'):
         folder = Path(folder).resolve(strict=True)

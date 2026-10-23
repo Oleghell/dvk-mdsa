@@ -64,6 +64,8 @@ class InboxChain(GuidedChain):
             raise StateError('guided-binding-not-authorized') from None
 
     def bind(self, snapshot, greetings, *, approved=False):
+        self.last_legacy_recovered=False
+        self.legacy_recovery_reason='not-applicable'
         if approved is not True:
             raise StateError('guided-consent-required')
         who = identity(snapshot['identity'])
@@ -76,6 +78,8 @@ class InboxChain(GuidedChain):
             return super().bind(snapshot, greetings, approved=True)
         # The journal already proves our greeting went to an empty chat; the
         # base chain anchors that exact greeting (hash) on first consumption.
+        from assistant_legacy_recovery import recover
+        self.last_legacy_recovered=recover(self,snapshot)
 
 
 def inbox_targets(chain):
@@ -95,9 +99,11 @@ def inbox_targets(chain):
           FROM sources s LEFT JOIN chain_dialogs c ON c.account=s.account AND c.peer=s.peer
           ORDER BY s.account,s.peer''').fetchall()
     attention, unread = [], []
+    from assistant_legacy_recovery import candidates
+    recoverable=candidates(chain.store) if chain.responder is not None else set()
     for account, peer, chat, stage, outbox, pending in rows:
         item = dict(account=account, peer=peer, chat=chat)
-        if stage in TERMINAL:
+        if stage in TERMINAL and (account,peer,chat) not in recoverable:
             if stage=='done' and outbox and chain.media_required and not chain.has_media(item):
                 attention.append(item)
             continue
@@ -283,6 +289,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if group_kind == 'read':
                 out['read_dialogs_checked'] += 1
             phase = 'chat'
+            from assistant_legacy_recovery import reserve_probe
+            reserve_probe(chain,who)
             exit_messages=[]
             result = walk_chat(
                 chain, who, stopped, approve,
@@ -424,6 +432,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         from assistant_config import config_directory, entries
         from assistant_store import Store
         from one_chat_device import capture
+        from functools import partial
         from one_chat_send_device import submit
         import telegram_notify
     if stopped.is_set():
@@ -465,7 +474,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     with checkpoint('inbox-walk'):
         result = walk(settings, stopped, approve, progress, chain,
                     navigator=navigator,
-                    reader=capture if reader is None else reader,
+                    reader=partial(capture,read_latest=True) if reader is None else reader,
                     sender=submit if sender is None else sender,
                     notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,exit_photo=exit_photo,exit_photo_sender=exit_photo_sender,
                     greetings=prepared_greetings)

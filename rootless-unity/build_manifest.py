@@ -10,6 +10,7 @@ from mumu_version import VERSION, ENGINE_VERSION  # noqa: E402
 
 # Honest readiness: True only for what a real MuMu #4 run has confirmed.
 LIVE_VERIFIED = {
+    'native_latest_legacy_recovery': False, 'isolated_reply_journals': False, 'immediate_exit_after_observed_send': False,
     'compact_main_window': False, 'profile_search_budget_recovery': False, 'continuous_mumu_work': False, 'immediate_first_greeting': False, 'four_row_cached_scan': False,
     'dialog_list_navigation_and_return': True,     # 0.4.5 device report
     'unread_only_dialog_reading': True,            # 0.4.6, confirmed by the user
@@ -43,7 +44,7 @@ def main(folder):
         device_scope='explicit-local-MuMu-port-list', auto_start=False, explicit_run_confirmation=False, explicit_start_click=True,
         per_message_confirmation=False, automatic_send=True, config_sha256=config_hashes,
         start_flow=['inbox-chain-pass', 'new-profiles-pass'],
-        features=dict(parallel_mumu_workers=True, shared_peer_claims=True, atomic_cross_account_deduplication=True, legacy_mumu4_journal_preserved=True, duplicate_peer_verified_native_return=True, persistent_gadget_reuse=False, immutable_apk_validation_cache=True, adb_read_socket=True, apk_auto_install=False, city_count_limit=None, shared_core_manifest=True, model_scan_rows_per_frame=4, readonly_scan_budget_yields=12, telegram_statistics_commands=['/today','/yesterday','/week','/month','/city'], statistics_historical_backfill=False, inbox_chain_pass=True, new_profiles_pass=True, friends_limit='<50',
+        features=dict(native_latest_legacy_recovery=True, isolated_reply_journals=True, redundant_post_send_read=False, legacy_recovery_basis='journal-greeting-exact-question-native-latest-peer', parallel_mumu_workers=True, shared_peer_claims=True, atomic_cross_account_deduplication=True, legacy_mumu4_journal_preserved=True, duplicate_peer_verified_native_return=True, persistent_gadget_reuse=False, immutable_apk_validation_cache=True, adb_read_socket=True, apk_auto_install=False, city_count_limit=None, shared_core_manifest=True, model_scan_rows_per_frame=4, readonly_scan_budget_yields=12, telegram_statistics_commands=['/today','/yesterday','/week','/month','/city'], statistics_historical_backfill=False, inbox_chain_pass=True, new_profiles_pass=True, friends_limit='<50',
                       online_only_filter=True, random_city_from_config=True,
                       guided_open_chat=False, guided_reset=False, telegram_contact_only=False,
                       telegram_error_alerts=True, profile_interval_seconds=120, typing_words_per_minute=35, immediate_first_greeting=True, typing_countdown=True, compact_main_window=[600,350], profile_search_budget_recovery=True, profile_read_poll_ms=100, continuous_mumu_work=True, inbox_outgoing_poll_delay_seconds=0, early_profile_rotation=True,

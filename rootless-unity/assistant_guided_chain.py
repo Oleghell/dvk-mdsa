@@ -331,7 +331,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         observed_at_start = {row[0] for row in db.execute(
             "SELECT kind FROM chain_actions WHERE chat=? AND status='outgoing-observed'",
             (who['chat'],))}
-    def read(source=reader):
+    def read(source=reader, *, keep_latest=False):
         if stopped.is_set():
             raise StateError('cancelled')
         from one_chat_device import ReadStopped, safe_read_failure, transient_read_failure
@@ -380,18 +380,23 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         else:
             raise ValueError('Read attempt bound exceeded')
         if (not isinstance(private, dict) or
-                set(private) not in ({'identity', 'messages'},
-                                     {'identity', 'messages', 'peer_name'})):
+                not {'identity','messages'} <= set(private) or
+                set(private) - {'identity','messages','peer_name','latest_message_id'}):
             raise ValueError('Invalid private snapshot fields')
         if identity(private['identity']) != who:
             raise StateError('guided-binding-changed')
         value = checked({key: private[key] for key in ('identity', 'messages')})
         if 'peer_name' in private:
             value['peer_name'] = private['peer_name']
+        if keep_latest and 'latest_message_id' in private:
+            value['latest_message_id']=private['latest_message_id']
         return value
     try:
-        before = read()
+        before = read(keep_latest=True)
         chain.bind(before, greetings, approved=True)
+        before.pop('latest_message_id',None)
+        out['diagnostics']['legacy_stage_recovered']=getattr(chain,'last_legacy_recovered',False) is True
+        out['diagnostics']['legacy_recovery_reason']=getattr(chain,'legacy_recovery_reason','not-applicable')
         pending_polls = 0
         for _ in range(max_polls):
             if stopped.is_set():
@@ -502,6 +507,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     wait_reason='contact-followup-sent'
                 from assistant_reply_audit import synchronize,pending
                 synchronize(chain,before)
+                if until_waiting and out['submission_calls'] and out['outgoing_observed_this_run']:
+                    # This bound read already took two complete native samples
+                    # AFTER send. Don't take a third full history before Back.
+                    out['diagnostics']['post_send_checked']=True
                 if out['submission_calls'] and not out['diagnostics'].get('post_send_checked'):
                     fresh=read()
                     out['diagnostics']['post_send_checked']=True
@@ -591,8 +600,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             progress({'wait-reply': 'Жду приветствие собеседника.',
                       'wait-mood': 'Вопрос виден в истории. Жду ответ собеседника.',
                       'wait-contact': 'Предложение видно в истории. Жду контакт собеседника.',
-                      'pending-question': 'Проверяю появление вопроса. Повторной отправки нет.',
-                      'pending-contact': 'Проверяю появление предложения. Повторной отправки нет.'
+                      'pending-question': 'Сверяю отправленный вопрос с историей → затем следующий чат.',
+                      'pending-contact': 'Сверяю отправленное предложение с историей → затем следующий чат.'
                       }.get(stage, 'Проверяю подтверждённое состояние чата.'))
             # Inbox processing never waits for a new peer message. After send,
             # a fresh bound read itself observes native/UI progress; keep the

@@ -59,7 +59,7 @@ class LocalReadIsolation(Base):
         self.assertEqual((out['dialogs_processed'], out['isolated_dialogs']), (2, 1))
         self.assertEqual(out['isolated_reasons'], {'local-own-message-unanchored': 1})
         self.assertEqual(self.sent, ['Как дела?)'])
-        self.assertEqual(self.reader.call_count, 5)  # bad chat is not retried
+        self.assertEqual(self.reader.call_count, 4)  # bad chat not retried; no redundant post-send read
         self.assertEqual(out['outcomes']['isolated:local-own-message-unanchored'], 1)
         self.assertNotIn('PRIVATE', json.dumps(out))
         with self.store.connection() as db:

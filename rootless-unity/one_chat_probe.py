@@ -176,7 +176,9 @@ COLLECT = r'''
 '''
 
 
-def build(expected=None, *, read_name=False, scoped_traversal=False):
+def build(expected=None, *, read_name=False, scoped_traversal=False, read_latest=False):
+    if type(read_latest) is not bool or read_latest and expected is None:
+        raise ValueError("Latest message requires a bound dialog")
     if read_name and expected is None:
         raise ValueError('Name requires an authorized bound dialog')
     expected = identity(expected) if expected is not None else None
@@ -217,6 +219,25 @@ def build(expected=None, *, read_name=False, scoped_traversal=False):
         source = replace_once(source, "   n.read_checkpoint='recheck';", name_read + "   n.read_checkpoint='recheck';")
         source = replace_once(source, 'draft:n.model_draft,identity:who,messages,messageBindings};', 'draft:n.model_draft,identity:who,messages,peer_name:peerName};')
         source = replace_once(source, 'n.private_result={identity:who,messages};', 'n.private_result={identity:who,messages,peer_name:peerName};')
+    if read_latest:
+        # Chat.LastMessage is an independent semantic marker, not list/ID order.
+        # It must be the EXACT same object/header in this complete bound sample.
+        latest_read = r"""
+   let latestId=null;
+   if(!lastMessage.isNull()){
+    const latestRow=chunk.headers.find(row=>row.pointer===lastMessage.toString());
+    // A separate server-model object is NOT proof about this CM. Keep ordinary
+    // history readable, but do not adopt any legacy stage without the proof.
+    if(latestRow){
+     const latestBits=messageHeader(lastMessage);
+     if(JSON.stringify(latestRow.bits)!==JSON.stringify(latestBits))fail('message-invalid');
+     latestId=latestBits.id;
+    }
+   }
+"""
+        source=replace_once(source,'   const sample={count:first,',latest_read+'   const sample={latest_message_id:latestId,count:first,')
+        fields='identity:who,messages'+(',peer_name:peerName' if read_name else '')
+        source=replace_once(source,'n.private_result={'+fields+'};','n.private_result={'+fields+',latest_message_id:latestId};')
     source=source.replace('n.managed_calls>=6000',f'n.managed_calls>={READ_MAX_CALLS}')
     if scoped_traversal:
         from navigation_handles import scoped_traversals
@@ -224,8 +245,10 @@ def build(expected=None, *, read_name=False, scoped_traversal=False):
     return source
 
 
-def private_snapshot(value, expected=None, *, read_name=False):
+def private_snapshot(value, expected=None, *, read_name=False, read_latest=False):
     """Validate private RPC data in memory; caller must never dump this object."""
+    if type(read_latest) is not bool or read_latest and expected is None:
+        raise ValueError("Latest message requires a bound dialog")
     expected = identity(expected) if expected is not None else None
     result = copy.deepcopy(value)
     n = result.get('navigation', {})
@@ -248,6 +271,7 @@ def private_snapshot(value, expected=None, *, read_name=False):
         state.validate(result,max_calls=READ_MAX_CALLS)
         return None
     fields = {'identity', 'messages', 'peer_name'} if read_name else {'identity', 'messages'}
+    if read_latest: fields |= {'latest_message_id'}
     if read_name and expected is None:
         raise ValueError('Name requires an authorized dialog')
     if not isinstance(private, dict) or set(private) != fields:
@@ -296,6 +320,12 @@ def private_snapshot(value, expected=None, *, read_name=False):
                 raise ValueError('Invalid message body')
         if sum(len(m['text'] or '') for m in messages) > MAX_TOTAL_TEXT:
             raise ValueError('Too much text')
+    if read_latest:
+        latest=private['latest_message_id']
+        if latest is not None and (not isinstance(latest,str) or latest not in seen):
+            raise ValueError('Latest message is not in verified history')
+        if latest is not None and n['last_message_present'] is not True:
+            raise ValueError('Latest marker does not match verified history')
     return private
 
 

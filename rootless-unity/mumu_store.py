@@ -20,7 +20,7 @@ from mumu_common import root_directory, port
 TABLES = frozenset(('manual_actions profile_visits search_session city_rotation_used '
     'chain_contact_media chain_contact_outbox chain_dialogs chain_review_reasons '
     'chain_seen chain_actions chain_notifications guided_bindings ai_drafts ai_draft_inputs '
-    'inbox_read_round inbox_history_deferrals chain_exit_notices read_only_bindings guided_notices').split())
+    'inbox_read_round inbox_history_deferrals chain_exit_notices read_only_bindings guided_notices chain_reply_receipts chain_followup_archive chain_recovered_anchors chain_legacy_probes').split())
 TOKENS = re.compile(r'\b(' + '|'.join(sorted(TABLES, key=len, reverse=True)) + r')\b')
 
 class SharedPeerClaimed(StateError):
@@ -101,6 +101,13 @@ class SharedStore(BaseStore):
                             who=json.loads(row[0]);from conversation_engine import identifier
                             identifier(who['account']);identifier(who['peer'])
                             db.execute("INSERT OR IGNORE INTO mumu_peer_claims(peer,device,account) VALUES(?,'legacy',?)",(who['peer'],who['account']))
+                # Old releases accidentally shared receipt keys across devices.
+                # Copy ONLY receipts whose salted fingerprint matches this
+                # phone's persisted observation; never guess the owner by ChatId.
+                if self.prefix and db.execute("SELECT 1 FROM sqlite_master WHERE name='chain_reply_receipts'").fetchone() and db.execute("SELECT 1 FROM sqlite_master WHERE name=?",(self.prefix+'chain_seen',)).fetchone():
+                    table=self.prefix+'chain_reply_receipts'
+                    db.execute('CREATE TABLE IF NOT EXISTS '+table+'(chat TEXT,message TEXT,fingerprint TEXT,status TEXT NOT NULL,reply_message TEXT,PRIMARY KEY(chat,message))')
+                    db.execute('INSERT OR IGNORE INTO '+table+' SELECT r.* FROM chain_reply_receipts r JOIN '+self.prefix+'chain_seen s ON r.chat=s.chat AND r.message=s.message AND r.fingerprint=s.fingerprint')
                 db.execute('COMMIT')
             except BaseException:
                 if db.in_transaction:db.execute('ROLLBACK')

@@ -47,13 +47,17 @@ class Receipts(guide.WholeChain):
   after=guide.snapshot(('Здравствуйте',False),('😉',False),(action['text'],True))
   self.chain.proposal(after);audit.synchronize(self.chain,after)
   self.assertEqual(audit.pending(self.chain,guide.WHO),[])
- def test_arrival_after_observed_send_is_answered_before_exit(self):
+ def test_arrival_after_observed_send_is_answered_on_next_pass(self):
   self.chain.bind(guide.snapshot(),(guide.GREETING,),approved=True)
   h=[('Привет',False),(guide.QUESTIONS[0],True)]
   first=guide.snapshot(*h[:1]);sent=guide.snapshot(*h)
   fresh=guide.snapshot(*h,('Отлично',False));after=guide.snapshot(*h,('Отлично',False),(guide.CONTACT_TEXT,True))
-  out=self.walk([first,first,sent,fresh,fresh,after],until_waiting=True)
-  self.assertEqual(out['status'],'chain-waiting');self.assertEqual(out['submission_calls'],2)
+  out=self.walk([first,first,sent],until_waiting=True)
+  self.assertEqual(out['status'],'chain-waiting');self.assertEqual(out['submission_calls'],1)
+  self.assertTrue(out['diagnostics']['post_send_checked'])
+  out=self.walk([fresh,fresh,after],until_waiting=True)
+  self.assertEqual(out['status'],'chain-waiting');self.assertEqual(out['submission_calls'],1)
+  self.assertEqual(len(self.sent),2)
   self.assertTrue(out['diagnostics']['post_send_checked'])
   self.assertEqual(audit.pending(self.chain,guide.WHO),[])
 
