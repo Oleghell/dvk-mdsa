@@ -141,3 +141,34 @@ def settings_window(parent):
     save_button=ttk.Button(row,text='Сохранить',command=store);save_button.pack(side='left')
     test_button=ttk.Button(row,text='Отправить один тест',command=test);test_button.pack(side='left',padx=8)
     ttk.Label(f,textvariable=status,wraplength=440).pack(anchor='w',pady=(8,0))
+
+
+def send_json_document(token, chat_id, caption, document, opener=None):
+    """One fixed-name JSON attachment; unknown outcomes are never retried."""
+    token, chat_id = credentials(token, chat_id)
+    if not isinstance(caption, str) or not 1 <= len(caption) <= 850:
+        raise TelegramError('Недопустимая подпись отчёта.')
+    caption = cloud_label(caption)
+    if len(caption) > 1024 or type(document) is not bytes or not 2 <= len(document) <= 262144:
+        raise TelegramError('Недопустимый JSON-отчёт.')
+    try:
+        if not isinstance(json.loads(document), dict):
+            raise ValueError()
+    except Exception:
+        raise TelegramError('Недопустимый JSON-отчёт.') from None
+    import secrets
+    boundary = 'DvkReport' + secrets.token_hex(24)
+    parts = []
+    for key, value in (('chat_id', chat_id), ('caption', caption)):
+        parts.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="'+key+'"\r\n\r\n'+value+'\r\n').encode())
+    parts.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="document"; filename="last-monitor.json"\r\nContent-Type: application/json\r\n\r\n').encode()+document+b'\r\n')
+    parts.append(('--'+boundary+'--\r\n').encode())
+    request = urllib.request.Request('https://api.telegram.org/bot'+token+'/sendDocument',
+        data=b''.join(parts), method='POST', headers={'Content-Type':'multipart/form-data; boundary='+boundary})
+    try:
+        client = opener or urllib.request.build_opener(NoRedirect)
+        with client.open(request, timeout=15) as response:
+            data = json.loads(response.read(65537))
+        return data.get('ok') is True and isinstance(data.get('result'), dict) and type(data['result'].get('message_id')) is int
+    except Exception:
+        raise TelegramError('Результат отправки отчёта неизвестен. Автоповтора нет.') from None

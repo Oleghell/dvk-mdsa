@@ -44,7 +44,7 @@ def report(mode):
                 ui_may_remain_open=False, last_navigation=None, last_navigation_failure=None, last_preparation_failure=None,
                 per_message_confirmation=True, automatic_send=False,
                 automatic_profile_repeat=False, profile_interval_seconds=PROFILE_INTERVAL,
-                profile_batches_completed=0, profile_next_in_seconds=None, last_profile_run=None, error_notification='not-needed',
+                profile_batches_completed=0, profile_next_in_seconds=None, last_profile_run=None, error_notification='not-needed', error_json_notification='not-needed',
                 contacts_enabled=False, immediate_rechecks=0, between_profile_checks=0,
                 groq_enabled=False, ai_enabled=False, ai_provider='groq', ai_model=None,
                 groq_context_export_enabled=False, openrouter_context_export_enabled=False, chat_content_exported=False, delivery_confirmed=False,
@@ -54,7 +54,7 @@ def report(mode):
 def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         fresh_session=False, initial=initial_pass, inbox=inbox_pass,
         navigator=perform, lock=operation_lock, write=write_report, wait=None,
-        clock=time.monotonic, repeat=initial_pass, alert=None, continuous=False):
+        clock=time.monotonic, repeat=initial_pass, alert=None, continuous=False, json_alert=None):
     """No startup/resume actions without an explicit UI Start. Begin on search or dialogs; unknown screens are rejected."""
     if type(continuous) is not bool:raise ValueError('Invalid continuous mode')
     if mode not in ('full', 'inbox'):
@@ -270,6 +270,13 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 out['error_notification'] = 'unknown'
         except Exception:
             out['error_notification'] = 'unknown'
+        if alert is None or json_alert is not None:
+            from assistant_error_notify import notify_json
+            try:
+                result = (notify_json if json_alert is None else json_alert)(out)
+                out['error_json_notification'] = result if result in ('accepted','unknown','not-configured','not-needed') else 'unknown'
+            except Exception:
+                out['error_json_notification'] = 'unknown'
         try:
             publish()
         except StateError:

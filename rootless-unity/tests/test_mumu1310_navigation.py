@@ -12,7 +12,7 @@ from test_search_city import ready_city
 class ProfileFrames(unittest.TestCase):
     def result(self):
         value=cycle();value['navigation'].update(cycle_timeout_ms=90000,
-            profile_read_budget_retries=0,greeting_frame_splits=1)
+            profile_read_budget_retries=0,profile_ready_waits=0,greeting_frame_splits=1)
         return value
 
     def test_sample_finishes_before_authorization_and_send(self):

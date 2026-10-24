@@ -1,4 +1,5 @@
 """No live keys/network/accounts: ordered regeneration, never send retries."""
+from test_guided_chain import snapshot
 import os,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -25,26 +26,26 @@ class Failover(unittest.TestCase):
   return ai.Responder('openrouter','dots-studio/dots-3-note-preview:free',collector=lambda p:['g1','g2'] if p=='groq' else ['o1','o2'],factory=factory),trace
  def test_all_groq_before_openrouter(self):
   a,t=self.make({'g1':'groq-rate-limit','g2':'groq-timeout','o1':'openrouter-rate-limit'})
-  self.assertEqual(a('question',{}),REPLY);self.assertEqual(t,['g1','g2','o1','o2'])
+  self.assertEqual(a('question',snapshot()),REPLY);self.assertEqual(t,['g1','g2','o1','o2'])
   self.assertEqual(a.provider_calls,{'groq':2,'openrouter':2});self.assertEqual(a.calls,4)
  def test_no_reserve_request_after_groq_success(self):
-  a,t=self.make({'g1':'groq-unauthorized'});a('question',{})
+  a,t=self.make({'g1':'groq-unauthorized'});a('question',snapshot())
   self.assertEqual(t,['g1','g2']);self.assertNotIn('openrouter',a.pools)
  def test_all_fail_then_local_error_without_key_text(self):
   a,t=self.make({'g1':'groq-unauthorized','g2':'groq-network-error','o1':'openrouter-model-unavailable','o2':'openrouter-timeout'})
-  with self.assertRaisesRegex(g.GroqError,'^groq-key-pool-exhausted$'):a('question',{})
+  with self.assertRaisesRegex(g.GroqError,'^groq-key-pool-exhausted$'):a('question',snapshot())
   self.assertEqual(len(t),4);self.assertTrue(set(a.errors)<=g.ERRORS)
  def test_cancel_never_calls_fallback(self):
   a,t=self.make({});a.cancelled=lambda:True
-  with self.assertRaisesRegex(g.GroqError,'cancelled'):a('question',{})
+  with self.assertRaisesRegex(g.GroqError,'cancelled'):a('question',snapshot())
   self.assertEqual(t,[])
  def test_rules_error_not_bypassed(self):
   a,t=self.make({'g1':'groq-rules-unavailable'})
-  with self.assertRaisesRegex(g.GroqError,'rules-unavailable'):a('question',{})
+  with self.assertRaisesRegex(g.GroqError,'rules-unavailable'):a('question',snapshot())
   self.assertEqual(t,['g1'])
  def test_missing_first_provider_uses_second(self):
   a,t=self.make({});a.collector=lambda p:[] if p=='groq' else ['o1']
-  a('question',{});self.assertEqual(t,['o1'])
+  a('question',snapshot());self.assertEqual(t,['o1'])
  def test_pool_and_saved_key_union_deduplicated(self):
   a,_=self.make({})
   with patch.object(pool,'load',return_value=['g1','g2']),patch.object(g,'load_key',return_value='g2'):
@@ -93,5 +94,5 @@ class Failover(unittest.TestCase):
    calls=1
    def __call__(self,*args):return {'decision':'reply','text':'Напиши пароль'}
   a.pools={'groq':Unsafe()}
-  result=a('question',{})
+  result=a('question',snapshot())
   self.assertEqual(t,['o1']);self.assertEqual(result,REPLY)

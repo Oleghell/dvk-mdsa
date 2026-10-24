@@ -136,11 +136,16 @@ def build(variants=None):
 def build_random():return build([choose_index() for _ in range(LIMIT)])
 FUNCTION=build()
 
-def validate(value, *, skipped_empty=False):
+def validate(value, *, skipped_empty=False, skipped_unready=False):
     v=copy.deepcopy(value)
     if not isinstance(v,dict) or not isinstance(v.get('navigation'),dict):raise ValueError('Missing automatic navigation')
     n=v['navigation']
-    if type(skipped_empty) is not bool:raise ValueError('Invalid empty skip')
+    if type(skipped_empty) is not bool or type(skipped_unready) is not bool:raise ValueError('Invalid empty skip')
+    if skipped_unready and (skipped_empty or n.get('stage')!='navigation-ready' or n.get('phase')!='done' or
+        n.get('error')!='none' or n.get('history_status')!='not-ready' or n.get('message_count') is not None or
+        n.get('samples')!=0 or n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
+        n.get('chat_return_verified') is not True or n.get('return_verified') is not True):
+        raise ValueError('Unverified unready skip')
     if skipped_empty and (n.get('stage')!='navigation-ready' or n.get('phase')!='done' or
         n.get('error')!='none' or n.get('history_status')!='empty' or n.get('message_count')!=0 or
         n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
@@ -185,7 +190,7 @@ def validate(value, *, skipped_empty=False):
     if x['send_attempted'] and (not classified or x['history_status']!='empty'):raise ValueError('Send without stable empty history')
     if n.get('stage')=='navigation-ready':
         if n.get('friends_eligible'):
-            if not x['chat_return_verified'] or not classified:raise ValueError('Unfinished chat cycle')
+            if not x['chat_return_verified'] or (not classified and not skipped_unready):raise ValueError('Unfinished chat cycle')
             if x['history_status']=='empty' and not x['send_handler_returned'] and not skipped_empty:raise ValueError('Empty cycle did not submit')
         elif x['chat_open_attempted']:raise ValueError('Skipped profile opened chat')
     if n.get('phase') in PHASES:n['phase']='confirm-profile'

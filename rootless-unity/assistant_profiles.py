@@ -16,13 +16,15 @@ from assistant_authorization import flags
 MAX_LIMIT = 20
 MAX_SEARCH_CYCLES = 200
 MAX_SCANNED = 200
+MAX_READ_RECOVERIES = 3
 
 
 def report(limit):
     return dict(tool_version=VERSION, mode='new-profiles-pass', status='profiles-stopped',
                 reason='not-started', profile_limit=limit, profiles_checked=0, qualified_profiles=0, scan_limit=MAX_SCANNED,
                 search_cycles=0, search_cycle_limit=MAX_SEARCH_CYCLES,
-                skipped_friends=0, skipped_existing_chat=0, greetings_offered=0,
+                skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0,
+                read_recovery_limit=MAX_READ_RECOVERIES, consecutive_read_recoveries=0, recovery_events=[], greetings_offered=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
                 greetings_declined=0, city_changes=0, search_budget_rotations=0, last_profile_diagnostics=None,
                 current_city=None, online_verified=False, per_message_confirmation=True,
@@ -89,7 +91,7 @@ def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics
 
 
 def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, config=None,
-         limit=5, fresh_session=False, between_profiles=None):
+         limit=5, fresh_session=False, between_profiles=None, recovery_notifier=None):
     from assistant_config import load
     if type(limit) is not int or not 1 <= limit <= MAX_LIMIT:
         raise ValueError('Invalid profile limit')
@@ -146,7 +148,9 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 'selection_check', 'read_checkpoint', 'wait_reason', 'search_verified',
                 'open_attempted', 'open_completed', 'chat_open_attempted', 'chat_open_completed',
                 'send_attempted', 'send_handler_returned', 'return_verified',
-                'profile_read_budget_retries', 'greeting_frame_splits') if key in n}
+                'profile_read_budget_retries', 'greeting_frame_splits', 'profile_ready_waits',
+                'profile_read_skipped', 'profile_read_skip_reason', 'chat_back_attempted', 'chat_back_completed',
+                'chat_return_verified', 'chat_identity_verified', 'chat_return_route') if key in n}
             cycle_pending = False
             if n['send_attempted']:
                 out['send_attempts'] += 1
@@ -179,6 +183,8 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             out['profiles_checked'] += 1
             if n['send_attempted'] and not n['send_handler_returned']:
                 raise StateError('send-outcome-unknown')
+            if not n.get('profile_read_skipped'):
+                out['consecutive_read_recoveries'] = 0
             if n['send_handler_returned']:
                 pass
             elif value.get('declined'):
@@ -188,6 +194,34 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             elif n['stage'] != 'navigation-ready':
                 out['last_error'] = n['error'] if isinstance(n['error'], str) else 'unknown'
                 raise StateError('profile-check-stopped')
+            elif n.get('profile_read_skipped') is True:
+                # Native validation and durable record_visit completed before
+                # cycle returns. No host Back, reauthorization or send replay.
+                from assistant_profile_read import SKIP_REASONS
+                if (n.get('profile_read_skip_reason') not in SKIP_REASONS or offered or n.get('error') != 'none' or
+                    n.get('return_verified') is not True or n.get('chat_return_verified') is not True or
+                    n.get('chat_back_completed') is not True or n.get('chat_identity_verified') is not True or
+                    n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
+                    n.get('cleanup_failed') is not False):
+                    raise StateError('return-not-verified')
+                out['skipped_unready_chat'] += 1
+                out['consecutive_read_recoveries'] += 1
+                event = dict(sequence=out['skipped_unready_chat'], reason=n['profile_read_skip_reason'],
+                    status='recovered', action='verified-back-and-skip', return_verified=True,
+                    send_attempted=False, diagnostic=dict(out['last_profile_diagnostics']),
+                    continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES, notification='not-needed')
+                out['recovery_events'].append(event)
+                out['recovery_events'] = out['recovery_events'][-20:]
+                progress('Анкета пропущена: история не готова. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else ' Достигнут лимит восстановлений.'))
+                if getattr(settings, 'errors_enabled', False):
+                    from assistant_error_notify import notify_recovery
+                    try:
+                        result = (notify_recovery if recovery_notifier is None else recovery_notifier)(event)
+                        event['notification'] = result if result in ('accepted','unknown','not-configured','not-needed') else 'unknown'
+                    except Exception:
+                        event['notification'] = 'unknown'
+                if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES:
+                    raise StateError('profile-recovery-limit')
             elif not n['friends_eligible']:
                 out['skipped_friends'] += 1
             else:
@@ -200,7 +234,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
     except Exception as error:
         if cycle_pending:
             out.update(send_attempts_unknown=True, greetings_sent=None)
-        known = {'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
+        known = {'profile-recovery-limit', 'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
                  'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'search-cycle-limit', 'profile-scan-limit'}
         reason = 'cancelled' if stopped.is_set() else (
             str(error) if isinstance(error, StateError) and str(error) in known else 'device-or-journal-check-stopped')

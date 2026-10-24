@@ -42,7 +42,7 @@ class Responder:
                 if not keys:continue
                 self.pools[provider]=self.factory(provider,self.models[provider],keys,self.cancelled)
             try:
-                result=g.continuation(self.pools[provider](kind,snapshot),kind)
+                result=g.continuation(self.pools[provider](kind,snapshot),kind,snapshot=snapshot)
                 self.capture_failures(provider)
                 return result
             except g.GroqError as e:
@@ -103,7 +103,8 @@ def safe_greeting_reply(kind,snapshot):
     ids=snapshot.get('_reply_ids',[])
     if not isinstance(ids,(list,tuple)) or not ids:return None
     try:
-        g.public_context(snapshot)  # validate the full identity-bound context
+        history=g.public_context(snapshot)  # validate the full identity-bound context
+        if any(m['speaker']=='self' and g.MOOD_QUESTION.search(m['text']) for m in history):return None
         peer=snapshot['identity']['peer']
         rows=[m for m in snapshot['messages'] if m['id'] in ids and m['sender']==peer]
         if {m['id'] for m in rows}!=set(ids):return None

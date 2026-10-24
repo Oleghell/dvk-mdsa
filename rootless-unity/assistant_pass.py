@@ -57,7 +57,7 @@ def validate(value, *, shared_peer_skipped=False):
     import copy
     checked = copy.deepcopy(value)
     from assistant_profile_read import validate as validate_profile_read
-    validate_profile_read(checked['navigation'])
+    skipped_unready = validate_profile_read(checked['navigation'])
     if type(checked['navigation']['cycle_timeout_ms']) is not int or checked['navigation']['cycle_timeout_ms'] != CYCLE_TIMEOUT_MS:
         raise ValueError('Invalid manual-cycle deadline')
     checked['navigation']['cycle_timeout_ms'] = chat_batch.CYCLE_TIMEOUT_MS
@@ -67,7 +67,7 @@ def validate(value, *, shared_peer_skipped=False):
         raise ValueError('Unverified shared peer skip')
     if native_skip and os.environ.get('DVK_MUMU_MULTI') != '1':
         raise ValueError('Shared skip outside MuMu worker')
-    chat_batch.validate(checked, skipped_empty=native_skip)
+    chat_batch.validate(checked, skipped_empty=native_skip, skipped_unready=skipped_unready)
     return value
 
 

@@ -59,7 +59,7 @@ class Responder:
                 result=self.items[i](kind,snapshot)
                 # Every regenerated answer must pass the same gate. Keys cannot
                 # authorize an unsafe reply or retry a chat send.
-                result=g.continuation(result,kind)
+                result=g.continuation(result,kind,snapshot=snapshot)
                 self.state['cursor']=i
                 return result
             except g.GroqError as error:

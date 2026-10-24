@@ -18,7 +18,7 @@ from shared_contact import self_shared, voluntary_batch, payload as contact_payl
 from telegram_notify import protect
 from assistant_contact_clarify import TEXT as CLARIFY_TEXT, chosen as chose_messenger
 
-from assistant_contact_followup import TEXT as FOLLOWUP_TEXT, eligible as followup_eligible
+from assistant_contact_followup import TEXT as FOLLOWUP_TEXT, eligible as followup_eligible, refused as contact_refused
 
 TERMINAL = {'done', 'declined', 'manual-review'}
 REVIEW_CAUSES = {'history-missing', 'history-edited', 'contact-batch-ambiguous',
@@ -129,7 +129,12 @@ class Chain:
             independent_contact = self.any_replies and voluntary_batch(incoming)
             shared = [(m, self_shared(m['text'], requested=stage == 'wait-contact' or pending_contact_observed or independent_contact)) for m in incoming]
             shared = [(m, items) for m, items in shared if items]
-            if any(m['text'] and REFUSAL.search(normalized(m['text'])) for m in incoming):
+            contact_requested = stage in ('wait-contact','pending-clarify','pending-followup')
+            if (any(m['text'] and REFUSAL.search(normalized(m['text'])) for m in incoming)
+                    or contact_refused([m for m in messages if m['sender']==who['peer']] if contact_requested else incoming,
+                                       requested=contact_requested)):
+                # Respect an explicit stay-here/no-apps preference already read
+                # by an older version too. This never replays or removes actions.
                 stage = 'declined'
             elif shared:
                 aggregate = self.any_replies and (stage == 'wait-contact' or pending_contact_observed or independent_contact)
@@ -430,7 +435,7 @@ def status_text(state):
         'await-outgoing': 'Обработчик отправки вернулся. Проверяю появление сообщения; доставка не подтверждена.',
         'submission-unknown': 'Результат отправки неизвестен. Цепочка остановлена, повтора нет.',
         'manual-review': 'Неоднозначный ответ или изменение истории. Цепочка остановлена — прочитай чат вручную.',
-        'declined': 'Собеседник отказался от общения. Цепочка остановлена.',
+        'declined': 'Отказ от перехода или общения. Цепочка остановлена без нового ответа.',
         'done': 'Собеседник поделился своим контактом. Цепочка завершена; результат Telegram указан отдельно.',
         'cancelled': 'Автоцепочка остановлена.',
     }[state]

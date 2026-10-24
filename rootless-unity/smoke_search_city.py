@@ -122,6 +122,16 @@ if __name__ == '__main__':
     one(Path(sys.argv[1]).resolve(strict=True),338,
         source=FUNCTION.replace('cityTransition(s.open,current);','call(s.open,current);'),
         expected_result='frame-budget')
+    # Post-apply verification is read-only. Retry observation, never Apply.
+    for case in ('once','always','identity-after-retry'):
+        guard='true' if case=='always' else 'n.city_read_budget_retries===0'
+        inject="n.settings_checkpoint='verify-search';if("+guard+"){const until=Date.now()+110;while(Date.now()<until){}}"
+        if case=='identity-after-retry':inject+="if(n.city_read_budget_retries>0)fail('identity-changed');"
+        outcome=one(Path(sys.argv[1]).resolve(strict=True),300,
+            source=FUNCTION.replace("n.settings_checkpoint='verify-search';",inject),
+            expected_result='navigation-ready' if case=='once' else 'frame-budget' if case=='always' else 'identity-changed')
+        assert outcome['navigation']['city_read_budget_retries']==(4 if case=='always' else 1),outcome
+    print('3 post-apply verification cases passed without repeating Apply.')
     modes = list(range(300,332)) + [334,335,336,337,338,339,340,341,342,343,345,346,347,348,349,350]
     for mode in modes:
         one(Path(sys.argv[1]).resolve(strict=True), mode)

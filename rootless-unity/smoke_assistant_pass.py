@@ -38,7 +38,7 @@ def one(library, case):
                 from unittest.mock import patch
                 with patch('assistant_profile_read.specialize',side_effect=lambda value:value):
                     source=manual.build(text,visited)
-                source=source.replace('r.navigation=emptyNavigation();','r.navigation=emptyNavigation();r.navigation.profile_read_budget_retries=0;r.navigation.greeting_frame_splits=0;')
+                source=source.replace('r.navigation=emptyNavigation();','r.navigation=emptyNavigation();r.navigation.profile_read_budget_retries=0;r.navigation.greeting_frame_splits=0;r.navigation.profile_ready_waits=0;')
             if case in ('combined-frame','combined-frame-baseline'):
                 source=source.replace("n.read_checkpoint='identity';","{const until=Date.now()+65;while(Date.now()<until){}}n.read_checkpoint='identity';")
                 source=source.replace('const manager=call(s.cohortManager,chat);',"{const until=Date.now()+45;while(Date.now()<until){}}const manager=call(s.cohortManager,chat);")
@@ -47,6 +47,23 @@ def one(library, case):
                 inject="if("+cond+")fail('frame-budget');"
                 if case=='identity-after-budget':inject+="fail('identity-changed');"
                 source=source.replace("n.read_checkpoint='identity';",inject+"n.read_checkpoint='identity';")
+            if case in ('actual-late','actual-never','actual-identity-change','actual-back-identity','actual-back-unknown'):
+                guard='true' if case in ('actual-never','actual-back-identity','actual-back-unknown') else 'n.profile_ready_waits===0'
+                source=source.replace('n.model_actual=bool(s.actual,chat);',
+                    'n.model_actual=bool(s.actual,chat);if('+guard+')n.model_actual=false;')
+                if case=='actual-identity-change':
+                    source=source.replace("n.read_checkpoint='identity';",
+                        "if(n.profile_ready_waits>0)fail('identity-changed');n.read_checkpoint='identity';")
+            if case=='actual-back-identity':
+                source=source.replace("if(n.phase==='close-chat'){", "if(n.phase==='close-chat'){if(n.profile_read_skipped)fail('identity-changed');")
+            if case=='actual-back-unknown':
+                source=source.replace('call(s.chatBack,current);n.chat_back_completed=true;', "call(s.chatBack,current);fail('frame-budget');n.chat_back_completed=true;")
+            if case=='read-budget-pinned':
+                source=source.replace("n.read_checkpoint='model';", "n.read_checkpoint='model';fail('frame-budget');")
+            if case in ('history-loading-skip','history-not-loaded-skip'):
+                source=source.replace('const all=bool(s.value,field);', 'const all=false;')
+                if case=='history-loading-skip':
+                    source=source.replace('const loading=bool(s.historyLoading,cm),', 'const loading=true,')
             if case=='history-after-approval':
                 source=source.replace("if(n.phase==='submit-greeting'){","if(n.phase==='submit-greeting'){fail('history-not-ready');")
             if case=='send-return-budget':
@@ -58,7 +75,7 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
  cohortpending(){return cohortReservation();},cohortack(value){return cohortAcknowledge(value);},
  selectedpeer(){return assistantSelectedPeer;},
  counts(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
- return {sends:r('fixture_auto_sends'),opens:r('fixture_opens'),handles:r('fixture_handles'),
+ return {sends:r('fixture_auto_sends'),opens:r('fixture_opens'),backs:r('fixture_auto_backs'),handles:r('fixture_handles'),
  off:r('fixture_off_thread_calls'),pins:r('fixture_pin_errors'),bad:r('fixture_auto_bad'),timing:r('fixture_auto_timing_bad')};}};
 ''')
             script.load()
@@ -90,29 +107,22 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
                 store.finish(state['action_id'], n)
             counts = script.exports_sync.counts()
             assert all(counts[k] == 0 for k in ('handles', 'off', 'pins', 'bad', 'timing')), (case, counts)
-            sends = 1 if case in ('approve', 'draft', 'handler-error', 'skip-visited', 'slow-profile','combined-frame','read-budget-once','send-return-budget') else 0
+            sends = 1 if case in ('approve', 'draft', 'handler-error', 'skip-visited', 'slow-profile','combined-frame','read-budget-once','send-return-budget','actual-late') else 0
             assert counts['sends'] == sends, (case, counts, n['error'])
             assert counts['opens'] == (0 if case == 'crowded-search' else 1), (case, counts)
             if case == 'crowded-search':
                 assert n['error']=='call-limit' and n['phase']=='search' and n['managed_calls']==6000, n
                 assert not n['open_attempted'] and not n['chat_open_attempted'] and not approvals
-            if case=='combined-frame-baseline':
-                from unittest.mock import patch
-                with patch('assistant_profile_read.specialize',side_effect=lambda value:value):
-                    source=manual.build(text,visited)
-                source=source.replace('r.navigation=emptyNavigation();','r.navigation=emptyNavigation();r.navigation.profile_read_budget_retries=0;r.navigation.greeting_frame_splits=0;')
-            if case in ('combined-frame','combined-frame-baseline'):
-                source=source.replace("n.read_checkpoint='identity';","{const until=Date.now()+65;while(Date.now()<until){}}n.read_checkpoint='identity';")
-                source=source.replace('const manager=call(s.cohortManager,chat);',"{const until=Date.now()+45;while(Date.now()<until){}}const manager=call(s.cohortManager,chat);")
-            if case in ('read-budget-once','read-budget-always','identity-after-budget'):
-                cond="n.profile_read_budget_retries===0" if case!='read-budget-always' else 'true'
-                inject="if("+cond+")fail('frame-budget');"
-                if case=='identity-after-budget':inject+="fail('identity-changed');"
-                source=source.replace("n.read_checkpoint='identity';",inject+"n.read_checkpoint='identity';")
-            if case=='history-after-approval':
-                source=source.replace("if(n.phase==='submit-greeting'){","if(n.phase==='submit-greeting'){fail('history-not-ready');")
-            if case=='send-return-budget':
-                source=source.replace('call(s.send,current,args);n.send_handler_returned=true;',"call(s.send,current,args);fail('frame-budget');n.send_handler_returned=true;")
+            if case in ('actual-late','actual-never','actual-identity-change','actual-back-identity','actual-back-unknown'):
+                assert n['profile_ready_waits']==(1 if case in ('actual-late','actual-identity-change') else 4),(case,n)
+                if case!='actual-late':
+                    assert not approvals and store.summary()['reserved']==0 and not n['send_attempted'],(case,n)
+                    if case=='actual-never':
+                        assert n['stage']=='navigation-ready' and n['error']=='none' and n['return_verified'] and n['profile_read_skipped'],(case,n)
+                        assert counts['backs']==1 and peer in store.visited_peers(),(case,n,counts)
+                    else:
+                        assert n['stage']=='navigation-stopped' and n['error']==('frame-budget' if case=='actual-back-unknown' else 'identity-changed'),(case,n)
+                        assert counts['backs']==(1 if case=='actual-back-unknown' else 0),(case,counts)
             if case=='slow-profile-baseline':
                 assert n['stage']=='navigation-stopped' and n['error'] in ('frame-limit','call-limit') and not approvals, n
             if case == 'slow-profile':
@@ -122,6 +132,10 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
             if case in ('read-budget-always','identity-after-budget','combined-frame-baseline'):
                 assert not approvals and store.summary()['reserved']==0,(case,n,state)
                 assert n['error']==('identity-changed' if case=='identity-after-budget' else 'frame-budget'),(case,n)
+            if case in ('read-budget-pinned','history-loading-skip','history-not-loaded-skip'):
+                assert n['stage']=='navigation-ready' and n['error']=='none' and n['profile_read_skipped'] and n['return_verified'],(case,n)
+                assert n['samples']==0 and n['message_count'] is None and n['history_status']=='not-ready',(case,n)
+                assert counts['backs']==1 and not approvals and store.summary()['reserved']==0 and peer in store.visited_peers(),(case,n,counts)
             if case=='history-after-approval':
                 assert len(approvals)==1 and store.summary()['reserved']==1 and not n['send_attempted'],(case,n,state)
             if case=='send-return-budget':
@@ -173,7 +187,7 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
 
 if __name__ == '__main__':
     library = Path(sys.argv[1]).resolve(strict=True)
-    cases = sys.argv[2:] or ['approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure', 'crowded-search', 'slow-profile', 'slow-profile-baseline','combined-frame','combined-frame-baseline','read-budget-once','read-budget-always','identity-after-budget','history-after-approval','send-return-budget']
+    cases = sys.argv[2:] or ['approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure', 'crowded-search', 'slow-profile', 'slow-profile-baseline','combined-frame','combined-frame-baseline','read-budget-once','read-budget-always','identity-after-budget','history-after-approval','send-return-budget','actual-late','actual-never','actual-identity-change','actual-back-identity','actual-back-unknown','read-budget-pinned','history-loading-skip','history-not-loaded-skip']
     # Baseline construction patches a module function: keep it outside workers.
     if 'combined-frame-baseline' in cases:
         one(library,'combined-frame-baseline');cases.remove('combined-frame-baseline')

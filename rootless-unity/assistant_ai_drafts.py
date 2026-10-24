@@ -2,7 +2,7 @@
 import json
 from contextlib import nullcontext
 from assistant_chain import text_hash
-from groq_reply import GroqError, decision, continuation
+from groq_reply import GroqError, decision, continuation, public_context, MOOD_QUESTION, context_gate
 
 
 def initialize(store):
@@ -11,7 +11,7 @@ def initialize(store):
         db.execute('CREATE TABLE IF NOT EXISTS ai_draft_inputs(chat TEXT,kind TEXT,message TEXT,PRIMARY KEY(chat,kind,message))')
 
 
-def restore(chain, chat, kind, expected_hash, connection=None):
+def restore(chain, chat, kind, expected_hash, connection=None, snapshot=None):
     with (chain.store.connection() if connection is None else nullcontext(connection)) as db:
         row = db.execute('SELECT payload,status FROM ai_drafts WHERE chat=? AND kind=?', (chat, kind)).fetchone()
     if row is None or row[1] == 'needed':
@@ -19,7 +19,10 @@ def restore(chain, chat, kind, expected_hash, connection=None):
     try:
         if row[1] != 'ready' or not isinstance(row[0], bytes) or len(row[0]) > 8192:
             raise ValueError()
-        value = decision(json.loads(chain.unseal(row[0])), kind)
+        history=public_context(snapshot) if snapshot is not None else []
+        value = decision(json.loads(chain.unseal(row[0])), kind,
+            mood_asked=any(m['speaker']=='self' and MOOD_QUESTION.search(m['text']) for m in history))
+        context_gate(value, history)
         if value['decision'] != 'reply' or text_hash(value['text']) != expected_hash:
             raise ValueError()
         return value['text']
@@ -46,7 +49,7 @@ def prepare(chain, snapshot, action):
                 db.execute('INSERT OR IGNORE INTO ai_draft_inputs VALUES(?,?,?)', (chat,kind,trigger[0]))
     if row is not None and chain.responder is None:
         raise GroqError('groq-configuration-required')
-    text = restore(chain, chat, kind, text_hash(action['text']))
+    text = restore(chain, chat, kind, text_hash(action['text']), snapshot=snapshot)
     if text is not None:
         return None, dict(kind=kind, text=text)
     if chain.responder is None:
@@ -55,7 +58,7 @@ def prepare(chain, snapshot, action):
     with chain.store.connection() as db:
         reply_ids = [r[0] for r in db.execute('SELECT message FROM ai_draft_inputs WHERE chat=? AND kind=?', (chat,kind))]
     context = dict(snapshot, _reply_ids=reply_ids)
-    value = continuation(chain.responder(kind, context), kind)
+    value = continuation(chain.responder(kind, context), kind, snapshot=context)
     if value['decision'] != 'reply':
         stage = 'declined' if value['decision'] == 'decline' else 'manual-review'
         with chain.store.connection() as db:

@@ -5,7 +5,7 @@ import telegram_notify
 from startup_failure import ERRORS as STARTUP_ERRORS, message as failure_message
 import run_preparation
 
-KNOWN = GROQ_ERRORS | NAV_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed'} | {'history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
+KNOWN = GROQ_ERRORS | NAV_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed', 'profile-recovery-limit'} | {'history-not-ready','history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
     'send-native-check-failed', 'send-device-check-failed', 'send-validation-failed',
     'settings-check-stopped', 'device-busy-or-monitor-check-stopped', 'initial-pass-stopped',
     'search-screen-not-verified', 'dialog-list-not-verified', 'initial-pass-paused',
@@ -29,6 +29,11 @@ def reasons(report):
     def visit(value, depth=0):
         if not isinstance(value, dict) or depth > 5:
             return
+        # Completed sub-passes contain historical warnings, not the cause of
+        # this terminal stop. Keep their AI failures in a separate section.
+        status = value.get('status')
+        if isinstance(status, str) and (status.endswith('-completed') or status == 'completed'):
+            return
         for k in ('reason', 'error', 'failure_point', 'last_error'):
             v = value.get(k)
             if isinstance(v, str):
@@ -45,6 +50,23 @@ def reasons(report):
     return result[:6] or ['monitor-check-stopped']
 
 
+def ai_warnings(report):
+    """Closed historical AI availability categories; no raw errors or key data."""
+    result = []
+    def visit(value, depth=0):
+        if not isinstance(value, dict) or depth > 5:
+            return
+        failures = value.get('ai_key_failures')
+        if isinstance(failures, list):
+            for code in failures:
+                if isinstance(code, str) and code in GROQ_ERRORS and code not in result:
+                    result.append(code)
+        for key in ('initial_run', 'last_pass', 'last_profile_run', 'inbox', 'profiles'):
+            visit(value.get(key), depth+1)
+    visit(report)
+    return result[:4]
+
+
 def notify(report, *, loader=telegram_notify.load, sender=telegram_notify.send):
     if report.get('status') not in ('stopped', 'paused'):
         return 'not-needed'
@@ -54,8 +76,10 @@ def notify(report, *, loader=telegram_notify.load, sender=telegram_notify.send):
         return 'not-configured'
     from navigation_root_diagnostic import message as root_message
     detail = run_preparation.message(report) or root_message(report.get('last_navigation')) or failure_message(report.get('last_navigation_failure'))
+    warnings = ai_warnings(report)
     message = ('⚠️ DvkAssistant: цикл ' + ('на паузе' if report['status'] == 'paused' else 'остановлен') +
                '.\n' + ((detail + '\n') if detail else '') + 'Причина: ' + ', '.join(reasons(report)) +
+               (('\nПредупреждения ИИ (отдельно): ' + ', '.join(warnings)) if warnings else '') +
                '\nОтчёт: last-monitor.json. Неизвестные отправки не повторяются.')
     try:
         return 'accepted' if sender(token, chat, message) is True else 'unknown'
@@ -84,3 +108,83 @@ def notify_isolated(report, *, loader=telegram_notify.load, sender=telegram_noti
         return 'accepted' if sender(token, chat, message) is True else 'unknown'
     except Exception:
         return 'unknown'
+
+
+def diagnostic_json(report):
+    """Closed diagnostic projection, not arbitrary report/exception export.
+
+    Local full reports remain untouched. Cloud JSON excludes message content,
+    identities, cities, paths, credentials and raw exceptions, even if inserted
+    into an unexpected nested report field.
+    """
+    import json
+    import re
+    from chat_state_probe import READ_STEPS, WAIT_REASONS, CHECKPOINTS
+    structures = {'initial_run','last_profile_run','last_pass','inbox','profiles',
+        'last_profile_diagnostics','last_city_navigation','last_navigation','last_navigation_failure',
+        'last_preparation_failure','last_chat_diagnostics','last_read_failure','diagnostic','recovery_events'}
+    numbers = {'frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
+        'profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
+        'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
+        'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
+        'handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs'}
+    flags = {'send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',
+        'open_attempted','open_completed','chat_open_attempted','chat_open_completed','chat_identity_verified',
+        'chat_back_attempted','chat_back_completed','chat_return_verified','profile_read_skipped',
+        'apply_attempted','apply_completed','city_form_verified','city_select_attempted','city_select_completed',
+        'dialogs_verified','destination_verified','cleanup_failed','continue_work'}
+    labels = {'status','reason','error','phase','stage','wait_reason','read_checkpoint','last_error',
+        'failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint'}
+    codes = KNOWN | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
+        'none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
+        'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
+        'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',
+        'done','check-chat','close-chat','wait-chat-back','search','profile','wait-return','scan-city',
+        'query-city','confirm-profile','wait-profile','wait-chat','wait-city','verify-search','select-city',
+        'profile-limit','visible-exhausted','model','last-message','chat-not-actual','history-loading',
+        'history-not-loaded','profile-recovery-limit','working','checking','cancelled'}
+    def clean(value, depth=0):
+        if not isinstance(value, dict) or depth > 7:
+            return {}
+        result = {}
+        for key, entry in value.items():
+            if key in structures:
+                if isinstance(entry, dict):
+                    result[key] = clean(entry, depth+1)
+                elif key == 'recovery_events' and isinstance(entry, list):
+                    result[key] = [clean(e, depth+1) for e in entry[-3:] if isinstance(e, dict)]
+            elif key in numbers and (entry is None or type(entry) is int and 0 <= entry <= 1000000):
+                result[key] = entry
+            elif key in flags and type(entry) is bool:
+                result[key] = entry
+            elif key in labels and isinstance(entry, str) and entry in codes:
+                result[key] = entry
+            elif key in ('tool_version','engine_version') and isinstance(entry, str) and re.fullmatch(r'\d{1,2}\.\d{1,2}\.\d{1,2}', entry):
+                result[key] = entry
+        return result
+    return json.dumps(dict(format='dvk-diagnostic-v1', diagnostic=clean(report)), ensure_ascii=False, indent=2).encode('utf-8')
+
+
+def notify_json(report, *, loader=telegram_notify.load, sender=telegram_notify.send_json_document, recovered=False):
+    if recovered:
+        if report.get('status') != 'recovered' or report.get('return_verified') is not True or report.get('send_attempted') is not False:
+            return 'not-needed'
+        caption = ('↩️ DvkAssistant: возврат проверен, проблемная анкета пропущена. ' +
+            ('Работа продолжается.' if report.get('continue_work', True) else 'Достигнут лимит восстановлений этого прохода.') +
+            ' JSON-диагностика без текста переписки и ключей.')
+    else:
+        if report.get('status') not in ('stopped','paused'):
+            return 'not-needed'
+        caption = '⚠️ DvkAssistant: JSON-диагностика остановки без текста переписки и ключей. Неизвестные отправки не повторяются.'
+    try:
+        token, chat = loader()
+    except Exception:
+        return 'not-configured'
+    try:
+        return 'accepted' if sender(token, chat, caption, diagnostic_json(report)) is True else 'unknown'
+    except Exception:
+        return 'unknown'  # One attempt only, including transport/timeout errors.
+
+
+def notify_recovery(event):
+    return notify_json(event, recovered=True)

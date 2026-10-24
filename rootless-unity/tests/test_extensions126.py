@@ -1,4 +1,5 @@
 """No real credentials, Telegram, Android or contacts."""
+from test_guided_chain import snapshot
 from pathlib import Path
 import copy,json,struct,tempfile,threading,unittest,zlib
 from unittest.mock import MagicMock,patch
@@ -38,24 +39,24 @@ class KeyPool(unittest.TestCase):
     return dict(decision='reply',text='Как дела?')
    a.side_effect=call;adapters.append(a);return a
   ai=pool.Responder('groq',g.MODEL,['key1','key2'],factory=factory,clock=lambda:0)
-  self.assertEqual(ai('question',{})['text'],'Как дела?');self.assertEqual(ai.calls,2)
-  ai('question',{});self.assertEqual(ai.calls,3);self.assertEqual(adapters[0].call_count,1)
+  self.assertEqual(ai('question',snapshot())['text'],'Как дела?');self.assertEqual(ai.calls,2)
+  ai('question',snapshot());self.assertEqual(ai.calls,3);self.assertEqual(adapters[0].call_count,1)
  def test_unsafe_reply_regenerated_but_not_accepted(self):
   items=[MagicMock(calls=1,return_value=dict(decision='reply',text='https://bad.invalid')),
          MagicMock(calls=1,return_value=dict(decision='reply',text='Как настроение?'))]
   ai=pool.Responder('groq',g.MODEL,['one','two'],factory=lambda **k:items.pop(0),clock=lambda:0)
-  self.assertEqual(ai('question',{})['text'],'Как настроение?');self.assertEqual(ai.failovers,1)
+  self.assertEqual(ai('question',snapshot())['text'],'Как настроение?');self.assertEqual(ai.failovers,1)
  def test_all_keys_failure_exhausts_with_cooldown_not_raw_error(self):
   model=MagicMock(calls=1,side_effect=g.GroqError('groq-unauthorized'))
   ai=pool.Responder('groq',g.MODEL,['one','two'],factory=lambda **k:model,clock=lambda:0)
   for _ in range(2):
-   with self.assertRaises(g.GroqError) as e:ai('question',{})
+   with self.assertRaises(g.GroqError) as e:ai('question',snapshot())
    self.assertEqual(str(e.exception),'groq-key-pool-exhausted')
   self.assertEqual(model.call_count,2)
  def test_cancelled_never_fails_over(self):
   model=MagicMock(calls=0)
   ai=pool.Responder('groq',g.MODEL,['one'],cancelled=lambda:True,factory=lambda **k:model)
-  with self.assertRaises(g.GroqError):ai('question',{})
+  with self.assertRaises(g.GroqError):ai('question',snapshot())
   model.assert_not_called()
 
 class FullInbox(Base):

@@ -257,10 +257,10 @@ def build(city):
 
     # Retry only a fresh read-only search observation, before ANY invocation
     # that changes UI/model state. Never retry an uncertain mutating call.
-    s = replace(s, 'const deadline=Date.now()+100;', 'const deadline=Date.now()+100;let cityFrameMutated=false;')
+    s = replace(s, 'const deadline=Date.now()+100;', "const deadline=Date.now()+100;let cityFrameMutated=false;if(n.phase==='wait-return')state.cityReturnNext=Date.now()+100;")
     s = replace(s, 'const out=f.invoke(m,obj,params,ex);',
         'if([s.open,s.cityOpen,s.cityTextSet,s.citySearch,s.citySelect,s.onlineSet,s.distanceSet,s.refreshForm,s.apply].includes(entry))cityFrameMutated=true;const out=f.invoke(m,obj,params,ex);')
-    s = replace(s, "} catch(e){n.error=", "} catch(e){if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted)||(n.phase==='scan-city'&&!n.city_select_attempted))&&n.city_read_budget_retries<4){n.city_read_budget_retries++;if(n.phase==='scan-city'){state.cityFingerprint=null;n.city_scan_samples=0;}return;}n.error=")
+    s = replace(s, "} catch(e){n.error=", "} catch(e){if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted)||(n.phase==='scan-city'&&!n.city_select_attempted)||(n.phase==='wait-return'&&n.apply_completed&&n.city_select_completed&&n.city_form_verified))&&n.city_read_budget_retries<4){n.city_read_budget_retries++;if(n.phase==='scan-city'){state.cityFingerprint=null;n.city_scan_samples=0;}return;}n.error=")
     # A repeated observation must release its old persisted handles, including
     # the origin captured immediately before a pre-invoke budget rejection.
     s = replace(s, 'const saveOnline=(key,obj)=>{const h=own(obj);',
@@ -275,7 +275,7 @@ def build(city):
                 "    if(!hosted.isNull()&&f.objectClass(hosted).equals(s.city)){current=hosted;k='city';n.controller_path.push('city');}\n   }")
     # Waiting for the next independent result sample must not consume one
     # frame/call allowance on every Unity callback. Absolute 30s limit stays.
-    s = replace(s, 'if(!active)return;\n     r.observed_calls++;', "if(!active)return;\n     if(r.navigation.phase==='scan-city'&&Date.now()<navState.cityNext)return;\n     r.observed_calls++;")
+    s = replace(s, 'if(!active)return;\n     r.observed_calls++;', "if(!active)return;\n     if(r.navigation.phase==='scan-city'&&Date.now()<navState.cityNext)return;\n     if(r.navigation.phase==='wait-return'&&Date.now()<(navState.cityReturnNext||0))return;\n     r.observed_calls++;")
     s = replace(s, '   const root=call(s.windowRoot,window);', "   if(n.phase==='scan-city'&&Date.now()<state.cityNext)return;\n   const root=call(s.windowRoot,window);")
     s = replace(s, "if(klass.equals(s.search))return 'search';", "if(klass.equals(s.city))return 'city';if(klass.equals(s.search))return 'search';")
     s = replace(s, "if(k==='search'||k==='filters'){", "if(k==='search'||k==='filters'||k==='city'){")

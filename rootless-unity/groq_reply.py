@@ -26,8 +26,8 @@ ERRORS |= {p+'-'+s for p in ('groq','openrouter') for s in ('key-pool-invalid','
 ERRORS |= {p+'-token-limit' for p in ('groq','openrouter')}
 
 VALIDATION_REASONS = frozenset({'reply-format', 'sensitive-content', 'question-stage', 'contact-stage',
-    'clarify-stage', 'followup-stage'})
-REPAIR_REASONS = frozenset({'question-stage', 'contact-stage', 'clarify-stage', 'followup-stage'})
+    'clarify-stage', 'followup-stage', 'repeat-question', 'context-mismatch'})
+REPAIR_REASONS = frozenset({'question-stage', 'contact-stage', 'clarify-stage', 'followup-stage', 'repeat-question', 'context-mismatch'})
 
 class GroqError(StateError):
     def __init__(self, code, *, retry_after=None, validation_reason=None):
@@ -89,12 +89,13 @@ SYSTEM = '''Ты автоматический помощник для корот
 Ответ только JSON: {"decision":"reply|decline|review","text":"..."}.
 Структуру задаёт stage, менять порядок нельзя. question: кратко ответь по смыслу
 проверенных новых реплик, учитывая ВСЮ переданную историю, и один раз спроси
-«Как дела?» или «Как настроение?». Собственное приветствие уже отправлено:
+«Как дела?» или «Как настроение?», только если такого вопроса ещё нет среди собственных сообщений. Если уже спрашивал — не повторяй ни этот вопрос, ни его перефразировку: продолжи по смыслу текущих реплик. Собственное приветствие уже отправлено:
 НИКОГДА не здоровайся повторно, даже в ответ на «Привет». Начинай сразу с
 содержательного продолжения. Это относится и к шагам contact и clarify.
 Обычные ответы «нормально, а у тебя?» и «приветик» (в том числе в нескольких
 новых сообщениях сразу) не являются причиной review. Ответь на общий смысл
 всех is_current_reply, не приписывая сообщениям непроверенный порядок.
+Не повторяй вопрос о делах или настроении на других этапах, если уже задавал его. Не подменяй текущий вопрос ответом на старую тему; на «Чего не спишь?» нельзя отвечать про город. Не выдумывай личные обстоятельства, местожительство или причины бодрствования.
 contact: кратко отреагируй по смыслу и предложи обменяться Telegram/WhatsApp.
 clarify: собеседник уже выбрал мессенджер, но ещё не прислал контакт.
 Один раз естественно уточни номер для WhatsApp или ник для Telegram по смыслу
@@ -171,7 +172,29 @@ GREETING_PREFIX = re.compile(
     r'[\s!.,:;…()\-—👋🙂😊😉🌸✨💫🙏💐😌🌷🤍🖐🌹🤝🍃💭🌼💬🦋🌞🌻🤗❤️\ufe0f]*', re.I)
 
 
-def continuation(value, kind):
+MOOD_QUESTION = re.compile(r'как\s+(?:(?:твои|ваши|тво[её]|ваше)\s+|у\s+(?:тебя|вас)\s+)?(?:дела|настроени)|что\s+(?:у\s+тебя\s+)?с\s+настроени',re.I)
+SLEEP_QUESTION = re.compile(r'(?:чего|почему|что|зачем)\s+(?:ты\s+)?(?:ещ[её]\s+)?не\s+спишь',re.I)
+
+
+def context_gate(value, history):
+    if value['decision']!='reply':return value
+    own=[m['text'] for m in history if m['speaker']=='self']
+    text=value['text']
+    if any(MOOD_QUESTION.search(t) for t in own) and MOOD_QUESTION.search(text):
+        raise GroqError('groq-unsafe-reply',validation_reason='repeat-question')
+    normalize=lambda t:re.sub(r'[^\w]+',' ',t.lower().replace('ё','е')).strip()
+    if normalize(text) in {normalize(t) for t in own}:
+        raise GroqError('groq-unsafe-reply',validation_reason='context-mismatch')
+    current=[' '.join(line for line in m['text'].splitlines() if not line.lstrip().startswith('>'))
+             for m in history if m['speaker']=='peer' and m['is_current_reply']]
+    if (any(SLEEP_QUESTION.search(t) for t in current)
+            and re.search(r'питер|петербург|город|жить|живу',text,re.I)
+            and not re.search(r'сп(?:лю|ать|ится)|сон|усну|бодр|болта|обща|поздн|рано',text,re.I)):
+        raise GroqError('groq-unsafe-reply',validation_reason='context-mismatch')
+    return value
+
+
+def continuation(value, kind, *, snapshot=None):
     """Remove only a model's leading salutation BEFORE hashing a new draft.
 
     Never rewrite a persisted draft or strip a greeting in the middle of text.
@@ -185,10 +208,12 @@ def continuation(value, kind):
                 and not any(ord(c) < 32 or c in '<>\u2028\u2029' for c in text)):
             text = GREETING_PREFIX.sub('', text, count=1).strip()
             value = dict(value, text=text)
-    return decision(value, kind)
+    history=public_context(snapshot) if snapshot is not None else []
+    result=decision(value, kind, mood_asked=any(m['speaker']=='self' and MOOD_QUESTION.search(m['text']) for m in history))
+    return context_gate(result,history)
 
 
-def decision(value, kind):
+def decision(value, kind, *, mood_asked=False):
     if kind not in ('question', 'contact', 'clarify', 'followup') or not isinstance(value, dict) or set(value) != {'decision', 'text'}:
         raise GroqError('groq-invalid-response')
     mode, text = value['decision'], value['text']
@@ -204,7 +229,7 @@ def decision(value, kind):
         raise GroqError('groq-unsafe-reply', validation_reason='reply-format')
     if GREETING.search(text):
         raise GroqError('groq-repeat-greeting')
-    if kind == 'question' and (not re.search(r'как\s+(?:у\s+(?:тебя|вас)\s+)?(?:дела|настроени)', text, re.I)
+    if kind == 'question' and ((not mood_asked and not MOOD_QUESTION.search(text))
                                or re.search(r'телеграм|telegram|ват[сц]ап|whatsapp|контакт|номер', text, re.I)):
         raise GroqError('groq-unsafe-reply', validation_reason='question-stage')
     if kind == 'contact' and not re.search(r'телеграм|telegram|ват[сц]ап|whatsapp', text, re.I):
@@ -278,9 +303,11 @@ class Responder:
             # Only a closed local label, not rejected output or API exception text.
             # The same verified context is used and all original gates still apply.
             instruction = {
-                'question-stage': 'Кратко ответь по смыслу новых реплик и добавь «Как настроение?». Не упоминай контакты или мессенджеры.',
+                'question-stage': 'Кратко ответь по смыслу новых реплик; вопрос о настроении допустим только если его ещё нет в собственных сообщениях. Не упоминай контакты или мессенджеры.',
                 'contact-stage': 'Нужен краткий ответ по смыслу новых реплик и одно предложение обменяться Telegram/WhatsApp, без давления.',
                 'clarify-stage': 'Один раз уточни ник для Telegram или номер для WhatsApp. Не запрашивай секреты и не придумывай свой контакт.',
+                'repeat-question': 'В истории уже есть собственный вопрос о делах или настроении. Не задавай его снова. Кратко отреагируй на все текущие реплики, не выдумывай личных фактов.',
+                'context-mismatch': 'Ответь именно на is_current_reply, а не на старые вопросы в истории. Не повторяй прежние исходящие и не выдумывай биографию или местоположение.',
                 'followup-stage': 'Продолжи разговор по смыслу новых реплик без нового запроса контакта. Не употребляй слова номер, ник, контакт, телефон. Если просят твой контакт, не придумывай его: можно честно предложить продолжить здесь. Не обвиняй в страхе или скрытности.'
             }[repair_reason]
             payload['messages'].insert(1, dict(role='system', content=
@@ -307,7 +334,7 @@ class Responder:
             message = choices[0]['message']
             if message.get('tool_calls') or message.get('function_call'):
                 raise GroqError('groq-invalid-response')
-            result = continuation(strict_json(message['content']), kind)
+            result = continuation(strict_json(message['content']), kind, snapshot=snapshot)
         except urllib.error.HTTPError as e:
             raise GroqError(self.http_error(e.code), retry_after=retry_after_seconds(e.headers)) from None
         except (TimeoutError, socket.timeout):

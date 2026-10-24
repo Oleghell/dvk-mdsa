@@ -201,7 +201,10 @@ class GuidedChain(Chain):
         from shared_contact import self_shared,voluntary_batch
         new_peer=[m for m in snapshot['messages'] if m['sender']==who['peer'] and m['id'] not in seen_before]
         requested=bool(row and row[0]=='wait-contact') or voluntary_batch(new_peer)
-        if any(self_shared(m['text'],requested=requested) for m in new_peer):
+        from assistant_contact_followup import refused
+        if (any(self_shared(m['text'],requested=requested) for m in new_peer)
+                or refused([m for m in snapshot['messages'] if m['sender']==who['peer']] if row and row[0] in ('wait-contact','pending-clarify','pending-followup') else new_peer,
+                           requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')))):
             # consume still checks complete history, hashes, identity, third-party
             # context and pending sends. Do not repair/reset a prior terminal state.
             stage,action=self.consume(snapshot)
@@ -223,7 +226,7 @@ class GuidedChain(Chain):
                         continue
                     row = db.execute('SELECT text_hash FROM chain_actions WHERE chat=? AND kind=?', (who['chat'],kind)).fetchone()
                     from assistant_ai_drafts import restore
-                    text = restore(self, who['chat'], kind, row[0], connection=db)
+                    text = restore(self, who['chat'], kind, row[0], connection=db, snapshot=snapshot)
                 text = text or next((t for t in REPLIES if text_hash(t) == row[0]), None)
                 if text is not None:
                     previous = dict(snapshot, messages=[m for m in snapshot['messages'] if m['id'] in seen])
@@ -254,7 +257,7 @@ class GuidedChain(Chain):
                                  (who['chat'], kind)).fetchone()
                 if row and row[1] == 'awaiting-approval':
                     from assistant_ai_drafts import restore
-                    text = restore(self, who['chat'], kind, row[0], connection=db)
+                    text = restore(self, who['chat'], kind, row[0], connection=db, snapshot=snapshot)
                     if text is None:
                         text = next((t for t in REPLIES if text_hash(t) == row[0]), None)
                     if text is None:
