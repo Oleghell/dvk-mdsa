@@ -31,6 +31,12 @@ EXTENDED_STAY = re.compile(
 
 BOTH_UNAVAILABLE = re.compile(r'^(?:и\s+то\s+и\s+то|оба(?:\s+мессенджера)?)\s+(?:не\s+работа(?:ет|ют)|работа(?:ет|ют)\s+не\s+очень)(?:[.!…\s]*(?:даже\s+с\s+впн))?[.!…\s]*$',re.I)
 
+# Pronouns are meaningful only after an observed contact proposal.
+NO_APPS_CONTEXT = re.compile(
+    r'^(?:(?:нет|нету)\s+у\s+меня\s+их|у\s+меня\s+(?:их\s+)?(?:нет|нету)'
+    r'|(?:у\s+меня\s+)?(?:ничего|ни\s+чего|не\s+чего)\s+из\s+этого\s+не\s+работает)'
+    r'[.!…,)\s]*$', re.I)
+
 NO_APPS = re.compile(r'^(?:(?:нет|нету)(?:\s+у\s+меня)?\s+(?:ни\s+того\s*,?\s+ни\s+другого|ничего)|ни\s+того\s*,?\s+ни\s+другого(?:\s+(?:нет|нету))?|(?:у\s+меня\s+)?(?:нет|нету|не\s+пользуюсь)(?:\s+ни)?\s+(?:телеграм\w*|telegram|тг|ватсап\w*|вацап\w*|whatsapp)(?:\s*(?:,|и|ни|или)\s*(?:телеграм\w*|telegram|тг|ватсап\w*|вацап\w*|whatsapp))*)[.!?,)\s]*$',re.I)
 
 # App-specific unavailability is not refusal of a DIFFERENT supplied contact.
@@ -43,7 +49,7 @@ def refused(messages, *, requested=False, contact_shared=False, alternative_sele
     for m in messages:
         if not isinstance(m.get('text'),str):continue
         text=normalized(' '.join(line for line in m['text'].splitlines() if not line.lstrip().startswith('>')))
-        if (NO_APPS.fullmatch(text) and not ((contact_shared or alternative_selected) and APP_UNAVAILABLE.fullmatch(text))) or (requested and (BOTH_UNAVAILABLE.fullmatch(text) or BARE_STAY.fullmatch(text) or STAY.fullmatch(text) or EXTENDED_STAY.fullmatch(text) or re.fullmatch(r'(?:ни\s*где|нигде)[.!?,)\s]*',text) or re.fullmatch(r'(?:нет|нету|не хочу|не надо)[.!?,)\s]*',text))):
+        if (NO_APPS.fullmatch(text) and not ((contact_shared or alternative_selected) and APP_UNAVAILABLE.fullmatch(text))) or (requested and (NO_APPS_CONTEXT.fullmatch(text) or BOTH_UNAVAILABLE.fullmatch(text) or BARE_STAY.fullmatch(text) or STAY.fullmatch(text) or EXTENDED_STAY.fullmatch(text) or re.fullmatch(r'(?:ни\s*где|нигде)[.!?,)\s]*',text) or re.fullmatch(r'(?:нет|нету|не хочу|не надо)[.!?,)\s]*',text))):
             return True
     return False
 

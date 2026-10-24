@@ -114,19 +114,30 @@ def run(settings,stopped,approve,progress=lambda _:None,*,mode='full',fresh_sess
     from assistant_monitor import run as engine,write_report,REPORT
     from assistant_store import Store
     from assistant_error_notify import notify_json
-    from assistant_pause import boundary
+    from assistant_pause import boundary,PortResumed
     monitor=monitor or engine;write=write or write_report;wait=wait or stopped.wait
     repair=repair or Repair(settings,stopped,Store(),recheck=recheck)
     json_alert=json_alert or notify_json
     recoveries=0;first=True
     while not stopped.is_set():
-        boundary(stopped)
-        out=monitor(settings,stopped,approve,progress,mode=mode if first or mode!='new' else 'full',fresh_session=fresh_session if first else False,
-                    write=write,continuous=continuous,terminal_notifications=False)
+        entered=False
+        try:
+            boundary(stopped)
+            entered=True
+            out=monitor(settings,stopped,approve,progress,mode=mode if first or mode!='new' else 'full',fresh_session=fresh_session if first else False,
+                        write=write,continuous=continuous,terminal_notifications=False)
+        except PortResumed:
+            if stopped.is_set():break
+            # Keep original endpoint/boot locks and journals. The new engine
+            # pass verifies navigation again; never perform a speculative Back.
+            recheck()
+            progress('Порт продолжен • проверяю текущий экран; отправки не повторяются.')
+            if entered:first=False
+            continue
         first=False
         if out.get('status')=='cancelled' or stopped.is_set():return out
         can_recover=recoverable(out)
-        if settings.errors_enabled:
+        if settings.errors_enabled and out.get('status')=='stopped':
             try:json_alert(dict(out,status='recovering') if can_recover else out)
             except Exception:pass # no duplicate retry of a Telegram document
         if not can_recover:return out
@@ -136,7 +147,7 @@ def run(settings,stopped,approve,progress=lambda _:None,*,mode='full',fresh_sess
         progress('Восстановление • проблемный чат будет пропущен; неизвестные отправки не повторяются.')
         failures=0
         while not stopped.is_set():
-            boundary(stopped)
+            boundary(stopped,restart=False)
             try:
                 if repair():break
             except Exception as error:

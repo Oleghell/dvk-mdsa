@@ -122,6 +122,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                 # Fresh evidence + reconnect, retaining the original locked boot.
                 check_recovery_device(current.adb,folder,serial(n),boot)
             extra={} if runner is not None else {'recheck':recovery_recheck}
+            if runner is None and hasattr(stopped,'restart_on_resume'):stopped.restart_on_resume=True
             out=(runner or monitor)(current,stopped,RunAuthorization(stopped,immediate_greeting=True,progress=progress),progress,
                   mode=spec['mode'],fresh_session=spec['fresh'],write=write,continuous=True,**extra)
             write(out)

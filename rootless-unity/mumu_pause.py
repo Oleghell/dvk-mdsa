@@ -35,7 +35,7 @@ class PauseGate:
     """Event-compatible cancellation plus explicit safe-boundary checkpoints."""
     def __init__(self,stopped,notify=lambda state:None):
         self.stopped=stopped;self.notify=notify;self.condition=threading.Condition()
-        self.requested=False;self.paused=False
+        self.requested=False;self.paused=False;self.restart_on_resume=False
 
     def command(self,name):
         if name not in ('pause','resume'):raise ValueError('Invalid worker command')
@@ -52,7 +52,9 @@ class PauseGate:
                 while self.requested and not self.is_set():self.condition.wait(.1)
             finally:
                 self.paused=False
-            if not self.is_set():self.notify('resumed')
+            if not self.is_set():
+                self.notify('resumed')
+                return True
 
     def is_set(self):return self.stopped.is_set()
     def set(self):
