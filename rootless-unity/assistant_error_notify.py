@@ -122,7 +122,7 @@ def diagnostic_json(report):
     from chat_state_probe import READ_STEPS, WAIT_REASONS, CHECKPOINTS
     structures = {'initial_run','last_profile_run','last_pass','inbox','profiles',
         'last_profile_diagnostics','last_city_navigation','last_navigation','last_navigation_failure',
-        'last_preparation_failure','last_chat_diagnostics','last_read_failure','diagnostic','recovery_events'}
+        'last_preparation_failure','last_chat_diagnostics','last_read_failure','diagnostic','recovery_events','ai_failures'}
     numbers = {'frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
         'profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
@@ -132,11 +132,12 @@ def diagnostic_json(report):
         'open_attempted','open_completed','chat_open_attempted','chat_open_completed','chat_identity_verified',
         'chat_back_attempted','chat_back_completed','chat_return_verified','profile_read_skipped',
         'apply_attempted','apply_completed','city_form_verified','city_select_attempted','city_select_completed',
-        'dialogs_verified','destination_verified','cleanup_failed','continue_work'}
+        'dialogs_verified','destination_verified','cleanup_failed','continue_work','cooldown'}
     labels = {'status','reason','error','phase','stage','wait_reason','read_checkpoint','last_error',
-        'failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint'}
-    codes = KNOWN | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
-        'none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
+        'failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','provider','code','validation_reason'}
+    from groq_reply import VALIDATION_REASONS
+    codes = KNOWN | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
+        'groq','openrouter','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
         'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
         'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',
         'done','check-chat','close-chat','wait-chat-back','search','profile','wait-return','scan-city',
@@ -151,8 +152,12 @@ def diagnostic_json(report):
             if key in structures:
                 if isinstance(entry, dict):
                     result[key] = clean(entry, depth+1)
+                elif key == 'ai_failures' and isinstance(entry, list):
+                    result[key] = [clean(e, depth+1) for e in entry[:64] if isinstance(e, dict)]
                 elif key == 'recovery_events' and isinstance(entry, list):
                     result[key] = [clean(e, depth+1) for e in entry[-3:] if isinstance(e, dict)]
+            elif key in ('key_index','retry_in_seconds') and type(entry) is int and 0 <= entry <= (17 if key == 'key_index' else 86400):
+                result[key] = entry
             elif key in numbers and (entry is None or type(entry) is int and 0 <= entry <= 1000000):
                 result[key] = entry
             elif key in flags and type(entry) is bool:

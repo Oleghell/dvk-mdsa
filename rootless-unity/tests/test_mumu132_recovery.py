@@ -84,7 +84,7 @@ class PhotosAndKeys(unittest.TestCase):
   for cooldown in (False,True):
    with self.assertRaises(g.GroqError):a('question',{})
    safe=ai.safe_failures(type('R',(),dict(failure_summary=a.failures))())
-   self.assertEqual(safe,[dict(provider='groq',key_index=1,code='groq-rate-limit',cooldown=cooldown)])
+   self.assertEqual(safe,[dict(provider='groq',key_index=1,code='groq-rate-limit',cooldown=cooldown,retry_in_seconds=60)])
    self.assertNotIn('PRIVATE',json.dumps(safe));self.assertIn('лимиты',ai.failure_explanation(safe))
  def test_diagnostics_drop_arbitrary_fields(self):
   bad=dict(provider='groq',key_index=1,code='PRIVATE',cooldown=False,secret='PRIVATE')

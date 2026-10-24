@@ -24,6 +24,7 @@ ERRORS |= {'openrouter-credits-required', 'openrouter-access-denied', 'openroute
 ERRORS |= {p+'-'+s for p in ('groq','openrouter') for s in ('key-pool-invalid','key-pool-exhausted')}
 
 ERRORS |= {p+'-token-limit' for p in ('groq','openrouter')}
+ERRORS |= {'groq-organization-restricted'}
 
 VALIDATION_REASONS = frozenset({'reply-format', 'sensitive-content', 'question-stage', 'contact-stage',
     'clarify-stage', 'followup-stage', 'repeat-question', 'context-mismatch'})
@@ -336,7 +337,17 @@ class Responder:
                 raise GroqError('groq-invalid-response')
             result = continuation(strict_json(message['content']), kind, snapshot=snapshot)
         except urllib.error.HTTPError as e:
-            raise GroqError(self.http_error(e.code), retry_after=retry_after_seconds(e.headers)) from None
+            code = self.http_error(e.code)
+            if self.endpoint == ENDPOINT and e.code in (400, 403):
+                try:
+                    raw_error = e.read(4097)
+                    if len(raw_error) <= 4096:
+                        error_value = strict_json(raw_error)
+                        if isinstance(error_value, dict) and isinstance(error_value.get('error'), dict) and error_value['error'].get('code') == 'organization_restricted':
+                            code = 'groq-organization-restricted'
+                except Exception:
+                    pass
+            raise GroqError(code, retry_after=retry_after_seconds(e.headers)) from None
         except (TimeoutError, socket.timeout):
             raise GroqError('groq-timeout') from None
         except urllib.error.URLError as e:

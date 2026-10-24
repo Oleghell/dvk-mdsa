@@ -73,14 +73,27 @@ def safe_failures(responder):
             failure={k:item[k] for k in ('provider','key_index','code','cooldown')}
             if isinstance(item.get('validation_reason'),str) and item['validation_reason'] in g.VALIDATION_REASONS:
                 failure['validation_reason']=item['validation_reason']
+            retry = item.get('retry_in_seconds')
+            if type(retry) is int and 1 <= retry <= 86400:
+                failure['retry_in_seconds'] = retry
             result.append(failure)
     return result
 
 def failure_explanation(values):
     safe=safe_failures(type('Failures',(),{'failure_summary':values})())
     codes={x['code'].split('-',1)[1] for x in safe}
+    delayed = [x['retry_in_seconds'] for x in safe if type(x.get('retry_in_seconds')) is int]
+    delay = (' Ближайший срок повторного использования ключа — через ' + str(min(delayed)) + ' с.') if delayed else ''
+    if codes and codes <= {'organization-restricted','unauthorized','access-denied','key-invalid','key-unavailable'} and 'organization-restricted' in codes:
+        return 'ИИ: Groq ограничил доступ организации; доступных ключей в пуле не осталось.' + delay
+    if 'organization-restricted' in codes and codes <= {'organization-restricted','rate-limit','credits-required'}:
+        return 'ИИ: часть ключей Groq ограничена на уровне организации, у остальных исчерпаны лимиты.' + delay + ' Переписка отложена без отправки.'
+    if codes == {'request-rejected'}:
+        return 'ИИ: API отклонил запросы. Проверь модель и параметры; это не доказательство неверного ключа.' + delay
+    if codes and codes <= {'rate-limit','credits-required','request-rejected'} and 'request-rejected' in codes:
+        return 'ИИ: часть запросов отклонена API, у остальных ключей исчерпаны лимиты. Это не означает, что все ключи неверные.' + delay
     if codes and codes<={'rate-limit','credits-required'}:
-        return 'ИИ: исчерпаны лимиты доступных ключей. Проверю чат позже.'
+        return 'ИИ: исчерпаны лимиты доступных ключей.' + delay + ' Проверю чат позже.'
     if codes and codes<={'unauthorized','access-denied','key-invalid','key-unavailable'}:
         return 'ИИ: доступные ключи отклонены. Проверь ключи и доступ к API.'
     if codes and codes<={'network-error','timeout','service-error'}:
