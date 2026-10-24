@@ -11,6 +11,7 @@ import re
 import secrets
 
 from assistant_store import StateError, Store
+from assistant_contact_policy import should_close as contact_only_closed
 from assistant_contact_budget import can_close as contact_budget_closed, exhausted as contact_budget_exhausted
 from conversation_engine import QUESTIONS, CONTACT_TEXT, REFUSAL, NEGATIVE, normalized
 from one_chat_probe import identity
@@ -164,6 +165,11 @@ class Chain:
                     if pending_contact_observed:
                         db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind=?", (chat,pending_contact_kind))
                     stage = 'done'
+            elif self.any_replies and contact_only_closed(db,s,stage,incoming,
+                    requested=contact_requested,max_choice=max_choice,number_choice=number_choice):
+                # Full-history/identity checks and voluntary contact/refusal gates
+                # have already run. Do not reserve any off-topic response.
+                stage = 'declined'
             elif self.any_replies and contact_budget_closed(db, chat, stage):
                 # Contact/refusal gates above win. Terminal skip retains every
                 # reservation, fingerprint, archived reply and unsent draft.

@@ -19,15 +19,9 @@ def chosen(messages):
     return bool(PLATFORM.search(value) and (CHOICE.search(value) or short) and not NEGATIVE.search(value))
 
 MAX_TEXT = 'По какому номеру могу найти тебя в MAX, если тебе удобно?'
-MAX_CHOICE = re.compile(r'^(?:(?:я\s+(?:сижу|общаюсь|переписываюсь|пользуюсь)\s+только\s+(?:в\s+)?(?:макс(?:е|ом)?|max))|(?:у\s+меня\s+)?(?:работает\s+)?только\s+макс|(?:у\s+меня\s+)?(?:работает\s+)?только\s+max|(?:давай(?:те)?\s+)?(?:в\s+)?(?:макс(?:е)?|max))[.!\s)]*$',re.I)
-
 def max_selected(messages):
-    # Only an explicit app choice, never a person named Max, quote or question.
-    from conversation_engine import normalized
-    texts=[normalized(' '.join(line for line in m['text'].splitlines() if not line.lstrip().startswith('>')))
-           for m in messages if isinstance(m.get('text'),str)]
-    return any(MAX_CHOICE.fullmatch(t) for t in texts) and not any(
-        re.search(r'(?:не\s+(?:работает|пользуюсь|хочу)|нет)\s+(?:макс\w*|max)|(?:макс\w*|max)\s+не\s+работает',t,re.I) for t in texts)
+    from assistant_contact_intent import max_selected as detect
+    return detect(messages)
 
 
 NUMBER_TEXT = 'Тогда по какому номеру могу тебя найти в Telegram или WhatsApp?'

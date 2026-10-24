@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "engine_version": "1.2.30",
+  "engine_version": "1.2.31",
   "files": {
     "rootless-unity/DIALOG-ROUTE-APK-EVIDENCE.json": "ebe7266e929509abcdab357b641c4a40b7350e381624a07aafa5bd2fada3b129",
     "rootless-unity/OFFLINE_BUILD_REPORT-6.8.1.json": "0dbcf59de5fa7c35131c04172e6574e999d1d3c494121143f041219a43ab8fa9",
@@ -11,10 +11,10 @@
     "rootless-unity/assistant_ai.py": "0e55bddc95b807e887962515b19151e38ae0ab1d717f395af8e2fb57ce28364a",
     "rootless-unity/assistant_ai_drafts.py": "25c9c9afa13e336fde459ebd13f86ccc9d4c82f719dbe92f748e001035333619",
     "rootless-unity/assistant_authorization.py": "a6c21e17f3df640250d5d6cc89e41b02e972099f4a2be704e94f66bde2899bc7",
-    "rootless-unity/assistant_chain.py": "56aeb83ee56e7180215fb32f95a8a04ed241b6e6af1bbcc6a78c07696a25c686",
+    "rootless-unity/assistant_chain.py": "b608301c08d9253ed31b5e518b043585f2cf67b788c4d7cdf1d668f7296f3674",
     "rootless-unity/assistant_config.py": "7de54008eebdc45c9a6120ec991d9c2a347c0eaa56f5b23d58c3d479602b7b7c",
-    "rootless-unity/assistant_contact_clarify.py": "75369424cf87380b41bbe032fb820f7a951115b7357fa9bd99cbb86dce2e2719",
-    "rootless-unity/assistant_contact_followup.py": "1100dd6e39dde8be04b878399e8a4a39ef2f9759584ffff9265192df22947d72",
+    "rootless-unity/assistant_contact_clarify.py": "caea4749e02a80f4756158d9e5418440a915133406dd384b3e428ecd04104ec4",
+    "rootless-unity/assistant_contact_followup.py": "22a71f9245e6ed0096415b6a58a2203ba7ed9a7f564d78e058bb2fff3f723b7c",
     "rootless-unity/assistant_contact_photo.py": "5fec4da88c6bddf507cf871f6ce210d2348ab48de9425d6d1c7cacdd90c1457a",
     "rootless-unity/assistant_contact_receipt.py": "ad22af69fad56ee59e1cd0e37b3904dc4e3f023410bbf155d718b6830b6affdc",
     "rootless-unity/assistant_cycle.py": "3b2da8c87d21b6263ed63431a04b7732bd57ef41555e83341944a5d965d1f747",
@@ -23,7 +23,7 @@
     "rootless-unity/assistant_error_notify.py": "fab9cd3805e3209bc3653169b65e9fce66e966c916d208c8ffb7814f3b0f80bc",
     "rootless-unity/assistant_exit_notify.py": "f0bcb32edcba32c2c33c13de27b0a78578c974404581ca00eb64dd47872c0e11",
     "rootless-unity/assistant_failure.py": "6f2d864e1436474f03eeafb57de94b6d1d01a183ac7357bf9d86ddb010c19ace",
-    "rootless-unity/assistant_guided_chain.py": "f3575671298ad47d8a98e5af641a357e6905d12aa8cd8cffb717dfc378b09541",
+    "rootless-unity/assistant_guided_chain.py": "c69b5a15704fd1f39ef12e157e4e14dcedcc58d9c33c1689dce7e9d840c58fe6",
     "rootless-unity/assistant_history_wait.py": "722f5975d66506c027cf0ab991a3ef2db13763c62b744c398312af3f78b28082",
     "rootless-unity/assistant_inbox.py": "fb82add2213bccf186ea2c48bb503c94adf82fa3033aab06e831191f5aebb1a0",
     "rootless-unity/assistant_key_pool.py": "92631d1bdbc6a0678fe97b84640588454eb6bb53677829dba2cd54437c29d0a2",
@@ -117,7 +117,7 @@
     "rootless-unity/search_city.py": "899f26d018b14b995fd6510e78923e604a00d15ea0ec5b0972cce7d3ef974fd0",
     "rootless-unity/search_online.py": "240ceb3ef5df23ab39193adaf5875cbb1ea664a81929b642f6542eecb7ac8446",
     "rootless-unity/search_scan.py": "bd1f09344ce58f371b170f981567f7612a8820985fe342b8156aab32d2f39b5c",
-    "rootless-unity/shared_contact.py": "eafbd7ce3b94b73655e5612ae4201010b6b93590d1f9d7043b9247ed2d67af1d",
+    "rootless-unity/shared_contact.py": "d5b7d9ce6cc71bde959ce705db400d01f37694f4bc7150ddfbef08786d00f79f",
     "rootless-unity/smoke_assistant_pass.py": "2ff88b855779064bfa8cd45b0c5d2283e2c051dcecd2e8a783bc199b450b8bae",
     "rootless-unity/smoke_assistant_preview.py": "620038fb7ad8e6ed1b48b6d97cab138a3097a1e716c5bf6f02c1edfca414585a",
     "rootless-unity/smoke_chat_batch.py": "1f0859cac50945585494b41d8854ffaeb6d333ec5ce49f6bae9abb7c3a0ae2b4",
@@ -234,7 +234,7 @@
     "rootless-unity/uikit_profile_navigation.py": "a764bd1dbd69795d411bfdfb5e0da9c0a706f7d8acec49d2099c0288348b9bba",
     "rootless-unity/uikit_root.py": "f945179e259a2b69160ccd22b1c2d8830767851744101d48043f5bb1a5782174",
     "rootless-unity/uikit_tree.py": "733fe876c375db78ab73cc6d8f23dfd4557e6e1b1e315a831801598cd40080d1",
-    "rootless-unity/version.py": "b4f3f68c7346f9e95aa9de3715bc3cbc466e5813ecf7cf864a52ab301ea83ef1",
+    "rootless-unity/version.py": "bda80027a1df9512bbf87f1a1f7ea135d09af1404f6cddbfa6b485707c5fdc92",
     "rootless-unity/zai_reply.py": "62e2739549de3261a05a20cdab62914845b143cfcfe690ff60b6ff61fe9d1587",
     "rootless-unity/tests/test_mumu1317_stay.py": "c2c9fbc203b342cb9bff35efdb023972294f61af04021b213dae55ab74450801",
     "rootless-unity/tests/test_mumu1317_read.py": "991682142a902db72f85e12341884abfd412b10345e2ed9472f4d41d1e973704",
@@ -245,6 +245,9 @@
     "rootless-unity/tests/test_mumu1319_policy.py": "def220612a4167c72d42c7ac6abfe2522eb6fe7575faa0ef5e9fa8fdf8bc4eb9",
     "rootless-unity/assistant_contact_budget.py": "014faef9afff619255526851c2233f8eacfa8cc3fbfa284eba29ea5d06a6bf1b",
     "rootless-unity/tests/test_mumu1320_skip_budget.py": "95343dff2c416b6bf7b8dc64b86129990ef6c7bb719f551e19e1b5e7edf4176f",
-    "rootless-unity/tests/test_mumu1321_pause_refusal.py": "884c906d9d372a47591eeec6ad3ecdb06870381c815ea998957d9576705ca371"
+    "rootless-unity/tests/test_mumu1321_pause_refusal.py": "884c906d9d372a47591eeec6ad3ecdb06870381c815ea998957d9576705ca371",
+    "rootless-unity/assistant_contact_intent.py": "e7af84f4ca6628e584c9635df9187625c247ccda0ebaa2301e06e16eaed1ffc7",
+    "rootless-unity/assistant_contact_policy.py": "2bd7a8bed253ec0c6a82e152fecaf68316cdb8ff5a5762065c2b6d7b4917eec2",
+    "rootless-unity/tests/test_mumu1322_contact_intent.py": "93d11f8f3bf045e70cb0bcaac328205a4dfe9bc7cb426c5773593e209658dcba"
   }
 }

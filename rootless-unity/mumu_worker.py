@@ -94,6 +94,8 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
             stage='journal-initialization'
             from assistant_reply_window import enable
             enable(Store(),new_only=spec['mode']=='new')
+            from assistant_contact_policy import enable as contact_only
+            contact_only(Store())
             from assistant_monitor import REPORT
             from mumu_recovery import run as monitor
             stage='monitor'

@@ -218,6 +218,19 @@ class GuidedChain(Chain):
             stage,action=self.consume(snapshot)
             observe(self,snapshot,input_ids=[m['id'] for m in new_peer])
             return stage,action
+        from assistant_contact_policy import should_close
+        from assistant_contact_clarify import indifferent_selected
+        with self.store.connection() as db:
+            strict_closed=bool(row and should_close(db,snapshot,row[0],new_peer,
+                requested=anchored_request or row[0] in ('wait-contact','pending-clarify','pending-followup'),max_choice=max_choice,
+                number_choice=indifferent_selected(db,snapshot,[m['id'] for m in new_peer])))
+        if strict_closed:
+            # consume verifies all fingerprints and handles actual contacts first.
+            # No old draft restoration, API request or approval may precede it.
+            stage,action=self.consume(snapshot)
+            from assistant_reply_audit import synchronize
+            synchronize(self,snapshot)
+            return stage,action
         from assistant_contact_budget import can_close
         with self.store.connection() as db:
             budget_closed=bool(row and can_close(db,who['chat'],row[0]))

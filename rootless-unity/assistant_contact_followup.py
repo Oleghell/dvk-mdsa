@@ -46,10 +46,17 @@ APP_UNAVAILABLE = re.compile(r'^(?:(?:у\s+меня\s+)?(?:нет|нету|не\
 
 def refused(messages, *, requested=False, contact_shared=False, alternative_selected=False):
     from conversation_engine import normalized
+    from assistant_contact_intent import stay_here,private_refusal,unavailable
     for m in messages:
         if not isinstance(m.get('text'),str):continue
         text=normalized(' '.join(line for line in m['text'].splitlines() if not line.lstrip().startswith('>')))
-        if (NO_APPS.fullmatch(text) and not ((contact_shared or alternative_selected) and APP_UNAVAILABLE.fullmatch(text))) or (requested and (NO_APPS_CONTEXT.fullmatch(text) or BOTH_UNAVAILABLE.fullmatch(text) or BARE_STAY.fullmatch(text) or STAY.fullmatch(text) or EXTENDED_STAY.fullmatch(text) or re.fullmatch(r'(?:ни\s*где|нигде)[.!?,)\s]*',text) or re.fullmatch(r'(?:нет|нету|не хочу|не надо)[.!?,)\s]*',text))):
+        if requested and (stay_here(text) or private_refusal(text) or (unavailable(text) and not (alternative_selected or contact_shared))):
+            return True
+        absence = NO_APPS.fullmatch(text) or (requested and (NO_APPS_CONTEXT.fullmatch(text) or BOTH_UNAVAILABLE.fullmatch(text)))
+        preference = requested and (BARE_STAY.fullmatch(text) or STAY.fullmatch(text) or EXTENDED_STAY.fullmatch(text)
+            or re.fullmatch(r'(?:ни\s*где|нигде)[.!?,)\s]*',text)
+            or re.fullmatch(r'(?:нет|нету|не хочу|не надо)[.!?,)\s]*',text))
+        if (absence and not (contact_shared or alternative_selected)) or preference:
             return True
     return False
 
