@@ -218,6 +218,16 @@ class GuidedChain(Chain):
             stage,action=self.consume(snapshot)
             observe(self,snapshot,input_ids=[m['id'] for m in new_peer])
             return stage,action
+        from assistant_contact_budget import can_close
+        with self.store.connection() as db:
+            budget_closed=bool(row and can_close(db,who['chat'],row[0]))
+        if budget_closed:
+            # consume validates complete history and checks incoming contacts
+            # before closing. No AI, recycling, approval or send here.
+            stage,action=self.consume(snapshot)
+            from assistant_reply_audit import synchronize
+            synchronize(self,snapshot)
+            return stage,action
         # A terminal preference must not recycle even an observed old reply.
         recycle_followup(self,snapshot)
         with self.store.connection() as db:

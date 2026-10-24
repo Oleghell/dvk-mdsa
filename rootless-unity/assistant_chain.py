@@ -11,12 +11,13 @@ import re
 import secrets
 
 from assistant_store import StateError, Store
+from assistant_contact_budget import can_close as contact_budget_closed, exhausted as contact_budget_exhausted
 from conversation_engine import QUESTIONS, CONTACT_TEXT, REFUSAL, NEGATIVE, normalized
 from one_chat_probe import identity
 from one_chat_send import checked
 from shared_contact import self_shared, voluntary_batch, payload as contact_payload, display_name
 from telegram_notify import protect
-from assistant_contact_clarify import TEXT as CLARIFY_TEXT, chosen as chose_messenger, MAX_TEXT, max_selected
+from assistant_contact_clarify import TEXT as CLARIFY_TEXT, chosen as chose_messenger, MAX_TEXT, max_selected, NUMBER_TEXT, indifferent_selected
 
 from assistant_contact_followup import TEXT as FOLLOWUP_TEXT, eligible as followup_eligible, refused as contact_refused
 
@@ -26,7 +27,7 @@ REVIEW_CAUSES = {'history-missing', 'history-edited', 'contact-batch-ambiguous',
                  'unjournalled-outgoing', 'legacy-incoming-ambiguous',
                  'legacy-contact-not-shared', 'legacy-reply-unclassified',
                  'ai-context-review', 'review-cause-unavailable'}
-REPLIES = QUESTIONS + (CONTACT_TEXT, CLARIFY_TEXT, MAX_TEXT, FOLLOWUP_TEXT)
+REPLIES = QUESTIONS + (CONTACT_TEXT, CLARIFY_TEXT, MAX_TEXT, NUMBER_TEXT, FOLLOWUP_TEXT)
 POSITIVE = re.compile(r'^(?:вс[её]\s+)?(?:хорошо|отлично|нормально|норм|супер|прекрасно|замечательно|неплохо|класс)(?:\s+(?:спасибо|вс[её]\s+хорошо))?[\s!.,)🙂😊👍]*$', re.I)
 HELLO = re.compile(r'^(?:привет(?:ик)?|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|хай|hello|hi)[\s!.,)🙂😊👋]*$', re.I)
 
@@ -121,7 +122,8 @@ class Chain:
             incoming = [m for m in new if m['sender'] == who['peer']]
             outgoing = [m for m in new if m['sender'] == who['account']]
             max_choice = max_selected([m for m in messages if m['sender']==who['peer']])
-            clarify_text = MAX_TEXT if max_choice else CLARIFY_TEXT
+            number_choice = indifferent_selected(db,s,[m['id'] for m in incoming])
+            clarify_text = MAX_TEXT if max_choice else NUMBER_TEXT if number_choice else CLARIFY_TEXT
             pending_contact_observed = False
             pending_contact_kind = stage.removeprefix('pending-')
             if stage in ('pending-contact','pending-clarify','pending-followup') and len(outgoing) == 1:
@@ -162,6 +164,10 @@ class Chain:
                     if pending_contact_observed:
                         db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind=?", (chat,pending_contact_kind))
                     stage = 'done'
+            elif self.any_replies and contact_budget_closed(db, chat, stage):
+                # Contact/refusal gates above win. Terminal skip retains every
+                # reservation, fingerprint, archived reply and unsent draft.
+                stage = 'declined'
             elif stage.startswith('pending-'):
                 kind = stage.removeprefix('pending-')
                 reserved = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?', (chat, kind)).fetchone()
@@ -184,12 +190,14 @@ class Chain:
                         stage='pending-contact';action=dict(kind='contact',text=CONTACT_TEXT)
                     else:
                         stage='wait-contact'
-                        if kind in ('contact','followup') and (chose_messenger(incoming) or max_choice) and not db.execute(
+                        if self.any_replies and contact_budget_exhausted(db, chat):
+                            stage='declined'
+                        elif kind in ('contact','followup') and (chose_messenger(incoming) or max_choice or number_choice) and not db.execute(
                                 "SELECT 1 FROM chain_actions WHERE chat=? AND kind='clarify'",(chat,)).fetchone():
                             db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
                                        (chat,'clarify',incoming[0]['id'],text_hash(clarify_text)))
                             stage='pending-clarify';action=dict(kind='clarify',text=clarify_text)
-                        elif not max_choice and followup_eligible(incoming) and not db.execute(
+                        elif not max_choice and not number_choice and followup_eligible(incoming) and not db.execute(
                                 "SELECT 1 FROM chain_actions WHERE chat=? AND kind='followup'",(chat,)).fetchone():
                             db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
                                        (chat,'followup',incoming[0]['id'],text_hash(FOLLOWUP_TEXT)))
@@ -208,12 +216,12 @@ class Chain:
                 if stage == 'wait-contact':
                     # A messenger choice is consent to ONE clarification, not a
                     # fabricated contact. Never reuse or reset an existing action.
-                    if (chose_messenger(incoming) or max_choice) and not db.execute(
+                    if (chose_messenger(incoming) or max_choice or number_choice) and not db.execute(
                             "SELECT 1 FROM chain_actions WHERE chat=? AND kind='clarify'",(chat,)).fetchone():
                         db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
                                    (chat,'clarify',incoming[0]['id'],text_hash(clarify_text)))
                         stage='pending-clarify';action=dict(kind='clarify',text=clarify_text)
-                    elif not max_choice and followup_eligible(incoming) and not db.execute(
+                    elif not max_choice and not number_choice and followup_eligible(incoming) and not db.execute(
                             "SELECT 1 FROM chain_actions WHERE chat=? AND kind='followup'",(chat,)).fetchone():
                         db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
                                    (chat,'followup',incoming[0]['id'],text_hash(FOLLOWUP_TEXT)))

@@ -12,6 +12,7 @@ def chosen(messages):
     from shared_contact import contact_items
     if any(contact_items(text,allow_unformatted=True) for text in texts):
         return False  # Do not ask for a contact already present but not safely self-attributed.
+    if indifferent(messages):return True
     # A terse list is an explicit choice in this already-requested-contact stage.
     # Do not treat questions/objections mentioning an app as agreement.
     short = re.fullmatch(r'\s*(?:тг|телеграм(?:м)?|телега|telegram|whats\s?app|ватсап|вацап|ватцап|вотсап)(?:[\s,/]+(?:или\s+)?(?:макс|max|тг|телеграм|whatsapp|ватсап|вацап))*[.!)]*\s*', value, re.I)
@@ -27,3 +28,27 @@ def max_selected(messages):
            for m in messages if isinstance(m.get('text'),str)]
     return any(MAX_CHOICE.fullmatch(t) for t in texts) and not any(
         re.search(r'(?:не\s+(?:работает|пользуюсь|хочу)|нет)\s+(?:макс\w*|max)|(?:макс\w*|max)\s+не\s+работает',t,re.I) for t in texts)
+
+
+NUMBER_TEXT = 'Тогда по какому номеру могу тебя найти в Telegram или WhatsApp?'
+INDIFFERENT = re.compile(r'^(?:(?:да|мне)\s+)?(?:без\s+разницы|вс[её]\s+равно|не\s*важно|любой(?:\s+мессенджер)?|как\s+тебе\s+удобнее)[.!…,)\s]*$',re.I)
+
+
+def indifferent(messages):
+    from conversation_engine import normalized
+    return any(INDIFFERENT.fullmatch(normalized(' '.join(line for line in m['text'].splitlines()
+        if not line.lstrip().startswith('>')))) for m in messages if isinstance(m.get('text'),str))
+
+
+def indifferent_selected(db, snapshot, new_ids=()):
+    """Only new or exact durable contact-stage inputs, never old generic consent."""
+    chat=snapshot['identity']['chat'];ids=set(new_ids)
+    ids.update(r[0] for r in db.execute("SELECT trigger FROM chain_actions WHERE chat=? AND kind IN ('clarify','followup')",(chat,)))
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_draft_inputs'").fetchone():
+        ids.update(r[0] for r in db.execute("SELECT message FROM ai_draft_inputs WHERE chat=? AND kind IN ('clarify','followup')",(chat,)))
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='chain_followup_archive'").fetchone():
+        import json
+        for trigger,inputs in db.execute("SELECT trigger,inputs FROM chain_followup_archive WHERE chat=?",(chat,)):
+            ids.add(trigger);values=json.loads(inputs)
+            if type(values) is list:ids.update(x for x in values if type(x) is str)
+    return indifferent([m for m in snapshot['messages'] if m['sender']==snapshot['identity']['peer'] and m['id'] in ids])

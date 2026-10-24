@@ -63,6 +63,8 @@ def recycle_followup(chain,snapshot):
     with chain.store.connection() as db:
         state=db.execute('SELECT stage FROM chain_dialogs WHERE chat=?',(chat,)).fetchone()
         if not state or state[0]!='wait-contact':return
+        from assistant_contact_budget import exhausted
+        if exhausted(db,chat):return
         seen={r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?',(chat,))}
         incoming=[m for m in snapshot['messages'] if m['sender']==who['peer'] and m['id'] not in seen and isinstance(m['text'],str) and m['text'].strip()]
         if not incoming:return

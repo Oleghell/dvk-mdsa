@@ -41,11 +41,12 @@ class Dialogs(unittest.TestCase):
         c.proposal(snapshot(*h))
         with store.connection() as db:before=db.execute("SELECT * FROM chain_actions WHERE kind='clarify'").fetchone()
         h += [('Ага',False)]
-        self.assertEqual(c.proposal(snapshot(*h)),('wait-contact',None))
+        self.assertEqual(c.proposal(snapshot(*h)),('declined',None))
         c.responder.assert_not_called()
-        # Arrival of a requested number is terminal, without another model call.
+        # 1.3.20: two extra outgoing already sent; a later visit must not
+        # reopen the terminal skip even when another message contains a number.
         stage,a=c.proposal(snapshot(*h,('89991234567',False)))
-        self.assertEqual((stage,a),('done',None));c.responder.assert_not_called()
+        self.assertEqual((stage,a),('declined',None));c.responder.assert_not_called()
         with store.connection() as db:self.assertEqual(db.execute("SELECT * FROM chain_actions WHERE kind='clarify'").fetchone(),before)
     def test_unknown_clarification_is_not_reset(self):
         c,store,h=self.chain();stage,a=c.proposal(snapshot(*h,('У меня только Макс',False)))

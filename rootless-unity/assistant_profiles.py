@@ -23,7 +23,7 @@ def report(limit):
     return dict(tool_version=VERSION, mode='new-profiles-pass', status='profiles-stopped',
                 reason='not-started', profile_limit=limit, profiles_checked=0, qualified_profiles=0, scan_limit=MAX_SCANNED,
                 search_cycles=0, search_cycle_limit=MAX_SEARCH_CYCLES,
-                skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0,
+                skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0, skipped_input_disabled=0,
                 read_recovery_limit=MAX_READ_RECOVERIES, consecutive_read_recoveries=0, recovery_events=[], greetings_offered=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
                 greetings_declined=0, city_changes=0, search_budget_rotations=0, last_profile_diagnostics=None,
@@ -155,7 +155,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 'open_attempted', 'open_completed', 'chat_open_attempted', 'chat_open_completed',
                 'send_attempted', 'send_handler_returned', 'return_verified',
                 'profile_read_budget_retries', 'greeting_frame_splits', 'profile_ready_waits',
-                'profile_read_skipped', 'profile_read_skip_reason', 'chat_back_attempted', 'chat_back_completed',
+                'profile_read_skipped', 'profile_read_skip_reason', 'profile_input_enabled', 'chat_back_attempted', 'chat_back_completed',
                 'chat_return_verified', 'chat_identity_verified', 'chat_return_route') if key in n}
             cycle_pending = False
             if n['send_attempted']:
@@ -212,6 +212,13 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                     n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
                     n.get('cleanup_failed') is not False):
                     raise StateError('return-not-verified')
+                if n['profile_read_skip_reason'] == 'input-disabled':
+                    if n.get('profile_input_enabled') is not False:
+                        raise StateError('return-not-verified')
+                    out['skipped_input_disabled'] += 1
+                    out['consecutive_read_recoveries'] = 0
+                    progress('Анкета пропущена: ввод недоступен. Возврат проверен. Продолжаю поиск.')
+                    continue
                 out['skipped_unready_chat'] += 1
                 out['consecutive_read_recoveries'] += 1
                 event = dict(sequence=out['skipped_unready_chat'], reason=n['profile_read_skip_reason'],

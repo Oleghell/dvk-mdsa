@@ -16,7 +16,7 @@ from greetings import get_greeting
 
 def one(library, case):
     mode = 518 if case == 'crowded-search' else 519 if case in ('slow-profile','slow-profile-baseline') else 502 if case == 'nonempty' else 505 if case == 'handler-error' else 513
-    flag = 4 if case == 'identity-change' else 3 if case == 'draft' else 0
+    flag = 7 if case in ('input-disabled','input-disabled-back-identity','input-disabled-back-unknown') else 4 if case == 'identity-change' else 3 if case == 'draft' else 0
     visited = list(map(str,range(1,25))) if case == 'crowded-search' else ['1', '2'] if case == 'friends-50' else ['1'] if case == 'skip-visited' else []
     child = subprocess.Popen([sys.executable, '-u', '-c',
         "import ctypes,sys,time\nl=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)\n"
@@ -64,6 +64,18 @@ def one(library, case):
                 source=source.replace('const all=bool(s.value,field);', 'const all=false;')
                 if case=='history-loading-skip':
                     source=source.replace('const loading=bool(s.historyLoading,cm),', 'const loading=true,')
+            if case=='input-disabled-prepare':
+                source=source.replace('n.profile_input_enabled=bool(s.input,chat);',
+                    "n.profile_input_enabled=n.phase==='prepare-greeting'?false:bool(s.input,chat);")
+            if case=='input-disabled-after-approval':
+                source=source.replace("if(n.phase==='submit-greeting'){",
+                    "if(n.phase==='submit-greeting'){fail('input-disabled');")
+            if case=='input-disabled-back-identity':
+                source=source.replace("if(n.phase==='close-chat'){",
+                    "if(n.phase==='close-chat'){fail('identity-changed');")
+            if case=='input-disabled-back-unknown':
+                source=source.replace('call(s.chatBack,current);n.chat_back_completed=true;',
+                    "call(s.chatBack,current);fail('frame-budget');n.chat_back_completed=true;")
             if case=='history-after-approval':
                 source=source.replace("if(n.phase==='submit-greeting'){","if(n.phase==='submit-greeting'){fail('history-not-ready');")
             if case=='send-return-budget':
@@ -136,6 +148,13 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
                 assert n['stage']=='navigation-ready' and n['error']=='none' and n['profile_read_skipped'] and n['return_verified'],(case,n)
                 assert n['samples']==0 and n['message_count'] is None and n['history_status']=='not-ready',(case,n)
                 assert counts['backs']==1 and not approvals and store.summary()['reserved']==0 and peer in store.visited_peers(),(case,n,counts)
+            if case in ('input-disabled-back-identity','input-disabled-back-unknown'):
+                assert n['stage']=='navigation-stopped' and n['profile_read_skipped'] and not n['return_verified'],(case,n)
+                assert not approvals and store.summary()['reserved']==0 and not n['send_attempted'],(case,n)
+                assert counts['backs']==int(case=='input-disabled-back-unknown'),(case,counts)
+            if case=='input-disabled-after-approval':
+                assert n['stage']=='navigation-stopped' and not n['profile_read_skipped'] and not n['send_attempted'],(case,n)
+                assert len(approvals)==1 and store.summary()['reserved']==1 and counts['backs']==0,(case,n)
             if case=='history-after-approval':
                 assert len(approvals)==1 and store.summary()['reserved']==1 and not n['send_attempted'],(case,n,state)
             if case=='send-return-budget':
@@ -152,6 +171,10 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
                     pass
                 else:
                     raise AssertionError('Restart permitted duplicate send')
+            if case in ('input-disabled','input-disabled-prepare'):
+                assert n['stage']=='navigation-ready' and n['error']=='none' and n['return_verified'],(case,n)
+                assert n['profile_read_skipped'] and n['profile_read_skip_reason']=='input-disabled' and n['profile_input_enabled'] is False,(case,n)
+                assert not approvals and store.summary()['reserved']==0 and counts['backs']==1 and peer in store.visited_peers(),(case,n,counts)
             if case == 'nonempty':
                 assert not approvals and n['history_status'] == 'not-empty'
             if case == 'friends-50':
@@ -187,7 +210,7 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
 
 if __name__ == '__main__':
     library = Path(sys.argv[1]).resolve(strict=True)
-    cases = sys.argv[2:] or ['approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure', 'crowded-search', 'slow-profile', 'slow-profile-baseline','combined-frame','combined-frame-baseline','read-budget-once','read-budget-always','identity-after-budget','history-after-approval','send-return-budget','actual-late','actual-never','actual-identity-change','actual-back-identity','actual-back-unknown','read-budget-pinned','history-loading-skip','history-not-loaded-skip']
+    cases = sys.argv[2:] or ['approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure', 'crowded-search', 'slow-profile', 'slow-profile-baseline','combined-frame','combined-frame-baseline','read-budget-once','read-budget-always','identity-after-budget','history-after-approval','send-return-budget','actual-late','actual-never','actual-identity-change','actual-back-identity','actual-back-unknown','read-budget-pinned','history-loading-skip','history-not-loaded-skip','input-disabled','input-disabled-prepare','input-disabled-after-approval','input-disabled-back-identity','input-disabled-back-unknown']
     # Baseline construction patches a module function: keep it outside workers.
     if 'combined-frame-baseline' in cases:
         one(library,'combined-frame-baseline');cases.remove('combined-frame-baseline')

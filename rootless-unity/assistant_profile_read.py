@@ -11,8 +11,8 @@ import chat_send_probe
 
 PHASES = {'prepare-greeting', 'submit-greeting'}
 DEFAULTS = dict(profile_read_budget_retries=0, greeting_frame_splits=0, profile_ready_waits=0)
-SKIP_DEFAULTS = dict(profile_read_skipped=False, profile_read_skip_reason='none')
-SKIP_REASONS = {'chat-not-actual', 'history-loading', 'history-not-loaded', 'frame-budget'}
+SKIP_DEFAULTS = dict(profile_read_skipped=False, profile_read_skip_reason='none', profile_input_enabled=None)
+SKIP_REASONS = {'chat-not-actual', 'history-loading', 'history-not-loaded', 'frame-budget', 'input-disabled'}
 # A skip is not a successful history read and never an authorization. The next
 # native frame must verify the pinned chat before Back; then verify search.
 SKIP_GUARD = """n.phase==='check-chat'&&n.chat_open_completed&&n.chat_verified&&n.chat_identity_verified&&
@@ -37,6 +37,13 @@ CONTEXT = r'''
 '''
 
 
+# Input availability is read from the verified model, never screenshot text.
+INPUT_GATE = """n.profile_input_enabled=bool(s.input,chat);
+    if(!n.profile_input_enabled&&n.chat_open_completed&&n.chat_verified&&n.chat_identity_verified&&
+     !n.send_attempted&&!n.send_handler_returned&&cohortPending===null&&cohortApproved===null){
+     const reason='input-disabled';""" + SKIP + "}" 
+
+
 def specialize(source):
     import json
     source = replace(source, 'r.navigation=emptyNavigation();',
@@ -52,6 +59,9 @@ def specialize(source):
      }else if(['chat-not-actual','history-loading','history-not-loaded'].includes(reason)&&""" + SKIP_GUARD + ") {" + SKIP + """
      }else fail('history-not-ready');
     }""")
+    source = replace(source,
+        "save('chatUserPin',user);n.chat_identity_verified=true;",
+        "save('chatUserPin',user);n.chat_identity_verified=true;\n" + INPUT_GATE)
     a = source.index("   if(first===0){", source.index("   if(n.phase==='check-chat')"))
     b = source.index("   if(n.phase==='search'){", a)
     send = chat_send_probe.SEND.replace("   if(first!==0)fail('chat-not-empty');", '')
@@ -66,7 +76,7 @@ def specialize(source):
    n.phase='close-chat';state.nextActionAt=Date.now()+1000;return;
    }
    if(n.phase==='prepare-greeting'){
-''' + CONTEXT + cohort_pass.RESERVE + r'''
+''' + CONTEXT.replace("    if(!n.chat_identity_verified", INPUT_GATE + "\n    if(!n.chat_identity_verified") + cohort_pass.RESERVE + r'''
     n.phase='submit-greeting';state.nextActionAt=Date.now();return;
    }
    if(n.phase==='submit-greeting'){
@@ -97,6 +107,11 @@ def validate(n):
     skip = {key: n.pop(key, default) for key, default in SKIP_DEFAULTS.items()}
     if type(skip['profile_read_skipped']) is not bool or skip['profile_read_skip_reason'] not in SKIP_REASONS | {'none'}:
         raise ValueError('Invalid profile read skip')
+    enabled = skip['profile_input_enabled']
+    if enabled is not None and type(enabled) is not bool:
+        raise ValueError('Invalid verified input flag')
+    if skip['profile_read_skip_reason'] == 'input-disabled' and enabled is not False:
+        raise ValueError('Input skip without disabled model')
     skipped = skip['profile_read_skipped']
     if skipped != (skip['profile_read_skip_reason'] != 'none'):
         raise ValueError('Missing profile read skip reason')
@@ -107,10 +122,10 @@ def validate(n):
         (n.get('stage') == 'navigation-ready' and
          (n.get('error') != 'none' or n.get('chat_return_verified') is not True or n.get('return_verified') is not True))):
         raise ValueError('Unverified profile skip')
-    if skipped and skip['profile_read_skip_reason'] != 'frame-budget' and n.get('wait_reason') != skip['profile_read_skip_reason']:
+    if skipped and skip['profile_read_skip_reason'] not in {'frame-budget','input-disabled'} and n.get('wait_reason') != skip['profile_read_skip_reason']:
         raise ValueError('Profile skip without read failure')
     values = {key: n.pop(key) for key in DEFAULTS}
-    if skipped and (values['greeting_frame_splits'] != 0 or
+    if skipped and (values['greeting_frame_splits'] != 0 and skip['profile_read_skip_reason'] != 'input-disabled' or
         skip['profile_read_skip_reason'] == 'chat-not-actual' and values['profile_ready_waits'] != 4 or
         skip['profile_read_skip_reason'] == 'frame-budget' and values['profile_read_budget_retries'] != 4):
         raise ValueError('Profile skip before bounded reads')
@@ -121,7 +136,7 @@ def validate(n):
         raise ValueError('Readiness wait without verified chat')
     if n.get('send_attempted') and values['greeting_frame_splits'] != 1:
         raise ValueError('Greeting submitted without split frame')
-    if values['greeting_frame_splits'] and (n.get('samples') != 2 or n.get('history_status') != 'empty'):
+    if values['greeting_frame_splits'] and not skipped and (n.get('samples') != 2 or n.get('history_status') != 'empty'):
         raise ValueError('Greeting split without complete empty history')
     if n.get('phase') in PHASES:
         if values['greeting_frame_splits'] != 1 or (n.get('phase') == 'prepare-greeting' and n.get('send_attempted')):

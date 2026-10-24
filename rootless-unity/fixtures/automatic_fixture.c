@@ -190,7 +190,8 @@ static Object *auto_invoke(Method *m,void *obj,void **args,void **exc){int yes=0
  case 84:yes=1;break;
  case 85:return &puser;
  case 86:auto_actual_reads++;yes=1;break;
- case 87:case 88:case 94:case 95:yes=1;break;
+ case 87:case 88:case 94:yes=1;break;
+ case 95:yes=cohort_mode!=7;break;
  case 89:return mode==510&&auto_actual_reads>2?&acm_other:&acm;
  case 90:return mode==512?&alast:NULL;
  case 91:yes=mode==503;break;
