@@ -29,7 +29,7 @@ CONTINUE = {'chain-waiting', 'chain-completed', 'chain-needs-review', 'chain-pau
 
 
 def isolation_reason(result):
-    """Only one authored, chat-local read failure may leave via verified back.
+    """Only authored, identity-rechecked message failures may leave via verified back.
 
     Do not skip arbitrary ReadStopped/identity/device failures. The native reader
     still rejects unanchored local messages without reading their bodies.
@@ -45,6 +45,25 @@ def isolation_reason(result):
                         scalar_state='negative', message_direction='own')
         if all(failure.get(key) == value for key, value in expected.items()):
             return 'local-own-message-unanchored'
+        # Reject the content, not the entire port: a message-level invalid
+        # server scalar can be quarantined ONLY after native identity recheck.
+        # The caller persists review before a separately verified SAME-chat Back.
+        # Account/peer/chat identity errors and unrecognized diagnostics never match.
+        from chat_limits import MAX_MESSAGES
+        scalars={'nonpositive-message-id':'message-id',
+                 'nonpositive-message-sender-id':'message-sender-id',
+                 'nonpositive-message-chat-id':'message-chat-id'}
+        code=failure.get('error')
+        if (code in scalars and failure.get('scalar_checkpoint')==scalars[code]
+                and failure.get('scalar_state') in {'zero','negative'}
+                and failure.get('stage')=='navigation-stopped'
+                and failure.get('metadata_checkpoint')=='ready'
+                and failure.get('identity_checkpoint')=='recheck'
+                and failure.get('read_checkpoint')=='last-message'
+                and failure.get('wait_reason')=='none'
+                and type(failure.get('message_slot')) is int
+                and -1 <= failure['message_slot'] < MAX_MESSAGES):
+            return code
         return None
     # A bare local-read code must not bypass the required native diagnostics.
     return reason if reason in ISOLATE - {'local-own-message-unanchored'} else None

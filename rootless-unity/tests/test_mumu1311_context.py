@@ -142,4 +142,8 @@ class Refusals(unittest.TestCase):
         self.assertEqual(c.proposal(snapshot(*h,('Чего не спишь?',False))),('declined',None))
         c.responder.assert_not_called()
         with store.connection() as db:
-            self.assertEqual(db.execute("SELECT status FROM chain_followup_archive").fetchone()[0],'outgoing-observed')
+            # 1.3.17: refusal now precedes recycling, so the exact observed
+            # action stays in its original journal row rather than being moved.
+            self.assertEqual(db.execute("SELECT trigger,text_hash,status FROM chain_actions WHERE kind='followup'").fetchone(),
+                             ('1006',text_hash(a['text']),'outgoing-observed'))
+            self.assertIsNone(db.execute("SELECT 1 FROM sqlite_master WHERE name='chain_followup_archive'").fetchone())

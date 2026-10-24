@@ -6,8 +6,9 @@ from assistant_failure import CODES as HOST_ERRORS, CHECKPOINTS as HOST_CHECKPOI
 import telegram_notify
 from startup_failure import ERRORS as STARTUP_ERRORS, message as failure_message
 import run_preparation
+from one_chat_probe import ERRORS as READ_ERRORS
 
-KNOWN = GROQ_ERRORS | NAV_ERRORS | PROFILE_ERRORS | HOST_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed','recovery-check-stopped', 'profile-recovery-limit'} | {'history-not-ready','history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
+KNOWN = READ_ERRORS | GROQ_ERRORS | NAV_ERRORS | PROFILE_ERRORS | HOST_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed','recovery-check-stopped', 'profile-recovery-limit'} | {'history-not-ready','history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
     'send-native-check-failed', 'send-device-check-failed', 'send-validation-failed',
     'settings-check-stopped', 'device-busy-or-monitor-check-stopped', 'initial-pass-stopped',
     'search-screen-not-verified', 'dialog-list-not-verified', 'initial-pass-paused',
@@ -136,11 +137,13 @@ def diagnostic_json(report):
         'apply_attempted','apply_completed','city_form_verified','city_select_attempted','city_select_completed',
         'action_attempted','action_completed','entry_verified','selection_verified','dialogs_verified','destination_verified','cleanup_failed','continue_work','cooldown'}
     labels = {'status','reason','error','phase','stage','wait_reason','read_checkpoint','last_error',
-        'error_type','adb_check','adb_reason','host_failure','host_checkpoint','failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','selection_checkpoint','provider','code','validation_reason'}
+        'scalar_checkpoint','scalar_state','identity_checkpoint','message_kind','message_direction','error_type','adb_check','adb_reason','host_failure','host_checkpoint','failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','selection_checkpoint','provider','code','validation_reason'}
     from groq_reply import VALIDATION_REASONS
+    from chat_limits import MAX_MESSAGES
+    from one_chat_probe import SCALAR_CHECKPOINTS,SCALAR_STATES,IDENTITY_CHECKPOINTS
     from startup_failure import STAGES,TYPES,ADB_CHECKS
     from adb_evidence import REASONS as ADB_REASONS
-    codes = STAGES | TYPES | {'OtherError','StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} | ADB_CHECKS | ADB_REASONS | KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
+    codes = SCALAR_CHECKPOINTS | SCALAR_STATES | IDENTITY_CHECKPOINTS | {'ReadStopped','not-read','text','non-text','own','not-own'} | STAGES | TYPES | {'OtherError','StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} | ADB_CHECKS | ADB_REASONS | KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
         'groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
         'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
         'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',
@@ -160,6 +163,8 @@ def diagnostic_json(report):
                     result[key] = [clean(e, depth+1) for e in entry[:64] if isinstance(e, dict)]
                 elif key == 'recovery_events' and isinstance(entry, list):
                     result[key] = [clean(e, depth+1) for e in entry[-3:] if isinstance(e, dict)]
+            elif key == 'message_slot' and type(entry) is int and -1 <= entry < MAX_MESSAGES:
+                result[key] = entry
             elif key in ('key_index','retry_in_seconds') and type(entry) is int and 0 <= entry <= (17 if key == 'key_index' else 86400):
                 result[key] = entry
             elif key in numbers and (entry is None or type(entry) is int and 0 <= entry <= 1000000):

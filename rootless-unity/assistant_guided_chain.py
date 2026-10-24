@@ -193,7 +193,6 @@ class GuidedChain(Chain):
     def proposal(self, snapshot):
         from assistant_reply_audit import observe, recycle_followup
         observe(self,snapshot)
-        recycle_followup(self,snapshot)
         who = snapshot['identity']
         with self.store.connection() as db:
             row=db.execute('SELECT stage FROM chain_dialogs WHERE chat=?',(who['chat'],)).fetchone()
@@ -215,6 +214,8 @@ class GuidedChain(Chain):
             stage,action=self.consume(snapshot)
             observe(self,snapshot,input_ids=[m['id'] for m in new_peer])
             return stage,action
+        # A terminal preference must not recycle even an observed old reply.
+        recycle_followup(self,snapshot)
         with self.store.connection() as db:
             unapproved = {row[0] for row in db.execute(
                 "SELECT kind FROM chain_actions WHERE chat=? AND status='awaiting-approval'",
@@ -693,7 +694,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         out['diagnostics']['host_checkpoint']=host_checkpoint
         from startup_failure import TYPES
         error_type=type(error).__name__
-        out['diagnostics']['error_type']=error_type if error_type in TYPES | {'StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} else 'OtherError'
+        out['diagnostics']['error_type']=error_type if error_type in TYPES | {'ReadStopped','StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} else 'OtherError'
         native=evidence(error)
         if native:out['diagnostics']['last_navigation_failure']=native
         # Only fixed, authored categories; no arbitrary native exception text.
