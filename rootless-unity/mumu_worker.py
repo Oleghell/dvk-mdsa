@@ -92,7 +92,8 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
             scopes.enter_context(operation_lock(root_directory()/'locks'/(boot_key+'.lock')))
             recheck(adb,boot)
             stage='journal-initialization'
-            Store()
+            from assistant_reply_window import enable
+            enable(Store(),new_only=spec['mode']=='new')
             from assistant_monitor import REPORT
             from mumu_recovery import run as monitor
             stage='monitor'
@@ -174,7 +175,7 @@ def main():
         value=json.loads(raw)
         if type(value) is not dict or set(value)!={'port','mode','fresh','settings'}:raise MumuError('Invalid spec')
         port(value['port'])
-        if value['mode'] not in ('full','inbox') or type(value['fresh']) is not bool or type(value['settings']) is not dict:raise MumuError('Invalid spec')
+        if value['mode'] not in ('full','inbox','new') or type(value['fresh']) is not bool or type(value['settings']) is not dict:raise MumuError('Invalid spec')
         def watch():
             # EOF means parent died: revoke permission, do not leave orphan senders.
             while True:

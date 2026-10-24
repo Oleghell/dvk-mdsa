@@ -191,6 +191,8 @@ class GuidedChain(Chain):
         return True
 
     def proposal(self, snapshot):
+        from assistant_reply_window import reason
+        if reason(self.store,snapshot['identity']):return 'reply-excluded',None
         from assistant_reply_audit import observe, recycle_followup
         observe(self,snapshot)
         who = snapshot['identity']
@@ -500,6 +502,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             out['outgoing_observed_this_run'] = len(
                 {kind for kind, status in observed.items() if status == 'outgoing-observed'}
                 - observed_at_start)
+            if stage == 'reply-excluded':
+                out.update(status='chain-waiting',reason='reply-excluded')
+                return out
             if stage == 'submission-unknown':
                 out.update(reason='send-outcome-unknown')
                 return out
@@ -596,6 +601,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                         continue
                     chain.mark_review(who)
                     out.update(reason='history-changed-during-approval')
+                    return out
+                from assistant_reply_window import reason as reply_exclusion
+                if reply_exclusion(chain.store,who):
+                    out.update(status='chain-waiting',reason='reply-excluded')
                     return out
                 chain.reserve_confirmed(who, action)
                 if stopped.is_set():

@@ -54,6 +54,7 @@ def launch(self_check=False):
 
     def refresh():
         start.configure(state='disabled' if busy else 'normal')
+        new_start.configure(state='disabled' if busy else 'normal')
         ports_box.configure(state='disabled' if busy else 'normal')
         options.configure(state='disabled' if busy else 'normal')
         replies.configure(state='disabled' if busy else 'normal')
@@ -82,8 +83,8 @@ def launch(self_check=False):
             status.set(str(error) if isinstance(error, StateError) else 'Не удалось сохранить настройки. Запуск отменён.')
             return
         # The Start button itself authorizes this run. No redundant modal.
-        fresh = first_profiles_run and mode == 'full'
-        if mode == 'full':
+        fresh = first_profiles_run and mode in ('full','new')
+        if mode in ('full','new'):
             first_profiles_run = False
         stopped.clear()
         port_controls.clear();port_controls.update({n:PortControl() for n in ports})
@@ -366,6 +367,8 @@ def launch(self_check=False):
 
     start = ttk.Button(controls, text='Старт', command=begin)
     start.pack(side='left')
+    new_start = ttk.Button(controls,text='Новые анкеты',command=lambda:begin('new'))
+    new_start.pack(side='left',padx=6)
     replies = ttk.Button(controls, text='Только ответы', command=lambda: begin('inbox'))
     replies.pack(side='left', padx=6)
     stop = ttk.Button(controls, text='Стоп', command=cancel, state='disabled')

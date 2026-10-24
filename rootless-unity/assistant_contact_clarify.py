@@ -18,7 +18,7 @@ def chosen(messages):
     return bool(PLATFORM.search(value) and (CHOICE.search(value) or short) and not NEGATIVE.search(value))
 
 MAX_TEXT = 'По какому номеру могу найти тебя в MAX, если тебе удобно?'
-MAX_CHOICE = re.compile(r'^(?:(?:у\s+меня\s+)?(?:работает\s+)?только\s+макс|(?:у\s+меня\s+)?(?:работает\s+)?только\s+max|(?:давай(?:те)?\s+)?(?:в\s+)?(?:макс(?:е)?|max))[.!\s)]*$',re.I)
+MAX_CHOICE = re.compile(r'^(?:(?:я\s+(?:сижу|общаюсь|переписываюсь|пользуюсь)\s+только\s+(?:в\s+)?(?:макс(?:е|ом)?|max))|(?:у\s+меня\s+)?(?:работает\s+)?только\s+макс|(?:у\s+меня\s+)?(?:работает\s+)?только\s+max|(?:давай(?:те)?\s+)?(?:в\s+)?(?:макс(?:е)?|max))[.!\s)]*$',re.I)
 
 def max_selected(messages):
     # Only an explicit app choice, never a person named Max, quote or question.

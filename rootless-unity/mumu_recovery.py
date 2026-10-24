@@ -8,7 +8,7 @@ RETRY_CODES={'frame-budget','call-limit','frame-limit','transition-timeout','cal
     'history-loading-timeout','history-read-budget-timeout','history-not-ready','profile-recovery-limit',
     'selection-unavailable','screen-not-ready','wrong-screen','unexpected-screen','read-stopped',
     'native-transport-error','native-operation-cancelled','native-script-error','native-state-error',
-    'native-process-unavailable','transport-error','device-timeout'}
+    'native-process-unavailable','transport-error','device-timeout','readonly-list-updated'}
 BLOCK_CODES={'unverified-host-failure','identity-changed','identity-not-bound','untracked-dialog','changed-dialog',
     'report-write-failed','message-not-approved','greeting-not-approved','cancelled',
     'journal-busy','journal-locked','journal-readonly','journal-storage-full','journal-io-error',
@@ -27,11 +27,14 @@ def recoverable(report):
         if type(value) is not dict:return
         if value.get('status') in {'completed','inbox-completed','profiles-completed','inbox-empty'}:return
         from startup_failure import recoverable_adb
+        from assistant_scan_retry import readonly_list_changed
+        scan=readonly_list_changed('open',dict(state='stopped',identity=None,diagnostic=value.get('last_navigation')))
+        if scan:codes.add('readonly-list-updated')
         if value.get('host_failure') in {'internal-error','internal-contract-error','state-check-failed','validation-failed','host-io-error'}:
             children=[value.get(k) for k in ('last_navigation_failure','last_preparation_failure','last_navigation','last_profile_diagnostics')]
             current_transport=any(recoverable_adb(child) for child in children)
             current_navigation=any(type(child) is dict and child.get('stage')=='navigation-stopped' and child.get('error') in RETRY_CODES for child in children)
-            if not (current_transport or current_navigation):codes.add('unverified-host-failure')
+            if not (current_transport or current_navigation or scan):codes.add('unverified-host-failure')
         if recoverable_adb(value):codes.add('native-transport-error')
         for key in ('reason','error','host_failure'):
             v=value.get(key)
@@ -118,7 +121,7 @@ def run(settings,stopped,approve,progress=lambda _:None,*,mode='full',fresh_sess
     recoveries=0;first=True
     while not stopped.is_set():
         boundary(stopped)
-        out=monitor(settings,stopped,approve,progress,mode=mode,fresh_session=fresh_session if first else False,
+        out=monitor(settings,stopped,approve,progress,mode=mode if first or mode!='new' else 'full',fresh_session=fresh_session if first else False,
                     write=write,continuous=continuous,terminal_notifications=False)
         first=False
         if out.get('status')=='cancelled' or stopped.is_set():return out

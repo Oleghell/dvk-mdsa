@@ -57,6 +57,8 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         clock=time.monotonic, repeat=initial_pass, alert=None, continuous=False, json_alert=None, terminal_notifications=True):
     """No startup/resume actions without an explicit UI Start. Begin on search or dialogs; unknown screens are rejected."""
     if type(continuous) is not bool:raise ValueError('Invalid continuous mode')
+    new_start=mode=='new'
+    if new_start:mode='full'
     if mode not in ('full', 'inbox'):
         raise ValueError('Invalid monitor mode')
     out = report(mode)
@@ -153,7 +155,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 phase = 'initial-pass-stopped'
                 out['ui_may_remain_open'] = True
                 first = initial(settings, stopped, approve, progress,
-                                mode='full', fresh_session=fresh_session, lock=nullcontext)
+                                mode='profiles' if new_start else 'full', fresh_session=fresh_session, lock=nullcontext)
                 out['initial_run'] = first
                 out['last_preparation_failure']=run_preparation.from_report(first)
                 if first.get('inbox'):

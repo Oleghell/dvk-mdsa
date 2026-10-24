@@ -136,7 +136,8 @@ def inbox_targets(chain):
             attention.append(item)  # unconfirmed draft or unobserved outgoing
         else:
             unread.append(item)
-    return attention, unread
+    from assistant_reply_window import eligible
+    return eligible(chain.store,attention), eligible(chain.store,unread)
 
 
 
@@ -244,7 +245,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             raise StateError('cancelled')
         out['ui_may_remain_open'] = True
         out['last_navigation'] = None
-        value = navigator(operation, settings.adb, settings.folder, stopped.is_set, **kwargs)
+        for attempt in range(3):
+            value = navigator(operation, settings.adb, settings.folder, stopped.is_set, **kwargs)
+            from assistant_scan_retry import readonly_list_changed
+            if not readonly_list_changed(operation,value) or attempt == 2:break
+            kwargs = dict(kwargs,entry='dialogs')
+            out['list_scan_retries'] = out.get('list_scan_retries',0)+1
+            progress('Список диалогов обновился • перечитываю без отправки')
+            if stopped.is_set():raise StateError('cancelled')
         if not isinstance(value, dict) or set(value) != {'state', 'identity', 'diagnostic'}:
             raise ValueError('Invalid navigation result')
         n = out['last_navigation'] = safe_diagnostic(value['diagnostic'])

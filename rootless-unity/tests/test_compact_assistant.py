@@ -71,9 +71,26 @@ class CompactWindow(unittest.TestCase):
             self.assertEqual(tk.Text.call_args.kwargs['width'],7)
             self.assertEqual(ttk.Treeview.call_args.kwargs['height'],5)
             labels=[c.kwargs.get('text') for c in ttk.Button.call_args_list]
-            self.assertEqual(labels,['Старт','Только ответы','Стоп','Настройки','Отчёты выбранного MuMu','Пауза порта','Продолжить порт'])
+            self.assertEqual(labels,['Старт','Новые анкеты','Только ответы','Стоп','Настройки','Отчёты выбранного MuMu','Пауза порта','Продолжить порт'])
             start.assert_not_called();credentials.assert_not_called();telegram.assert_not_called();thread.assert_not_called()
 
+
+    def test_new_profiles_button_uses_new_mode_without_clearing_history(self):
+        import sys
+        import assistant_app as app
+        tk,ttk=MagicMock(),MagicMock();tk.ttk=ttk
+        tk.Text.return_value.get.return_value='5563'
+        with patch.dict(sys.modules,{'tkinter':tk,'tkinter.ttk':ttk,'tkinter.filedialog':tk.filedialog}), \
+             patch.object(app,'load',return_value=cfg.Settings()),patch.object(app,'save'), \
+             patch.object(app,'save_ports'),patch.object(app.threading,'Thread') as thread:
+            app.launch()
+            commands={c.kwargs['text']:c.kwargs['command'] for c in ttk.Button.call_args_list}
+            commands['Новые анкеты']()
+            self.assertEqual(thread.call_count,1)
+            self.assertEqual(thread.call_args.kwargs['args'][1],'new')
+            commands['Старт']()
+            self.assertEqual(thread.call_count,1)
+            tk.Toplevel.assert_not_called()
 
     def test_start_is_single_flight_and_stop_requires_explicit_restart(self):
         import sys
