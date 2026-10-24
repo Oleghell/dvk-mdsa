@@ -1,0 +1,31 @@
+name: Diagnose failed Windows native test
+'on':
+  push:
+    branches: [mumu]
+    paths: ['.github/workflows/ci-windows-trace.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read fixed failed-job traceback without exposing logs
+        id: trace
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import os,re,urllib.request
+          req=urllib.request.Request('https://api.github.com/repos/Oleghell/spam-dvk/actions/jobs/120769179113/logs',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          text=urllib.request.urlopen(req,timeout=30).read().decode('utf-8','replace')
+          frames=re.findall(r'File "[^"\r\n]*[\\/]([a-zA-Z0-9_]+\.py)", line (\d+)',text)
+          allowed={'smoke_assistant_pass.py','smoke_mumu_claims.py','assistant_pass.py','chat_batch.py','cohort_pass.py','uikit_profile_navigation.py'}
+          frames=[name+':L'+line for name,line in frames if name in allowed][-5:]
+          classes=re.findall(r'\b(AssertionError|RuntimeError|ValueError|KeyError|TimeoutError|TransportError|RPCException|InvalidOperationError)\b',text)
+          cases=re.findall(r'Manual assistant: ([a-z0-9-]{1,50}) native sends: (\d+) status: ([a-z-]+)',text)
+          label=' / '.join(frames+classes[-1:]+['last='+','.join(x) for x in cases[-2:]]) or 'No allowlisted traceback found'
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('label='+label+'\n')
+          PY
+      - name: '${{ steps.trace.outputs.label }}'
+        run: echo 'Only source filename, line, exception class and synthetic fixture labels are exposed.'
