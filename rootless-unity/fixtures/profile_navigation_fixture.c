@@ -13,13 +13,7 @@ static void slow(void){
  struct timespec ts={0,200000000};nanosleep(&ts,NULL);
 #endif
 }
-static uint64_t clock_ms(void){
-#ifdef _WIN32
- return GetTickCount64();
-#else
- struct timespec ts;clock_gettime(CLOCK_MONOTONIC,&ts);return (uint64_t)ts.tv_sec*1000+ts.tv_nsec/1000000;
-#endif
-}
+#include "fixture_clock.h"
 static uint64_t started_ms;static int opened_ms,closed_ms,friend_reads;
 API int fixture_opened_ms(void){return opened_ms;}
 API int fixture_closed_ms(void){return closed_ms;}
