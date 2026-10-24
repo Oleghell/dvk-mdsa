@@ -4,19 +4,23 @@ Diagnostics contain closed error codes only, no key prefixes/body/exception text
 """
 import groq_reply as g
 import openrouter_reply as o
+import gemini_reply as google
+import zai_reply as z
 import assistant_key_pool as pool
 
 class Responder:
     def __init__(self,provider,model,cancelled=lambda:False,*,collector=None,factory=pool.Responder):
         self.cancelled=cancelled;self.collector=collector or self.collect;self.factory=factory
-        self.models={'groq':model if provider=='groq' else g.MODEL,
+        self.providers = (provider,) if provider in ('gemini','zai') else ('groq','openrouter')
+        self.strategy = provider+'-only' if provider in ('gemini','zai') else 'groq-then-openrouter'
+        self.models={'zai': model if provider == 'zai' else z.MODEL, 'gemini': model if provider == 'gemini' else google.MODEL, 'groq':model if provider=='groq' else g.MODEL,
                      'openrouter':model if provider=='openrouter' and model!='minimax/minimax-m3.1-flash:free' else o.MODEL}
         self.safe_greeting_fallbacks=0
         self.pools={};self.errors=[];self.failure_summary=[];self.failure_history=[]
     def note(self,code):
         if code in g.ERRORS and code not in self.errors:self.errors.append(code)
     def collect(self,provider):
-        adapter=g if provider=='groq' else o
+        adapter={'groq':g,'openrouter':o,'gemini':google,'zai':z}[provider]
         try:keys=pool.load(provider)
         except g.GroqError as e:
             self.note(str(e));keys=[]
@@ -30,12 +34,12 @@ class Responder:
                 self.failure_summary.append(dict(provider=provider,key_index=0,code=str(e),cooldown=False))
         return keys
     @property
-    def provider_calls(self):return {p:self.pools[p].calls if p in self.pools else 0 for p in ('groq','openrouter')}
+    def provider_calls(self):return {p:self.pools[p].calls if p in self.pools else 0 for p in ('groq','openrouter','gemini','zai')}
     @property
     def calls(self):return sum(self.provider_calls.values())
     def __call__(self,kind,snapshot):
         self.errors=[];self.failure_summary=[]
-        for provider in ('groq','openrouter'):
+        for provider in self.providers:
             if self.cancelled():raise g.GroqError('groq-cancelled')
             if provider not in self.pools:
                 keys=self.collector(provider)
@@ -54,7 +58,7 @@ class Responder:
         if fallback is not None:
             self.safe_greeting_fallbacks+=1
             return fallback
-        raise g.GroqError('groq-key-pool-exhausted') from None
+        raise g.GroqError(self.providers[0]+'-key-pool-exhausted') from None
 
     def capture_failures(self,provider):
         values=getattr(self.pools[provider],'failures',[])
@@ -67,7 +71,7 @@ def safe_failures(responder):
     if type(values) is not list:return []
     result=[]
     for item in values[:64]:
-        if (type(item) is dict and item.get('provider') in ('groq','openrouter')
+        if (type(item) is dict and item.get('provider') in ('groq','openrouter','gemini','zai')
             and item.get('code') in g.ERRORS and type(item.get('key_index')) is int
             and 0<=item['key_index']<=17 and type(item.get('cooldown')) is bool):
             failure={k:item[k] for k in ('provider','key_index','code','cooldown')}
@@ -88,6 +92,10 @@ def failure_explanation(values):
         return 'ИИ: Groq ограничил доступ организации; доступных ключей в пуле не осталось.' + delay
     if 'organization-restricted' in codes and codes <= {'organization-restricted','rate-limit','credits-required'}:
         return 'ИИ: часть ключей Groq ограничена на уровне организации, у остальных исчерпаны лимиты.' + delay + ' Переписка отложена без отправки.'
+    if codes and 'model-unavailable' in codes and codes <= {'model-unavailable','organization-restricted','rate-limit','credits-required'}:
+        return 'ИИ: выбранная модель недоступна доступным аккаунтам; часть ключей также может быть ограничена. Проверь модель и доступ к ней. Неверный ключ из этого не следует.'
+    if 'service-disabled' in codes:
+        return 'ИИ: Google API отключён для проекта ключа. Включи Gemini Developer API и проверь доступ проекта. Переписка отложена без отправки.'
     if codes == {'request-rejected'}:
         return 'ИИ: API отклонил запросы. Проверь модель и параметры; это не доказательство неверного ключа.' + delay
     if codes and codes <= {'rate-limit','credits-required','request-rejected'} and 'request-rejected' in codes:

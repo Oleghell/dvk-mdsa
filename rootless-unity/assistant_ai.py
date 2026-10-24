@@ -1,16 +1,18 @@
 """Provider adapters; MuMu workers use ordered failover, explicit-key UI tests do not."""
 import groq_reply
 import openrouter_reply
+import gemini_reply
+import zai_reply
 from assistant_store import StateError
 
-PRESETS = {'groq': (groq_reply.MODEL,), 'openrouter': openrouter_reply.MODELS}
-LABELS = {'groq': 'Groq', 'openrouter': 'OpenRouter'}
+PRESETS = {'groq': (groq_reply.MODEL, 'llama-3.1-8b-instant'), 'openrouter': openrouter_reply.MODELS, 'gemini': gemini_reply.MODELS, 'zai': zai_reply.MODELS}
+LABELS = {'groq': 'Groq', 'openrouter': 'OpenRouter', 'gemini': 'Google Gemini', 'zai': 'Z.AI'}
 
 
 def module(provider):
     if provider not in LABELS:
-        raise StateError('Выбери Groq или OpenRouter.')
-    return groq_reply if provider == 'groq' else openrouter_reply
+        raise StateError('Выбери Groq, OpenRouter, Gemini или Z.AI.')
+    return {'groq': groq_reply, 'openrouter': openrouter_reply, 'gemini': gemini_reply, 'zai': zai_reply}[provider]
 
 
 def responder(provider, model, cancelled=lambda: False, *, entered_key=''):
@@ -50,12 +52,20 @@ def test_connection(provider, model, entered_key='', cancelled=lambda: False):
 
 def explain(code):
     suffix = code.split('-', 1)[1] if '-' in code else code
+    if code == 'groq-model-unavailable':
+        return 'Groq: модель недоступна этому аккаунту или её ID не найден. Выбери доступную модель; корректный ключ сам по себе не даёт доступ ко всем моделям. [' + code + ']'
+    if code in ('zai-model-unavailable','zai-paid-model-blocked'):
+        return 'Z.AI: выбери glm-4.5-flash. Другие, в том числе платные, модели здесь не подключаются. [' + code + ']'
+    if code == 'gemini-model-unavailable':
+        return 'Gemini: модель недоступна аккаунту или этому API. Выбери доступный ID модели. [' + code + ']'
     message = {
         'key-unavailable': 'Сохранённый ключ недоступен. Вставь ключ в поле и нажми «Тест ИИ» или «Сохранить ключ ИИ».',
-        'key-pool-invalid':'Проверь config/ai-keys.txt: секции [groq]/[openrouter], один настоящий ключ на строку, до 16 на сервис.',
+        'key-pool-invalid':'Проверь config/ai-keys.txt: секции [groq]/[openrouter]/[gemini]/[zai], один настоящий ключ на строку, до 16 на сервис.',
         'key-pool-exhausted':'Все доступные ключи временно недоступны. Чат пропущен, проверка продолжится позже.',
+        'organization-restricted': 'Groq ограничил доступ организации. Проверь её статус в Groq Console; смена модели не снимает ограничение.',
         'key-invalid': 'Неверный формат ключа выбранного сервиса.',
         'unauthorized': 'Сервис отклонил ключ. Проверь его или выпусти новый.',
+        'service-disabled': 'Google API отключён для проекта ключа. Включи Gemini Developer API в проекте; переключение ключа того же проекта не снимает ограничение.',
         'access-denied': 'Доступ запрещён настройками аккаунта или политикой сервиса.',
         'model-unavailable': 'Нет доступного провайдера для модели с текущей политикой приватности. Выбери другую бесплатную модель.',
         'rate-limit': 'Лимит запросов или перегрузка модели. Платного переключения нет.',

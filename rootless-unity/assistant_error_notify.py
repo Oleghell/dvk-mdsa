@@ -137,7 +137,7 @@ def diagnostic_json(report):
         'failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','provider','code','validation_reason'}
     from groq_reply import VALIDATION_REASONS
     codes = KNOWN | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
-        'groq','openrouter','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
+        'groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
         'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
         'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',
         'done','check-chat','close-chat','wait-chat-back','search','profile','wait-return','scan-city',

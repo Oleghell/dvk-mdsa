@@ -5,7 +5,7 @@ import groq_reply as g
 from assistant_config import config_directory
 
 RETRY_SUFFIXES={'organization-restricted','key-invalid','key-unavailable','unauthorized','access-denied','rate-limit',
- 'credits-required','model-unavailable','service-error','network-error','timeout',
+ 'credits-required','service-disabled','model-unavailable','service-error','network-error','timeout',
  'request-rejected','invalid-response','unsafe-reply','repeat-greeting','token-limit'}
 _CACHE={}
 
@@ -19,9 +19,10 @@ def load(provider, path=None):
         for line in path.read_text(encoding='utf-8-sig').splitlines():
             line=line.strip()
             if not line or line.startswith('#'):continue
-            if line in ('[groq]','[openrouter]'):section=line[1:-1];continue
-            inferred='groq' if line.startswith('gsk_') else 'openrouter' if line.startswith('sk-or-v1-') else section
-            if inferred not in ('groq','openrouter'):
+            if line in ('[groq]','[openrouter]','[gemini]','[zai]'):section=line[1:-1];continue
+            import re
+            inferred='groq' if line.startswith('gsk_') else 'openrouter' if line.startswith('sk-or-v1-') else 'gemini' if line.startswith(('AIza','AQ.')) else 'zai' if re.fullmatch(r'[a-fA-F0-9]{32}\.[A-Za-z0-9_-]{16,200}',line) else section
+            if inferred not in ('groq','openrouter','gemini','zai'):
                 invalid=True;continue
             if inferred==provider:
                 import re
@@ -41,7 +42,7 @@ class Responder:
         self.provider,self.model,self.cancelled,self.clock=provider,model,cancelled,clock
         factory=module(provider).Responder if factory is None else factory
         self.items=[factory(model=model,cancelled=cancelled,key_loader=lambda k=k:k) for k in keys]
-        identity=hashlib.sha256((provider+'\0'+'\0'.join(keys)).encode()).hexdigest()
+        identity=hashlib.sha256((provider+'\0'+model+'\0'+'\0'.join(keys)).encode()).hexdigest()
         # Different MuMu ports start at different places; successful generation
         # then rotates to the next key. This spreads load, not organization quota.
         import os
@@ -82,7 +83,7 @@ class Responder:
                     failure['validation_reason']=error.validation_reason
                 self.failures.append(failure)
                 self.state.setdefault('causes',{})[i]=str(error)
-                cooldown=3600 if suffix in {'organization-restricted','unauthorized','access-denied','key-invalid','key-unavailable'} else 60 if suffix in {'rate-limit','credits-required'} else 15
+                cooldown=3600 if suffix in {'organization-restricted','unauthorized','access-denied','key-invalid','key-unavailable','service-disabled'} else 60 if suffix in {'rate-limit','credits-required'} else 15
                 if suffix in {'rate-limit','service-error','credits-required'} and error.retry_after is not None:
                     # A server deadline is authoritative: no premature retry and
                     # no artificial extra minute when it explicitly says 2s.

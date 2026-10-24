@@ -22,7 +22,9 @@ PAUSE_OUTCOMES = {'message-not-approved', 'manual-review'}
 ISOLATE = {'greeting-not-verified', 'send-outcome-unknown', 'outgoing-not-observed', 'manual-review',
            'history-changed-during-approval', 'local-own-message-unanchored',
            'groq-repeat-greeting', 'openrouter-repeat-greeting', 'groq-unsafe-reply', 'openrouter-unsafe-reply',
-           'groq-invalid-response', 'openrouter-invalid-response'}
+           'groq-invalid-response', 'openrouter-invalid-response',
+           'gemini-repeat-greeting', 'gemini-unsafe-reply', 'gemini-invalid-response',
+           'zai-repeat-greeting', 'zai-unsafe-reply', 'zai-invalid-response'}
 CONTINUE = {'chain-waiting', 'chain-completed', 'chain-needs-review', 'chain-paused'}
 
 
@@ -165,8 +167,8 @@ def report():
                 submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0, contacts_detected=0, contact_delivery_pending=0,
                 contact_notifications=dict(accepted=0,unknown=0,disabled=0,blocked=0),
                 isolated_dialogs=0, isolated_reasons={}, review_causes={}, isolation_notification='not-needed', review_pending=0,
-                groq_requests=0, openrouter_requests=0, ai_requests=0, ai_provider='groq', ai_model=None,
-                groq_context_export_enabled=False, openrouter_context_export_enabled=False, outcomes={}, per_message_confirmation=True, automatic_send=False,
+                groq_requests=0, openrouter_requests=0, gemini_requests=0, zai_requests=0, ai_requests=0, ai_provider='groq', ai_model=None,
+                groq_context_export_enabled=False, openrouter_context_export_enabled=False, gemini_context_export_enabled=False, zai_context_export_enabled=False, outcomes={}, per_message_confirmation=True, automatic_send=False,
                 return_verified=False, dialogs_verified=False, delivery_confirmed=False,
                 all_dialogs_covered=False, ui_may_remain_open=False,
                 header_rows_skipped=0, history_deferred=0, history_cooldown_skipped=0, history_retry_after_seconds=60, personal_data_exported=False, chat_content_exported=False,
@@ -514,13 +516,17 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     result['ai_requests'] = responder.calls if responder is not None else 0
     counts=getattr(responder,'provider_calls',None) if responder is not None else None
     if type(counts) is dict:
-        result['groq_requests']=counts['groq'];result['openrouter_requests']=counts['openrouter']
+        result['groq_requests']=counts['groq'];result['openrouter_requests']=counts['openrouter'];result['gemini_requests']=counts.get('gemini',0);result['zai_requests']=counts.get('zai',0)
         result['ai_key_failures']=list(responder.errors)
         result['ai_failure_history']=list(responder.failure_history) if type(getattr(responder,'failure_history',None)) is list else []
-        result['ai_strategy']='groq-then-openrouter'
+        result['ai_strategy']=getattr(responder,'strategy','groq-then-openrouter')
     else:
         result['groq_requests'] = result['ai_requests'] if settings.ai_provider == 'groq' else 0
         result['openrouter_requests'] = result['ai_requests'] if settings.ai_provider == 'openrouter' else 0
+        result['gemini_requests'] = result['ai_requests'] if settings.ai_provider == 'gemini' else 0
+        result['zai_requests'] = result['ai_requests'] if settings.ai_provider == 'zai' else 0
+    result['zai_context_export_enabled'] = settings.groq_enabled and settings.ai_provider == 'zai'
+    result['gemini_context_export_enabled'] = settings.groq_enabled and settings.ai_provider == 'gemini'
     result['groq_context_export_enabled'] = settings.groq_enabled and settings.ai_provider == 'groq'
     result['openrouter_context_export_enabled'] = settings.groq_enabled and settings.ai_provider == 'openrouter'
     if result['ai_requests']:

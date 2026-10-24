@@ -27,7 +27,7 @@ class Failover(unittest.TestCase):
  def test_all_groq_before_openrouter(self):
   a,t=self.make({'g1':'groq-rate-limit','g2':'groq-timeout','o1':'openrouter-rate-limit'})
   self.assertEqual(a('question',snapshot()),REPLY);self.assertEqual(t,['g1','g2','o1','o2'])
-  self.assertEqual(a.provider_calls,{'groq':2,'openrouter':2});self.assertEqual(a.calls,4)
+  self.assertEqual(a.provider_calls,{'groq':2,'openrouter':2,'gemini':0,'zai':0});self.assertEqual(a.calls,4)
  def test_no_reserve_request_after_groq_success(self):
   a,t=self.make({'g1':'groq-unauthorized'});a('question',snapshot())
   self.assertEqual(t,['g1','g2']);self.assertNotIn('openrouter',a.pools)

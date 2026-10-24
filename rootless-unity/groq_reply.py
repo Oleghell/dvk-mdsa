@@ -24,7 +24,12 @@ ERRORS |= {'openrouter-credits-required', 'openrouter-access-denied', 'openroute
 ERRORS |= {p+'-'+s for p in ('groq','openrouter') for s in ('key-pool-invalid','key-pool-exhausted')}
 
 ERRORS |= {p+'-token-limit' for p in ('groq','openrouter')}
-ERRORS |= {'groq-organization-restricted'}
+ERRORS |= {'groq-organization-restricted', 'groq-model-unavailable'}
+ERRORS |= {'gemini-' + code.removeprefix('groq-') for code in tuple(ERRORS) if code.startswith('groq-')}
+ERRORS |= {'gemini-access-denied', 'gemini-service-disabled', 'gemini-credits-required'}
+
+ERRORS |= {'zai-' + code.removeprefix('groq-') for code in tuple(ERRORS) if code.startswith('groq-')}
+ERRORS |= {'zai-access-denied', 'zai-credits-required', 'zai-paid-model-blocked'}
 
 VALIDATION_REASONS = frozenset({'reply-format', 'sensitive-content', 'question-stage', 'contact-stage',
     'clarify-stage', 'followup-stage', 'repeat-question', 'context-mismatch'})
@@ -293,6 +298,25 @@ class Responder:
             reason = error.validation_reason
         return self.generate_once(kind, snapshot, repair_reason=reason)
 
+    def request(self, payload, key):
+        return urllib.request.Request(self.endpoint, data=json.dumps(payload, ensure_ascii=False).encode(), method='POST', headers={
+            'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'User-Agent': 'DvkAssistant'})
+
+    def classify_error(self, error, code):
+        return code
+
+    def decode_response(self, raw):
+        value = strict_json(raw)
+        choices = value['choices']
+        if isinstance(choices,list) and len(choices)==1 and choices[0].get('finish_reason')=='length':
+            raise GroqError('groq-token-limit')
+        if not isinstance(choices, list) or len(choices) != 1 or choices[0]['finish_reason'] != 'stop':
+            raise GroqError('groq-invalid-response')
+        message = choices[0]['message']
+        if message.get('tool_calls') or message.get('function_call'):
+            raise GroqError('groq-invalid-response')
+        return strict_json(message['content'])
+
     def generate_once(self, kind, snapshot, *, repair_reason=None):
         if self.cancelled():
             raise GroqError('groq-cancelled')
@@ -314,9 +338,7 @@ class Responder:
             payload['messages'].insert(1, dict(role='system', content=
                 'Предыдущий черновик не соответствует этапу. Сгенерируй новый JSON с теми же ограничениями. '
                 + instruction + ' Отказ и необходимость ручной проверки остаются decline/review.'))
-        body = json.dumps(payload, ensure_ascii=False).encode()
-        request = urllib.request.Request(self.endpoint, data=body, method='POST', headers={
-            'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'User-Agent': 'DvkAssistant'})
+        request = self.request(payload, key)
         try:
             client = self.opener or urllib.request.build_opener(NoRedirect)
             if self.cancelled():
@@ -326,27 +348,23 @@ class Responder:
                 raw = response.read(32769)
             if len(raw) > 32768:
                 raise GroqError('groq-invalid-response')
-            value = strict_json(raw)
-            choices = value['choices']
-            if isinstance(choices,list) and len(choices)==1 and choices[0].get('finish_reason')=='length':
-                raise GroqError('groq-token-limit')
-            if not isinstance(choices, list) or len(choices) != 1 or choices[0]['finish_reason'] != 'stop':
-                raise GroqError('groq-invalid-response')
-            message = choices[0]['message']
-            if message.get('tool_calls') or message.get('function_call'):
-                raise GroqError('groq-invalid-response')
-            result = continuation(strict_json(message['content']), kind, snapshot=snapshot)
+            result = continuation(self.decode_response(raw), kind, snapshot=snapshot)
         except urllib.error.HTTPError as e:
             code = self.http_error(e.code)
-            if self.endpoint == ENDPOINT and e.code in (400, 403):
+            if self.endpoint == ENDPOINT and e.code in (400, 403, 404):
                 try:
                     raw_error = e.read(4097)
                     if len(raw_error) <= 4096:
                         error_value = strict_json(raw_error)
-                        if isinstance(error_value, dict) and isinstance(error_value.get('error'), dict) and error_value['error'].get('code') == 'organization_restricted':
-                            code = 'groq-organization-restricted'
+                        if isinstance(error_value, dict) and isinstance(error_value.get('error'), dict):
+                            error_code = error_value['error'].get('code')
+                            if e.code in (400,403) and error_code == 'organization_restricted':
+                                code = 'groq-organization-restricted'
+                            elif e.code == 404 and error_code == 'model_not_found':
+                                code = 'groq-model-unavailable'
                 except Exception:
                     pass
+            code = self.classify_error(e, code)
             raise GroqError(code, retry_after=retry_after_seconds(e.headers)) from None
         except (TimeoutError, socket.timeout):
             raise GroqError('groq-timeout') from None

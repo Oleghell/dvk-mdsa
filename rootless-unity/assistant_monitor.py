@@ -21,7 +21,7 @@ from assistant_authorization import flags
 
 PROFILE_INTERVAL = 300
 REPORT = 'last-monitor.json'
-COUNTERS = ('submission_calls', 'handler_returns', 'outgoing_observed', 'contacts_forwarded', 'groq_requests', 'openrouter_requests', 'ai_requests', 'isolated_dialogs')
+COUNTERS = ('submission_calls', 'handler_returns', 'outgoing_observed', 'contacts_forwarded', 'groq_requests', 'openrouter_requests', 'gemini_requests', 'zai_requests', 'ai_requests', 'isolated_dialogs')
 
 
 def write_report(value):
@@ -47,7 +47,7 @@ def report(mode):
                 profile_batches_completed=0, profile_next_in_seconds=None, last_profile_run=None, error_notification='not-needed', error_json_notification='not-needed',
                 contacts_enabled=False, immediate_rechecks=0, between_profile_checks=0,
                 groq_enabled=False, ai_enabled=False, ai_provider='groq', ai_model=None,
-                groq_context_export_enabled=False, openrouter_context_export_enabled=False, chat_content_exported=False, delivery_confirmed=False,
+                groq_context_export_enabled=False, openrouter_context_export_enabled=False, gemini_context_export_enabled=False, zai_context_export_enabled=False, chat_content_exported=False, delivery_confirmed=False,
                 all_dialogs_covered=False, report_name=None)
 
 
@@ -69,7 +69,9 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
     out.update(contacts_enabled=settings.contacts_enabled, automatic_profile_repeat=mode == 'full', groq_enabled=settings.groq_enabled,
                ai_enabled=settings.groq_enabled, ai_provider=settings.ai_provider, ai_model=settings.ai_model,
                groq_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'groq',
-               openrouter_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'openrouter')
+               openrouter_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'openrouter',
+               gemini_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'gemini',
+               zai_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'zai')
     wait = stopped.wait if wait is None else wait
     phase = 'settings-check-stopped'
 
@@ -79,7 +81,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
             for code, number in value.get(source, {}).items():
                 out[key][code] = out[key].get(code, 0) + number
         for key in COUNTERS:
-            number = value.get(key, 0) if key in ('groq_requests', 'openrouter_requests', 'ai_requests', 'isolated_dialogs') else value[key]
+            number = value.get(key, 0) if key in ('groq_requests', 'openrouter_requests', 'gemini_requests', 'zai_requests', 'ai_requests', 'isolated_dialogs') else value[key]
             if type(number) is not int or number < 0:
                 raise ValueError('Invalid inbox counter')
             out['totals'][key] += number

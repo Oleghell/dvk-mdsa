@@ -119,7 +119,7 @@ def launch(self_check=False):
         ai_enabled = tk.BooleanVar(value=settings.groq_enabled)
         ai_provider = tk.StringVar(value=settings.ai_provider)
         ai_model = tk.StringVar(value=settings.ai_model)
-        models = {'groq': settings.groq_model, 'openrouter': settings.openrouter_model}
+        models = {'groq': settings.groq_model, 'openrouter': settings.openrouter_model, 'gemini': settings.gemini_model, 'zai': settings.zai_model}
         selected_provider = [settings.ai_provider]
         ai_key = tk.StringVar(value='')
         token = tk.StringVar(value='')
@@ -151,13 +151,14 @@ def launch(self_check=False):
         ttk.Entry(box, textvariable=profile_interval, width=8, state='readonly').pack(anchor='w', pady=(3, 10))
         ttk.Label(box, text='Когда доступные диалоги обработаны, сразу продолжаю поиск.\nПервое приветствие без задержки; ответы — 35 слов/мин.\nСтарт разрешает автоматические сообщения; не трогай выбранные MuMu во время работы.', wraplength=500).pack(anchor='w', pady=8)
         ttk.Checkbutton(ai_box, variable=ai_enabled, text='ИИ: короткие ответы по структуре цепочки').pack(anchor='w', pady=6)
-        ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются Groq, а при недоступности его ключей — OpenRouter и провайдеру модели. ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
+        ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются выбранному сервису. MuMu: Groq → OpenRouter; при выборе Gemini или Z.AI — только выбранный сервис, без скрытого резерва. ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
         ttk.Label(ai_box, text='Сервис ИИ').pack(anchor='w', pady=(8, 0))
         provider_box=ttk.Combobox(ai_box, textvariable=ai_provider, values=tuple(assistant_ai.LABELS), state='readonly')
         provider_box.pack(fill='x')
         ttk.Label(ai_box, text='Модель (OpenRouter — только :free, без платной замены)').pack(anchor='w', pady=(8, 0))
         model_box=ttk.Combobox(ai_box, textvariable=ai_model, values=assistant_ai.PRESETS[settings.ai_provider], width=55)
         model_box.pack(fill='x')
+        ttk.Label(ai_box, text='Llama 3.1 8B: llama-3.1-8b-instant. Наличие в списке не гарантирует доступ аккаунта; проверь кнопкой «Тест ИИ».', wraplength=500).pack(anchor='w', pady=(3, 6))
         ttk.Label(ai_box, text='API-ключ выбранного сервиса — пустое поле сохраняет прежний').pack(anchor='w', pady=(8, 0))
         ttk.Entry(ai_box, textvariable=ai_key, show='*', width=58).pack(fill='x', pady=(3, 6))
         def switch_provider(event=None):
@@ -171,7 +172,7 @@ def launch(self_check=False):
             ai_key.set('')  # Never carry one service's key into another service.
             note.set('Сервис изменён. Введи его ключ или оставь поле пустым для сохранённого. Несохранённое поле ключа очищено.')
         provider_box.bind('<<ComboboxSelected>>', switch_provider)
-        ttk.Label(ai_box, text='Ключи сервисов хранятся отдельно через Windows DPAPI. OpenRouter: только бесплатные модели, политика провайдера data_collection=deny; доступность и лимиты не гарантируются.', wraplength=500).pack(anchor='w', pady=6)
+        ttk.Label(ai_box, text='Z.AI: только glm-4.5-flash, без платной замены. Gemini может тарифицироваться Google: проверь тариф и квоты. Сам по себе ключ не гарантирует бесплатность. Ключи сервисов хранятся отдельно через Windows DPAPI. OpenRouter: только бесплатные модели, политика провайдера data_collection=deny; доступность и лимиты не гарантируются.', wraplength=500).pack(anchor='w', pady=6)
         def save_ai_key():
             try:
                 adapter=assistant_ai.module(ai_provider.get())
@@ -186,7 +187,7 @@ def launch(self_check=False):
             except Exception:
                 note.set('Не удалось сохранить ключ ИИ. Нужна защита Windows DPAPI; открытый текст не записывается.')
         ttk.Button(ai_box, text='Сохранить ключ ИИ', command=save_ai_key).pack(anchor='w', pady=4)
-        ttk.Label(ai_box, text='Несколько ключей: заполни config/ai-keys.txt по образцу ai-keys.example.txt. MuMu: сначала ключи Groq, затем резерв OpenRouter; после всех отказов — пропуск текущего чата. Файл содержит секреты: никому не отправляй.', wraplength=500).pack(anchor='w', pady=4)
+        ttk.Label(ai_box, text='Несколько ключей: заполни config/ai-keys.txt по образцу ai-keys.example.txt. MuMu: Groq → OpenRouter. Gemini/Z.AI — только ключи своей секции [gemini]/[zai], без скрытого переключения на другие сервисы; после всех отказов — пропуск текущего чата. Файл содержит секреты: никому не отправляй.', wraplength=500).pack(anchor='w', pady=4)
         ttk.Checkbutton(tg_box, variable=errors_enabled, text='Telegram: причины остановок, ошибок и выхода без ответа').pack(anchor='w', pady=8)
         ttk.Checkbutton(tg_box, variable=enabled, text='Telegram: уведомлять, когда человек сам прислал контакт').pack(anchor='w', pady=8)
         for label, var, mask in (('Токен бота', token, '*'), ('Chat ID получателя', recipient, '')):
@@ -199,7 +200,7 @@ def launch(self_check=False):
                 models[provider]=ai_model.get().strip()
                 current = Settings(adb.get(), folder.get(), enabled.get(), int(interval.get()),
                                    int(limit.get()), ai_enabled.get(), models['groq'], errors_enabled.get(),
-                                   provider, models['openrouter'], 120).check()
+                                   provider, models['openrouter'], 120, models['gemini'], models['zai']).check()
                 adapter=assistant_ai.module(provider)
                 if ai_key.get().strip():
                     adapter.save_key(ai_key.get())

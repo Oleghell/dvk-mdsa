@@ -21,6 +21,8 @@ class Settings:
     ai_provider: str = 'groq'
     openrouter_model: str = 'dots-studio/dots-3-note-preview:free'
     profile_interval: int = 300
+    gemini_model: str = 'gemini-3.1-flash-lite'
+    zai_model: str = 'glm-4.5-flash'
 
     def check(self):
         if any(not isinstance(x, str) or not 1 <= len(x) <= 4096 or x != x.strip()
@@ -37,17 +39,21 @@ class Settings:
             raise StateError('Проверь переключатели ИИ и уведомлений об ошибках.')
         if not isinstance(self.groq_model, str) or not re.fullmatch(r'[A-Za-z0-9_./-]{1,100}', self.groq_model):
             raise StateError('Укажи корректный ID модели Groq.')
-        if self.ai_provider not in ('groq', 'openrouter'):
-            raise StateError('Выбери Groq или OpenRouter.')
+        if self.ai_provider not in ('groq', 'openrouter', 'gemini', 'zai'):
+            raise StateError('Выбери Groq, OpenRouter, Gemini или Z.AI.')
         if (not isinstance(self.openrouter_model, str) or
                 len(self.openrouter_model) > 150 or
                 not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:free', self.openrouter_model)):
             raise StateError('OpenRouter: разрешены только ID моделей с суффиксом :free.')
+        if not isinstance(self.gemini_model, str) or not re.fullmatch(r'gemini-[A-Za-z0-9.-]{1,100}', self.gemini_model):
+            raise StateError('Укажи корректный ID модели Gemini.')
+        if self.zai_model != 'glm-4.5-flash':
+            raise StateError('Z.AI: разрешена только glm-4.5-flash, без платной замены.')
         return self
 
     @property
     def ai_model(self):
-        return self.groq_model if self.ai_provider == 'groq' else self.openrouter_model
+        return {'groq': self.groq_model, 'openrouter': self.openrouter_model, 'gemini': self.gemini_model, 'zai': self.zai_model}[self.ai_provider]
 
 
 def load(directory=None):
@@ -71,7 +77,7 @@ def load(directory=None):
                 raise ValueError()
             config = json.loads(options.read_text(encoding='utf-8'))
             schema = config.pop('settings_version', 1)
-            if type(schema) is not int or schema not in (1, 2, 3, 4, 5, 6):
+            if type(schema) is not int or schema not in (1, 2, 3, 4, 5, 6, 7):
                 raise ValueError()
             legacy_interval = config.get('reply_interval')
             if type(legacy_interval) is not int or not 5 <= legacy_interval <= 3600:
@@ -82,7 +88,7 @@ def load(directory=None):
                 config['reply_interval'] = 5
             # 0.4.x files have no profile_limit; keep reading them.
             required = {'contacts_enabled', 'reply_interval'}
-            allowed = required | {'profile_limit'} | ({'groq_enabled', 'groq_model', 'errors_enabled'} if schema >= 3 else set()) | ({'ai_provider', 'openrouter_model'} if schema >= 4 else set()) | ({'profile_interval'} if schema >= 6 else set())
+            allowed = required | {'profile_limit'} | ({'groq_enabled', 'groq_model', 'errors_enabled'} if schema >= 3 else set()) | ({'ai_provider', 'openrouter_model'} if schema >= 4 else set()) | ({'profile_interval'} if schema >= 6 else set()) | ({'gemini_model','zai_model'} if schema >= 7 else set())
             if schema < 4 and config.get('groq_model') == 'llama-3.3-70b-versatile':
                 config['groq_model'] = 'qwen/qwen3.8-27b'
             if not required <= set(config) or not set(config) <= allowed:
@@ -104,10 +110,10 @@ def save(settings, directory=None):
     directory = data_directory() if directory is None else Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     values = {'settings.json': dict(adb=settings.adb, test_apks=settings.folder),
-              'workflow-settings.json': dict(settings_version=6, profile_interval=settings.profile_interval, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
+              'workflow-settings.json': dict(settings_version=7, profile_interval=settings.profile_interval, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
                                             profile_limit=settings.profile_limit, groq_enabled=settings.groq_enabled,
                                             groq_model=settings.groq_model, errors_enabled=settings.errors_enabled,
-                                            ai_provider=settings.ai_provider, openrouter_model=settings.openrouter_model)}
+                                            ai_provider=settings.ai_provider, openrouter_model=settings.openrouter_model, gemini_model=settings.gemini_model, zai_model=settings.zai_model)}
     for filename, value in values.items():
         path = directory / filename
         temp = path.with_suffix('.tmp')
