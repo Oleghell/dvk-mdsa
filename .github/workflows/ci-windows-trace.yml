@@ -18,8 +18,13 @@ jobs:
           python3 - <<'PY'
           import os,re,urllib.request
           req=urllib.request.Request('https://api.github.com/repos/Oleghell/spam-dvk/actions/jobs/120769179113/logs',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          class SafeRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,req,fp,code,msg,headers,newurl):
+                  next_req=super().redirect_request(req,fp,code,msg,headers,newurl)
+                  if next_req is not None:next_req.remove_header("Authorization")
+                  return next_req
           try:
-              text=urllib.request.urlopen(req,timeout=30).read().decode('utf-8','replace')
+              text=urllib.request.build_opener(SafeRedirect()).open(req,timeout=30).read().decode('utf-8','replace')
           except Exception as exc:
               label='Log read failed '+type(exc).__name__+' status '+str(getattr(exc,'code',0))
               with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('label='+label+'\n')
