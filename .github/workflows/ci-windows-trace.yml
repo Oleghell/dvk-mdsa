@@ -18,7 +18,12 @@ jobs:
           python3 - <<'PY'
           import os,re,urllib.request
           req=urllib.request.Request('https://api.github.com/repos/Oleghell/spam-dvk/actions/jobs/120769179113/logs',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-          text=urllib.request.urlopen(req,timeout=30).read().decode('utf-8','replace')
+          try:
+              text=urllib.request.urlopen(req,timeout=30).read().decode('utf-8','replace')
+          except Exception as exc:
+              label='Log read failed '+type(exc).__name__+' status '+str(getattr(exc,'code',0))
+              with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('label='+label+'\n')
+              raise SystemExit(0)
           frames=re.findall(r'File "[^"\r\n]*[\\/]([a-zA-Z0-9_]+\.py)", line (\d+)',text)
           allowed={'smoke_assistant_pass.py','smoke_mumu_claims.py','assistant_pass.py','chat_batch.py','cohort_pass.py','uikit_profile_navigation.py'}
           frames=[name+':L'+line for name,line in frames if name in allowed][-5:]
