@@ -101,9 +101,12 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
     session = Session(store)
     out['current_city'] = session.get('city')
     cycle_pending = False
+    host_checkpoint = 'profile-start'
     try:
         from assistant_pause import boundary
         def new_city(text):
+            nonlocal host_checkpoint
+            host_checkpoint = 'city-navigation'
             boundary(stopped)
             if stopped.is_set():
                 raise StateError('cancelled')
@@ -111,6 +114,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             city = change_city(settings, stopped, store, config.cities, city_next=city_next, diagnostics=out)
             out['city_changes'] += 1
             out.update(current_city=city, online_verified=True)
+            host_checkpoint = 'city-journal'
             session.set('city', city)
             session.set('city_changed_at', datetime.now(timezone.utc).isoformat(timespec='seconds'))
 
@@ -140,6 +144,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
 
             cycle_pending = True
             out['search_cycles'] += 1
+            host_checkpoint = 'profile-cycle'
             value = cycle(settings.adb, settings.folder, greeting, ask, stopped.is_set, store=store)
             n = value['navigation']
             # Closed public diagnostics: no identity, message body or native pointers.
@@ -157,7 +162,9 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 out['greetings_sent'] = None
             if n['send_handler_returned']:
                 out['handlers_returned'] += 1
+            host_checkpoint = 'profile-journal'
             session.set('checked_at', datetime.now(timezone.utc).isoformat(timespec='seconds'))
+            host_checkpoint = 'profile-verify'
             if offered:
                 out['greetings_offered'] += 1
             # A crowded/previously visited search may exhaust its read budget.
@@ -232,6 +239,8 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 out['qualified_profiles'] += 1
         out.update(status='profiles-completed', reason='profile-limit', return_verified=True)
     except Exception as error:
+        from assistant_failure import category
+        out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
         if cycle_pending:
             out.update(send_attempts_unknown=True, greetings_sent=None)
         known = {'profile-recovery-limit', 'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',

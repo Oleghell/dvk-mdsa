@@ -50,6 +50,21 @@ def test_connection(provider, model, entered_key='', cancelled=lambda: False):
     return ai.calls
 
 
+def check_entered_key(provider, model, entered_key, cancelled=lambda: False):
+    """Stateless: only entered key/model, no saved key, pool, rules or chat data."""
+    adapter = module(provider)
+    if not isinstance(entered_key, str) or not entered_key.strip():
+        raise StateError('Вставь ключ для проверки. Сохранённые ключи и пул здесь не используются.')
+    key = adapter.key_value(entered_key.strip())
+    responder = adapter.Responder(model=model, cancelled=cancelled, key_loader=lambda: key,
+        rules_loader=lambda: 'Короткий вежливый ответ на русском без выдуманных личных фактов.')
+    sample = dict(identity=dict(account='100', peer='200', chat='300'), messages=[
+        dict(id='1',sender='100',text='Привет'), dict(id='2',sender='200',text='Привет!')], _reply_ids=['2'])
+    result = responder('question', sample)
+    return dict(provider=provider, model=model, requests=responder.calls,
+                answer_verified=result['decision'] == 'reply')
+
+
 def explain(code):
     suffix = code.split('-', 1)[1] if '-' in code else code
     if code == 'groq-model-unavailable':
@@ -83,3 +98,14 @@ def check_saved_keys(provider):
     if keys:return len(keys)
     module(provider).load_key()
     return 1
+
+
+def check_configured_keys(provider):
+    """MuMu setup: any configured provider may satisfy the runtime key check."""
+    from mumu_ai import Responder
+    module(provider)  # validate selection before reading credentials
+    probe = Responder(provider, module(provider).MODEL)
+    total = sum(len(probe.collect(p)) for p in probe.providers)
+    if not total:
+        raise StateError('Нет доступных ключей ИИ. Добавь ключ хотя бы одного сервиса.')
+    return total

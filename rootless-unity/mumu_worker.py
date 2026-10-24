@@ -91,16 +91,15 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                     if type(v) is dict:
                         if 'device_scope' in v:v['device_scope']=serial(n)
                         if 'groq_context_export_enabled' in v:
-                            v['groq_context_export_enabled']=bool(current.groq_enabled and current.ai_provider in ('groq','openrouter'))
-                            v['openrouter_context_export_enabled']=bool(current.groq_enabled and current.ai_provider in ('groq','openrouter'))
-                            v['gemini_context_export_enabled']=bool(current.groq_enabled and current.ai_provider == 'gemini')
-                            v['zai_context_export_enabled']=bool(current.groq_enabled and current.ai_provider == 'zai')
-                            v['ai_strategy']=current.ai_provider+'-only' if current.ai_provider in ('gemini','zai') else 'groq-then-openrouter'
+                            from mumu_ai import strategy
+                            for provider in ('groq','openrouter','gemini','zai'):
+                                v[provider+'_context_export_enabled']=bool(current.groq_enabled)
+                            v['ai_strategy']=strategy(current.ai_provider)
                         for child in v.values():scope(child)
                     elif type(v) is list:
                         for child in v:scope(child)
                 scope(value)
-                value.update(tool_version=VERSION,engine_version='1.2.22',platform='MuMu',device_port=n,
+                value.update(tool_version=VERSION,engine_version='1.2.23',platform='MuMu',device_port=n,
                     device_scope=serial(n),shared_database=True)
                 atomic(device_directory(n)/'last-performance.json',dict(metrics.snapshot(),tool_version=VERSION,device_port=n))
                 atomic(device_directory(n)/REPORT,value)

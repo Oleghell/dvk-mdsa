@@ -106,8 +106,8 @@ def launch(self_check=False):
         container.pack(fill='both', expand=True)
         tabs = ttk.Notebook(container)
         tabs.pack(fill='both', expand=True)
-        box, ai_box, tg_box = (ttk.Frame(tabs, padding=12) for _ in range(3))
-        for tab, title in ((box, 'Поиск и ответы'), (ai_box, 'ИИ / ключи'), (tg_box, 'Telegram')):
+        box, ai_box, check_box, tg_box = (ttk.Frame(tabs, padding=12) for _ in range(4))
+        for tab, title in ((box, 'Поиск и ответы'), (ai_box, 'ИИ / ключи'), (check_box, 'Проверка ключа'), (tg_box, 'Telegram')):
             tabs.add(tab, text=title)
         adb = tk.StringVar(value=settings.adb)
         folder = tk.StringVar(value=settings.folder)
@@ -151,7 +151,7 @@ def launch(self_check=False):
         ttk.Entry(box, textvariable=profile_interval, width=8, state='readonly').pack(anchor='w', pady=(3, 10))
         ttk.Label(box, text='Когда доступные диалоги обработаны, сразу продолжаю поиск.\nПервое приветствие без задержки; ответы — 35 слов/мин.\nСтарт разрешает автоматические сообщения; не трогай выбранные MuMu во время работы.', wraplength=500).pack(anchor='w', pady=8)
         ttk.Checkbutton(ai_box, variable=ai_enabled, text='ИИ: короткие ответы по структуре цепочки').pack(anchor='w', pady=6)
-        ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются выбранному сервису. MuMu: Groq → OpenRouter; при выборе Gemini или Z.AI — только выбранный сервис, без скрытого резерва. ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
+        ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются настроенным сервисам. MuMu: сначала выбранный ИИ, затем остальные из Groq → OpenRouter → Gemini → Z.AI; сервисы без ключей пропускаются. ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
         ttk.Label(ai_box, text='Сервис ИИ').pack(anchor='w', pady=(8, 0))
         provider_box=ttk.Combobox(ai_box, textvariable=ai_provider, values=tuple(assistant_ai.LABELS), state='readonly')
         provider_box.pack(fill='x')
@@ -187,7 +187,7 @@ def launch(self_check=False):
             except Exception:
                 note.set('Не удалось сохранить ключ ИИ. Нужна защита Windows DPAPI; открытый текст не записывается.')
         ttk.Button(ai_box, text='Сохранить ключ ИИ', command=save_ai_key).pack(anchor='w', pady=4)
-        ttk.Label(ai_box, text='Несколько ключей: заполни config/ai-keys.txt по образцу ai-keys.example.txt. MuMu: Groq → OpenRouter. Gemini/Z.AI — только ключи своей секции [gemini]/[zai], без скрытого переключения на другие сервисы; после всех отказов — пропуск текущего чата. Файл содержит секреты: никому не отправляй.', wraplength=500).pack(anchor='w', pady=4)
+        ttk.Label(ai_box, text='Несколько ключей: заполни config/ai-keys.txt по образцу ai-keys.example.txt. MuMu: выбранный ИИ первым, затем остальные Groq/OpenRouter/Gemini/Z.AI. У каждого перебираются доступные ключи своей секции; после всех отказов — пропуск текущего чата. Файл содержит секреты: никому не отправляй.', wraplength=500).pack(anchor='w', pady=4)
         ttk.Checkbutton(tg_box, variable=errors_enabled, text='Telegram: причины остановок, ошибок и выхода без ответа').pack(anchor='w', pady=8)
         ttk.Checkbutton(tg_box, variable=enabled, text='Telegram: уведомлять, когда человек сам прислал контакт').pack(anchor='w', pady=8)
         for label, var, mask in (('Токен бота', token, '*'), ('Chat ID получателя', recipient, '')):
@@ -205,7 +205,7 @@ def launch(self_check=False):
                 if ai_key.get().strip():
                     adapter.save_key(ai_key.get())
                 elif current.groq_enabled:
-                    assistant_ai.check_saved_keys(ai_provider.get())
+                    assistant_ai.check_configured_keys(ai_provider.get())
                 if token.get().strip():
                     telegram_notify.save(token.get(), recipient.get())
                 elif current.contacts_enabled or current.errors_enabled:
@@ -269,6 +269,71 @@ def launch(self_check=False):
                     w.after(100, poll_test)
             threading.Thread(target=work, daemon=True).start()
             w.after(100, poll_test)
+        # Independent test controls never alter production provider/model/key.
+        check_provider = tk.StringVar(value=settings.ai_provider)
+        check_model = tk.StringVar(value=settings.ai_model)
+        check_value = tk.StringVar(value='')
+        check_note = tk.StringVar(value='Вставь один ключ, выбери ИИ и модель. Проверка не сохраняет ключ и не меняет рабочие настройки.')
+        check_models = dict(models)
+        check_selected = [settings.ai_provider]
+        check_stop = threading.Event()
+        ttk.Label(check_box, text='ИИ для проверки').pack(anchor='w')
+        check_provider_box = ttk.Combobox(check_box, textvariable=check_provider,
+            values=tuple(assistant_ai.LABELS), state='readonly')
+        check_provider_box.pack(fill='x', pady=(3, 8))
+        ttk.Label(check_box, text='Модель').pack(anchor='w')
+        check_model_box = ttk.Combobox(check_box, textvariable=check_model,
+            values=assistant_ai.PRESETS[settings.ai_provider], width=55)
+        check_model_box.pack(fill='x', pady=(3, 8))
+        ttk.Label(check_box, text='Ключ — только для этой проверки').pack(anchor='w')
+        ttk.Entry(check_box, textvariable=check_value, show='*', width=58).pack(fill='x', pady=(3, 8))
+        ttk.Label(check_box, text='Отправляется только вымышленный тестовый диалог. Используется только введённый ключ, без резерва и сохранения. Запросы расходуют квоту; Gemini может тарифицироваться Google.', wraplength=500).pack(anchor='w', pady=6)
+        def switch_check_provider(event=None):
+            provider = check_provider.get()
+            if provider not in assistant_ai.LABELS:
+                return
+            check_models[check_selected[0]] = check_model.get().strip()
+            check_selected[0] = provider
+            check_model.set(check_models[provider])
+            check_model_box.configure(values=assistant_ai.PRESETS[provider])
+            check_value.set('')
+            check_note.set('ИИ изменён. Вставь его ключ; прежнее поле очищено. Рабочие настройки не изменены.')
+        check_provider_box.bind('<<ComboboxSelected>>', switch_check_provider)
+        def verify_entered_key():
+            provider, model, entered = check_provider.get(), check_model.get().strip(), check_value.get()
+            if not entered.strip():
+                check_note.set('Вставь ключ для проверки. Сохранённые ключи и пул здесь не используются.')
+                return
+            check_button.configure(state='disabled')
+            check_note.set('Проверяю введённый ключ на вымышленных данных…')
+            check_stop.clear()
+            results = queue.Queue()
+            def work():
+                try:
+                    result = assistant_ai.check_entered_key(provider, model, entered, check_stop.is_set)
+                    results.put(assistant_ai.LABELS[provider] + ': ключ принят API. ' +
+                        ('Проверочный ответ прошёл проверку.' if result['answer_verified'] else
+                         'Модель вернула отказ или запрос ручной проверки; ответ по сценарию не подтверждён.') +
+                        ' Модель: ' + model + '. Запросов: ' + str(result['requests']) + '. Ключ не сохранён.')
+                except groq_reply.GroqError as error:
+                    results.put(assistant_ai.explain(str(error)))
+                except StateError:
+                    results.put('Выбери ИИ и вставь корректный ключ. Рабочие настройки не изменены.')
+                except Exception:
+                    results.put('Проверка не выполнена. Ключ и ответ API в отчёт не записаны.')
+            def poll_key_check():
+                if not w.winfo_exists():
+                    return
+                try:
+                    check_note.set(results.get_nowait())
+                    check_button.configure(state='normal')
+                except queue.Empty:
+                    w.after(100, poll_key_check)
+            threading.Thread(target=work, daemon=True).start()
+            w.after(100, poll_key_check)
+        check_button = ttk.Button(check_box, text='Проверить', command=verify_entered_key)
+        check_button.pack(anchor='w', pady=8)
+        ttk.Label(check_box, textvariable=check_note, wraplength=500).pack(anchor='w', pady=8)
         def edit_rules():
             try:
                 from assistant_config import config_directory
@@ -291,6 +356,8 @@ def launch(self_check=False):
         def close_settings():
             nonlocal dialog
             test_stop.set()
+            check_stop.set()
+            check_value.set('')
             token.set('')
             ai_key.set('')
             dialog = None

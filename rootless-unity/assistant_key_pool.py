@@ -1,4 +1,4 @@
-"""Explicit local key list; never log credentials or switch the selected provider."""
+"""Explicit local key list; never log credentials; cross-provider ordering is owned by mumu_ai."""
 from pathlib import Path
 import hashlib,time
 import groq_reply as g

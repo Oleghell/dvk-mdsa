@@ -1,5 +1,5 @@
 """MuMu-only generation failover. Never retries a send or loosens reply gates.
-All configured Groq keys precede OpenRouter; saved DPAPI keys supplement the file.
+Selected provider first, then every other configured provider; DPAPI supplements the file.
 Diagnostics contain closed error codes only, no key prefixes/body/exception text.
 """
 import groq_reply as g
@@ -8,11 +8,22 @@ import gemini_reply as google
 import zai_reply as z
 import assistant_key_pool as pool
 
+PROVIDERS = ('groq', 'openrouter', 'gemini', 'zai')
+
+def provider_order(selected):
+    if selected not in PROVIDERS:
+        from assistant_store import StateError
+        raise StateError('Выбери поддерживаемый сервис ИИ.')
+    return (selected,) + tuple(p for p in PROVIDERS if p != selected)
+
+def strategy(selected):
+    return '-then-'.join(provider_order(selected))
+
 class Responder:
     def __init__(self,provider,model,cancelled=lambda:False,*,collector=None,factory=pool.Responder):
         self.cancelled=cancelled;self.collector=collector or self.collect;self.factory=factory
-        self.providers = (provider,) if provider in ('gemini','zai') else ('groq','openrouter')
-        self.strategy = provider+'-only' if provider in ('gemini','zai') else 'groq-then-openrouter'
+        self.providers = provider_order(provider)
+        self.strategy = strategy(provider)
         self.models={'zai': model if provider == 'zai' else z.MODEL, 'gemini': model if provider == 'gemini' else google.MODEL, 'groq':model if provider=='groq' else g.MODEL,
                      'openrouter':model if provider=='openrouter' and model!='minimax/minimax-m3.1-flash:free' else o.MODEL}
         self.safe_greeting_fallbacks=0

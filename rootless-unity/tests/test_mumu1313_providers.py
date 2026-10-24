@@ -162,7 +162,7 @@ class ZaiTransport(unittest.TestCase):
 
 class ExplicitRouting(unittest.TestCase):
     def setUp(self):pool._CACHE.clear()
-    def test_selected_provider_only_never_reads_other_keys(self):
+    def test_selected_success_never_reads_other_keys(self):
         for provider,module in [('gemini',gemini),('zai',zai)]:
             trace=[]
             class Good:
@@ -173,16 +173,17 @@ class ExplicitRouting(unittest.TestCase):
             def collect(p):self.assertEqual(p,provider);return ['synthetic']
             r=mumu_ai.Responder(provider,module.MODEL,collector=collect,factory=factory)
             self.assertEqual(r('question',snapshot()),REPLY);self.assertEqual(trace,[provider])
-            self.assertEqual(r.strategy,provider+'-only');self.assertEqual(r.provider_calls[provider],1)
-    def test_selected_pool_failure_does_not_call_groq_openrouter_or_other_service(self):
+            self.assertEqual(r.strategy,mumu_ai.strategy(provider));self.assertEqual(r.provider_calls[provider],1)
+    def test_selected_pool_failure_visits_remaining_services(self):
         for provider,module in [('gemini',gemini),('zai',zai)]:
             touched=[]
             class Bad:
                 calls=1;failures=[]
-                def __call__(self,*a):raise g.GroqError(provider+'-key-pool-exhausted')
-            r=mumu_ai.Responder(provider,module.MODEL,collector=lambda p:touched.append(p) or ['k'],factory=lambda *a:Bad())
+                def __init__(self,p):self.provider=p
+                def __call__(self,*a):raise g.GroqError(self.provider+'-key-pool-exhausted')
+            r=mumu_ai.Responder(provider,module.MODEL,collector=lambda p:touched.append(p) or ['k'],factory=lambda p,*a:Bad(p))
             with self.assertRaisesRegex(g.GroqError,provider+'-key-pool-exhausted'):r('question',snapshot())
-            self.assertEqual(touched,[provider])
+            self.assertEqual(touched,list(mumu_ai.provider_order(provider)))
     def test_live_key_test_uses_entered_provider_without_mumu_failover(self):
         for provider,module,key in [('gemini',gemini,GKEY),('zai',zai,ZKEY)]:
             with patch.dict(os.environ,{'DVK_MUMU_MULTI':'1'}):

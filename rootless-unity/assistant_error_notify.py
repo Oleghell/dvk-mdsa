@@ -1,18 +1,20 @@
 """One terminal-run error alert. Authored categories only, never exception bodies."""
 from groq_reply import ERRORS as GROQ_ERRORS
-from dialog_browser import ERRORS as NAV_ERRORS
+from dialog_browser import ERRORS as NAV_ERRORS, PHASES as NAV_PHASES, CHECKPOINTS as NAV_CHECKPOINTS, SELECTION as NAV_SELECTION
+from chat_batch import ERRORS as PROFILE_ERRORS
+from assistant_failure import CODES as HOST_ERRORS, CHECKPOINTS as HOST_CHECKPOINTS
 import telegram_notify
 from startup_failure import ERRORS as STARTUP_ERRORS, message as failure_message
 import run_preparation
 
-KNOWN = GROQ_ERRORS | NAV_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed', 'profile-recovery-limit'} | {'history-not-ready','history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
+KNOWN = GROQ_ERRORS | NAV_ERRORS | PROFILE_ERRORS | HOST_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed', 'profile-recovery-limit'} | {'history-not-ready','history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
     'send-native-check-failed', 'send-device-check-failed', 'send-validation-failed',
     'settings-check-stopped', 'device-busy-or-monitor-check-stopped', 'initial-pass-stopped',
     'search-screen-not-verified', 'dialog-list-not-verified', 'initial-pass-paused',
     'inbox-pass-stopped', 'monitor-check-stopped', 'report-write-failed', 'profile-pass-stopped',
     'profile-pass-paused', 'profile-repeat-stopped', 'message-not-approved', 'dialog-needs-review',
     'manual-review', 'telegram-outcome-unknown', 'contact-payload-blocked', 'telegram-disabled',
-    'bound-chat-read-failed', 'snapshot-validation-failed', 'binding-or-history-check-stopped',
+    'chat-check-stopped','navigation-check-stopped','unrecognized-diagnostic-code','bound-chat-read-failed', 'snapshot-validation-failed', 'binding-or-history-check-stopped',
     'send-outcome-unknown', 'outgoing-not-observed', 'return-not-verified', 'city-not-verified',
     'city-no-alternative', 'search-cycle-limit', 'profile-scan-limit', 'profile-check-stopped',
     'device-or-journal-check-stopped', 'inbox-not-finished', 'profiles-not-finished',
@@ -34,7 +36,7 @@ def reasons(report):
         status = value.get('status')
         if isinstance(status, str) and (status.endswith('-completed') or status == 'completed'):
             return
-        for k in ('reason', 'error', 'failure_point', 'last_error'):
+        for k in ('reason', 'error', 'failure_point', 'last_error', 'host_failure'):
             v = value.get(k)
             if isinstance(v, str):
                 v = v[5:] if v.startswith('chat-') else v
@@ -127,16 +129,16 @@ def diagnostic_json(report):
         'profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
         'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
-        'handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs'}
+        'entry_read_budget_retries','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs'}
     flags = {'send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',
         'open_attempted','open_completed','chat_open_attempted','chat_open_completed','chat_identity_verified',
         'chat_back_attempted','chat_back_completed','chat_return_verified','profile_read_skipped',
         'apply_attempted','apply_completed','city_form_verified','city_select_attempted','city_select_completed',
-        'dialogs_verified','destination_verified','cleanup_failed','continue_work','cooldown'}
+        'action_attempted','action_completed','entry_verified','selection_verified','dialogs_verified','destination_verified','cleanup_failed','continue_work','cooldown'}
     labels = {'status','reason','error','phase','stage','wait_reason','read_checkpoint','last_error',
-        'failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','provider','code','validation_reason'}
+        'host_failure','host_checkpoint','failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','selection_checkpoint','provider','code','validation_reason'}
     from groq_reply import VALIDATION_REASONS
-    codes = KNOWN | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
+    codes = KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
         'groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
         'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
         'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',
@@ -164,6 +166,8 @@ def diagnostic_json(report):
                 result[key] = entry
             elif key in labels and isinstance(entry, str) and entry in codes:
                 result[key] = entry
+            elif key in ('reason','error','failure_point','last_error') and isinstance(entry,str):
+                result[key] = 'unrecognized-diagnostic-code'
             elif key in ('tool_version','engine_version') and isinstance(entry, str) and re.fullmatch(r'\d{1,2}\.\d{1,2}\.\d{1,2}', entry):
                 result[key] = entry
         return result

@@ -11,9 +11,10 @@ import uikit_navigation as nav
 from one_chat_probe import identity
 from uikit_profile_navigation import replace_once
 
-VERSION='0.4.8'
+VERSION='0.4.9'
 MAX_BACK_BUDGET_RETRIES=3
 MAX_OBSERVATION_BUDGET_RETRIES=3
+MAX_ENTRY_READ_BUDGET_RETRIES=3
 LIMIT=32
 MAX_TARGETS=1000
 # Fixed categories only: never export object pointers, IDs or text.
@@ -26,7 +27,7 @@ PHASES={'entry','wait-list','scan','wait-chat','wait-back','wait-search','done'}
 CHECKPOINTS={'model-route-owner','model-route-parameters','model-route-enums','model-route-literals','model-route-signature','model-manager','model-collection','model-route','not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','unread-count','chat-controller','open-handler','back-handler','ready'}
 SELECTION={'model-list','model-stability','not-checked','table','visible','cell','binding','filter','unread','stability','open','verify-chat','back','search','exhausted'}
 FLAGS={'cleanup_failed','ui_text_read','entry_verified','list_verified','chat_verified','destination_verified','action_attempted','action_completed','selection_verified','exhausted','unread_filter_applied','unread_verified','reply_filter_applied','reply_needed_verified','entry_search_recovered'}
-EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped','back_budget_retries','observation_budget_retries','entry_search_recovered','waiting_rows_skipped','handled_rows_skipped'}
+EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped','back_budget_retries','observation_budget_retries','entry_read_budget_retries','entry_search_recovered','waiting_rows_skipped','handled_rows_skipped'}
 
 
 def targets(values):
@@ -324,7 +325,7 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+',unreadOnly='+json.dumps(unread_only)+',needsReplyOnly='+json.dumps(needs_reply_only)+';')
     s=replace_once(s,' function prepareNavigation(',PREPARE+'\n function prepareNavigation(')
     s=replace_once(s,'prepareDialogRoute(f,setup.navigation,getClass);','prepareDialogRoute(f,setup.navigation,getClass);prepareDialogBrowser(f,setup.navigation,getClass);')
-    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,back_budget_retries:0,observation_budget_retries:0,entry_search_recovered:false,unread_filter_applied:false,unread_verified:false,reply_filter_applied:false,reply_needed_verified:false,waiting_rows_skipped:0,handled_rows_skipped:0});
+    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,back_budget_retries:0,observation_budget_retries:0,entry_read_budget_retries:0,entry_search_recovered:false,unread_filter_applied:false,unread_verified:false,reply_filter_applied:false,reply_needed_verified:false,waiting_rows_skipped:0,handled_rows_skipped:0});
  for(const k of ['search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'])delete r.navigation[k];''')
     s=replace_once(s,'"il2cpp_type_get_object"]','"il2cpp_type_get_object","il2cpp_class_get_parent"]')
     s=replace_once(s,"Object.assign(f,{classType:","Object.assign(f,{classParent:bind('class_get_parent','pointer',['pointer']),classType:")
@@ -349,6 +350,11 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     # observation. wait-back has no action calls and is never reset to entry.
     # Keep the baseline 100 ms/frame, total call/frame/time limits and cleanup.
     s=replace_once(s, "} catch(e){n.error=", """} catch(e){
+   if(e==='frame-budget'&&n.phase==='entry'&&!n.action_attempted&&!n.action_completed&&
+      !n.selection_verified&&state.stop===null&&!fixedCancellationRequested&&
+      !n.cleanup_failed&&n.entry_read_budget_retries<3){
+    resetDestination();n.entry_read_budget_retries++;return;
+   }
    if(e==='frame-budget'&&['wait-list','wait-chat','wait-search'].includes(n.phase)&&
       n.entry_verified&&n.action_attempted&&n.action_completed&&state.stop===null&&
       !fixedCancellationRequested&&!n.cleanup_failed&&n.observation_budget_retries<3){
@@ -385,7 +391,7 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     if set(n)!=EXTRAS or n['phase'] not in PHASES or n['error'] not in ERRORS:raise ValueError('Invalid dialog evidence')
     if any(type(n[k]) is not bool for k in FLAGS) or n['ui_text_read']:raise ValueError('Invalid flags')
     if n['metadata_checkpoint'] not in CHECKPOINTS or n['selection_checkpoint'] not in SELECTION:raise ValueError('Invalid checkpoint')
-    for k,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128),('waiting_rows_skipped',128),('handled_rows_skipped',128),('back_budget_retries',MAX_BACK_BUDGET_RETRIES),('observation_budget_retries',MAX_OBSERVATION_BUDGET_RETRIES)]:
+    for k,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128),('waiting_rows_skipped',128),('handled_rows_skipped',128),('back_budget_retries',MAX_BACK_BUDGET_RETRIES),('observation_budget_retries',MAX_OBSERVATION_BUDGET_RETRIES),('entry_read_budget_retries',MAX_ENTRY_READ_BUDGET_RETRIES)]:
         if type(n[k]) is not int or not 0<=n[k]<=limit:raise ValueError('Invalid scan bounds')
     if n['observation_budget_retries'] and (n['phase'] not in ('wait-list','wait-chat','wait-search','scan','done') or not n['entry_verified'] or not n['action_completed']):
         raise ValueError('Invalid observation recovery evidence')
@@ -443,7 +449,7 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     bn['controller_path']=[old(k) for k in bn['controller_path']]
     nav.validate(base,errors=ERRORS)
     from navigation_root_diagnostic import extract
-    diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped','back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','observation_budget_retries','entry_search_recovered','root_top_kind','last_presented_kind','controller_path')}
+    diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped','back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','observation_budget_retries','entry_read_budget_retries','entry_search_recovered','root_top_kind','last_presented_kind','controller_path')}
     diagnostic['root_probe']=extract(value)
     return dict(state=('exhausted' if n['exhausted'] else 'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready') if ready else 'stopped',identity=private,diagnostic=diagnostic)
 
@@ -465,7 +471,7 @@ def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),ex
                   'rows_scanned','scan_batches','action_attempted','action_completed',
                   'destination_verified','unread_filter_applied','unread_verified',
                   'read_rows_skipped','back_budget_retries','reply_filter_applied',
-                  'reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','observation_budget_retries','entry_search_recovered','root_top_kind','last_presented_kind','controller_path')
+                  'reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','observation_budget_retries','entry_read_budget_retries','entry_search_recovered','root_top_kind','last_presented_kind','controller_path')
             try:
                 public=safe_diagnostic({k:result['navigation'][k] for k in keys})
             except Exception:

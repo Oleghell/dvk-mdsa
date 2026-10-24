@@ -20,7 +20,7 @@ LIMIT = None
 PAUSE_OUTCOMES = {'message-not-approved', 'manual-review'}
 # Chat-local uncertainty is isolated, never retried; navigation failures still stop.
 ISOLATE = {'greeting-not-verified', 'send-outcome-unknown', 'outgoing-not-observed', 'manual-review',
-           'history-changed-during-approval', 'local-own-message-unanchored',
+           'history-changed-during-approval', 'local-own-message-unanchored', 'groq-draft-unavailable',
            'groq-repeat-greeting', 'openrouter-repeat-greeting', 'groq-unsafe-reply', 'openrouter-unsafe-reply',
            'groq-invalid-response', 'openrouter-invalid-response',
            'gemini-repeat-greeting', 'gemini-unsafe-reply', 'gemini-invalid-response',
@@ -256,6 +256,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         out['outcomes'][outcome] = out['outcomes'].get(outcome, 0) + 1
 
     phase = 'navigation'
+    host_checkpoint = 'inbox-targets'
     try:
         reason = 'visible-pass-limit'
         groups = [(attention, False, 'pending'), (list(unread), True, 'unread'),
@@ -287,6 +288,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             phase = 'navigation'
             progress(f'Ищу следующий чат • обработано {out["dialogs_processed"]}' +
                      (' • проверка прочитанного' if group_kind == 'read' else ''))
+            host_checkpoint = 'inbox-open'
             selected = call('open', allowed=with_seen_ids(chain,allowed),
                             entry=entry, unread_only=unread_only, needs_reply_only=True)
             entry = 'dialogs'
@@ -307,6 +309,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             private_snapshot=[]
             def capture_snapshot(value):
                 private_snapshot[:]=[value]
+            host_checkpoint = 'inbox-read'
             result = walk_chat(
                 chain, who, stopped, approve,
                 lambda expected: reader(settings.adb, settings.folder, stopped.is_set, expected),
@@ -359,6 +362,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 # Global/API/read/identity errors must not be treated as local.
                 out.update(status='inbox-stopped', reason='chat-' + result['reason'])
                 return out
+            host_checkpoint = 'inbox-audit'
             from assistant_reply_audit import pending as pending_replies
             unanswered=pending_replies(chain,who)
             result['unanswered_messages']=len(unanswered)
@@ -385,6 +389,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if isolated:
                 chain.mark_review(who)
             progress('Исходящее подтверждено → возвращаюсь к списку.' if result['outgoing_observed_this_run'] and not unanswered else 'Возвращаюсь к списку диалогов.')
+            host_checkpoint = 'inbox-back'
             call('back', expected=who)
             # Only a successful, SAME-chat back may make a read failure local.
             # Do not change chain stage, reservations, consumed messages or review state.
@@ -396,6 +401,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             else:
                 history_wait.clear(chain.store,who)
             if notice_needed:
+                host_checkpoint = 'inbox-exit-notify'
                 from assistant_exit_notify import notify_exit
                 event = notify_exit(chain, who, dict(result,_exit_messages=exit_messages), sender=exit_notifier, enabled=exit_notifier is not None, photo=exit_image, photo_status=exit_image_status, photo_sender=exit_photo_sender)
                 out['exit_events'].append(event)
@@ -422,6 +428,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             out['dialogs_processed'] += 1
             processed.add((who['account'],who['peer']))
             if not deferred and not ai_deferred and not answer_deferred and not photo_deferred and not unanswered:
+                host_checkpoint = 'inbox-record'
                 record_checked(chain, who)
             for group in groups:
                 group[0][:] = [x for x in group[0] if (x['account'], x['peer']) != (who['account'], who['peer'])]
@@ -433,11 +440,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         out['pages_checked']=pager.pages if pager is not None else 1
         phase = 'navigation'
         if return_to == 'search':
+            host_checkpoint = 'inbox-return'
             call('return')
         out.update(status='inbox-completed', reason=reason, return_verified=return_to == 'search',
                    dialogs_verified=return_to == 'dialogs',
                    ui_may_remain_open=False)
     except Exception as error:
+        from assistant_failure import category
+        out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
         n = out['last_navigation']
         out.update(status='inbox-cancelled' if stopped.is_set() else 'inbox-stopped',
                    reason='cancelled' if stopped.is_set() else
@@ -519,16 +529,15 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         result['groq_requests']=counts['groq'];result['openrouter_requests']=counts['openrouter'];result['gemini_requests']=counts.get('gemini',0);result['zai_requests']=counts.get('zai',0)
         result['ai_key_failures']=list(responder.errors)
         result['ai_failure_history']=list(responder.failure_history) if type(getattr(responder,'failure_history',None)) is list else []
-        result['ai_strategy']=getattr(responder,'strategy','groq-then-openrouter')
+        result['ai_strategy']=getattr(responder,'strategy','selected-provider-only')
     else:
         result['groq_requests'] = result['ai_requests'] if settings.ai_provider == 'groq' else 0
         result['openrouter_requests'] = result['ai_requests'] if settings.ai_provider == 'openrouter' else 0
         result['gemini_requests'] = result['ai_requests'] if settings.ai_provider == 'gemini' else 0
         result['zai_requests'] = result['ai_requests'] if settings.ai_provider == 'zai' else 0
-    result['zai_context_export_enabled'] = settings.groq_enabled and settings.ai_provider == 'zai'
-    result['gemini_context_export_enabled'] = settings.groq_enabled and settings.ai_provider == 'gemini'
-    result['groq_context_export_enabled'] = settings.groq_enabled and settings.ai_provider == 'groq'
-    result['openrouter_context_export_enabled'] = settings.groq_enabled and settings.ai_provider == 'openrouter'
+    for provider in ('groq','openrouter','gemini','zai'):
+        result[provider+'_context_export_enabled'] = bool(settings.groq_enabled and
+            (type(counts) is dict or settings.ai_provider == provider))
     if result['ai_requests']:
         result.update(chat_content_exported=True, personal_data_exported=True)
     return result

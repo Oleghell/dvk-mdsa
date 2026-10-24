@@ -243,6 +243,10 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
    observation_checks++;
    if(mode==931||mode==933||observation_checks==1)slow();
   }
+  if((mode==938||mode==939||mode==940)&&!browser_backs){
+   observation_checks++;
+   if(mode==939||observation_checks==1){if(mode==940)phase=0;slow();}
+  }
   if(mode==842&&!browser_backs)slow();
   if(browser_backs){
    browser_back_checks++;

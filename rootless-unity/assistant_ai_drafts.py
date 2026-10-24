@@ -28,7 +28,7 @@ def restore(chain, chat, kind, expected_hash, connection=None, snapshot=None):
         return value['text']
     except GroqError as error:
         # Old prepared text is never silently rehashed/replaced. Block just this
-        # chat if it contains a repeated greeting; other corruption still stops.
+        # chat if it contains a repeated greeting or cannot restore a validated draft.
         if str(error) == 'groq-repeat-greeting':
             raise
         raise GroqError('groq-draft-unavailable') from None

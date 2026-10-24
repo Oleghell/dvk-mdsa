@@ -23,7 +23,7 @@ class Failover(unittest.TestCase):
   def factory(provider,model,keys,cancelled):
    return pool.Responder(provider,model,keys,cancelled,factory=Adapter,clock=lambda:0)
   pool._CACHE.clear()
-  return ai.Responder('openrouter','dots-studio/dots-3-note-preview:free',collector=lambda p:['g1','g2'] if p=='groq' else ['o1','o2'],factory=factory),trace
+  return ai.Responder('groq',g.MODEL,collector=lambda p: {'groq':['g1','g2'],'openrouter':['o1','o2']}.get(p,[]),factory=factory),trace
  def test_all_groq_before_openrouter(self):
   a,t=self.make({'g1':'groq-rate-limit','g2':'groq-timeout','o1':'openrouter-rate-limit'})
   self.assertEqual(a('question',snapshot()),REPLY);self.assertEqual(t,['g1','g2','o1','o2'])
