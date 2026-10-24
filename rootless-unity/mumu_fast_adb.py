@@ -29,7 +29,9 @@ class Timings:
             **{k:dict(v) for k,v in self.values.items()})
 
 class ReadFailure(Exception):
-    pass
+    def __init__(self,code,adb_reason=None):
+        super().__init__(code)
+        self.adb_reason=adb_reason
 
 
 def read(serial,command,cancelled,timeout=30,*,socket_factory=None):
@@ -66,7 +68,16 @@ def read(serial,command,cancelled,timeout=30,*,socket_factory=None):
                 if len(data)>1024:raise ReadFailure('not-allowed')
                 sock.settimeout(min(5,check()))
                 sock.sendall(('%04x'%len(data)).encode('ascii')+data)
-                if exact(4)!=b'OKAY':raise ReadFailure('service-failed')
+                status=exact(4)
+                if status==b'FAIL':
+                    header=exact(4)
+                    if any(c not in b'0123456789abcdefABCDEF' for c in header):raise ReadFailure('format')
+                    size=int(header,16)
+                    if not 0 <= size <= 4096:raise ReadFailure('oversized')
+                    from adb_evidence import classify
+                    reason=classify(exact(size).decode('utf-8',errors='replace'))
+                    raise ReadFailure('service-failed',reason if reason!='none' else 'command-failed')
+                if status!=b'OKAY':raise ReadFailure('format')
             if command==('get-state',):
                 service('host-serial:'+serial+':get-state')
                 header=exact(4)
@@ -118,7 +129,14 @@ def transport(serial,cancelled=lambda:False,*,socket_factory=None):
             try:result=read(serial,args[2:],cancelled,timeout,socket_factory=socket_factory)
             except ReadFailure as error:
                 outcome='timeout' if str(error)=='timeout' else 'oversized-output' if str(error)=='oversized' else 'completed'
+                prior=len(adb.adb_events)
                 adb.observe_result(args,None,'',outcome)
+                # Preserve only a closed transport reason, never the FAIL body.
+                reason=error.adb_reason or {'timeout':'command-timeout','transport-failed':'connection-failed',
+                    'truncated':'connection-failed','oversized':'oversized-output','format':'unexpected-response'}.get(str(error),'command-failed')
+                from adb_evidence import REASONS
+                if len(adb.adb_events)>prior and reason in REASONS-{'none'}:
+                    adb.adb_events[-1]['reason']=reason
                 raise TestError('Не удалось выполнить проверку выбранного MuMu через ADB. Автоповтора нет.') from None
             adb.observe_result(args,0,result);failed=False;return result
         finally:timings.record('socket_read' if fast else 'cli',time.monotonic()-started,failed)

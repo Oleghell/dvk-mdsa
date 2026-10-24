@@ -10,6 +10,7 @@ from mumu_version import VERSION, ENGINE_VERSION  # noqa: E402
 
 # Honest readiness: True only for what a real MuMu #4 run has confirmed.
 LIVE_VERIFIED = {
+    'max_choice_fixed_clarification': False, 'fresh_same_boot_reconnect': False,
     'extended_stay_here_terminal_skip': False, 'invalid_message_scalar_isolation': False,
     'independent_contact_receipts': False, 'adb_forward_recovery': False, 'contact_review_reconciliation': False,
     'port_local_safe_supervision': False, 'bare_stay_here_terminal_skip': False,

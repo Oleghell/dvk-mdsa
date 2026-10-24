@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import re
 
-VERSION = '1.3.15'
+from mumu_version import VERSION
 DEFAULT_PORTS = (5557, 5559, 5561, 5563, 5565)
 
 class MumuError(RuntimeError): pass

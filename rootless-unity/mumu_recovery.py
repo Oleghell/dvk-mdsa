@@ -70,7 +70,9 @@ class Repair:
             transient={'connection-refused','connection-timeout','device-offline','device-not-found','command-timeout'}
             if isinstance(error,(ConnectionError,TimeoutError)) or recoverable_adb(evidence) or evidence and evidence.get('adb_reason') in transient:
                 raise ConnectionError('Recovery connection not available') from None
-            raise StateError('Recovery device identity not verified') from None
+            blocked=StateError('Recovery device identity not verified')
+            if evidence:blocked._dvk_failure=evidence
+            raise blocked from None
         try:
             snapshot=self.reader(self.settings.adb,self.settings.folder,self.stopped.is_set)
         except Exception:

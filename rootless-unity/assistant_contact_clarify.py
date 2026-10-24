@@ -6,6 +6,7 @@ CHOICE = re.compile(r'\b(?:давай(?:те)?|лучше|удобн\w*|пред
 NEGATIVE = re.compile(r'не\s+(?:хочу|надо|могу|пользуюсь|работает)|не\s*пиши|не\s*да[мю]', re.I)
 
 def chosen(messages):
+    if max_selected(messages):return True
     texts=[m['text'] for m in messages if isinstance(m.get('text'),str)]
     value=' / '.join(texts)
     from shared_contact import contact_items
@@ -15,3 +16,14 @@ def chosen(messages):
     # Do not treat questions/objections mentioning an app as agreement.
     short = re.fullmatch(r'\s*(?:тг|телеграм(?:м)?|телега|telegram|whats\s?app|ватсап|вацап|ватцап|вотсап)(?:[\s,/]+(?:или\s+)?(?:макс|max|тг|телеграм|whatsapp|ватсап|вацап))*[.!)]*\s*', value, re.I)
     return bool(PLATFORM.search(value) and (CHOICE.search(value) or short) and not NEGATIVE.search(value))
+
+MAX_TEXT = 'По какому номеру могу найти тебя в MAX, если тебе удобно?'
+MAX_CHOICE = re.compile(r'^(?:(?:у\s+меня\s+)?(?:работает\s+)?только\s+макс|(?:у\s+меня\s+)?(?:работает\s+)?только\s+max|(?:давай(?:те)?\s+)?(?:в\s+)?(?:макс(?:е)?|max))[.!\s)]*$',re.I)
+
+def max_selected(messages):
+    # Only an explicit app choice, never a person named Max, quote or question.
+    from conversation_engine import normalized
+    texts=[normalized(' '.join(line for line in m['text'].splitlines() if not line.lstrip().startswith('>')))
+           for m in messages if isinstance(m.get('text'),str)]
+    return any(MAX_CHOICE.fullmatch(t) for t in texts) and not any(
+        re.search(r'(?:не\s+(?:работает|пользуюсь|хочу)|нет)\s+(?:макс\w*|max)|(?:макс\w*|max)\s+не\s+работает',t,re.I) for t in texts)

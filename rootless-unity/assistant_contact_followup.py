@@ -12,17 +12,18 @@ def eligible(messages):
 
 # Explicit replies to a contact proposal. Questions about its purpose are NOT
 # refusals. Bare location words require a verified contact-stage input below.
-BARE_STAY = re.compile(r'^(?:тут|здесь)[.!?,)\s]*$',re.I)
+BARE_STAY = re.compile(r'^(?:тут|здесь|сдесь)[.!?,)\s]*$',re.I)
 
-STAY = re.compile(r'^(?:(?:пиши(?:те)?|напиши(?:те)?|давай(?:те)?|лучше|можно|может(?:\s+и)?)\s+(?:(?:пока|просто)\s+)?(?:тут|здесь)(?:\s+(?:пообщаемся|общаться|общаемся|пообщаться))?|(?:пообщаемся|общаемся)\s+(?:тут|здесь))[.!?,)\s]*$',re.I)
+STAY = re.compile(r'^(?:(?:пиши(?:те)?|напиши(?:те)?|давай(?:те)?|лучше|можно|может(?:\s+и)?)\s+(?:(?:пока|просто)\s+)?(?:тут|здесь|сдесь)(?:\s+(?:пообщаемся|общаться|общаемся|пообщаться))?|(?:пообщаемся|общаемся)\s+(?:тут|здесь|сдесь))[.!?,)\s]*$',re.I)
 # Explicit extended stay-here statements, not arbitrary mentions of "here".
 # Keep the clause tails narrow: questions, negation and contact instructions
 # must not become terminal preferences. Quoted lines are removed by refused().
 EXTENDED_STAY = re.compile(
-    r'^(?:мне\s+(?:удобнее|комфортнее|лучше)\s+(?:пока\s+)?(?:тут|здесь)'
-    r'|мне\s+(?:тут|здесь)\s+(?:удобно|комфортно|лучше)\s+(?:общаться|переписываться)'
-    r'|(?:давай(?:те)?\s+)?будем\s+(?:пока\s+)?(?:общаться|переписываться)\s+(?:тут|здесь)'
-    r'|(?:давай(?:те)?\s+)?(?:пока\s+)?(?:общаться|переписываться)\s+будем\s+(?:тут|здесь))'
+    r'^(?:(?:(?:первое\s+время|пока)\s+)?(?:хотелось\s+бы|хочу)\s+(?:пока\s+)?остаться\s+(?:тут|здесь|сдесь)'
+    r'|мне\s+(?:удобнее|комфортнее|лучше)\s+(?:пока\s+)?(?:тут|здесь|сдесь)'
+    r'|мне\s+(?:тут|здесь|сдесь)\s+(?:удобно|комфортно|лучше)\s+(?:общаться|переписываться)'
+    r'|(?:давай(?:те)?\s+)?будем\s+(?:пока\s+)?(?:общаться|переписываться)\s+(?:тут|здесь|сдесь)'
+    r'|(?:давай(?:те)?\s+)?(?:пока\s+)?(?:общаться|переписываться)\s+будем\s+(?:тут|здесь|сдесь))'
     r'(?:\s*,?\s*(?:пока\s+не\s+увижу\s+(?:человека|тебя)\s+(?:в\s*живую|лично)'
     r'|а\s+потом\s+(?:будет|будем)\s+видно))?[.!\s,)]*$',re.I)
 
@@ -33,12 +34,12 @@ APP = r'(?:телеграм\w*|telegram|тг|ват\s?сап\w*|ватсап\w*|
 APP_UNAVAILABLE = re.compile(r'^(?:(?:у\s+меня\s+)?(?:нет|нету|не\s+пользуюсь)\s+'+APP+r'|'+APP+r'\s+(?:нет|нету|не\s+пользуюсь))[.!?,)\s]*$',re.I)
 
 
-def refused(messages, *, requested=False, contact_shared=False):
+def refused(messages, *, requested=False, contact_shared=False, alternative_selected=False):
     from conversation_engine import normalized
     for m in messages:
         if not isinstance(m.get('text'),str):continue
         text=normalized(' '.join(line for line in m['text'].splitlines() if not line.lstrip().startswith('>')))
-        if (NO_APPS.fullmatch(text) and not (contact_shared and APP_UNAVAILABLE.fullmatch(text))) or (requested and (BARE_STAY.fullmatch(text) or STAY.fullmatch(text) or EXTENDED_STAY.fullmatch(text) or re.fullmatch(r'(?:ни\s*где|нигде)[.!?,)\s]*',text) or re.fullmatch(r'(?:нет|нету|не хочу|не надо)[.!?,)\s]*',text))):
+        if (NO_APPS.fullmatch(text) and not ((contact_shared or alternative_selected) and APP_UNAVAILABLE.fullmatch(text))) or (requested and (BARE_STAY.fullmatch(text) or STAY.fullmatch(text) or EXTENDED_STAY.fullmatch(text) or re.fullmatch(r'(?:ни\s*где|нигде)[.!?,)\s]*',text) or re.fullmatch(r'(?:нет|нету|не хочу|не надо)[.!?,)\s]*',text))):
             return True
     return False
 

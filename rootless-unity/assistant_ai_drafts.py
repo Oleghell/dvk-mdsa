@@ -38,27 +38,30 @@ def restore(chain, chat, kind, expected_hash, connection=None, snapshot=None):
 
 def prepare(chain, snapshot, action):
     chat, kind = snapshot['identity']['chat'], action['kind']
+    from assistant_contact_clarify import MAX_TEXT,max_selected
+    forced_max = kind=='clarify' and max_selected([m for m in snapshot['messages'] if m['sender']==snapshot['identity']['peer']])
     with chain.store.connection() as db:
         row = db.execute('SELECT status FROM ai_drafts WHERE chat=? AND kind=?', (chat, kind)).fetchone()
         if row is None:
-            if chain.responder is None:
+            if chain.responder is None and not forced_max:
                 return None, action
             db.execute("INSERT INTO ai_drafts VALUES(?,?,NULL,'needed')", (chat, kind))
             trigger = db.execute('SELECT trigger FROM chain_actions WHERE chat=? AND kind=?', (chat,kind)).fetchone()
             if trigger:
                 db.execute('INSERT OR IGNORE INTO ai_draft_inputs VALUES(?,?,?)', (chat,kind,trigger[0]))
-    if row is not None and chain.responder is None:
+    if row is not None and chain.responder is None and not forced_max:
         raise GroqError('groq-configuration-required')
     text = restore(chain, chat, kind, text_hash(action['text']), snapshot=snapshot)
     if text is not None:
+        if forced_max and text != MAX_TEXT:raise GroqError('groq-draft-unavailable')
         return None, dict(kind=kind, text=text)
-    if chain.responder is None:
+    if chain.responder is None and not forced_max:
         raise GroqError('groq-configuration-required')
     # Only generated drafts may be retried after an API failure, not sends.
     with chain.store.connection() as db:
         reply_ids = [r[0] for r in db.execute('SELECT message FROM ai_draft_inputs WHERE chat=? AND kind=?', (chat,kind))]
     context = dict(snapshot, _reply_ids=reply_ids)
-    value = continuation(chain.responder(kind, context), kind, snapshot=context)
+    value = continuation(dict(decision='reply',text=MAX_TEXT) if forced_max else chain.responder(kind, context), kind, snapshot=context)
     if value['decision'] != 'reply':
         stage = 'declined' if value['decision'] == 'decline' else 'manual-review'
         with chain.store.connection() as db:

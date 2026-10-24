@@ -45,6 +45,17 @@ def configure(value):
     return n
 
 
+
+def check_recovery_device(executable,folder,endpoint,boot):
+    """Reconnect only the explicit endpoint; never adopt a different boot ID."""
+    from target_only import TargetOnlyAdb,recheck
+    from startup_failure import checkpoint
+    recovery_adb=TargetOnlyAdb(executable,folder)
+    with checkpoint('device-recheck',adb=recovery_adb):
+        recovery_adb.run(['connect',endpoint])
+        recheck(recovery_adb,boot)
+
+
 def run(spec,stopped,progress=lambda _:None,*,runner=None):
     n=port(spec['port'])
     stage='worker-bootstrap'
@@ -100,14 +111,15 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                     elif type(v) is list:
                         for child in v:scope(child)
                 scope(value)
-                value.update(tool_version=VERSION,engine_version='1.2.24',platform='MuMu',device_port=n,
+                from mumu_version import ENGINE_VERSION
+                value.update(tool_version=VERSION,engine_version=ENGINE_VERSION,platform='MuMu',device_port=n,
                     device_scope=serial(n),shared_database=True)
                 atomic(device_directory(n)/'last-performance.json',dict(metrics.snapshot(),tool_version=VERSION,device_port=n))
                 atomic(device_directory(n)/REPORT,value)
                 return REPORT
             def recovery_recheck():
-                from startup_failure import checkpoint
-                with checkpoint('device-recheck',adb=adb):recheck(adb,boot)
+                # Fresh evidence + reconnect, retaining the original locked boot.
+                check_recovery_device(current.adb,folder,serial(n),boot)
             extra={} if runner is not None else {'recheck':recovery_recheck}
             out=(runner or monitor)(current,stopped,RunAuthorization(stopped,immediate_greeting=True,progress=progress),progress,
                   mode=spec['mode'],fresh_session=spec['fresh'],write=write,continuous=True,**extra)
