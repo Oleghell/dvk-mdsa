@@ -1,2 +1,2 @@
 """Shared engine version for MuMu and MoreLogin."""
-VERSION = '1.2.24'
+VERSION = '1.2.25'

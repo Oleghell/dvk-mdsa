@@ -17,13 +17,17 @@ BARE_STAY = re.compile(r'^(?:тут|здесь)[.!?,)\s]*$',re.I)
 STAY = re.compile(r'^(?:(?:пиши(?:те)?|напиши(?:те)?|давай(?:те)?|лучше|можно|может(?:\s+и)?)\s+(?:(?:пока|просто)\s+)?(?:тут|здесь)(?:\s+(?:пообщаемся|общаться|общаемся|пообщаться))?|(?:пообщаемся|общаемся)\s+(?:тут|здесь))[.!?,)\s]*$',re.I)
 NO_APPS = re.compile(r'^(?:(?:нет|нету)(?:\s+у\s+меня)?\s+(?:ни\s+того\s*,?\s+ни\s+другого|ничего)|ни\s+того\s*,?\s+ни\s+другого(?:\s+(?:нет|нету))?|(?:у\s+меня\s+)?(?:нет|нету|не\s+пользуюсь)(?:\s+ни)?\s+(?:телеграм\w*|telegram|тг|ватсап\w*|вацап\w*|whatsapp)(?:\s*(?:,|и|ни|или)\s*(?:телеграм\w*|telegram|тг|ватсап\w*|вацап\w*|whatsapp))*)[.!?,)\s]*$',re.I)
 
+# App-specific unavailability is not refusal of a DIFFERENT supplied contact.
+APP = r'(?:телеграм\w*|telegram|тг|ват\s?сап\w*|ватсап\w*|вацап\w*|whats\s?app)'
+APP_UNAVAILABLE = re.compile(r'^(?:(?:у\s+меня\s+)?(?:нет|нету|не\s+пользуюсь)\s+'+APP+r'|'+APP+r'\s+(?:нет|нету|не\s+пользуюсь))[.!?,)\s]*$',re.I)
 
-def refused(messages, *, requested=False):
+
+def refused(messages, *, requested=False, contact_shared=False):
     from conversation_engine import normalized
     for m in messages:
         if not isinstance(m.get('text'),str):continue
         text=normalized(' '.join(line for line in m['text'].splitlines() if not line.lstrip().startswith('>')))
-        if NO_APPS.fullmatch(text) or (requested and (BARE_STAY.fullmatch(text) or STAY.fullmatch(text) or re.fullmatch(r'(?:нет|нету|не хочу|не надо)[.!?,)\s]*',text))):
+        if (NO_APPS.fullmatch(text) and not (contact_shared and APP_UNAVAILABLE.fullmatch(text))) or (requested and (BARE_STAY.fullmatch(text) or STAY.fullmatch(text) or re.fullmatch(r'(?:нет|нету|не хочу|не надо)[.!?,)\s]*',text))):
             return True
     return False
 

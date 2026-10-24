@@ -114,3 +114,18 @@ def retryable_connection(error):
     value=clean(getattr(error,'_dvk_failure',None))
     return bool(value and value['stage'] in {'gadget-connect','gadget-process','gadget-attach'}
                 and value['error_type'] in {'TransportError','ServerNotRunningError','TimedOutError'})
+
+
+def recoverable_adb(value):
+    """Only fixed ADB transport evidence; never generic internal/journal errors."""
+    value=clean(value)
+    if not value:return False
+    stage=value['stage'];check=value.get('adb_check');reason=value.get('adb_reason')
+    pairs={'forward-open':{'test-forward-open'},'forward-close':{'test-forward-close'},
+           'adb-preflight':ADB_CHECKS-{'test-forward-open','test-forward-close'},
+           'device-recheck':{'test-connect','test-state','test-identity','test-boot-completed'},
+           'device-recheck-after':{'test-connect','test-state','test-identity','test-boot-completed'}}
+    if check not in pairs.get(stage,set()):return False
+    return reason in {'connection-refused','connection-timeout','connection-failed','device-offline',
+                      'device-not-found','no-device','command-timeout','adb-server-unavailable'} or (
+                      stage in {'forward-open','forward-close'} and reason=='command-failed')

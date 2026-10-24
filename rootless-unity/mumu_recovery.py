@@ -9,7 +9,7 @@ RETRY_CODES={'frame-budget','call-limit','frame-limit','transition-timeout','cal
     'selection-unavailable','screen-not-ready','wrong-screen','unexpected-screen','read-stopped',
     'native-transport-error','native-operation-cancelled','native-script-error','native-state-error',
     'native-process-unavailable','transport-error','device-timeout'}
-BLOCK_CODES={'identity-changed','identity-not-bound','untracked-dialog','changed-dialog',
+BLOCK_CODES={'unverified-host-failure','identity-changed','identity-not-bound','untracked-dialog','changed-dialog',
     'report-write-failed','message-not-approved','greeting-not-approved','cancelled',
     'journal-busy','journal-locked','journal-readonly','journal-storage-full','journal-io-error',
     'journal-corrupt','journal-error','resource-missing','resource-access-denied'}
@@ -26,10 +26,17 @@ def recoverable(report):
     def visit(value):
         if type(value) is not dict:return
         if value.get('status') in {'completed','inbox-completed','profiles-completed','inbox-empty'}:return
+        from startup_failure import recoverable_adb
+        if value.get('host_failure') in {'internal-error','internal-contract-error','state-check-failed','validation-failed','host-io-error'}:
+            children=[value.get(k) for k in ('last_navigation_failure','last_preparation_failure','last_navigation','last_profile_diagnostics')]
+            current_transport=any(recoverable_adb(child) for child in children)
+            current_navigation=any(type(child) is dict and child.get('stage')=='navigation-stopped' and child.get('error') in RETRY_CODES for child in children)
+            if not (current_transport or current_navigation):codes.add('unverified-host-failure')
+        if recoverable_adb(value):codes.add('native-transport-error')
         for key in ('reason','error','host_failure'):
             v=value.get(key)
             if type(v) is str:codes.add(v)
-        for key in ('inbox','profiles','last_navigation','last_navigation_failure','last_preparation_failure','last_profile_diagnostics','last_read_failure'):
+        for key in ('inbox','profiles','last_navigation','last_navigation_failure','last_preparation_failure','last_profile_diagnostics','last_read_failure','last_chat_diagnostics'):
             visit(value.get(key))
     for node in nodes:visit(node)
     return not bool(codes & BLOCK_CODES) and bool(codes & RETRY_CODES)
@@ -58,10 +65,10 @@ class Repair:
         try:self.recheck()
         except Exception as error:
             from assistant_store import StateError
-            from startup_failure import clean
+            from startup_failure import clean,recoverable_adb
             evidence=clean(getattr(error,'_dvk_failure',None))
             transient={'connection-refused','connection-timeout','device-offline','device-not-found','command-timeout'}
-            if isinstance(error,(ConnectionError,TimeoutError)) or evidence and evidence.get('adb_reason') in transient:
+            if isinstance(error,(ConnectionError,TimeoutError)) or recoverable_adb(evidence) or evidence and evidence.get('adb_reason') in transient:
                 raise ConnectionError('Recovery connection not available') from None
             raise StateError('Recovery device identity not verified') from None
         try:

@@ -6,7 +6,7 @@ CODES={'journal-busy','journal-locked','journal-readonly','journal-storage-full'
        'resource-access-denied','host-io-error','validation-failed','internal-contract-error',
        'state-check-failed','internal-error','native-transport-error','native-operation-cancelled',
        'native-script-error','native-process-unavailable','native-state-error'}
-CHECKPOINTS={'inbox-targets','inbox-open','inbox-read','inbox-audit','inbox-back','inbox-exit-notify',
+CHECKPOINTS={'chat-read','chat-bind','chat-proposal','chat-contact-reconcile','inbox-targets','inbox-open','inbox-read','inbox-audit','inbox-back','inbox-exit-notify',
              'inbox-record','inbox-return','profile-start','profile-cycle','profile-journal',
              'profile-verify','city-navigation','city-journal'}
 
@@ -14,6 +14,8 @@ def category(error):
     from startup_failure import clean
     evidence=clean(getattr(error,'_dvk_failure',None))
     if evidence:
+        from startup_failure import recoverable_adb
+        if recoverable_adb(evidence):return 'native-transport-error'
         name=evidence['error_type']
         if name in {'TransportError','ServerNotRunningError','ProtocolError'}:return 'native-transport-error'
         if name=='TimedOutError':return 'device-timeout'

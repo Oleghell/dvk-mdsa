@@ -126,21 +126,24 @@ class Chain:
                 pending = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?', (chat,pending_contact_kind)).fetchone()
                 pending_contact_observed = bool(pending and pending[1] == 'handler-returned-unconfirmed'
                     and isinstance(outgoing[0]['text'], str) and text_hash(outgoing[0]['text']) == pending[0])
-            independent_contact = self.any_replies and voluntary_batch(incoming)
-            shared = [(m, self_shared(m['text'], requested=stage == 'wait-contact' or pending_contact_observed or independent_contact)) for m in incoming]
+            from assistant_contact_receipt import requested as receipt_requested,packet_blocked
+            anchored_request = self.any_replies and receipt_requested(db,who,messages)
+            independent_contact = self.any_replies and (voluntary_batch(incoming) or any(self_shared(m['text']) for m in incoming))
+            shared = [(m, self_shared(m['text'], requested=stage == 'wait-contact' or pending_contact_observed or independent_contact or anchored_request)) for m in incoming]
             shared = [(m, items) for m, items in shared if items]
-            contact_requested = stage in ('wait-contact','pending-clarify','pending-followup') or pending_contact_observed
+            if packet_blocked(incoming):shared=[]
+            contact_requested = anchored_request or stage in ('wait-contact','pending-clarify','pending-followup') or pending_contact_observed
             from assistant_contact_followup import scoped_messages
             refusal_inputs = scoped_messages(db,s, [m['id'] for m in incoming],requested=contact_requested)
             if (any(m['text'] and REFUSAL.search(normalized(m['text'])) for m in incoming)
                     or contact_refused(refusal_inputs if contact_requested else incoming,
-                                       requested=contact_requested)):
+                                       requested=contact_requested,contact_shared=bool(shared))):
                 # Respect an explicit stay-here/no-apps preference already read
                 # by an older version too. This never replays or removes actions.
                 stage = 'declined'
             elif shared:
-                aggregate = self.any_replies and (stage == 'wait-contact' or pending_contact_observed or independent_contact)
-                if (outgoing and not pending_contact_observed and not independent_contact) or (not aggregate and (len(shared) != 1 or len(incoming) != 1)):
+                aggregate = self.any_replies and (stage == 'wait-contact' or pending_contact_observed or independent_contact or anchored_request)
+                if (outgoing and not pending_contact_observed and not independent_contact and not anchored_request) or (not aggregate and (len(shared) != 1 or len(incoming) != 1)):
                     stage, review_cause = 'manual-review', 'contact-batch-ambiguous'
                 else:
                     message, items = shared[0]
@@ -150,29 +153,12 @@ class Chain:
                         items = list(dict.fromkeys(c for _, values in shared for c in values))
                         if len(items) > 4:
                             raise StateError('contact-limit-exceeded')
-                    if self.contact_notifications:
-                        try:
-                            display_name(snapshot.get('peer_name'))
-                        except ValueError:
-                            raise StateError('contact-name-required') from None
-                        try:
-                            data = contact_payload(snapshot.get('peer_name'), items)
-                        except ValueError:
-                            raise StateError('contact-payload-invalid') from None
-                        try:
-                            protected = self.seal(json.dumps(data, ensure_ascii=False).encode('utf-8'))
-                            if not isinstance(protected, bytes) or not protected:
-                                raise ValueError('Encryption failed')
-                            db.execute("INSERT OR IGNORE INTO chain_contact_outbox VALUES(?,?,?,'pending')",
-                                       (chat, message['id'], protected))
-                        except Exception:
-                            raise StateError('contact-protection-failed') from None
+                    from assistant_contact_receipt import save as save_contact
+                    save_contact(self,db,snapshot,message,items)
                     # Voluntary sharing is independent of earlier send outcome.
                     # Preserve unknown/returned action records; do not infer delivery.
                     if pending_contact_observed:
                         db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind=?", (chat,pending_contact_kind))
-                    from assistant_statistics import received
-                    received(db,who['account'],who['peer'],chat,items)
                     stage = 'done'
             elif stage.startswith('pending-'):
                 kind = stage.removeprefix('pending-')

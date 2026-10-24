@@ -200,7 +200,10 @@ class GuidedChain(Chain):
             seen_before={r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?',(who['chat'],))}
         from shared_contact import self_shared,voluntary_batch
         new_peer=[m for m in snapshot['messages'] if m['sender']==who['peer'] and m['id'] not in seen_before]
-        requested=bool(row and row[0]=='wait-contact') or voluntary_batch(new_peer)
+        from assistant_contact_receipt import requested as receipt_requested
+        with self.store.connection() as db:
+            anchored_request=receipt_requested(db,who,snapshot['messages'])
+        requested=anchored_request or bool(row and row[0]=='wait-contact') or voluntary_batch(new_peer)
         from assistant_contact_followup import refused,scoped_messages
         with self.store.connection() as db:
             refusal_inputs=scoped_messages(db,snapshot,[m['id'] for m in new_peer],requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')))
@@ -348,7 +351,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         observed_at_start = {row[0] for row in db.execute(
             "SELECT kind FROM chain_actions WHERE chat=? AND status='outgoing-observed'",
             (who['chat'],))}
+    host_checkpoint='chat-read'
     def read(source=reader, *, keep_latest=False):
+        nonlocal host_checkpoint
+        host_checkpoint='chat-read'
         if stopped.is_set():
             raise StateError('cancelled')
         from one_chat_device import ReadStopped, safe_read_failure, transient_read_failure
@@ -418,7 +424,17 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         return value
     try:
         before = read(keep_latest=True)
+        host_checkpoint='chat-bind'
         chain.bind(before, greetings, approved=True)
+        from assistant_contact_receipt import reviewable,reconcile
+        with chain.store.connection() as db:
+            contact_review=reviewable(db,who['chat'])
+        if contact_review:
+            fresh=read(contact_reader if contact_reader is not None else reader,keep_latest=True)
+            if chain.contact_notifications and 'peer_name' not in fresh:fresh['peer_name']='не определено'
+            host_checkpoint='chat-contact-reconcile'
+            out['diagnostics']['contact_review_reconciled']=reconcile(chain,before,fresh)
+            before=fresh
         before.pop('latest_message_id',None)
         out['diagnostics']['legacy_stage_recovered']=getattr(chain,'last_legacy_recovered',False) is True
         out['diagnostics']['legacy_recovery_reason']=getattr(chain,'legacy_recovery_reason','not-applicable')
@@ -436,6 +452,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             excerpts=[m['text'] if isinstance(m['text'],str) else '[нет текста]' for m in before['messages'] if m['sender']==who['peer'] and (m['id'] not in seen_ids or m['id'] in unanswered_ids)]
             if excerpts and exit_capture is not None:exit_capture(excerpts)
             try:
+                host_checkpoint='chat-proposal'
                 stage, action = chain.proposal(before)
             except StateError as error:
                 if str(error) != 'contact-name-required':
@@ -671,6 +688,14 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             out['diagnostics']['failure_point']='chat-input-disabled'
             out.update(status='chain-needs-review',reason='chat-input-disabled')
             return out
+        from assistant_failure import category,evidence
+        out['diagnostics']['host_failure']=category(error)
+        out['diagnostics']['host_checkpoint']=host_checkpoint
+        from startup_failure import TYPES
+        error_type=type(error).__name__
+        out['diagnostics']['error_type']=error_type if error_type in TYPES | {'StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} else 'OtherError'
+        native=evidence(error)
+        if native:out['diagnostics']['last_navigation_failure']=native
         # Only fixed, authored categories; no arbitrary native exception text.
         allowed = {'start-before-peer-reply', 'guided-binding-changed',
                    'guided-history-not-verified', 'guided-consent-required'}

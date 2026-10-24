@@ -103,11 +103,13 @@ def inbox_targets(chain):
           FROM sources s LEFT JOIN chain_dialogs c ON c.account=s.account AND c.peer=s.peer
           ORDER BY s.account,s.peer''').fetchall()
     attention, unread = [], []
+    from assistant_contact_receipt import candidates as contact_candidates
+    receipt_reviews=contact_candidates(chain.store)
     from assistant_legacy_recovery import candidates
     recoverable=candidates(chain.store) if chain.responder is not None else set()
     for account, peer, chat, stage, outbox, pending in rows:
         item = dict(account=account, peer=peer, chat=chat)
-        if stage in TERMINAL and (account,peer,chat) not in recoverable:
+        if stage in TERMINAL and (account,peer,chat) not in recoverable | receipt_reviews:
             if stage=='done' and outbox and chain.media_required and not chain.has_media(item):
                 attention.append(item)
             continue
@@ -144,6 +146,8 @@ def reset_read_round(chain):
 def with_seen_ids(chain, allowed):
     # Read fallback excludes already-consumed incoming messages BEFORE opening.
     out=[]
+    from assistant_contact_receipt import candidates as contact_candidates
+    receipt_reviews=contact_candidates(chain.store)
     with chain.store.connection() as db:
         for who in allowed:
             from assistant_reply_audit import initialize
@@ -155,8 +159,8 @@ def with_seen_ids(chain, allowed):
               UNION SELECT r.message FROM chain_reply_receipts r JOIN inbox_reported_inputs s
                 ON r.chat=s.chat AND r.message=s.message AND r.fingerprint=s.fingerprint
               WHERE r.chat=? LIMIT 129''', (who['chat'],who['chat'],who['chat'])).fetchall()
-            if len(rows)>128:raise StateError('observed-history-too-large')
-            out.append(dict(who,seen_ids=[r[0] for r in rows]))
+            if len(rows)>128 and (who['account'],who['peer'],who['chat']) not in receipt_reviews:raise StateError('observed-history-too-large')
+            out.append(dict(who,seen_ids=[] if (who['account'],who['peer'],who['chat']) in receipt_reviews else [r[0] for r in rows]))
     return targets(out)
 
 
@@ -306,6 +310,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             phase = 'chat'
             from assistant_legacy_recovery import reserve_probe
             reserve_probe(chain,who)
+            from assistant_contact_receipt import reserve_probe as reserve_contact_probe
+            reserve_contact_probe(chain,who)
             exit_messages=[]
             private_snapshot=[]
             def capture_snapshot(value):
