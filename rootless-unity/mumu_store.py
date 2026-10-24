@@ -78,6 +78,7 @@ class SharedStore(BaseStore):
                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
                 db.execute('''CREATE TABLE IF NOT EXISTS mumu_profile_visits(
                   peer TEXT PRIMARY KEY,checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+                db.execute('CREATE TABLE IF NOT EXISTS mumu_recovery_skips(peer TEXT PRIMARY KEY)')
                 # Idempotent import of ALL old #4 reservations, including unknown/not-invoked.
                 if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_actions'").fetchone():
                     db.execute("INSERT OR IGNORE INTO mumu_peer_claims(peer,device,account) SELECT peer,'5563',account FROM manual_actions ORDER BY id")
@@ -151,7 +152,7 @@ class SharedStore(BaseStore):
     def visited_peers(self):
         from conversation_engine import identifier
         with self.connection() as db:
-            values=[x[0] for x in db.execute('SELECT peer FROM mumu_profile_visits UNION SELECT peer FROM mumu_peer_claims')]
+            values=[x[0] for x in db.execute('SELECT peer FROM mumu_profile_visits UNION SELECT peer FROM mumu_peer_claims UNION SELECT peer FROM mumu_recovery_skips')]
         if len(values)>10000:raise StateError('История больше безопасного лимита снимка; журналы не удаляй.')
         return [identifier(x) for x in values]
 
@@ -160,3 +161,11 @@ class SharedStore(BaseStore):
         if navigation['profile_verified'] is True:
             with self.connection() as db:
                 db.execute('INSERT OR IGNORE INTO mumu_profile_visits(peer) VALUES(?)',(peer,))
+
+
+    def skip_recovery_peer(self,who):
+        """A verified current peer is skipped, never granted send authorization."""
+        from one_chat_probe import identity
+        who=identity(who)
+        with self.connection() as db:
+            db.execute('INSERT OR IGNORE INTO mumu_recovery_skips(peer) VALUES(?)',(who['peer'],))

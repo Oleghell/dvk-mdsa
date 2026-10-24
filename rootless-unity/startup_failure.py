@@ -108,3 +108,9 @@ def message(value):
               'adb-version-mismatch':'Не совпадают версии клиента и сервера ADB.'}
     cause = causes.get(evidence.get('adb_reason'))
     return text + (' ' + cause if cause else '')
+
+
+def retryable_connection(error):
+    value=clean(getattr(error,'_dvk_failure',None))
+    return bool(value and value['stage'] in {'gadget-connect','gadget-process','gadget-attach'}
+                and value['error_type'] in {'TransportError','ServerNotRunningError','TimedOutError'})

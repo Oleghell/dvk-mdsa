@@ -123,6 +123,7 @@ def inspect(port, token, cancelled, text, store, approve, *, frida_api=None):
     from diagnose_device import cleanup_frida, validate_runtime
     from one_chat_device import ReadStopped
     from test_device import PACKAGE
+    from startup_failure import record
     f = frida_api
     if f.__version__ != '17.24.1':
         raise ReadStopped('client-version')
@@ -131,7 +132,10 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
  root(){return probeBatchProfile();},cancel(){cancelNavigation();},
  selectedpeer(){return assistantSelectedPeer;},cohortpending(){return cohortReservation();},cohortack(value){return cohortAcknowledge(value);}};
 '''
-    manager = f.get_device_manager()
+    try:
+        manager = f.get_device_manager()
+    except Exception as error:
+        record(error,'gadget-manager');raise
     address = '127.0.0.1:' + str(port)
     device = session = script = None
     done = threading.Event()
@@ -141,18 +145,24 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
     timer = threading.Timer(100, guard.cancel)
     timer.daemon = True
     timer.start()
+    stage='gadget-connect'
     try:
         with guard:
             if cancelled():
                 raise ReadStopped('cancelled')
             device = manager.add_remote_device(address, token=token)
+            stage='gadget-process'
             processes = device.enumerate_processes()
             if (len(processes) != 1 or type(processes[0].pid) is not int or processes[0].pid <= 0
                     or processes[0].name not in ('Gadget', PACKAGE)):
                 raise ReadStopped('unexpected-process')
+            stage='gadget-attach'
             session = device.attach(processes[0].pid)
+            stage='script-create'
             script = session.create_script(source, name='dvk-assistant-manual-profile')
+            stage='script-load'
             script.load()
+            stage='runtime-check'
             runtime = validate_runtime(script.exports_sync.runtime())
             if runtime['arch'] != 'arm64' or runtime['platform'] != 'linux':
                 raise ReadStopped('unsupported-runtime')
@@ -168,7 +178,9 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
                 thread = threading.Thread(target=target, args=args, daemon=True)
                 threads.append(thread)
                 thread.start()
+            stage='script-run'
             raw = script.exports_sync.root()
+            stage='result-validation'
             value = validate(raw, shared_peer_skipped=state.get('shared_peer_skipped', False))
             done.set()
             for thread in threads:
@@ -187,6 +199,9 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
             if state.get('error'):
                 raise StateError(state['error'])
             return dict(navigation=n, declined=state.get('declined', False))
+    except Exception as error:
+        record(error,stage)
+        raise
     finally:
         done.set()
         timer.cancel()

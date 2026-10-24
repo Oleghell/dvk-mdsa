@@ -201,9 +201,11 @@ class GuidedChain(Chain):
         from shared_contact import self_shared,voluntary_batch
         new_peer=[m for m in snapshot['messages'] if m['sender']==who['peer'] and m['id'] not in seen_before]
         requested=bool(row and row[0]=='wait-contact') or voluntary_batch(new_peer)
-        from assistant_contact_followup import refused
+        from assistant_contact_followup import refused,scoped_messages
+        with self.store.connection() as db:
+            refusal_inputs=scoped_messages(db,snapshot,[m['id'] for m in new_peer],requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')))
         if (any(self_shared(m['text'],requested=requested) for m in new_peer)
-                or refused([m for m in snapshot['messages'] if m['sender']==who['peer']] if row and row[0] in ('wait-contact','pending-clarify','pending-followup') else new_peer,
+                or refused(refusal_inputs if row and row[0] in ('wait-contact','pending-clarify','pending-followup') else new_peer,
                            requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')))):
             # consume still checks complete history, hashes, identity, third-party
             # context and pending sends. Do not repair/reset a prior terminal state.

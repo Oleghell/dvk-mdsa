@@ -129,9 +129,11 @@ class Chain:
             independent_contact = self.any_replies and voluntary_batch(incoming)
             shared = [(m, self_shared(m['text'], requested=stage == 'wait-contact' or pending_contact_observed or independent_contact)) for m in incoming]
             shared = [(m, items) for m, items in shared if items]
-            contact_requested = stage in ('wait-contact','pending-clarify','pending-followup')
+            contact_requested = stage in ('wait-contact','pending-clarify','pending-followup') or pending_contact_observed
+            from assistant_contact_followup import scoped_messages
+            refusal_inputs = scoped_messages(db,s, [m['id'] for m in incoming],requested=contact_requested)
             if (any(m['text'] and REFUSAL.search(normalized(m['text'])) for m in incoming)
-                    or contact_refused([m for m in messages if m['sender']==who['peer']] if contact_requested else incoming,
+                    or contact_refused(refusal_inputs if contact_requested else incoming,
                                        requested=contact_requested)):
                 # Respect an explicit stay-here/no-apps preference already read
                 # by an older version too. This never replays or removes actions.

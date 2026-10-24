@@ -145,6 +145,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             cycle_pending = True
             out['search_cycles'] += 1
             host_checkpoint = 'profile-cycle'
+            out['last_profile_diagnostics'] = None
             value = cycle(settings.adb, settings.folder, greeting, ask, stopped.is_set, store=store)
             n = value['navigation']
             # Closed public diagnostics: no identity, message body or native pointers.
@@ -239,8 +240,10 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 out['qualified_profiles'] += 1
         out.update(status='profiles-completed', reason='profile-limit', return_verified=True)
     except Exception as error:
-        from assistant_failure import category
+        from assistant_failure import category,evidence
         out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
+        failure=evidence(error)
+        if failure:out['last_preparation_failure']=failure
         if cycle_pending:
             out.update(send_attempts_unknown=True, greetings_sent=None)
         known = {'profile-recovery-limit', 'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',

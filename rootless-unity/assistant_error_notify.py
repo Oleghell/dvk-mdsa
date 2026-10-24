@@ -7,7 +7,7 @@ import telegram_notify
 from startup_failure import ERRORS as STARTUP_ERRORS, message as failure_message
 import run_preparation
 
-KNOWN = GROQ_ERRORS | NAV_ERRORS | PROFILE_ERRORS | HOST_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed', 'profile-recovery-limit'} | {'history-not-ready','history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
+KNOWN = GROQ_ERRORS | NAV_ERRORS | PROFILE_ERRORS | HOST_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed','recovery-check-stopped', 'profile-recovery-limit'} | {'history-not-ready','history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
     'send-native-check-failed', 'send-device-check-failed', 'send-validation-failed',
     'settings-check-stopped', 'device-busy-or-monitor-check-stopped', 'initial-pass-stopped',
     'search-screen-not-verified', 'dialog-list-not-verified', 'initial-pass-paused',
@@ -42,7 +42,7 @@ def reasons(report):
                 v = v[5:] if v.startswith('chat-') else v
                 if v in KNOWN and v not in ('none', 'cancelled') and v not in result:
                     result.append(v)
-        for key in ('last_pass', 'initial_run', 'last_profile_run', 'inbox', 'profiles',
+        for key in ('recovery_failure','last_pass', 'initial_run', 'last_profile_run', 'inbox', 'profiles',
                     'last_navigation', 'last_navigation_failure', 'last_preparation_failure', 'preparation_failure', 'last_city_navigation', 'last_chat_diagnostics', 'last_read_failure'):
             visit(value.get(key), depth+1)
         for v in (value.get('outcomes') or {}):
@@ -122,10 +122,10 @@ def diagnostic_json(report):
     import json
     import re
     from chat_state_probe import READ_STEPS, WAIT_REASONS, CHECKPOINTS
-    structures = {'initial_run','last_profile_run','last_pass','inbox','profiles',
+    structures = {'recovery_failure','initial_run','last_profile_run','last_pass','inbox','profiles',
         'last_profile_diagnostics','last_city_navigation','last_navigation','last_navigation_failure',
         'last_preparation_failure','last_chat_diagnostics','last_read_failure','diagnostic','recovery_events','ai_failures'}
-    numbers = {'frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
+    numbers = {'recovery_attempts','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
         'profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
         'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
@@ -136,16 +136,18 @@ def diagnostic_json(report):
         'apply_attempted','apply_completed','city_form_verified','city_select_attempted','city_select_completed',
         'action_attempted','action_completed','entry_verified','selection_verified','dialogs_verified','destination_verified','cleanup_failed','continue_work','cooldown'}
     labels = {'status','reason','error','phase','stage','wait_reason','read_checkpoint','last_error',
-        'host_failure','host_checkpoint','failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','selection_checkpoint','provider','code','validation_reason'}
+        'error_type','adb_check','adb_reason','host_failure','host_checkpoint','failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','selection_checkpoint','provider','code','validation_reason'}
     from groq_reply import VALIDATION_REASONS
-    codes = KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
+    from startup_failure import STAGES,TYPES,ADB_CHECKS
+    from adb_evidence import REASONS as ADB_REASONS
+    codes = STAGES | TYPES | {'OtherError'} | ADB_CHECKS | ADB_REASONS | KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
         'groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
         'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
         'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',
         'done','check-chat','close-chat','wait-chat-back','search','profile','wait-return','scan-city',
         'query-city','confirm-profile','wait-profile','wait-chat','wait-city','verify-search','select-city',
         'profile-limit','visible-exhausted','model','last-message','chat-not-actual','history-loading',
-        'history-not-loaded','profile-recovery-limit','working','checking','cancelled'}
+        'history-not-loaded','profile-recovery-limit','working','checking','cancelled','recovering','safe-recovery'}
     def clean(value, depth=0):
         if not isinstance(value, dict) or depth > 7:
             return {}
@@ -181,6 +183,8 @@ def notify_json(report, *, loader=telegram_notify.load, sender=telegram_notify.s
         caption = ('↩️ DvkAssistant: возврат проверен, проблемная анкета пропущена. ' +
             ('Работа продолжается.' if report.get('continue_work', True) else 'Достигнут лимит восстановлений этого прохода.') +
             ' JSON-диагностика без текста переписки и ключей.')
+    elif report.get('status') == 'recovering':
+        caption = '↻ DvkAssistant: восстанавливаю работу порта. Проблемный чат пропускается только после проверки; неизвестные отправки не повторяются. JSON без переписки и ключей.'
     else:
         if report.get('status') not in ('stopped','paused'):
             return 'not-needed'

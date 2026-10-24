@@ -82,7 +82,8 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
             recheck(adb,boot)
             stage='journal-initialization'
             Store()
-            from assistant_monitor import run as monitor,REPORT
+            from assistant_monitor import REPORT
+            from mumu_recovery import run as monitor
             stage='monitor'
             atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,status='running',stage=stage,automatic_retry=False))
             progress('Подключено. Обрабатываю диалоги и анкеты.')
@@ -99,13 +100,17 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                     elif type(v) is list:
                         for child in v:scope(child)
                 scope(value)
-                value.update(tool_version=VERSION,engine_version='1.2.23',platform='MuMu',device_port=n,
+                value.update(tool_version=VERSION,engine_version='1.2.24',platform='MuMu',device_port=n,
                     device_scope=serial(n),shared_database=True)
                 atomic(device_directory(n)/'last-performance.json',dict(metrics.snapshot(),tool_version=VERSION,device_port=n))
                 atomic(device_directory(n)/REPORT,value)
                 return REPORT
+            def recovery_recheck():
+                from startup_failure import checkpoint
+                with checkpoint('device-recheck',adb=adb):recheck(adb,boot)
+            extra={} if runner is not None else {'recheck':recovery_recheck}
             out=(runner or monitor)(current,stopped,RunAuthorization(stopped,immediate_greeting=True,progress=progress),progress,
-                  mode=spec['mode'],fresh_session=spec['fresh'],write=write,continuous=True)
+                  mode=spec['mode'],fresh_session=spec['fresh'],write=write,continuous=True,**extra)
             write(out)
             atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,status='finished',stage='monitor',automatic_retry=False))
             return out

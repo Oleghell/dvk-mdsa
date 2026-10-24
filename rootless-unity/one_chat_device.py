@@ -103,8 +103,18 @@ def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspe
             if not port.isdecimal() or not 1024 <= int(port) <= 65535:
                 raise ReadStopped('invalid-forward')
             adb.forward_port = int(port)
-        with checkpoint('device-inspection'):
-            private = inspector(adb.forward_port, token, cancelled, expected)
+        from startup_failure import retryable_connection
+        for connection_attempt in range(2):
+            try:
+                with checkpoint('device-inspection'):
+                    private = inspector(adb.forward_port, token, cancelled, expected)
+                break
+            except Exception as error:
+                if connection_attempt or cancelled() or not retryable_connection(error):raise
+                # Inspector's finally has detached its exact session. Recheck
+                # the same device before one fresh, pre-script connection only.
+                with checkpoint('device-recheck', adb=adb):
+                    recheck(adb, boot)
         with checkpoint('device-recheck-after', adb=adb):
             recheck(adb, boot)
         if cancelled():

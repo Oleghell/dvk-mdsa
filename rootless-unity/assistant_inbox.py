@@ -220,6 +220,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         if stopped.is_set():
             raise StateError('cancelled')
         out['ui_may_remain_open'] = True
+        out['last_navigation'] = None
         value = navigator(operation, settings.adb, settings.folder, stopped.is_set, **kwargs)
         if not isinstance(value, dict) or set(value) != {'state', 'identity', 'diagnostic'}:
             raise ValueError('Invalid navigation result')
@@ -446,8 +447,10 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                    dialogs_verified=return_to == 'dialogs',
                    ui_may_remain_open=False)
     except Exception as error:
-        from assistant_failure import category
+        from assistant_failure import category,evidence
         out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
+        failure=evidence(error)
+        if failure:out['last_navigation_failure']=failure
         n = out['last_navigation']
         out.update(status='inbox-cancelled' if stopped.is_set() else 'inbox-stopped',
                    reason='cancelled' if stopped.is_set() else

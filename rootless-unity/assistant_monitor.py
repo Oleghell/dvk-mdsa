@@ -54,7 +54,7 @@ def report(mode):
 def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         fresh_session=False, initial=initial_pass, inbox=inbox_pass,
         navigator=perform, lock=operation_lock, write=write_report, wait=None,
-        clock=time.monotonic, repeat=initial_pass, alert=None, continuous=False, json_alert=None):
+        clock=time.monotonic, repeat=initial_pass, alert=None, continuous=False, json_alert=None, terminal_notifications=True):
     """No startup/resume actions without an explicit UI Start. Begin on search or dialogs; unknown screens are rejected."""
     if type(continuous) is not bool:raise ValueError('Invalid continuous mode')
     if mode not in ('full', 'inbox'):
@@ -264,7 +264,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         publish()
     except StateError:
         out.update(status='stopped', reason='report-write-failed')
-    if settings.errors_enabled and out['status'] in ('stopped', 'paused'):
+    if terminal_notifications and settings.errors_enabled and out['status'] in ('stopped', 'paused'):
         from assistant_error_notify import notify
         try:
             out['error_notification'] = (notify if alert is None else alert)(out)
