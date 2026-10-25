@@ -81,8 +81,8 @@ def monitor(script, store, text, approve, done, cancelled, state):
             pending = dict(cohort_pass.Store.check(pending))
             if cancelled() or done.is_set():
                 return
-            # A current shared claim skips before typing; reserve below still
-            # checks atomically again in case another worker wins during typing.
+            # A terminal global outcome or local prior attempt skips before
+            # typing; reserve below rechecks atomically after approval.
             if getattr(store, 'mumu_shared_claims', False) is True and store.peer_claimed(pending):
                 from mumu_claims import skip
                 skip(script, pending, state)
@@ -105,6 +105,13 @@ def monitor(script, store, text, approve, done, cancelled, state):
                 return
             if cancelled() or done.is_set():
                 return  # Durable unknown reservation is intentionally retained.
+            if (getattr(store,'mumu_shared_claims',False) is True
+                    and store.peer_terminal(pending) is True):
+                # Refusal/contact arrived after reservation but before native ACK.
+                # Retain the local reserve; use the verified no-send Back path.
+                from mumu_claims import skip
+                skip(script,pending,state)
+                return
             if not script.exports_sync.cohortack(pending):
                 raise StateError('Подтверждение устарело. Отправка остановлена.')
             return  # Exactly one authorization per host operation.

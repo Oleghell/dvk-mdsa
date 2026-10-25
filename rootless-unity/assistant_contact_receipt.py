@@ -50,6 +50,8 @@ def save(chain,db,snapshot,message,items):
             raise StateError('contact-protection-failed') from None
     from assistant_statistics import received
     received(db,who['account'],who['peer'],chat,items)
+    if getattr(chain.store,'mumu_shared_claims',False) is True:
+        chain.store.record_peer_outcome(db,who,'contact-received')
 
 
 def reviewable(db,chat):

@@ -111,7 +111,7 @@ class Namespace(unittest.TestCase):
             window.enable(a,new_only=True);window.enable(b)
             self.assertEqual(window.reason(a,dict(account='100',peer='200')),'new-start-excluded')
             self.assertIsNone(window.reason(b,dict(account='100',peer='201')))
-            with a.connection() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM mumu_peer_claims').fetchone()[0],2)
+            with a.connection() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM mumu_peer_claims').fetchone()[0],0)
 
 class Scan(Base):
     def failed(self):

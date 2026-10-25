@@ -52,19 +52,20 @@ class SharedDatabase(unittest.TestCase):
         self.path=Path(self.tmp.name)/'assistant.sqlite3';self.legacy=Path(self.tmp.name)/'old'
     def store(self,n):return SharedStore(self.path,self.legacy,device_port=n)
 
-    def test_old_journal_preserved_and_claimed_across_accounts(self):
+    def test_old_journal_preserved_only_original_port_claimed(self):
         old=Store(self.path,self.legacy)
         action=old.reserve(pending(), 'Hi',approved=True)
         old.finish(action,dict(send_attempted=False,send_handler_returned=False))
         a,b=self.store(5557),self.store(5563)
-        self.assertEqual(a.visited_peers(),['200'])
-        with self.assertRaises(SharedPeerClaimed):a.reserve(pending(account='101'), 'Hi',approved=True)
+        self.assertEqual(a.visited_peers(),[])
+        self.assertEqual(b.visited_peers(),['200'])
+        a.reserve(pending(account='101'), 'Hi',approved=True)
         self.assertEqual(b.summary()['statuses'],{'not-invoked':1})
         self.assertEqual(old.summary(),b.summary())
         self.assertNotIn(b'Hi',self.path.read_bytes())
 
-    def test_atomic_race_exactly_one_winner(self):
-        a,b=self.store(5557),self.store(5559)
+    def test_same_port_atomic_race_exactly_one_winner(self):
+        a,b=self.store(5557),self.store(5557)
         barrier=threading.Barrier(2);results=[];lock=threading.Lock()
         def race(store,account):
             barrier.wait()
@@ -75,10 +76,11 @@ class SharedDatabase(unittest.TestCase):
         for t in threads:t.start()
         for t in threads:t.join(10);self.assertFalse(t.is_alive())
         self.assertEqual(sorted(results),['claimed','won'])
-        self.assertEqual(a.summary()['reserved']+b.summary()['reserved'],1)
-        with closing(sqlite3.connect(self.path)) as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM mumu_peer_claims').fetchone()[0],1)
+        self.assertEqual(a.summary()['reserved'],1)
+        self.assertEqual(b.summary()['reserved'],1)
+        with closing(sqlite3.connect(self.path)) as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM mumu_peer_claims').fetchone()[0],0)
 
-    def test_process_race_not_just_threads(self):
+    def test_same_port_process_race_not_just_threads(self):
         a=self.store(5557)
         script="""import sys,time
 from pathlib import Path
@@ -94,7 +96,7 @@ except SharedPeerClaimed:print('claimed')
         try:
             for n in (5557,5559):
                 ready=Path(self.tmp.name)/str(n)
-                child=subprocess.Popen([sys.executable,'-c',script,str(self.path),str(self.legacy),str(n),str(ready),str(go),str(n+100)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+                child=subprocess.Popen([sys.executable,'-c',script,str(self.path),str(self.legacy),'5557',str(ready),str(go),str(n+100)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
                 children.append((child,ready))
             import time
             until=time.monotonic()+15
@@ -109,14 +111,16 @@ except SharedPeerClaimed:print('claimed')
                 if child.poll() is None:child.kill()
                 child.communicate()
 
-    def test_unknown_claim_never_released_on_restart_or_clear(self):
+    def test_local_unknown_never_released_but_other_port_not_claimed(self):
         a=self.store(5557);action=a.reserve(pending(),'Hello',approved=True)
         from assistant_profiles import clear_history
         clear_history(a)
-        self.assertTrue(self.store(5559).peer_claimed(pending(account='777')))
-        with self.assertRaises(SharedPeerClaimed):self.store(5559).reserve(pending(account='777'),'Hi',approved=True)
+        self.assertTrue(self.store(5557).peer_claimed(pending(account='777')))
+        self.assertFalse(self.store(5559).peer_claimed(pending(account='777')))
+        with self.assertRaises(SharedPeerClaimed):self.store(5557).reserve(pending(account='777'),'Hi',approved=True)
         a.finish(action,dict(send_attempted=True,send_handler_returned=False))
-        self.assertTrue(self.store(5559).peer_claimed(pending(account='777')))
+        self.assertTrue(self.store(5557).peer_claimed(pending(account='777')))
+        self.assertFalse(self.store(5559).peer_claimed(pending(account='777')))
 
     def test_unapproved_and_invalid_do_not_claim(self):
         a=self.store(5557)

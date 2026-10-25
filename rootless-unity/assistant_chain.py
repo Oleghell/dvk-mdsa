@@ -147,6 +147,10 @@ class Chain:
                 # Respect an explicit stay-here/no-apps preference already read
                 # by an older version too. This never replays or removes actions.
                 stage = 'declined'
+                if getattr(self.store,'mumu_shared_claims',False) is True:
+                    from mumu_peer_policy import explicit_refusal
+                    if explicit_refusal(refusal_inputs if contact_requested else incoming,requested=contact_requested):
+                        self.store.record_peer_outcome(db,who,'contact-refused')
             elif shared:
                 aggregate = self.any_replies and (stage == 'wait-contact' or pending_contact_observed or independent_contact or anchored_request)
                 if (outgoing and not pending_contact_observed and not independent_contact and not anchored_request) or (not aggregate and (len(shared) != 1 or len(incoming) != 1)):

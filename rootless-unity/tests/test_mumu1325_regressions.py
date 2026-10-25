@@ -69,7 +69,7 @@ class InitialReadBudget(Base):
             self.assertFalse(history.verified_read_budget(dict(good,**changes)))
 
 class GlobalPeer(unittest.TestCase):
-    def test_every_old_namespace_is_imported_with_unknowns_untouched(self):
+    def test_other_namespace_greetings_not_imported_as_bans_unknowns_untouched(self):
         with tempfile.TemporaryDirectory() as t:
             path=Path(t)/'db';legacy=Path(t)/'old'
             for port in (5563,5557,5559,5561,5565):
@@ -81,12 +81,11 @@ class GlobalPeer(unittest.TestCase):
             fresh=SharedStore(path,legacy,device_port=5559)
             for port in (5563,5557,5559,5561,5565):
                 person=pending(peer=str(port+100),account='999')
-                self.assertTrue(fresh.peer_claimed(person))
-                with self.assertRaises(SharedPeerClaimed):fresh.reserve(person,'Hello',approved=True)
+                self.assertEqual(fresh.peer_claimed(person),port==5559)
             with closing(sqlite3.connect(path,isolation_level=None)) as db:
-                self.assertEqual(db.execute('SELECT COUNT(*) FROM mumu_peer_claims').fetchone()[0],5)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM mumu_peer_claims').fetchone()[0],0)
                 for table,rows in old.items():self.assertEqual(db.execute('SELECT * FROM '+table).fetchall(),rows)
-    def test_atomic_cross_account_claim_existing_contract(self):
+    def test_cross_port_reservations_both_allowed_before_terminal_outcome(self):
         with tempfile.TemporaryDirectory() as t:
             path=Path(t)/'db';legacy=Path(t)/'old'
             stores=[SharedStore(path,legacy,device_port=p) for p in (5557,5563)]
@@ -98,7 +97,7 @@ class GlobalPeer(unittest.TestCase):
             ts=[threading.Thread(target=claim,args=(s,str(i+100))) for i,s in enumerate(stores)]
             for th in ts:th.start()
             for th in ts:th.join(10);self.assertFalse(th.is_alive())
-            self.assertEqual(sorted(results),['blocked','won'])
+            self.assertEqual(sorted(results),['won','won'])
 
 class Diagnostics(unittest.TestCase):
     def test_native_no_send_diagnostic_survives_but_secrets_do_not(self):
