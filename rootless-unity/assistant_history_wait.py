@@ -37,10 +37,16 @@ def verified_read_budget(value):
     initial_ids=(value.get('identity_checkpoint')=='initial-ids'
         and phase=='identity' and scalar in ('account-id','peer-id','chat-id')
         and value.get('scalar_state') == 'not-read')
+    # IDs were read, but the frame expired before IsActual/IsDraft finished.
+    # This is not identity proof: only a new SAME-bound read or verified Back
+    # can proceed. In particular, identity-not-bound still never matches.
+    actual_ids=(value.get('identity_checkpoint')=='actual-server-chat'
+        and phase=='identity' and scalar=='chat-id'
+        and value.get('scalar_state')=='positive')
     return (value.get("error") in ("frame-budget", "transition-timeout")
         and value.get("stage") == "navigation-stopped"
         and value.get("metadata_checkpoint") == "ready"
-        and (initial_ids or phase_ok and value.get("identity_checkpoint") == "recheck")
+        and (initial_ids or actual_ids or phase_ok and value.get("identity_checkpoint") == "recheck")
         and value.get("scalar_state") in ("positive", "not-read")
         and value.get("wait_reason") in ("none", "not-checked")
         and type(value.get("message_slot")) is int

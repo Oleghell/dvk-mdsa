@@ -138,7 +138,11 @@ COLLECT = r'''
    const chunk=state.historyChunk;
    if(chunk.identity!==JSON.stringify(who))fail('identity-changed');
    if(chunk.count!==first){state.historyChunk=null;invalidate('changing-count');return;}
-   const end=Math.min(first,(chunk.phase==='headers'?chunk.headers.length:chunk.messages.length)+4);
+   // Short dialogs should not spend the remaining frame on four messages.
+   // Keep the established four-item bound for larger histories so their full
+   // two-sample read still fits the unchanged total frame/call limits.
+   const chunkSize=first<=16?1:4;
+   const end=Math.min(first,(chunk.phase==='headers'?chunk.headers.length:chunk.messages.length)+chunkSize);
    if(chunk.phase==='headers'){
     const start=chunk.headers.length;
     for(let i=start;i<end;i++){

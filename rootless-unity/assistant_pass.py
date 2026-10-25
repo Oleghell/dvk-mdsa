@@ -200,6 +200,11 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
                 raise StateError(state['error'])
             return dict(navigation=n, declined=state.get('declined', False))
     except Exception as error:
+        # This exact host path has not loaded a script, started any RPC or
+        # authorization thread. A remote script possibly allocated by a failed
+        # create_script call is still NOT loaded and cannot execute the cycle.
+        error._dvk_profile_not_executed = (stage=='script-create' and script is None
+            and not threads and not state)
         record(error,stage)
         raise
     finally:

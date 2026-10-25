@@ -17,7 +17,8 @@ class ReadFrames(unittest.TestCase):
    self.assertFalse(wait.verified_read_budget(safe_read_failure(bad)))
  def test_native_reader_yields_headers_then_bodies_then_final_checks(self):
   s=probe.build(guide.WHO,scoped_traversal=True)
-  self.assertIn("+4)",s)
+  self.assertIn("const chunkSize=first<=16?1:4;",s)
+  self.assertIn("+chunkSize)",s)
   self.assertIn("chunk.phase='bodies';if(first>0){verifyWho();return;}",s)
   self.assertIn("if(chunk.messages.length===first)chunk.phase='complete';",s)
   self.assertIn("state.historyChunk=null;verifyWho();",s)

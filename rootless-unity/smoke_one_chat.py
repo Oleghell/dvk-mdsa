@@ -18,7 +18,15 @@ def one(library, mode, expected=None, *, read_latest=False, read_name=False, rea
         q=queue.Queue();threading.Thread(target=lambda:q.put(child.stdout.readline()),daemon=True).start()
         assert q.get(timeout=10).strip()=='ready'
         session=frida.get_local_device().attach(child.pid)
-        script=session.create_script(p.build(expected,scoped_traversal=True,read_latest=read_latest,read_name=read_name,read_input=read_input)+'''
+        source=p.build(expected,scoped_traversal=True,read_latest=read_latest,read_name=read_name,read_input=read_input)
+        if mode in (583,584):
+            # Controlled native getter delay plus final identity-check overhead.
+            # This is synthetic timing, not a claim about a live device's speed.
+            source=source.replace('if(chunk.headers.length<first){verifyWho();return;}',
+                'if(chunk.headers.length<first){{const until=Date.now()+40;while(Date.now()<until){}}verifyWho();return;}')
+        if mode==584:
+            source=source.replace('const chunkSize=first<=16?1:4;', 'const chunkSize=4;')
+        script=session.create_script(source+'''
         rpc.exports={root(){return probeUIKitRoot();},counts(){
           const get=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
           return {handles:get('fixture_handles'),bad:get('fixture_bad_frees'),off:get('fixture_off_thread_calls'),
@@ -36,10 +44,10 @@ def one(library, mode, expected=None, *, read_latest=False, read_name=False, rea
             assert private is not None,(mode,out,counts)
             assert private['latest_message_id']==(None if mode==581 else '1001' if mode==580 else '1002'),(mode,out,counts)
             assert len(private['messages'])==2
-        elif mode in (570,571,572,575):
+        elif mode in (570,571,572,575,583):
             assert private is not None,(mode,out,counts)
-            assert len(private['messages'])==(65 if mode==575 else 18),(mode,out)
-            assert [x['id'] for x in private['messages']]==[str(1001+i) for i in range(65 if mode==575 else 18)]
+            assert len(private['messages'])==(6 if mode==583 else 65 if mode==575 else 18),(mode,out)
+            assert [x['id'] for x in private['messages']]==[str(1001+i) for i in range(6 if mode==583 else 65 if mode==575 else 18)]
             assert all(x['text']=='Reply' for x in private['messages'][1:])
         elif (mode in (500,507,550,560,567,568) or mode==602 and read_input) and expected['peer']=='200':
             assert private is not None,(mode,out,counts)
@@ -48,6 +56,8 @@ def one(library, mode, expected=None, *, read_latest=False, read_name=False, rea
                 assert private['messages'][0 if mode==568 else 1]==dict(id='1002',sender='200',text='Reply')
         else:
             assert private is None,(mode,out,counts)
+            if mode==584:
+                assert out['navigation']['error']=='frame-budget',(mode,out,counts)
             if mode==551:
                 assert out['navigation']['error']=='view-parent-depth-limit' and counts['bodies']==0,(mode,out,counts)
             if mode in (561,562,563,564,566,573,574):
@@ -98,7 +108,7 @@ if __name__=='__main__':
         for names in (False,True):
             one(lib,mode,dict(account='100',peer='200',chat='300'),read_input=True,read_latest=True,read_name=names)
     who=dict(account='100',peer='200',chat='300')
-    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575,576,577,578):one(lib,mode,who)
+    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575,576,577,578,583,584):one(lib,mode,who)
     for mode in (579,580,581,582):one(lib,mode,who,read_latest=True)
     one(lib,579,who,read_latest=True,read_name=True)
     one(lib,500,dict(account='100',peer='201',chat='300'))

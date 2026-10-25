@@ -78,12 +78,14 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
         cleanup_frida(f, manager, address, script, session, device)
 
 
-def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect, read_name=False, read_latest=False, read_input=False):
+def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect, read_name=False, read_latest=False, read_input=False, preexecution_retry=None):
     """Private data remains in memory; no JSON serialization in this layer."""
     if read_name or read_latest or read_input:
         if expected is None or inspector is not inspect:
             raise ValueError('Name requires the fixed bound reader')
         inspector = lambda port, token, cancel, who: inspect(port, token, cancel, who, read_name=read_name, read_latest=read_latest, read_input=read_input)
+    if preexecution_retry is not None and not callable(preexecution_retry):
+        raise ValueError('Invalid pre-execution retry callback')
     from startup_failure import checkpoint
     with checkpoint('bundle-check'):
         folder = Path(folder).resolve(strict=True)
@@ -104,15 +106,36 @@ def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspe
                 raise ReadStopped('invalid-forward')
             adb.forward_port = int(port)
         from startup_failure import retryable_connection
-        for connection_attempt in range(2):
+        connection_attempt = 0
+        setup_attempt = 0
+        while True:
             try:
                 with checkpoint('device-inspection'):
                     private = inspector(adb.forward_port, token, cancelled, expected)
                 break
             except Exception as error:
+                from assistant_setup_retry import retryable_profile_setup
+                if preexecution_retry is not None and retryable_profile_setup(error):
+                    # inspect() has already joined threads/detached its session.
+                    # No UI action or journal authorization happened in this try.
+                    # Hold the original explicit endpoint/boot and ADB forward.
+                    if cancelled():
+                        error_cancelled=ReadStopped('cancelled')
+                        error_cancelled._dvk_profile_not_executed=True
+                        raise error_cancelled from None
+                    setup_attempt += 1
+                    delay=min(30,2**min(setup_attempt-1,5))
+                    interrupted=preexecution_retry(error,setup_attempt,delay)
+                    if interrupted or cancelled():
+                        error_cancelled=ReadStopped('cancelled')
+                        error_cancelled._dvk_profile_not_executed=True
+                        raise error_cancelled from None
+                    with checkpoint('device-recheck', adb=adb):
+                        recheck(adb, boot)
+                    continue
                 if connection_attempt or cancelled() or not retryable_connection(error):raise
-                # Inspector's finally has detached its exact session. Recheck
-                # the same device before one fresh, pre-script connection only.
+                connection_attempt += 1
+                # Existing one-shot connection retry, never load/root replay.
                 with checkpoint('device-recheck', adb=adb):
                     recheck(adb, boot)
         with checkpoint('device-recheck-after', adb=adb):

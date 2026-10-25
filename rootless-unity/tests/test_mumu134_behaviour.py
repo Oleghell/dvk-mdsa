@@ -33,7 +33,8 @@ class GreetingFallback(unittest.TestCase):
   self.assertEqual(len(g.public_context(s)),66)
   source=probe.build(guide.WHO)
   self.assertIn('first>128',source);self.assertIn('n.managed_calls>=60000',source)
-  self.assertIn('+4)',source)
+  self.assertIn('const chunkSize=first<=16?1:4;',source)
+  self.assertIn('+chunkSize)',source)
 
 class Receipts(guide.WholeChain):
  def test_initial_batch_answer_receipt_requires_observed_outgoing(self):

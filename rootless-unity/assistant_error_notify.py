@@ -127,11 +127,11 @@ def diagnostic_json(report):
         'last_profile_diagnostics','last_city_navigation','last_navigation','last_navigation_failure',
         'last_preparation_failure','last_chat_diagnostics','last_read_failure','diagnostic','recovery_events','ai_failures'}
     numbers = {'recovery_attempts','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
-        'profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
+        'setup_retry_attempts','profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
         'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
         'entry_read_budget_retries','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs'}
-    flags = {'submission_attempted','submission_returned','contact_review_reconciled','send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',
+    flags = {'profile_script_executed','submission_attempted','submission_returned','contact_review_reconciled','send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',
         'open_attempted','open_completed','chat_open_attempted','chat_open_completed','chat_identity_verified',
         'chat_back_attempted','chat_back_completed','chat_return_verified','profile_read_skipped',
         'apply_attempted','apply_completed','city_form_verified','city_select_attempted','city_select_completed',
@@ -145,7 +145,7 @@ def diagnostic_json(report):
     from startup_failure import STAGES,TYPES,ADB_CHECKS
     from adb_evidence import REASONS as ADB_REASONS
     codes = SEND_ERRORS | SCALAR_CHECKPOINTS | SCALAR_STATES | IDENTITY_CHECKPOINTS | {'ReadStopped','not-read','text','non-text','own','not-own'} | STAGES | TYPES | {'OtherError','StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} | ADB_CHECKS | ADB_REASONS | KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
-        'groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
+        'reconnecting','reconnected','profile-script-not-created','groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
         'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
         'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',
         'done','check-chat','close-chat','wait-chat-back','search','profile','wait-return','scan-city',
@@ -189,6 +189,11 @@ def notify_json(report, *, loader=telegram_notify.load, sender=telegram_notify.s
         caption = ('↩️ DvkAssistant: возврат проверен, проблемная анкета пропущена. ' +
             ('Работа продолжается.' if report.get('continue_work', True) else 'Достигнут лимит восстановлений этого прохода.') +
             ' JSON-диагностика без текста переписки и ключей.')
+    elif report.get('status') == 'reconnecting':
+        if (report.get('reason')!='profile-script-not-created' or report.get('profile_script_executed') is not False
+                or report.get('send_attempted') is not False or report.get('send_handler_returned') is not False):
+            return 'not-needed'
+        caption = '↻ DvkAssistant: переподключаюсь до запуска скрипта. Анкеты и сообщения не отправлялись в этой попытке; текущий проход сохранён. JSON без переписки и ключей.'
     elif report.get('status') == 'recovering':
         caption = '↻ DvkAssistant: восстанавливаю работу порта. Проблемный чат пропускается только после проверки; неизвестные отправки не повторяются. JSON без переписки и ключей.'
     else:

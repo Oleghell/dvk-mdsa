@@ -10,6 +10,7 @@ import telegram_notify
 
 REASONS = {
  'reply-excluded':'Диалог исключён часовым лимитом или режимом «Новые анкеты». Отсчёт — от первого приветствия, не от последнего входящего.',
+ 'new-start-excluded':'Диалог существовал до запуска «Новые анкеты». По этому режиму ответы разрешены только новым собеседникам.',
  'reply-window-expired':'Прошёл час от первого приветствия. Чат пропущен по настройке времени.',
  'reply-age-unverified':'Не удалось подтвердить время первого приветствия. Ответ вслепую не отправлен.',
  'greeting-not-verified':'Не удалось подтвердить исходное приветствие по журналу. Этот чат оставлен на проверку.',
@@ -53,6 +54,11 @@ REASONS = {
 
 def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, photo_status=None, photo_sender=None):
     reason = result.get('reason')
+    if reason == 'reply-excluded':
+        from assistant_reply_window import reason as excluded
+        actual = excluded(chain.store, who)
+        if actual in {'reply-window-expired','reply-age-unverified','new-start-excluded'}:
+            reason = actual
     from assistant_inbox import ISOLATE
     from assistant_chain import REVIEW_CAUSES
     if reason not in REASONS and reason not in ISOLATE:

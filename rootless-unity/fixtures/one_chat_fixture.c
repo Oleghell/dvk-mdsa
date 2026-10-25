@@ -87,10 +87,17 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   managed_calls++;if(TID()!=main_id)off_thread_calls++;
   boolbox.value=mode==577;return &boolbox;
  }
- if(mode>=570&&mode<=575&&m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=mode==575?65:mode==572&&items<4?16:18;return &integer_box;}
- if(mode>=570&&mode<=575&&m->action==109){
+ if(((mode>=570&&mode<=575)||mode==583||mode==584)&&m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=(mode==583||mode==584)?6:mode==575?65:mode==572&&items<4?16:18;return &integer_box;}
+ if(((mode>=570&&mode<=575)||mode==583||mode==584)&&m->action==109){
   managed_calls++;if(TID()!=main_id)off_thread_calls++;items++;
-  if(!args||!args[0]||*(int *)args[0]<0||*(int *)args[0]>=(mode==575?65:18)){*exc=&exception;return NULL;}
+  if(!args||!args[0]||*(int *)args[0]<0||*(int *)args[0]>=((mode==583||mode==584)?6:mode==575?65:18)){*exc=&exception;return NULL;}
+  if(mode==583||mode==584){
+#ifdef _WIN32
+   Sleep(35);
+#else
+   usleep(35000);
+#endif
+  }
   if(mode==571){
 #ifdef _WIN32
    Sleep(8);

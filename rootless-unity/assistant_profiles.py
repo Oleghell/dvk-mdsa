@@ -251,7 +251,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
         out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
         failure=evidence(error)
         if failure:out['last_preparation_failure']=failure
-        if cycle_pending:
+        if cycle_pending and not (getattr(error,'_dvk_profile_not_executed',False) is True and not offered):
             out.update(send_attempts_unknown=True, greetings_sent=None)
         known = {'profile-recovery-limit', 'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
                  'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'search-cycle-limit', 'profile-scan-limit'}
@@ -281,8 +281,17 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, cycl
                 if (folder / name).exists():
                     raise StateError('legacy-reservation-present')
             text = check_text(text)
-            return capture(executable, folder, cancelled, inspector=lambda port, token, cancel, expected:
-                           native_cycle(port, token, cancel, text, store, ask))
+            import os
+            extra={}
+            observer=None
+            if os.environ.get('DVK_MUMU_MULTI')=='1':
+                from assistant_setup_retry import SetupRetry
+                observer=SetupRetry(settings,stopped,progress)
+                extra['preexecution_retry']=observer
+            value=capture(executable, folder, cancelled, inspector=lambda port, token, cancel, expected:
+                           native_cycle(port, token, cancel, text, store, ask),**extra)
+            if observer is not None:observer.completed()
+            return value
     return walk(settings, stopped, approve, progress, Store() if store is None else store,
                 cycle=cycle, city_next=city_next, config=config, limit=limit,
                 fresh_session=fresh_session, between_profiles=between_profiles)
