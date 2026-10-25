@@ -125,7 +125,7 @@ def diagnostic_json(report):
     from chat_state_probe import READ_STEPS, WAIT_REASONS, CHECKPOINTS
     structures = {'recovery_failure','initial_run','last_profile_run','last_pass','inbox','profiles',
         'last_profile_diagnostics','last_city_navigation','last_navigation','last_navigation_failure',
-        'last_preparation_failure','last_chat_diagnostics','last_read_failure','diagnostic','recovery_events','ai_failures'}
+        'last_preparation_failure','preparation_failure','last_chat_diagnostics','last_read_failure','diagnostic','recovery_events','ai_failures'}
     numbers = {'send_preflight_retries','recovery_attempts','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
         'setup_retry_attempts','profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
@@ -159,7 +159,11 @@ def diagnostic_json(report):
         for key, entry in value.items():
             if key in structures:
                 if isinstance(entry, dict):
-                    result[key] = clean(entry, depth+1)
+                    # Startup and run preparation have different closed schemas.
+                    # Reuse the preparation validator: generic native labels omit
+                    # its stages, ConfigError, filename category and reason.
+                    prepared = run_preparation.clean(entry) if key in ('preparation_failure', 'last_preparation_failure') else None
+                    result[key] = prepared if prepared is not None else clean(entry, depth+1)
                 elif key == 'ai_failures' and isinstance(entry, list):
                     result[key] = [clean(e, depth+1) for e in entry[:64] if isinstance(e, dict)]
                 elif key == 'recovery_events' and isinstance(entry, list):
@@ -200,6 +204,9 @@ def notify_json(report, *, loader=telegram_notify.load, sender=telegram_notify.s
         if report.get('status') not in ('stopped','paused'):
             return 'not-needed'
         caption = '⚠️ DvkAssistant: JSON-диагностика остановки без текста переписки и ключей. Неизвестные отправки не повторяются.'
+        detail = run_preparation.message(report)
+        if detail:
+            caption += '\n' + detail
     try:
         token, chat = loader()
     except Exception:

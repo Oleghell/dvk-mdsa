@@ -97,7 +97,9 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
         raise ValueError('Invalid profile limit')
     out = report(limit)
     out.update(flags(approve))
-    config = load() if config is None else config
+    from run_preparation import checkpoint
+    with checkpoint('profiles-config'):
+        config = load() if config is None else config
     session = Session(store)
     out['current_city'] = session.get('city')
     cycle_pending = False

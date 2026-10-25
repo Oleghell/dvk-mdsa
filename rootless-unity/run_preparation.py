@@ -4,7 +4,7 @@ import sqlite3
 from groq_reply import GroqError, ERRORS as AI_ERRORS
 
 STAGES = {
- 'run-imports','run-lock','run-inbox','run-inbox-result','run-profiles','run-profiles-result','run-report',
+ 'profiles-config','run-imports','run-lock','run-inbox','run-inbox-result','run-profiles','run-profiles-result','run-report',
  'inbox-imports','inbox-contacts','inbox-ai','inbox-database','inbox-chain','inbox-photo',
  'inbox-navigation-adapter','inbox-config','inbox-walk','inbox-outbox','inbox-targets','inbox-review'}
 ERRORS = {'prepare-'+s+'-failed' for s in STAGES} | AI_ERRORS | {'configuration-invalid'}
@@ -70,6 +70,7 @@ def from_report(report):
     return None
 
 LABELS = {
+ 'profiles-config':'Не удалось прочитать настройки перед проходом по анкетам.',
  'run-imports':'Не удалось загрузить компоненты первого прохода.',
  'run-lock':'Не удалось получить блокировку запуска.',
  'run-inbox':'Не удалось подготовить проход по входящим.',
