@@ -131,19 +131,20 @@ def diagnostic_json(report):
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
         'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
         'entry_read_budget_retries','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs'}
-    flags = {'contact_review_reconciled','send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',
+    flags = {'submission_attempted','submission_returned','contact_review_reconciled','send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',
         'open_attempted','open_completed','chat_open_attempted','chat_open_completed','chat_identity_verified',
         'chat_back_attempted','chat_back_completed','chat_return_verified','profile_read_skipped',
         'apply_attempted','apply_completed','city_form_verified','city_select_attempted','city_select_completed',
         'action_attempted','action_completed','entry_verified','selection_verified','dialogs_verified','destination_verified','cleanup_failed','continue_work','cooldown'}
-    labels = {'status','reason','error','phase','stage','wait_reason','read_checkpoint','last_error',
+    labels = {'last_send_failure','status','reason','error','phase','stage','wait_reason','read_checkpoint','last_error',
         'scalar_checkpoint','scalar_state','identity_checkpoint','message_kind','message_direction','error_type','adb_check','adb_reason','host_failure','host_checkpoint','failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','selection_checkpoint','provider','code','validation_reason'}
     from groq_reply import VALIDATION_REASONS
     from chat_limits import MAX_MESSAGES
+    from one_chat_send import ERRORS as SEND_ERRORS
     from one_chat_probe import SCALAR_CHECKPOINTS,SCALAR_STATES,IDENTITY_CHECKPOINTS
     from startup_failure import STAGES,TYPES,ADB_CHECKS
     from adb_evidence import REASONS as ADB_REASONS
-    codes = SCALAR_CHECKPOINTS | SCALAR_STATES | IDENTITY_CHECKPOINTS | {'ReadStopped','not-read','text','non-text','own','not-own'} | STAGES | TYPES | {'OtherError','StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} | ADB_CHECKS | ADB_REASONS | KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
+    codes = SEND_ERRORS | SCALAR_CHECKPOINTS | SCALAR_STATES | IDENTITY_CHECKPOINTS | {'ReadStopped','not-read','text','non-text','own','not-own'} | STAGES | TYPES | {'OtherError','StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} | ADB_CHECKS | ADB_REASONS | KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
         'groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
         'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
         'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',

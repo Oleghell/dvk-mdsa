@@ -32,6 +32,8 @@ def recoverable(report):
         if scan:codes.add('readonly-list-updated')
         if value.get('host_failure') in {'internal-error','internal-contract-error','state-check-failed','validation-failed','host-io-error'}:
             children=[value.get(k) for k in ('last_navigation_failure','last_preparation_failure','last_navigation','last_profile_diagnostics')]
+            if value.get('host_checkpoint')=='city-navigation' and value.get('reason')=='city-not-verified':
+                children.append(value.get('last_city_navigation'))
             current_transport=any(recoverable_adb(child) for child in children)
             current_navigation=any(type(child) is dict and child.get('stage')=='navigation-stopped' and child.get('error') in RETRY_CODES for child in children)
             if not (current_transport or current_navigation or scan):codes.add('unverified-host-failure')
@@ -39,7 +41,7 @@ def recoverable(report):
         for key in ('reason','error','host_failure'):
             v=value.get(key)
             if type(v) is str:codes.add(v)
-        for key in ('inbox','profiles','last_navigation','last_navigation_failure','last_preparation_failure','last_profile_diagnostics','last_read_failure','last_chat_diagnostics'):
+        for key in ('inbox','profiles','last_navigation','last_navigation_failure','last_preparation_failure','last_profile_diagnostics','last_read_failure','last_chat_diagnostics','last_city_navigation'):
             visit(value.get(key))
     for node in nodes:visit(node)
     return not bool(codes & BLOCK_CODES) and bool(codes & RETRY_CODES)

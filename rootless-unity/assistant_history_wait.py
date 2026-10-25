@@ -31,11 +31,16 @@ def verified_read_budget(value):
     message_scalar=scalar in ("message-id", "message-sender-id", "message-chat-id")
     phase_ok=(phase in ("identity", "model", "manager", "loaded-flag", "count", "recheck", "sample") and identity_scalar
               or phase == "last-message" and (identity_scalar or message_scalar))
+    # A budget expiry during initial ID getters is an interrupted observation,
+    # NOT an identity mismatch. Retry only the fixed reader with the SAME expected
+    # identity, from scratch; a later Back still independently checks that ID.
+    initial_ids=(value.get('identity_checkpoint')=='initial-ids'
+        and phase=='identity' and scalar in ('account-id','peer-id','chat-id')
+        and value.get('scalar_state') == 'not-read')
     return (value.get("error") in ("frame-budget", "transition-timeout")
         and value.get("stage") == "navigation-stopped"
         and value.get("metadata_checkpoint") == "ready"
-        and phase_ok
-        and value.get("identity_checkpoint") == "recheck"
+        and (initial_ids or phase_ok and value.get("identity_checkpoint") == "recheck")
         and value.get("scalar_state") in ("positive", "not-read")
         and value.get("wait_reason") in ("none", "not-checked")
         and type(value.get("message_slot")) is int

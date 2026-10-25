@@ -62,6 +62,15 @@ def specialize(source):
     source = replace(source,
         "save('chatUserPin',user);n.chat_identity_verified=true;",
         "save('chatUserPin',user);n.chat_identity_verified=true;\n" + INPUT_GATE)
+    # The app can briefly show the SAME profile again while chat navigation
+    # settles. Observe only; never call StartChat twice or accept a different ID.
+    source = replace(source, "   if(n.phase==='check-chat'){\n    if(k!=='chat')fail('unexpected-screen');",
+        """   if(n.phase==='check-chat'){
+    if(k==='profile'&&current.equals(target(state.card))&&verifyProfile(current)&&
+     n.chat_open_completed&&n.chat_verified&&!n.send_attempted&&cohortPending===null&&cohortApproved===null&&(state.chatTransitionWaits||0)<3){
+     state.chatTransitionWaits=(state.chatTransitionWaits||0)+1;state.nextActionAt=Date.now()+100;return;
+    }
+    if(k!=='chat')fail('unexpected-screen');""")
     a = source.index("   if(first===0){", source.index("   if(n.phase==='check-chat')"))
     b = source.index("   if(n.phase==='search'){", a)
     send = chat_send_probe.SEND.replace("   if(first!==0)fail('chat-not-empty');", '')

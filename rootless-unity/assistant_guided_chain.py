@@ -646,6 +646,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     result = sender(fresh, action['text'])
                     returned = (isinstance(result, dict) and result.get('attempted') is True
                                 and result.get('handler_returned') is True)
+                    if isinstance(result,dict):
+                        for source_key,diagnostic_key in (('attempted','submission_attempted'),('handler_returned','submission_returned')):
+                            if type(result.get(source_key)) is bool:out['diagnostics'][diagnostic_key]=result[source_key]
                     from one_chat_send import input_disabled_before_submission
                     input_disabled = input_disabled_before_submission(result)
                     native = result.get('native_check') if isinstance(result, dict) else None

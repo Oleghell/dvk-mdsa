@@ -32,7 +32,7 @@ class Clock:
 class Context(guide.WholeChain):
     # Reuse fixture helpers, not inherited tests.
     def send(self,before,text):
-        kind='followup' if text==__import__('assistant_contact_followup').TEXT else 'clarify' if text==clarify.TEXT else 'contact' if text==CONTACT_TEXT else 'question'
+        kind='followup' if text==__import__('assistant_contact_followup').TEXT else 'clarify' if text in (clarify.TEXT,clarify.WHATSAPP_TEXT,clarify.TELEGRAM_TEXT) else 'contact' if text==CONTACT_TEXT else 'question'
         with self.store.connection() as db:
             self.assertEqual(db.execute('SELECT status FROM chain_actions WHERE chat=? AND kind=?',('300',kind)).fetchone()[0],'reserved-unknown')
         self.sent.append(text);return dict(attempted=True,handler_returned=True)
@@ -60,16 +60,16 @@ class Context(guide.WholeChain):
 
     def test_no_second_clarification_on_new_choice_or_restart(self):
         h=self.seed_contact();h += [('Давай ватсап',False)]
-        first=guide.snapshot(*h);seen=guide.snapshot(*h,(clarify.TEXT,True))
+        first=guide.snapshot(*h);seen=guide.snapshot(*h,(clarify.WHATSAPP_TEXT,True))
         out=self.walk([first,first,seen],until_waiting=True)
-        self.assertEqual(self.sent,[clarify.TEXT]);self.assertEqual(out['reason'],'contact-clarification-sent')
+        self.assertEqual(self.sent,[clarify.WHATSAPP_TEXT]);self.assertEqual(out['reason'],'contact-clarification-sent')
         self.chain=guided.GuidedChain(self.store,choose=lambda:0,seal=lambda v:v,unseal=lambda v:v)
-        new=guide.snapshot(*h,(clarify.TEXT,True),('Тг лучше',False))
+        new=guide.snapshot(*h,(clarify.WHATSAPP_TEXT,True),('Тг лучше',False))
         follow=__import__('assistant_contact_followup').TEXT
-        observed=guide.snapshot(*h,(clarify.TEXT,True),('Тг лучше',False),(follow,True))
+        observed=guide.snapshot(*h,(clarify.WHATSAPP_TEXT,True),('Тг лучше',False),(follow,True))
         out=self.walk([new,new,observed],until_waiting=True)
-        self.assertEqual(out['submission_calls'],1);self.assertEqual(self.sent,[clarify.TEXT,follow])
-        self.assertEqual(self.sent.count(clarify.TEXT),1)
+        self.assertEqual(out['submission_calls'],1);self.assertEqual(self.sent,[clarify.WHATSAPP_TEXT,follow])
+        self.assertEqual(self.sent.count(clarify.WHATSAPP_TEXT),1)
 
     def test_refusal_and_unavailable_messenger_do_not_request_again(self):
         for text in ('Не хочу общаться','Тг не работает, давай потом','Не пиши мне, лучше тг'):
@@ -113,7 +113,7 @@ class Context(guide.WholeChain):
             db.execute("UPDATE chain_dialogs SET stage='pending-contact'")
             db.execute("UPDATE chain_actions SET status='handler-returned-unconfirmed' WHERE kind='contact'")
         stage,action=self.chain.proposal(guide.snapshot(*h,('Давай ватсап',False)))
-        self.assertEqual(stage,'pending-clarify');self.assertEqual(action['text'],clarify.TEXT)
+        self.assertEqual(stage,'pending-clarify');self.assertEqual(action['text'],clarify.WHATSAPP_TEXT)
 
     def test_unreturned_or_mismatched_own_still_requires_review(self):
         self.chain.bind(guide.snapshot(),(guide.GREETING,),approved=True)

@@ -79,11 +79,18 @@ class SharedStore(BaseStore):
                 db.execute('''CREATE TABLE IF NOT EXISTS mumu_profile_visits(
                   peer TEXT PRIMARY KEY,checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
                 db.execute('CREATE TABLE IF NOT EXISTS mumu_recovery_skips(peer TEXT PRIMARY KEY)')
-                # Idempotent import of ALL old #4 reservations, including unknown/not-invoked.
-                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_actions'").fetchone():
-                    db.execute("INSERT OR IGNORE INTO mumu_peer_claims(peer,device,account) SELECT peer,'5563',account FROM manual_actions ORDER BY id")
-                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='profile_visits'").fetchone():
-                    db.execute('INSERT OR IGNORE INTO mumu_profile_visits(peer) SELECT peer FROM profile_visits')
+                # Reconcile every supported device journal into the global
+                # peer-only exclusion set. No account/port may greet this ID again,
+                # including old unknown/not-invoked reservations or missing claims.
+                # Fixed table names only; never interpolate a caller's identifier.
+                for device in (5563,5557,5559,5561,5565):
+                    prefix='' if device==5563 else 'm'+str(device)+'__'
+                    table=prefix+'manual_actions'
+                    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
+                        db.execute("INSERT OR IGNORE INTO mumu_peer_claims(peer,device,account) SELECT peer,?,account FROM "+table+" ORDER BY id",(str(device),))
+                    table=prefix+'profile_visits'
+                    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
+                        db.execute('INSERT OR IGNORE INTO mumu_profile_visits(peer) SELECT peer FROM '+table)
                 # Old explicit cohort authorizations must block other accounts as well.
                 old=self.legacy/'new-ten.sqlite3'
                 if old.exists():

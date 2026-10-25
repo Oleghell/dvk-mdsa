@@ -46,9 +46,9 @@ class Chain(old.Context):
   self.assertEqual(photo,[guide.WHO]);self.walk([sample]);self.notifier.assert_called_once()
  def test_available_whatsapp_sends_one_clarification(self):
   h=self.seed_contact()+[('Вацап есть. Макс.',False)]
-  first=guide.snapshot(*h);seen=guide.snapshot(*h,(clarify.TEXT,True))
+  first=guide.snapshot(*h);seen=guide.snapshot(*h,(clarify.WHATSAPP_TEXT,True))
   out=self.walk([first,first,seen],until_waiting=True)
-  self.assertEqual(self.sent,[clarify.TEXT]);self.assertEqual(out['reason'],'contact-clarification-sent');self.notifier.assert_not_called()
+  self.assertEqual(self.sent,[clarify.WHATSAPP_TEXT]);self.assertEqual(out['reason'],'contact-clarification-sent');self.notifier.assert_not_called()
  def pending_question(self,returned=False):
   self.chain.bind(guide.snapshot(),(guide.GREETING,),approved=True)
   h=[('Привет',False)];stage,action=self.chain.proposal(guide.snapshot(*h));self.chain.reserve_confirmed(guide.WHO,action)

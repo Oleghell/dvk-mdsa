@@ -1,7 +1,7 @@
 """One optional clarification after a peer explicitly chooses a messenger."""
 import re
 TEXT = 'Хорошо, напиши номер для WhatsApp или ник в Telegram, если тебе удобно.'
-PLATFORM = re.compile(r'\b(?:тг|телеграм(?:м)?(?:е|ом)?|телег[аеу]|telegram|whats\s?app|ва(?:тс|тц|ц|с)ап(?:е|ом)?|вотсап(?:е|ом)?)\b', re.I)
+PLATFORM = re.compile(r'\b(?:тг|телеграм(?:м)?(?:е|ом)?|телег[аеу]|telegram|whats\s?app|ва(?:тс|тц|ц|с)апп?(?:е|ом)?|вотсапп?(?:е|ом)?)\b', re.I)
 CHOICE = re.compile(r'\b(?:давай(?:те)?|лучше|удобн\w*|предпочитаю|соглас\w*|напиши|пиши|найди|хочу|можно|есть|установлен[ао]?|пользуюсь)\b', re.I)
 NEGATIVE = re.compile(r'не\s+(?:хочу|надо|могу|пользуюсь|работает)|не\s*пиши|не\s*да[мю]', re.I)
 
