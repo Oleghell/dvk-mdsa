@@ -3,6 +3,10 @@
 No startup actions. Explicit Start authorizes this run; Stop revokes it.
 """
 import sys
+if __name__ == '__main__' and sys.argv[1:] == ['--supabase-setup']:
+    from cloud_setup import launch
+    launch()
+    raise SystemExit(0)
 if __name__ == '__main__' and sys.argv[1:] in (['--mumu-worker'], ['--mumu-worker-self-check']):
     from mumu_worker import main
     raise SystemExit(main())
@@ -112,6 +116,16 @@ def launch(self_check=False):
         box, ai_box, check_box, tg_box, id_box = (ttk.Frame(tabs, padding=12) for _ in range(5))
         for tab, title in ((box, 'Поиск и ответы'), (ai_box, 'ИИ / ключи'), (check_box, 'Проверка ключа'), (tg_box, 'Telegram'), (id_box, 'Проверка ID')):
             tabs.add(tab, text=title)
+        db_box=ttk.Frame(tabs,padding=12);tabs.add(db_box,text='База')
+        from cloud_database import enabled as cloud_enabled
+        ttk.Label(db_box,text='Основная база: '+('Supabase (защищённая настройка)' if cloud_enabled() else 'SQLite на этом компьютере'),wraplength=450).pack(anchor='w')
+        ttk.Label(db_box,text='Подключение выполняй только при остановленных MuMu. После переключения перезапусти программу.',wraplength=450).pack(anchor='w',pady=12)
+        def connect_cloud():
+            if busy:
+                messagebox.showwarning('Останови MuMu','Сначала останови все процессы.',parent=w);return
+            from cloud_setup import launch as setup_cloud
+            setup_cloud(w)
+        ttk.Button(db_box,text='Подключить Supabase…',command=connect_cloud).pack(anchor='w')
         adb = tk.StringVar(value=settings.adb)
         folder = tk.StringVar(value=settings.folder)
         limit = tk.StringVar(value=str(settings.profile_limit))

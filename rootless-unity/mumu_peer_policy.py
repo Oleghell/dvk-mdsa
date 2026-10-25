@@ -3,6 +3,7 @@
 A local closed chain, timeout, profile visit or greeting is not such evidence.
 All writes use the caller's transaction; contact data/bodies never enter this table.
 """
+from cloud_database import connect as primary_connect, readonly as primary_readonly, available as primary_available
 import re
 
 REASONS={'contact-received','contact-refused','manual-block'}
@@ -76,7 +77,21 @@ def ensure_communication_allowed(store,who,*,db=None):
         raise PeerCommunicationBlocked()
 
 
-def manual_block(peer, path=None):
+def manual_block(peer,path=None):
+    # Serialize Telegram /num with first cloud cutover, not with a whole live
+    # MuMu pass. Workers may keep running while ordinary /num updates commit.
+    import os
+    from pathlib import Path
+    from assistant_lock import operation_lock
+    if os.environ.get('DVK_MORELOGIN')=='1':raise ValueError('MuMu registry only')
+    if path is None:
+        from mumu_common import root_directory
+        path=root_directory()/'assistant.sqlite3'
+    with operation_lock(Path(path).parent/'database-cutover.lock'):
+        return _manual_block(peer,path)
+
+
+def _manual_block(peer, path=None):
     """Human-entered deny only. Existing terminal outcomes and journals stay intact.
 
     Never creates a missing DB/registry or invents an account/contact receipt.
@@ -93,9 +108,9 @@ def manual_block(peer, path=None):
         from mumu_common import root_directory
         path = root_directory() / 'assistant.sqlite3'
     path = Path(path)
-    if not path.is_file():
+    if not primary_available(path):
         raise ValueError('MuMu registry unavailable')
-    db = sqlite3.connect(path.resolve().as_uri() + '?mode=rw', uri=True, timeout=5)
+    db = primary_connect(path,timeout=5)
     try:
         with db:
             db.execute('BEGIN IMMEDIATE')

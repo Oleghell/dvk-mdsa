@@ -1,4 +1,5 @@
 """Aggregate contact and first-greeting events. No bodies, numbers or handles."""
+from cloud_database import connect as primary_connect, readonly as primary_readonly, available as primary_available
 from datetime import datetime,timedelta,time,timezone
 from contextlib import closing
 import hashlib
@@ -74,8 +75,8 @@ def _render_contacts(command,path=None,now=None):
     path=database_path() if path is None else Path(path)
     label={'/today':'Сегодня','/yesterday':'Вчера','/week':'Последние 7 дней','/month':'Последние 30 дней','/city':'Города поиска — всё время'}[command]
     title='📊 '+label+'\n'
-    if not path.exists():return title+'Новых событий пока нет. Учёт начнётся после обновления.'
-    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=5)) as db:
+    if not primary_available(path):return title+'Новых событий пока нет. Учёт начнётся после обновления.'
+    with closing(primary_readonly(path)) as db:
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='global_contact_statistics'").fetchone():
             return title+'Новых событий пока нет. Старые контакты задним числом не учитываются.'
         if command=='/city':
@@ -83,8 +84,8 @@ def _render_contacts(command,path=None,now=None):
             total=db.execute('SELECT COUNT(*) FROM global_contact_statistics WHERE phone_count>0').fetchone()[0]
             return title+'С номером: '+str(total)+'\n'+('\n'.join(str(i+1)+'. '+c+' — '+str(n) for i,(c,n) in enumerate(rows)) or 'Пока нет номеров.')+'\nТоп-20. Это город поиска при знакомстве, не подтверждённое место жительства.'
         first,last=bounds(command,now)
-        row=db.execute('''SELECT COUNT(*),COALESCE(SUM(phone_count>0),0),COALESCE(SUM(handle_count>0),0),
-          COALESCE(SUM(telegram='accepted'),0),COALESCE(SUM(telegram='unknown'),0)
+        row=db.execute('''SELECT COUNT(*),COALESCE(SUM(CASE WHEN phone_count>0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN handle_count>0 THEN 1 ELSE 0 END),0),
+          COALESCE(SUM(CASE WHEN telegram='accepted' THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN telegram='unknown' THEN 1 ELSE 0 END),0)
           FROM global_contact_statistics WHERE received_at>=? AND received_at<?''',(first,last)).fetchone()
     return title+f'Контакт дали: {row[0]} собеседников\n📱 С номером: {row[1]}\n💬 С ником/ссылкой: {row[2]}\n✅ Telegram принял: {row[3]}\n❔ Отправка не подтверждена: {row[4]}\nДни — по часовому поясу компьютера. Учёт с обновления, без старой истории.'
 
@@ -106,17 +107,17 @@ def greeting_finished(db,account,peer,status):
 
 def greeting_summary(command,path,now=None):
     path=Path(path)
-    if not path.exists():return 'Первые приветствия: 0; учёт с обновления.'
+    if not primary_available(path):return 'Первые приветствия: 0; учёт с обновления.'
     current=(now or datetime.now().astimezone()).astimezone(timezone.utc)
-    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=5)) as db:
+    with closing(primary_readonly(path)) as db:
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='global_greeting_statistics'").fetchone():
             return 'Первые приветствия: учёт начнётся после обновления, без пересчёта старых резервов.'
         if command=='/city':
             row=db.execute("SELECT MIN(started_at) FROM global_greeting_statistics").fetchone()
             first=row[0] or current.isoformat(timespec='seconds');last=current.isoformat(timespec='seconds')
         else:first,last=bounds(command,now)
-        confirmed,unknown=db.execute("""SELECT COALESCE(SUM(status='handler-returned-unconfirmed'),0),
-          COALESCE(SUM(status IN ('reserved-unknown','attempted-unknown')),0)
+        confirmed,unknown=db.execute("""SELECT COALESCE(SUM(CASE WHEN status='handler-returned-unconfirmed' THEN 1 ELSE 0 END),0),
+          COALESCE(SUM(CASE WHEN status IN ('reserved-unknown','attempted-unknown') THEN 1 ELSE 0 END),0)
           FROM global_greeting_statistics WHERE started_at>=? AND started_at<?""",(first,last)).fetchone()
         end=min(current,datetime.fromisoformat(last));begin=datetime.fromisoformat(first)
         hours=max(0.,(end-begin).total_seconds()/3600)

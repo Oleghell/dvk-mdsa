@@ -3,6 +3,7 @@
 The displayed footer is NOT scraped or assumed equal. An optional manually
 entered footer ID is compared locally by the settings dialog.
 """
+from cloud_database import connect as primary_connect, readonly as primary_readonly, available as primary_available
 import json
 from pathlib import Path
 import sqlite3
@@ -63,10 +64,10 @@ def read_profile(executable,folder,cancelled,*,capture_fn=None,inspect_fn=None):
 
 def lookup(path,peer):
     peer=identifier(peer);path=Path(path)
-    if not path.is_file():return 'unavailable','registry-unavailable'
+    if not primary_available(path):return 'unavailable','registry-unavailable'
     db=None
     try:
-        db=sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=5)
+        db=primary_readonly(path)
         db.execute('PRAGMA query_only=ON')
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='mumu_peer_blocks'").fetchone():
             return 'unavailable','registry-unavailable'

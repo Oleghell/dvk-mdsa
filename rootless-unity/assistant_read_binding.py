@@ -1,4 +1,5 @@
 """Explicit current-chat read consent. Never grants send/Chain authorization."""
+from cloud_database import connect as primary_connect, readonly as primary_readonly, available as primary_available
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -20,7 +21,7 @@ class ReadBindings:
         if cancelled():
             raise StateError('Привязка отменена.')
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(self.path, timeout=5)) as db, db:
+        with closing(primary_connect(self.path, timeout=5)) as db, db:
             db.execute('PRAGMA synchronous=FULL')
             db.execute('BEGIN IMMEDIATE')
             db.execute('''CREATE TABLE IF NOT EXISTS read_only_bindings(

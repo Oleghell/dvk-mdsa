@@ -16,6 +16,7 @@ from assistant_store import Store as BaseStore, StateError
 from assistant_config import check_text
 from cohort_pass import Store as LegacyStore
 from mumu_common import root_directory, port
+from cloud_database import connect
 
 TABLES = frozenset(('manual_actions profile_visits search_session city_rotation_used '
     'chain_send_authorizations chain_send_attempts chain_contact_media chain_contact_outbox chain_dialogs chain_review_reasons '
@@ -68,7 +69,7 @@ class SharedStore(BaseStore):
         path.parent.mkdir(parents=True,exist_ok=True)
         self.path=path
         self.legacy=Path(legacy_directory) if legacy_directory is not None else path.parent.parent/'DvkRootless'
-        with closing(sqlite3.connect(path,timeout=30,isolation_level=None)) as db:
+        with closing(connect(path,timeout=30,isolation_level=None)) as db:
             db.execute('PRAGMA journal_mode=WAL')
             db.execute('PRAGMA synchronous=FULL')
             db.execute('BEGIN IMMEDIATE')
@@ -101,7 +102,7 @@ class SharedStore(BaseStore):
 
     @contextmanager
     def connection(self):
-        db=sqlite3.connect(self.path,timeout=30,isolation_level=None)
+        db=connect(self.path,timeout=30,isolation_level=None)
         try:
             db.execute('PRAGMA synchronous=FULL')
             db.execute('BEGIN IMMEDIATE')

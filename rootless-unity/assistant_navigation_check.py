@@ -3,6 +3,7 @@
 The journal is opened read-only. No Chain/Store is created, no authorization is
 reserved, and no message/Telegram handler or credential loader is called.
 """
+from cloud_database import connect as primary_connect, readonly as primary_readonly, available as primary_available
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -29,9 +30,9 @@ def report():
 
 def read_targets(path=None):
     path=Path(path) if path is not None else data_directory()/'assistant.sqlite3'
-    if not path.exists():
+    if not primary_available(path):
         return []  # Do not create a new journal just to run diagnostics.
-    with closing(sqlite3.connect(path.resolve(strict=True).as_uri()+'?mode=ro',timeout=5,uri=True)) as db:
+    with closing(primary_readonly(path)) as db:
         db.execute('PRAGMA query_only=ON')
         db.execute('BEGIN')  # One consistent, read-only snapshot.
         return read_targets_from_db(db)

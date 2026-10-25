@@ -68,7 +68,8 @@ class Store:
 
     @contextmanager
     def connection(self):
-        db = sqlite3.connect(self.path, timeout=5, isolation_level=None)
+        from cloud_database import connect
+        db = connect(self.path, timeout=5, isolation_level=None)
         try:
             db.execute('PRAGMA synchronous=FULL')
             db.execute('BEGIN IMMEDIATE')

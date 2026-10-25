@@ -55,6 +55,16 @@ class MemoryStore:
 @contextmanager
 def preview_chain(path=None):
     path=Path(path) if path is not None else data_directory()/'assistant.sqlite3'
+    from cloud_database import enabled, memory_snapshot
+    if enabled(path):
+        with memory_snapshot(path,MAX_JOURNAL_BYTES) as memory:
+            bindings=read_bindings(memory)
+            legacy=read_targets_from_db(memory)
+            pairs={(x["account"],x["peer"]) for x in bindings}
+            from dialog_browser import targets
+            allowed=targets(bindings+[x for x in legacy if (x["account"],x["peer"]) not in pairs])
+            yield Chain(MemoryStore(memory),choose=lambda:0,contact_notifications=False),allowed
+        return
     if not path.exists():
         yield None,[]
         return

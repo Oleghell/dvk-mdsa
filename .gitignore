@@ -28,3 +28,11 @@ build/
 # User-owned plaintext API key list, never committed.
 config/ai-keys.txt
 ai-keys.txt
+
+# Local journals and personal Supabase connection credentials.
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.dpapi
+*supabase*connection*.json
+database-cloud-primary.json
