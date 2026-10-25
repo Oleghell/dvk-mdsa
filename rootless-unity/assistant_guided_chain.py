@@ -666,8 +666,13 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 if reply_exclusion(chain.store,who):
                     out.update(status='chain-waiting',reason='reply-excluded')
                     return out
+                host_checkpoint='chat-send'
                 send_authorization = chain.reserve_confirmed(who, action)
                 if stopped.is_set():
+                    # This control path never entered begin()/sender. Do not
+                    # manufacture an unknown send merely because Stop arrived.
+                    from assistant_send_safety import defer_unstarted
+                    defer_unstarted(chain,send_authorization,who,action)
                     break
                 out['submission_calls'] += 1
                 send_failure = None
@@ -677,6 +682,16 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     result, deferred = timed(out['diagnostics'],'submit',submit_checked,chain,send_authorization,who,action,fresh,
                         sender,stopped,progress,out['diagnostics'])
                     if deferred:
+                        # A new incoming may arrive between the host read and
+                        # native preflight. Replan only this proven UNSENT draft,
+                        # with fresh full history/approval. Never release unknowns.
+                        if (not stopped.is_set() and out['diagnostics'].get('last_send_failure')=='submission-snapshot-changed'
+                                and out['diagnostics'].get('send_snapshot_refreshes',0)<2):
+                            renewed=read()
+                            if chain.refresh_unsubmitted(fresh,renewed,action):
+                                out['diagnostics']['send_snapshot_refreshes']=out['diagnostics'].get('send_snapshot_refreshes',0)+1
+                                before=renewed
+                                continue
                         out.update(status='chain-waiting',reason='send-preflight-deferred')
                         return out
                     returned = (isinstance(result, dict) and result.get('attempted') is True
@@ -697,6 +712,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 except PeerCommunicationBlocked:
                     raise  # Denied before adapter: never mislabel this as an unknown send.
                 except Exception as send_error:
+                    from assistant_failure import category,evidence
+                    out['diagnostics']['send_host_failure']=category(send_error)
+                    native=evidence(send_error)
+                    if native:out['diagnostics']['send_transport_failure']=native
                     from one_chat_device import ReadStopped
                     if isinstance(send_error, ReadStopped):
                         send_failure = 'send-device-check-failed'

@@ -377,6 +377,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                                                        stopped.is_set, expected, read_name=True))
             result['diagnostics'].update(open_timing)
             out['last_chat_diagnostics'] = result['diagnostics']
+            if result.get('submission_calls',0)>0 and result['reason'] in ('send-outcome-unknown','send-preflight-deferred','send-native-check-failed',
+                    'send-device-check-failed','send-validation-failed','outgoing-not-observed'):
+                # Retain earlier send failures even if later chats succeed. No
+                # identity, body, session ID or authorization token is copied.
+                from assistant_error_notify import diagnostic_json
+                import json
+                safe=json.loads(diagnostic_json(dict(reason=result['reason'],diagnostic=result['diagnostics'])))['diagnostic']
+                out['send_failure_events']=(out.get('send_failure_events',[])+[safe])[-3:]
             out['automatic_authorizations'] += result.get('automatic_authorizations', 0)
             for key in ('confirmations', 'submission_calls', 'handler_returns'):
                 out[key] += result[key]

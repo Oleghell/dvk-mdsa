@@ -102,7 +102,7 @@ class Profiles(unittest.TestCase):
         dev=self.device();wrong=copy.deepcopy(g.snapshot());wrong['identity']['peer']='999'
         with self.assertRaisesRegex(StateError,'profile-return-not-verified'):
             capture_profile('adb','folder',g.WHO,device_factory=lambda *a:dev,
-                chat_reader=MagicMock(side_effect=[g.snapshot(),RuntimeError(),wrong]),profile_reader=lambda *a:True)
+                chat_reader=MagicMock(side_effect=[g.snapshot(),wrong]),profile_reader=lambda *a:True)
         self.assertEqual(dev.run.call_args_list.count(call(['shell','input','keyevent','4'])),1)
 
     def test_default_check_is_identity_only(self):

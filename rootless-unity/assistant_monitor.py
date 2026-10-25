@@ -78,6 +78,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
     phase = 'settings-check-stopped'
 
     def add_counters(value):
+        out['send_failure_events']=(out.get('send_failure_events',[])+value.get('send_failure_events',[]))[-3:]
         out['recent_exit_events'] = (out['recent_exit_events'] + value.get('exit_events', []))[-20:]
         for key, source in (('isolated_reasons_total','isolated_reasons'),('review_causes_total','review_causes')):
             for code, number in value.get(source, {}).items():

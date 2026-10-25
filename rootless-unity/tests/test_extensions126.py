@@ -128,15 +128,14 @@ class PhotoTransport(unittest.TestCase):
    if len(events)<4 and events.count('profile')>0:raise RuntimeError()
    return snap()
   def profile(*a):events.append('profile');return True
-  # first chat read, two profile reads, failed chat read while profile remains,
-  # one Back then a verified chat read.
+  # First identity check, two exact profile proofs, one Back then a fresh
+  # identity check. Never run the chat reader while the proven profile is open.
   calls=[0]
   def chat(*a):
    calls[0]+=1
-   if calls[0]==2:raise RuntimeError()
    return snap()
   image=capture_profile('adb','folder',WHO,device_factory=lambda *a:device,chat_reader=chat,profile_reader=profile)
-  self.assertEqual(image,png());self.assertEqual(events,['profile','profile','profile']);self.assertEqual(calls[0],3)
+  self.assertEqual(image,png());self.assertEqual(events,['profile','profile']);self.assertEqual(calls[0],2)
   self.assertIn(unittest.mock.call(['shell','input','keyevent','4']),device.run.call_args_list)
  def test_wrong_profile_never_returns_image(self):
   device=MagicMock();device.screen.return_value=png()

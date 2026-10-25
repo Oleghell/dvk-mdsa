@@ -69,6 +69,18 @@ def defer_uninvoked(chain,session,who,action):
         db.execute("UPDATE chain_send_authorizations SET status='not-invoked' WHERE session=? AND status='active'",(session,))
 
 
+def defer_unstarted(chain,session,who,action):
+    """Only THIS reserved authorization, before begin()/adapter, may be cancelled."""
+    with chain.store.connection() as db:
+        matching(db,session,who,action)
+        if db.execute('SELECT 1 FROM chain_send_attempts WHERE session=?',(session,)).fetchone():
+            raise StateError('send-no-invocation-unverified')
+        changed=db.execute("UPDATE chain_actions SET status='awaiting-approval' WHERE chat=? AND kind=? AND text_hash=? AND status='reserved-unknown'",
+            (who['chat'],action['kind'],text_hash(action['text']))).rowcount
+        if changed!=1:raise StateError('send-reservation-changed')
+        db.execute("UPDATE chain_send_authorizations SET status='not-invoked' WHERE session=? AND status='active'",(session,))
+
+
 def submit_checked(chain,session,who,action,before,sender,stopped,progress,diagnostics):
     for index in range(MAX_PREFLIGHT_CHECKS):
         attempt=begin(chain,session,who,action)  # durable unknown BEFORE any adapter
@@ -77,9 +89,12 @@ def submit_checked(chain,session,who,action,before,sender,stopped,progress,diagn
         try:
             result=sender(before,action['text'])
             proof=no_submission_proof(result)
-        except SubmissionNotStarted:
+        except SubmissionNotStarted as error:
             # Only this fixed adapter exception attests that root was not called.
             # A generic timeout/ReadStopped/forged native flag never qualifies.
+            from startup_failure import clean
+            detail=clean(getattr(error,'_dvk_failure',None))
+            if detail:diagnostics['send_transport_failure']=detail
             result=dict(attempted=False,handler_returned=False)
             proof='send-setup-unavailable'
         completed(chain,session,attempt,result,proof)

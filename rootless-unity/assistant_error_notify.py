@@ -7,8 +7,9 @@ import telegram_notify
 from startup_failure import ERRORS as STARTUP_ERRORS, message as failure_message
 import run_preparation
 from one_chat_probe import ERRORS as READ_ERRORS
+from search_city import ERRORS as CITY_ERRORS
 
-KNOWN = READ_ERRORS | GROQ_ERRORS | NAV_ERRORS | PROFILE_ERRORS | HOST_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed','chat-input-disabled','contact-name-required','profile-return-not-verified','peer-contact-blocked','send-setup-unavailable','send-preflight-deferred','recovery-check-stopped', 'profile-recovery-limit'} | {'history-not-ready','history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
+KNOWN = CITY_ERRORS | READ_ERRORS | GROQ_ERRORS | NAV_ERRORS | PROFILE_ERRORS | HOST_ERRORS | STARTUP_ERRORS | run_preparation.ERRORS | {'initialization-failed','chat-input-disabled','contact-name-required','profile-return-not-verified','peer-contact-blocked','send-setup-unavailable','send-preflight-deferred','recovery-check-stopped', 'profile-recovery-limit'} | {'history-not-ready','history-snapshot-too-large','contact-clarification-sent', 'contact-followup-sent', 'history-loading-timeout','history-read-budget-timeout','between-profile-inbox-stopped',
     'send-native-check-failed', 'send-device-check-failed', 'send-validation-failed',
     'settings-check-stopped', 'device-busy-or-monitor-check-stopped', 'initial-pass-stopped',
     'search-screen-not-verified', 'dialog-list-not-verified', 'initial-pass-paused',
@@ -123,31 +124,32 @@ def diagnostic_json(report):
     import json
     import re
     from chat_state_probe import READ_STEPS, WAIT_REASONS, CHECKPOINTS
-    structures = {'recovery_failure','initial_run','last_profile_run','last_pass','inbox','profiles',
+    structures = {'send_failure_events','send_transport_failure','recovery_failure','initial_run','last_profile_run','last_pass','inbox','profiles',
         'last_profile_diagnostics','last_city_navigation','last_navigation','last_navigation_failure',
         'last_preparation_failure','preparation_failure','last_chat_diagnostics','last_read_failure','photo_failure','diagnostic','recovery_events','ai_failures'}
-    numbers = {'read_retries','send_preflight_retries','recovery_attempts','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
+    numbers = {'city_visible_rows','city_total_rows','city_scan_samples','city_matches','city_read_budget_retries','city_transition_overruns','send_snapshot_refreshes','photo_read_retries','read_retries','send_preflight_retries','recovery_attempts','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
         'setup_retry_attempts','profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
         'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
         'entry_read_budget_retries','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs'}
     from assistant_stage_timing import FIELDS as TIMING_FIELDS
     numbers |= TIMING_FIELDS
-    flags = {'saved_receipt_only','input_disabled_verified','history_wait_exhausted','history_budget_exhausted','history_snapshot_oversized','post_send_checked','send_no_invocation_verified','profile_script_executed','submission_attempted','submission_returned','contact_review_reconciled','send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',
+    flags = {'city_open_attempted','city_open_completed','city_query_attempted','city_query_text_completed','city_query_completed','city_result_verified','city_form_verified','city_verified','online_verified','saved_receipt_only','input_disabled_verified','history_wait_exhausted','history_budget_exhausted','history_snapshot_oversized','post_send_checked','send_no_invocation_verified','profile_script_executed','submission_attempted','submission_returned','contact_review_reconciled','send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',
         'open_attempted','open_completed','chat_open_attempted','chat_open_completed','chat_identity_verified',
         'chat_back_attempted','chat_back_completed','chat_return_verified','profile_read_skipped',
         'apply_attempted','apply_completed','city_form_verified','city_select_attempted','city_select_completed',
         'action_attempted','action_completed','entry_verified','selection_verified','dialogs_verified','destination_verified','cleanup_failed','continue_work','cooldown'}
-    labels = {'photo_checkpoint','last_send_failure','status','reason','error','phase','stage','wait_reason','read_checkpoint','last_error',
+    labels = {'send_host_failure','city_checkpoint','city_prepare','city_identity','photo_checkpoint','last_send_failure','status','reason','error','phase','stage','wait_reason','read_checkpoint','last_error',
         'scalar_checkpoint','scalar_state','identity_checkpoint','message_kind','message_direction','error_type','adb_check','adb_reason','host_failure','host_checkpoint','failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','selection_checkpoint','provider','code','validation_reason'}
     from groq_reply import VALIDATION_REASONS
     from chat_limits import MAX_MESSAGES
     from one_chat_send import ERRORS as SEND_ERRORS
     from one_chat_probe import SCALAR_CHECKPOINTS,SCALAR_STATES,IDENTITY_CHECKPOINTS
     from startup_failure import STAGES,TYPES,ADB_CHECKS
+    from search_city import CHECKPOINTS as CITY_CHECKPOINTS,PREPARE_STEPS as CITY_PREPARE,IDENTITY as CITY_IDENTITY
     from adb_evidence import REASONS as ADB_REASONS
-    codes = SEND_ERRORS | SCALAR_CHECKPOINTS | SCALAR_STATES | IDENTITY_CHECKPOINTS | {'ReadStopped','not-read','text','non-text','own','not-own'} | STAGES | TYPES | {'OtherError','StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} | ADB_CHECKS | ADB_REASONS | KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
-        'profile-return-check','before-profile-open','reconnecting','reconnected','profile-script-not-created','groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
+    codes = CITY_CHECKPOINTS | CITY_PREPARE | CITY_IDENTITY | SEND_ERRORS | SCALAR_CHECKPOINTS | SCALAR_STATES | IDENTITY_CHECKPOINTS | {'ReadStopped','not-read','text','non-text','own','not-own'} | STAGES | TYPES | {'OtherError','StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} | ADB_CHECKS | ADB_REASONS | KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
+        'profile-open-call','profile-noop-check','profile-back-call','profile-after-back','profile-return-check','before-profile-open','reconnecting','reconnected','profile-script-not-created','groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
         'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
         'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',
         'done','check-chat','close-chat','wait-chat-back','search','profile','wait-return','scan-city',
@@ -168,7 +170,7 @@ def diagnostic_json(report):
                     result[key] = prepared if prepared is not None else clean(entry, depth+1)
                 elif key == 'ai_failures' and isinstance(entry, list):
                     result[key] = [clean(e, depth+1) for e in entry[:64] if isinstance(e, dict)]
-                elif key == 'recovery_events' and isinstance(entry, list):
+                elif key in ('recovery_events','send_failure_events') and isinstance(entry, list):
                     result[key] = [clean(e, depth+1) for e in entry[-3:] if isinstance(e, dict)]
             elif key == 'message_slot' and type(entry) is int and -1 <= entry < MAX_MESSAGES:
                 result[key] = entry

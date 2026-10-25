@@ -9,9 +9,9 @@ from diagnose_device import cleanup_frida, validate_runtime
 from test_device import PACKAGE
 
 class SubmissionNotStarted(ReadStopped):
-    """Only a transient transport failure before root RPC was invoked."""
+    """Fixed adapter proof of setup/cancellation failure before root RPC."""
     def __init__(self,stage):
-        if stage not in {'gadget-manager','gadget-connect','gadget-process','gadget-attach','script-create','script-load','runtime-check'}:
+        if stage not in {'capture-setup','gadget-manager','gadget-connect','gadget-process','gadget-attach','script-create','script-load','runtime-check'}:
             raise ValueError('Invalid pre-invocation checkpoint')
         super().__init__('send-setup-unavailable')
         self.stage=stage
@@ -83,8 +83,11 @@ def inspect_submission(port, token, cancelled, before, *, text=QUESTION, frida_a
     except Exception as error:
         from startup_failure import record
         record(error,stage)
-        if not root_started and type(error).__name__ in {'TransportError','TimedOutError','ServerNotRunningError'}:
-            raise SubmissionNotStarted(stage) from None
+        if not root_started and (type(error).__name__ in {'TransportError','TimedOutError','ServerNotRunningError'}
+                or type(error) is ReadStopped and error.args==('cancelled',)):
+            failure=SubmissionNotStarted(stage)
+            failure._dvk_failure=record(error,stage)
+            raise failure from None
         raise
     finally:
         done.set()
@@ -98,8 +101,22 @@ def inspect_submission(port, token, cancelled, before, *, text=QUESTION, frida_a
 def submit(executable, folder, before, cancelled=lambda: False, *, text=QUESTION):
     text = sender.checked_reply(text)
     before = sender.checked(before)
+    inspector_entered=False
     def inspector(port, token, cancel, expected):
+        nonlocal inspector_entered
+        inspector_entered=True  # Never reset across capture's connection retries.
         if expected != before['identity']:
             raise ReadStopped('identity-not-bound')
         return inspect_submission(port, token, cancel, before, text=text)
-    return capture(executable, folder, cancelled, before['identity'], inspector=inspector)
+    try:
+        return capture(executable, folder, cancelled, before['identity'], inspector=inspector)
+    except Exception as error:
+        # Only the local call boundary attests that no inspector/root ran. Do
+        # not infer this from absent UI text, a generic exception or false flags.
+        from startup_failure import clean,recoverable_adb
+        evidence=clean(getattr(error,'_dvk_failure',None))
+        if not inspector_entered and (recoverable_adb(evidence) or type(error) is ReadStopped and error.args==('cancelled',)):
+            failure=SubmissionNotStarted('capture-setup')
+            if evidence:failure._dvk_failure=evidence
+            raise failure from None
+        raise
