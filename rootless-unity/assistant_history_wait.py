@@ -106,3 +106,28 @@ def verified_oversized(value):
         and value.get('scalar_checkpoint') in ('chat-id','message-chat-id')
         and value.get('scalar_state')=='positive'
         and value.get('wait_reason')=='none')
+
+
+class HistoryMessageInvalid(Exception):
+    """Fixed reader rejected a message; contents remain unusable for sending."""
+
+
+def verified_message_invalid(value):
+    """Classify a local rejection, NOT proof of identity or a successful send.
+
+    Native SAME-chat Back must independently verify identity and destination.
+    Missing/foreign identity, transport, schema and arbitrary errors never match.
+    """
+    return (isinstance(value, dict)
+        and value.get('error') == 'message-invalid'
+        and value.get('stage') == 'navigation-stopped'
+        and value.get('metadata_checkpoint') == 'ready'
+        and value.get('read_checkpoint') == 'last-message'
+        and value.get('identity_checkpoint') == 'recheck'
+        and value.get('scalar_checkpoint') in ('chat-id','message-id','message-sender-id','message-chat-id')
+        and value.get('scalar_state') == 'positive'
+        and value.get('wait_reason') == 'none'
+        and value.get('message_kind') in ('text','non-text')
+        and value.get('message_direction') in ('own','not-own')
+        and type(value.get('message_slot')) is int
+        and 0 <= value['message_slot'] < MAX_MESSAGES)

@@ -37,6 +37,9 @@ def isolation_reason(result):
     reason = result['reason']
     if reason == 'chat-input-disabled':
         return reason if (result.get('diagnostics') or {}).get('input_disabled_verified') is True else None
+    if reason == 'message-invalid':
+        failure = (result.get('diagnostics') or {}).get('last_read_failure')
+        return reason if history_wait.verified_message_invalid(failure) else None
     if reason == 'bound-chat-read-failed':
         failure = (result.get('diagnostics') or {}).get('last_read_failure') or {}
         expected = dict(error='local-own-message-unanchored',
@@ -404,7 +407,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 count(result['reason'] if result['status'] != 'chain-waiting' else result['status'] + ':' + result['reason'])
             if result['status'] == 'chain-cancelled' or stopped.is_set():
                 raise StateError('cancelled')
-            if result['status'] not in CONTINUE and not isolated:
+            if (result['status'] not in CONTINUE or result['reason']=='message-invalid') and not isolated:
                 # Global/API/read/identity errors must not be treated as local.
                 out.update(status='inbox-stopped', reason='chat-' + result['reason'])
                 return out

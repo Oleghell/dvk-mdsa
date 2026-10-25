@@ -8,6 +8,7 @@ import secrets
 import time
 
 from assistant_chain import Chain, ReviewRequired, REPLIES, TERMINAL, text_hash, fingerprint
+from assistant_history_wait import HistoryMessageInvalid
 from assistant_store import Store, StateError, data_directory
 from one_chat_probe import identity
 from one_chat_send import checked
@@ -398,6 +399,11 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 failure = out['diagnostics']['last_read_failure'] = safe_read_failure(error)
                 if stopped.is_set():
                     raise StateError('cancelled')
+                from assistant_history_wait import verified_message_invalid, HistoryMessageInvalid
+                if verified_message_invalid(failure):
+                    # Preserve this exact read's type and evidence. Never use a
+                    # stale last_read_failure to reinterpret a later StateError.
+                    raise HistoryMessageInvalid() from None
                 if verified_oversized(failure):
                     out['diagnostics']['history_snapshot_oversized']=True
                     raise HistorySnapshotTooLarge() from None
@@ -705,6 +711,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         out['diagnostics']['failure_point']='history-snapshot-too-large'
         out.update(status='chain-cancelled' if stopped.is_set() else 'chain-waiting',
                    reason='cancelled' if stopped.is_set() else 'history-snapshot-too-large')
+    except HistoryMessageInvalid:
+        out['diagnostics']['failure_point'] = 'message-invalid'
+        out.update(status='chain-cancelled' if stopped.is_set() else 'chain-needs-review',
+                   reason='cancelled' if stopped.is_set() else 'message-invalid')
     except HistoryReadBudgetExpired:
         out['diagnostics']['failure_point'] = 'history-read-budget-timeout'
         out.update(status='chain-cancelled' if stopped.is_set() else 'chain-waiting',
