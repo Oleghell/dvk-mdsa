@@ -258,11 +258,11 @@ print('isolated')
             env=dict(os.environ,LOCALAPPDATA=t,PYTHONPATH=str(ROOT));env.pop('DVK_MORELOGIN',None)
             r=subprocess.run([sys.executable,'-c',script],env=env,capture_output=True,text=True,timeout=15)
             self.assertEqual(r.returncode,0,r.stderr);self.assertEqual(r.stdout.strip(),'isolated')
-    def test_run_keeps_35wpm_and_120s_without_touching_saved_settings(self):
+    def test_run_uses_saved_pacing_and_120s_without_touching_saved_settings(self):
         # Static assertions supplement full engine authorization/monitor unit tests.
         text=(ROOT/'mumu_worker.py').read_text(encoding='utf-8')
         self.assertIn('profile_interval=120,reply_interval=5',text)
-        self.assertIn('RunAuthorization(stopped,immediate_greeting=True,progress=progress)',text);self.assertIn('continuous=True',text)
+        self.assertIn('RunAuthorization(stopped,immediate_greeting=True,progress=progress,words_per_minute=current.typing_words_per_minute)',text);self.assertIn('continuous=True',text)
         self.assertIn('preflight(adb)',text);self.assertIn('recheck(adb,boot)',text)
         self.assertNotIn('time.sleep',text)
         spec=(ROOT/'mumu.spec').read_text(encoding='utf-8');self.assertIn('console=True',spec);self.assertIn('console=False',spec)
@@ -288,6 +288,7 @@ def configure(value):
 mumu_worker.configure=configure
 def runner(settings,stopped,approve,progress,**kwargs):
  assert settings.profile_interval==120 and settings.reply_interval==5
+ assert approve.words_per_minute == settings.typing_words_per_minute == 70
  assert approve.automatic_send is True
  assert approve.immediate_greeting is True and kwargs['continuous'] is True
  ready.touch()
@@ -296,7 +297,7 @@ def runner(settings,stopped,approve,progress,**kwargs):
  out=report('inbox');out.update(status='cancelled',reason='cancelled')
  return out
 try:
- out=mumu_worker.run(dict(port=n,settings=dict(adb=str(base/'adb'),folder=str(base/'apks')),mode='inbox',fresh=False),threading.Event(),runner=runner)
+ out=mumu_worker.run(dict(port=n,settings=dict(adb=str(base/'adb'),folder=str(base/'apks'),typing_words_per_minute=70),mode='inbox',fresh=False),threading.Event(),runner=runner)
  assert out['device_port']==n and out['shared_database'] is True
  print('ok')
 except mumu_worker.MumuError:print('blocked');sys.exit(3)

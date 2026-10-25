@@ -34,7 +34,7 @@ class Greeting(unittest.TestCase):
  def test_worker_explicitly_enables_fast_mode_only_in_mumu(self):
   from pathlib import Path
   text=(Path(__file__).resolve().parents[1]/'mumu_worker.py').read_text(encoding='utf-8')
-  self.assertIn('RunAuthorization(stopped,immediate_greeting=True,progress=progress)',text)
+  self.assertIn('RunAuthorization(stopped,immediate_greeting=True,progress=progress,words_per_minute=current.typing_words_per_minute)',text)
   self.assertIn('write=write,continuous=True',text)
 
 class FastChain(gf.WholeChain):

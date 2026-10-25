@@ -23,8 +23,14 @@ class Settings:
     profile_interval: int = 300
     gemini_model: str = 'gemini-3.1-flash-lite'
     zai_model: str = 'glm-4.5-flash'
+    typing_words_per_minute: int = 35
 
     def check(self):
+        from assistant_authorization import check_words_per_minute
+        try:
+            check_words_per_minute(self.typing_words_per_minute)
+        except ValueError as error:
+            raise StateError(str(error)) from None
         if any(not isinstance(x, str) or not 1 <= len(x) <= 4096 or x != x.strip()
                or any(ord(c) < 32 for c in x) for x in (self.adb, self.folder)):
             raise StateError('Укажи корректные пути ADB и test-apks.')
@@ -77,7 +83,7 @@ def load(directory=None):
                 raise ValueError()
             config = json.loads(options.read_text(encoding='utf-8'))
             schema = config.pop('settings_version', 1)
-            if type(schema) is not int or schema not in (1, 2, 3, 4, 5, 6, 7):
+            if type(schema) is not int or schema not in (1, 2, 3, 4, 5, 6, 7, 8):
                 raise ValueError()
             legacy_interval = config.get('reply_interval')
             if type(legacy_interval) is not int or not 5 <= legacy_interval <= 3600:
@@ -88,6 +94,8 @@ def load(directory=None):
                 config['reply_interval'] = 5
             # 0.4.x files have no profile_limit; keep reading them.
             required = {'contacts_enabled', 'reply_interval'}
+            if schema >= 8:
+                required.add('typing_words_per_minute')
             allowed = required | {'profile_limit'} | ({'groq_enabled', 'groq_model', 'errors_enabled'} if schema >= 3 else set()) | ({'ai_provider', 'openrouter_model'} if schema >= 4 else set()) | ({'profile_interval'} if schema >= 6 else set()) | ({'gemini_model','zai_model'} if schema >= 7 else set())
             if schema < 4 and config.get('groq_model') == 'llama-3.3-70b-versatile':
                 config['groq_model'] = 'qwen/qwen3.8-27b'
@@ -110,7 +118,7 @@ def save(settings, directory=None):
     directory = data_directory() if directory is None else Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     values = {'settings.json': dict(adb=settings.adb, test_apks=settings.folder),
-              'workflow-settings.json': dict(settings_version=7, profile_interval=settings.profile_interval, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
+              'workflow-settings.json': dict(settings_version=8, typing_words_per_minute=settings.typing_words_per_minute, profile_interval=settings.profile_interval, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
                                             profile_limit=settings.profile_limit, groq_enabled=settings.groq_enabled,
                                             groq_model=settings.groq_model, errors_enabled=settings.errors_enabled,
                                             ai_provider=settings.ai_provider, openrouter_model=settings.openrouter_model, gemini_model=settings.gemini_model, zai_model=settings.zai_model)}

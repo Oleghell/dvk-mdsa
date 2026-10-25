@@ -117,6 +117,7 @@ def launch(self_check=False):
         limit = tk.StringVar(value=str(settings.profile_limit))
         interval = tk.StringVar(value='5')
         profile_interval = tk.StringVar(value='120')
+        typing_speed = tk.StringVar(value=str(settings.typing_words_per_minute))
         enabled = tk.BooleanVar(value=settings.contacts_enabled)
         errors_enabled = tk.BooleanVar(value=settings.errors_enabled)
         ai_enabled = tk.BooleanVar(value=settings.groq_enabled)
@@ -152,7 +153,9 @@ def launch(self_check=False):
         ttk.Entry(box, textvariable=interval, width=8, state='readonly').pack(anchor='w', pady=(3, 10))
         ttk.Label(box, text='Повторная проверка лички: не позднее 120 секунд').pack(anchor='w')
         ttk.Entry(box, textvariable=profile_interval, width=8, state='readonly').pack(anchor='w', pady=(3, 10))
-        ttk.Label(box, text='Когда доступные диалоги обработаны, сразу продолжаю поиск.\nПервое приветствие без задержки; ответы — 35 слов/мин.\nСтарт разрешает автоматические сообщения; не трогай выбранные MuMu во время работы.', wraplength=500).pack(anchor='w', pady=8)
+        ttk.Label(box, text='Скорость печати ответов (1–300 слов/мин)').pack(anchor='w')
+        ttk.Entry(box, textvariable=typing_speed, width=8).pack(anchor='w', pady=(3, 10))
+        ttk.Label(box, text='Когда доступные диалоги обработаны, сразу продолжаю поиск.\nПервое приветствие без задержки; ответы — с выбранной скоростью печати.\nСтарт разрешает автоматические сообщения; не трогай выбранные MuMu во время работы.', wraplength=500).pack(anchor='w', pady=8)
         ttk.Checkbutton(ai_box, variable=ai_enabled, text='ИИ: короткие ответы по структуре цепочки').pack(anchor='w', pady=6)
         ttk.Label(ai_box, text='Весь проверенный снимок чата (до 19 сообщений, суммарно 16 384 символа) и правила передаются настроенным сервисам. MuMu: сначала выбранный ИИ, затем остальные из Groq → OpenRouter → Gemini → Z.AI; сервисы без ключей пропускаются. ID/имя профиля не передаются; контакты маскируются.', wraplength=500).pack(anchor='w')
         ttk.Label(ai_box, text='Сервис ИИ').pack(anchor='w', pady=(8, 0))
@@ -199,11 +202,16 @@ def launch(self_check=False):
         def store():
             nonlocal settings
             try:
+                try:
+                    speed = int(typing_speed.get())
+                except ValueError:
+                    raise StateError('Скорость печати: целое число от 1 до 300 слов/мин.') from None
                 provider=ai_provider.get()
                 models[provider]=ai_model.get().strip()
                 current = Settings(adb.get(), folder.get(), enabled.get(), int(interval.get()),
                                    int(limit.get()), ai_enabled.get(), models['groq'], errors_enabled.get(),
-                                   provider, models['openrouter'], 120, models['gemini'], models['zai']).check()
+                                   provider, models['openrouter'], 120, models['gemini'], models['zai'],
+                                   typing_words_per_minute=speed).check()
                 adapter=assistant_ai.module(provider)
                 if ai_key.get().strip():
                     adapter.save_key(ai_key.get())
@@ -217,6 +225,7 @@ def launch(self_check=False):
                         raise StateError('Для смены получателя укажи токен бота заново.')
                 save(current)
                 settings = current
+                pacing_note.set(f'Приветствие сразу · ответы {settings.typing_words_per_minute} слов/мин')
                 token.set('')
                 ai_key.set('')
                 note.set('Сохранено. Проверок и тестовых отправок не выполнялось.')
@@ -438,7 +447,8 @@ def launch(self_check=False):
     scroll=ttk.Scrollbar(devices_box,orient='vertical',command=device_table.yview)
     device_table.configure(yscrollcommand=scroll.set)
     scroll.pack(side='right',fill='y');device_table.pack(side='left',fill='both',expand=True,padx=(8,0))
-    ttk.Label(frame,text='Без простоев · приветствие сразу · ответы 35 слов/мин').pack(anchor='w')
+    pacing_note = tk.StringVar(value=f'Приветствие сразу · ответы {settings.typing_words_per_minute} слов/мин')
+    ttk.Label(frame,textvariable=pacing_note).pack(anchor='w')
     def show_reports():
         try:
             selected=device_table.selection()

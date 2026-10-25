@@ -132,7 +132,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                 check_recovery_device(current.adb,folder,serial(n),boot)
             extra={} if runner is not None else {'recheck':recovery_recheck}
             if runner is None and hasattr(stopped,'restart_on_resume'):stopped.restart_on_resume=True
-            out=(runner or monitor)(current,stopped,RunAuthorization(stopped,immediate_greeting=True,progress=progress),progress,
+            out=(runner or monitor)(current,stopped,RunAuthorization(stopped,immediate_greeting=True,progress=progress,words_per_minute=current.typing_words_per_minute),progress,
                   mode=spec['mode'],fresh_session=spec['fresh'],write=write,continuous=True,**extra)
             write(out)
             atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,status='finished',stage='monitor',automatic_retry=False))

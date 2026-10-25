@@ -1,13 +1,22 @@
-"""Permission from an explicit Start click; cancellable 35-word/minute pacing."""
+"""Permission from an explicit Start click; cancellable configurable word/minute pacing."""
 
 from math import ceil
 
 WORDS_PER_MINUTE = 35
+MIN_WORDS_PER_MINUTE = 1
+MAX_WORDS_PER_MINUTE = 300
+
+def check_words_per_minute(value):
+    if type(value) is not int or not MIN_WORDS_PER_MINUTE <= value <= MAX_WORDS_PER_MINUTE:
+        raise ValueError("Скорость печати: целое число от 1 до 300 слов/мин.")
+    return value
+
 
 class RunAuthorization:
     automatic_send = True
-    def __init__(self, stopped, *, wait=None, immediate_greeting=False, progress=None):
+    def __init__(self, stopped, *, wait=None, immediate_greeting=False, progress=None, words_per_minute=WORDS_PER_MINUTE):
         if type(immediate_greeting) is not bool:raise ValueError("Invalid greeting pacing")
+        self.words_per_minute = check_words_per_minute(words_per_minute)
         self.progress = progress
         self.immediate_greeting = immediate_greeting
         self.stopped = stopped
@@ -21,7 +30,7 @@ class RunAuthorization:
             return not self.stopped.is_set() and not cancelled()
         # Host-side delay, not a claimed native typing indicator. Never reserve a
         # send before waiting. The caller must then re-read identity/history.
-        remaining = len(text.split()) * 60 / WORDS_PER_MINUTE
+        remaining = len(text.split()) * 60 / self.words_per_minute
         reported = None
         while remaining > 1e-9:
             seconds = ceil(remaining - 1e-9)
