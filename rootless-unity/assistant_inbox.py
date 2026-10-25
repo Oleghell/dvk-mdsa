@@ -172,6 +172,11 @@ def with_seen_ids(chain, allowed):
     from assistant_contact_receipt import candidates as contact_candidates
     receipt_reviews=contact_candidates(chain.store)
     with chain.store.connection() as db:
+        if chain.media_required:
+            receipt_reviews |= set(db.execute("""SELECT c.account,c.peer,c.chat FROM chain_dialogs c
+                JOIN chain_contact_outbox o ON o.chat=c.chat
+                WHERE c.stage='done' AND o.status='pending'
+                AND NOT EXISTS(SELECT 1 FROM chain_contact_media m WHERE m.chat=c.chat)"""))
         for who in allowed:
             from assistant_reply_audit import initialize
             initialize(db)
@@ -564,8 +569,11 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         if navigator is None:
             from dialog_models import perform as model_navigation
             from functools import partial
-            options={'recent_limit':50,'reverse':True} if getattr(prepared_store,'mumu_shared_claims',False) else {}
-            navigator=partial(model_navigation,progress=progress,**options)
+            if getattr(prepared_store,'mumu_shared_claims',False):
+                from dialog_models import RecentNavigator
+                navigator=RecentNavigator(progress=progress,limit=50)
+            else:
+                navigator=partial(model_navigation,progress=progress)
     with checkpoint('inbox-config'):
         prepared_greetings=entries(config_directory(),'greetings',256) if greetings is None else greetings
     # No screen paging, automatic swipes or return-to-top scan.

@@ -6,7 +6,7 @@ CODES={'journal-busy','journal-locked','journal-readonly','journal-storage-full'
        'resource-access-denied','host-io-error','validation-failed','internal-contract-error',
        'state-check-failed','internal-error','native-transport-error','native-operation-cancelled',
        'native-script-error','native-process-unavailable','native-state-error'}
-CHECKPOINTS={'chat-read','chat-bind','chat-proposal','chat-contact-reconcile','inbox-targets','inbox-open','inbox-read','inbox-audit','inbox-back','inbox-exit-notify',
+CHECKPOINTS={'chat-contact-photo','chat-contact-notify','chat-read','chat-bind','chat-proposal','chat-contact-reconcile','inbox-targets','inbox-open','inbox-read','inbox-audit','inbox-back','inbox-exit-notify',
              'inbox-record','inbox-return','profile-start','profile-cycle','profile-journal',
              'profile-verify','city-navigation','city-journal'}
 

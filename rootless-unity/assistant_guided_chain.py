@@ -500,9 +500,20 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             excerpts=[m['text'] if isinstance(m['text'],str) else '[нет текста]' for m in before['messages'] if m['sender']==who['peer'] and (m['id'] not in seen_ids or m['id'] in unanswered_ids)]
             if excerpts and exit_capture is not None:exit_capture(excerpts)
             try:
-                ensure_communication_allowed(chain.store,who)
-                host_checkpoint='chat-proposal'
-                stage, action = timed(out['diagnostics'], 'proposal', chain.proposal, before)
+                # Deliver ONLY an already saved receipt; a global send ban must
+                # not strand its pending photo forever. Never run proposal/AI or
+                # authorize a new message through this receipt-only path.
+                with chain.store.connection() as db:
+                    saved_receipt=db.execute("""SELECT 1 FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat
+                        WHERE c.account=? AND c.peer=? AND c.chat=? AND c.stage='done' AND o.status='pending'""",
+                        (who['account'],who['peer'],who['chat'])).fetchone() is not None
+                if saved_receipt:
+                    stage, action = 'done', None
+                    out['diagnostics']['saved_receipt_only']=True
+                else:
+                    ensure_communication_allowed(chain.store,who)
+                    host_checkpoint='chat-proposal'
+                    stage, action = timed(out['diagnostics'], 'proposal', chain.proposal, before)
             except StateError as error:
                 if str(error) != 'contact-name-required':
                     raise
@@ -555,11 +566,16 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             if stage == 'done':
                 if chain.media_required and notifier is not None:
                     try:
+                        host_checkpoint='chat-contact-photo'
                         timed(out['diagnostics'], 'media', chain.prepare_media, who, contact_photo)
                     except Exception as error:
+                        from assistant_contact_photo import ProfilePhotoNotStarted, ProfileReturnUnverified
+                        if isinstance(error, (ProfilePhotoNotStarted, ProfileReturnUnverified)):
+                            out['diagnostics']['photo_failure']=error.diagnostic
                         if str(error) in ('profile-return-not-verified','cancelled'):raise
                         out.update(status='chain-waiting',reason='contact-photo-unavailable')
                         return out
+                host_checkpoint='chat-contact-notify'
                 notification = timed(out['diagnostics'], 'notify', chain.notify, who, notifier, stopped.is_set)
                 if notification == 'cancelled':
                     break

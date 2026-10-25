@@ -91,7 +91,7 @@ class RecentModels(unittest.TestCase):
         import dialog_models as models
         source=models.build(recent_limit=50,reverse=True)
         self.assertIn('const scanEnd=Math.min(count,50)',source)
-        self.assertIn('const modelIndex=scanEnd-1-state.scanIndex',source)
+        self.assertIn('const modelIndex=scanEnd-1-((state.scanIndex+modelStart)%scanEnd)',source)
         self.assertIn('stableModels(current,manager,cm,count,modelIndex,chat)',source)
         self.assertIn('state.scanIndex<scanEnd',source)
         self.assertNotIn('state.scanIndex<count?',source)
@@ -115,5 +115,7 @@ class RecentModels(unittest.TestCase):
                 inbox.run(Settings(errors_enabled=False),threading.Event(),MagicMock(),store=store,
                     greetings=('Привет',),reader=MagicMock(),sender=MagicMock(),notifier=MagicMock(),exit_notifier=MagicMock())
             navigator=walk.call_args.kwargs['navigator']
-            self.assertEqual(navigator.keywords['recent_limit'],50)
-            self.assertIs(navigator.keywords['reverse'],True)
+            from dialog_models import RecentNavigator
+            self.assertIsInstance(navigator,RecentNavigator)
+            self.assertEqual(navigator.limit,50)
+            self.assertEqual(navigator.position,0)

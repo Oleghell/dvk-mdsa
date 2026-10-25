@@ -160,11 +160,11 @@ UTILS=r'''
   };
 '''
 
-def build(*,allowed=(),entry='dialogs',unread_only=False,needs_reply_only=False,offset=0,recent_limit=None,reverse=False):
- _window(recent_limit,reverse)
+def build(*,allowed=(),entry='dialogs',unread_only=False,needs_reply_only=False,offset=0,recent_limit=None,reverse=False,start=0):
+ _window(recent_limit,reverse,start)
  if type(offset) is not int or not 0<=offset<=MAX_MODELS or (recent_limit is not None and offset>=recent_limit):raise ValueError('Invalid model offset')
  s=browser.build('open',allowed=allowed,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
- s=replace_once(s,' const operation=', ' const modelOffset='+str(offset)+';\n const operation=')
+ s=replace_once(s,' const operation=', ' const modelOffset='+str(offset)+';const modelStart='+str(start)+';\n const operation=')
  s=replace_once(s,'"il2cpp_class_get_parent"]','"il2cpp_class_get_parent",'+','.join(json.dumps(k) for k in EXTRA_APIS)+']')
  s=replace_once(s,'Object.assign(f,{classParent:', 'Object.assign(f,{'+BINDINGS+'classParent:')
  start=s.index("  n.metadata_checkpoint='scroll';");end=s.index("  n.metadata_checkpoint='chat-model';",start)
@@ -178,10 +178,14 @@ def build(*,allowed=(),entry='dialogs',unread_only=False,needs_reply_only=False,
   utils=utils.replace('state.scanCount=count;', 'state.scanCount=count;const scanEnd=Math.min(count,'+str(recent_limit)+');')
   utils=utils.replace('state.scanIndex<count','state.scanIndex<scanEnd').replace('state.scanIndex>=count','state.scanIndex>=scanEnd')
   if reverse:
-   utils=utils.replace('const chat=modelAt(cm,state.scanIndex);','const modelIndex=scanEnd-1-state.scanIndex;const chat=modelAt(cm,modelIndex);')
+   utils=utils.replace('const chat=modelAt(cm,state.scanIndex);','const modelIndex=scanEnd-1-((state.scanIndex+modelStart)%scanEnd);const chat=modelAt(cm,modelIndex);')
    utils=utils.replace('stableModels(current,manager,cm,count,state.scanIndex,chat);','stableModels(current,manager,cm,count,modelIndex,chat);')
+   utils=utils.replace("n.selection_checkpoint='open';n.action_attempted=true;","state.scanResume=(modelStart+state.scanIndex+1)%scanEnd;\n     n.selection_checkpoint='open';n.action_attempted=true;")
  s=s[:start]+utils.replace('4000',str(SCAN_MILLISECONDS)).replace('__ROWS_PER_FRAME__',str(ROWS_PER_FRAME))+s[end:]
  s=replace_once(s,"phase:'entry',entry_verified:false", "private_model_scan:{next:null,count:0,skipped_headers:0,budget_yields:0},phase:'entry',entry_verified:false")
+ if recent_limit is not None and reverse:
+  s=replace_once(s,"private_model_scan:{next:null,count:0,skipped_headers:0,budget_yields:0}","private_model_scan:{next:null,count:0,skipped_headers:0,budget_yields:0,resume:null}")
+  s=replace_once(s,"const finish=()=>{n.destination_verified=true;n.phase='done';n.stage='navigation-ready';};", "const finish=()=>{n.destination_verified=true;n.phase='done';n.stage='navigation-ready';n.private_model_scan.resume=n.action_completed&&n.chat_verified?state.scanResume:null;};")
  # A read-only row may yield to another UI frame, but no action is repeated.
  s=replace_once(s,"} catch(e){\n   if(e==='frame-budget'", """} catch(e){
    if(e==='frame-budget'&&n.phase==='scan'&&n.entry_verified&&n.list_verified&&
@@ -197,25 +201,36 @@ def build(*,allowed=(),entry='dialogs',unread_only=False,needs_reply_only=False,
  s=s.replace('checkView(current)', 'scope(()=>checkView(current))').replace('resolve(candidate).equals(current)', 'scope(()=>resolve(candidate).equals(current))')
  return s
 
-def _window(recent_limit,reverse):
+def _window(recent_limit,reverse,start=0):
  if type(reverse) is not bool or (recent_limit is not None and (type(recent_limit) is not int or not 1<=recent_limit<=128)) or (reverse and recent_limit is None):raise ValueError('Invalid recent window')
+ if type(start) is not int or start<0 or (start and (not reverse or recent_limit is None)) or start>=(recent_limit or 1):raise ValueError('Invalid recent position')
 
-def validate(raw,*,allowed=(),unread_only=False,needs_reply_only=False,offset=0,recent_limit=None,reverse=False):
- _window(recent_limit,reverse)
+def validate(raw,*,allowed=(),unread_only=False,needs_reply_only=False,offset=0,recent_limit=None,reverse=False,start=0):
+ _window(recent_limit,reverse,start)
  raw=copy.deepcopy(raw);n=raw.get('navigation',{});scan=n.pop('private_model_scan',None)
- if not isinstance(scan,dict) or set(scan) not in ({'next','count','skipped_headers'},{'next','count','skipped_headers','budget_yields'}):raise ValueError('Invalid model evidence')
+ if not isinstance(scan,dict) or set(scan) not in ({'next','count','skipped_headers'},{'next','count','skipped_headers','budget_yields'},{'next','count','skipped_headers','budget_yields','resume'}):raise ValueError('Invalid model evidence')
  if type(scan['count']) is not int or not 0<=scan['count']<=MAX_MODELS or type(scan['skipped_headers']) is not int or not 0<=scan['skipped_headers']<=SLICE:raise ValueError('Invalid model bounds')
  if type(scan.get('budget_yields',0)) is not int or not 0<=scan.get('budget_yields',0)<=12:raise ValueError('Invalid budget yields')
  nxt=scan['next']
  if nxt is not None and (type(nxt) is not int or not offset<nxt<=offset+SLICE or not nxt<scan['count']):raise ValueError('Invalid model cursor')
  if recent_limit is not None and (offset>=recent_limit or (nxt is not None and nxt>=recent_limit) or n.get('rows_scanned',0)>recent_limit):raise ValueError('Recent window exceeded')
  result=browser.validate(raw,'open',allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only)
+ resume=scan.get('resume')
+ if resume is not None:
+  limit=min(scan['count'],recent_limit or 0)
+  rows=n.get('rows_scanned',0)
+  if (not reverse or recent_limit is None or result['state']!='opened' or limit<1
+      or type(resume) is not int or not 0<=resume<limit or type(rows) is not int or rows<1
+      or resume!=(start+offset+rows)%limit):raise ValueError('Invalid recent resume evidence')
+ if 'resume' in scan and result['state']=='opened' and resume is None:raise ValueError('Missing recent resume evidence')
+
  if nxt is not None and result['state']!='exhausted':raise ValueError('Cursor on non-exhausted model slice')
  result['diagnostic']['header_rows_skipped']=scan['skipped_headers']
  return result,nxt
 
-def perform(operation,executable,folder,cancelled=lambda:False,*,allowed=(),expected=None,entry='search',unread_only=False,needs_reply_only=False,progress=None,recent_limit=None,reverse=False):
- _window(recent_limit,reverse)
+def perform(operation,executable,folder,cancelled=lambda:False,*,allowed=(),expected=None,entry='search',unread_only=False,needs_reply_only=False,progress=None,recent_limit=None,reverse=False,start=0,position_observer=None):
+ _window(recent_limit,reverse,start)
+ if position_observer is not None and not callable(position_observer):raise ValueError('Invalid position observer')
  if operation!='open':return browser.perform(operation,executable,folder,cancelled,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
  if expected is not None:raise ValueError('Unexpected model binding')
  from one_chat_device import capture
@@ -223,10 +238,37 @@ def perform(operation,executable,folder,cancelled=lambda:False,*,allowed=(),expe
  offset=0;skipped=0
  while True:
   if cancelled():raise StateError('cancelled')
-  if progress is not None:progress(f'Проверяю последние {recent_limit} диалогов • снизу вверх' if recent_limit and reverse else f'Проверяю очередь диалогов • с позиции {offset+1}')
-  source=build(allowed=allowed,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset,recent_limit=recent_limit,reverse=reverse)
-  def validator(raw):return validate(raw,allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset,recent_limit=recent_limit,reverse=reverse)
+  if progress is not None:progress(f'Проверяю последние {recent_limit} диалогов • снизу вверх • позиция {(start+offset)%recent_limit+1}' if recent_limit and reverse else f'Проверяю очередь диалогов • с позиции {offset+1}')
+  source=build(allowed=allowed,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start)
+  position=[]
+  def validator(raw):
+   value=validate(raw,allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start)
+   resume=raw.get('navigation',{}).get('private_model_scan',{}).get('resume')
+   if value[0]['state']=='opened' and resume is not None:position[:]=[resume]
+   return value
   result,nxt=capture(executable,folder,cancelled,inspector=lambda port,token,cancel,binding:inspect(port,token,cancel,source_function=source,validator=validator))
   skipped+=result['diagnostic']['header_rows_skipped'];result['diagnostic']['header_rows_skipped']=skipped
+  # capture has completed boot recheck/cleanup. This integer is only a search
+  # priority, never a cached row, object pointer, identity or send permission.
+  if position and position_observer is not None:position_observer(position[0])
   if nxt is None:return result
   offset=nxt;entry='dialogs'
+
+
+class RecentNavigator:
+ """One inbox pass, one bounded circular position hint. Fresh native scans only.
+
+ Row movement cannot authorize a stale peer: every open still proves current
+ collection membership, account/peer/chat, last header and destination. Each
+ open may scan the entire current window, wrapping once; no old row is omitted.
+ """
+ def __init__(self,progress=None,limit=50):
+  _window(limit,True)
+  self.progress=progress;self.limit=limit;self.position=0
+ def remember(self,value):
+  _window(self.limit,True,value)
+  self.position=value
+ def __call__(self,operation,*args,**kwargs):
+  return perform(operation,*args,**kwargs,progress=self.progress,
+                 recent_limit=self.limit,reverse=True,start=self.position,
+                 position_observer=self.remember)

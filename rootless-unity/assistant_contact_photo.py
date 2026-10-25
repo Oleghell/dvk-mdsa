@@ -8,6 +8,30 @@ from one_chat_probe import identity
 
 MAX_PNG=10*1024*1024
 
+class ProfilePhotoNotStarted(StateError):
+    """Only the pre-tap chat check failed; no profile navigation was attempted."""
+    def __init__(self, error):
+        super().__init__('profile-photo-unavailable')
+        from one_chat_device import ReadStopped, safe_read_failure
+        from assistant_failure import category
+        self.diagnostic=dict(photo_checkpoint='before-profile-open',action_attempted=False,
+                             host_failure=category(error))
+        if isinstance(error, ReadStopped):
+            self.diagnostic['last_read_failure']=safe_read_failure(error)
+
+
+class ProfileReturnUnverified(StateError):
+    """After a tap, the current chat/profile could not be independently proven."""
+    def __init__(self, error):
+        super().__init__('profile-return-not-verified')
+        from one_chat_device import ReadStopped, safe_read_failure
+        from assistant_failure import category
+        self.diagnostic=dict(photo_checkpoint='profile-return-check',action_attempted=True,
+                             host_failure=category(error))
+        if isinstance(error, ReadStopped):
+            self.diagnostic['last_read_failure']=safe_read_failure(error)
+
+
 def png_size(data):
     if not isinstance(data,bytes) or not 45<=len(data)<=MAX_PNG or data[:8]!=b'\x89PNG\r\n\x1a\n':raise StateError('profile-photo-invalid')
     pos=8;dimensions=None;ended=False;has_pixels=False
@@ -112,8 +136,18 @@ def capture_profile(executable,folder,who,cancelled=lambda:False,*,device_factor
         try:
             value=chat_reader(executable,folder,cancelled,who)
             if value['identity']!=who:raise ValueError()
-        except Exception:raise StateError('cancelled' if cancelled() else 'profile-return-not-verified') from None
-    check_chat();w,h=png_size(device.screen())
+        except Exception as error:
+            if cancelled():raise StateError('cancelled') from None
+            raise ProfileReturnUnverified(error) from None
+    # A failed observation BEFORE the tap is not an unverified RETURN.
+    # Keep it local; the caller must still verify SAME-chat Back before deferral.
+    try:
+        value=chat_reader(executable,folder,cancelled,who)
+        if identity(value['identity'])!=who:raise StateError('profile-not-verified')
+    except Exception as error:
+        if cancelled():raise StateError('cancelled') from None
+        raise ProfilePhotoNotStarted(error) from None
+    w,h=png_size(device.screen())
     if not .4<=w/h<=.8:raise StateError('profile-layout-unsupported')
     # Fixed avatar area in the portrait chat header. Never send an image based
     # on the tap alone: verify the native profile's exact peer before/after PNG.
