@@ -1,5 +1,6 @@
 """Cross-port policy, durable unknowns and pause regression tests. No device."""
 import sqlite3
+from contextlib import closing
 import tempfile
 import threading
 import unittest
@@ -91,7 +92,7 @@ class Shared(unittest.TestCase):
         self.assertTrue({cities.search_city.normalize_city(first),cities.search_city.normalize_city(second)}<=used)
     def test_old_duplicate_sessions_are_not_both_owned(self):
         Session(self.a).set('city',self.names[0]);Session(self.b).set('city',self.names[0])
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db,db:
             db.execute('DROP TABLE mumu_city_claims');db.execute('DROP TABLE mumu_city_used')
         a=self.store(5557);b=self.store(5559)
         self.assertEqual(sum(cities.owns(s,self.names[0]) for s in (a,b)),1)
@@ -111,12 +112,12 @@ class Shared(unittest.TestCase):
 
     def test_old_unknowns_backfill_without_rewriting_journals(self):
         old=Store(self.path,self.legacy);action=old.reserve(pending(),'Hi',approved=True)
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db,db:
             before=db.execute('SELECT * FROM manual_actions').fetchall()
             db.execute('DROP TABLE mumu_greeting_claims')
         b=self.store(5559)
         self.assertTrue(b.peer_claimed(pending()));self.assertFalse(b.peer_terminal(pending()))
-        with sqlite3.connect(self.path) as db:self.assertEqual(db.execute('SELECT * FROM manual_actions').fetchall(),before)
+        with closing(sqlite3.connect(self.path)) as db,db:self.assertEqual(db.execute('SELECT * FROM manual_actions').fetchall(),before)
     def test_cross_port_claim_does_not_deny_existing_dialogue(self):
         self.a.reserve(pending(),'Hi',approved=True)
         # Terminal guard is deliberately not the initial-greeting check.
