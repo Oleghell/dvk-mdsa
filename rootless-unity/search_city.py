@@ -368,12 +368,18 @@ def check_cities(cities):
     return list(cities)
 
 
-def build_next(cities, used=()):
-    """Read the actual current city first; select one other configured name."""
+def rotation_inputs(cities, used=()):
+    """Pure preflight shared by allocation and native source construction."""
     cities = check_cities(cities)
     used = check_cities(used) if used else []
     if not set(map(normalize_city, used)) <= set(map(normalize_city, cities)):
         raise ConfigError('Неверный журнал городов.')
+    return cities, used
+
+
+def build_next(cities, used=()):
+    """Read the actual current city first; select one other configured name."""
+    cities, used = rotation_inputs(cities, used)
     source = build(cities[0])
     source = replace(source, 'const cityWanted=' + json.dumps(cities[0]) + ';',
                      'let cityWanted=null;const cityCandidates=' + json.dumps(cities) +

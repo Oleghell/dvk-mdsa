@@ -199,10 +199,25 @@ def safe_read_failure(error):
     return out
 
 
+def verified_early_wrong_screen(value):
+    """An interrupted screen observation, NOT identity or message proof.
+
+    Only permits one fresh SAME-bound read. No Back, input or send is allowed
+    from this diagnostic; a successful fresh snapshot must verify identity.
+    """
+    if not isinstance(value,dict):return False
+    expected=dict(error='wrong-screen',stage='navigation-stopped',metadata_checkpoint='ready',
+        read_checkpoint='not-checked',wait_reason='not-checked',message_slot=-1,
+        message_kind='not-read',message_direction='not-read',scalar_state='not-read',
+        identity_checkpoint='not-checked',scalar_checkpoint='not-read')
+    return (all(value.get(key)==item for key,item in expected.items())
+        and all(type(value.get(key)) is int and 0<value[key]<=1000000 for key in ('frames','managed_calls')))
+
+
 def transient_read_failure(error):
     """Only bounded read-only retries for loading/changing history, not changed identity."""
     value = safe_read_failure(error)
-    return (value['error'] in {'history-not-ready', 'frame-limit', 'frame-budget'}
+    return (verified_early_wrong_screen(value) or value['error'] in {'history-not-ready', 'frame-limit', 'frame-budget'}
             and value.get('wait_reason') in {'history-loading', 'history-not-loaded',
                 'null-history-manager', 'null-loaded-flag', 'changing-count',
                 'changing-last-message', 'view-not-ready'})

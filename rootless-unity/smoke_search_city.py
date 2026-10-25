@@ -117,6 +117,29 @@ rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},cou
         child.stderr.close()
 
 
+def shared_rotation(library):
+    """Real allocator -> real JS -> owned native fixture; no Android/accounts."""
+    import tempfile
+    from mumu_store import SharedStore
+    import mumu_cities
+    with tempfile.TemporaryDirectory() as directory:
+        store=SharedStore(Path(directory)/'assistant.sqlite3',device_port=5557)
+        with store.connection() as db:
+            for city,device in [('oldcity','5557'),('othercity','5559')]:
+                db.execute('INSERT INTO mumu_city_claims VALUES(?,?,?,?)',(city,device,'active','legacy'))
+                db.execute('INSERT INTO mumu_city_used VALUES(?)',(city,))
+        def capture(allowed,used):
+            assert 'OtherCity' not in allowed and 'OtherCity' not in used
+            return one(library,300,source=build_next(allowed,used),
+                       validator=lambda value:validate_next(value,allowed))
+        value,allowed=mumu_cities.change(store,['OldCity','Pskov','OtherCity'],capture)
+        assert value['navigation']['city_selected_name']=='Pskov'
+        assert mumu_cities.owns(store,'Pskov')
+        with store.connection() as db:
+            assert db.execute('SELECT device FROM mumu_city_claims WHERE city=?',('othercity',)).fetchone()==('5559',)
+    print('Shared allocator/native rotation contract verified with another port history.',flush=True)
+
+
 if __name__ == '__main__':
     # Reproduce the old post-invoke budget failure with exactly one slow open.
     one(Path(sys.argv[1]).resolve(strict=True),338,
@@ -154,3 +177,5 @@ if __name__ == '__main__':
         validator=lambda value:validate_next(value,cities),expected_result='navigation-ready')
     assert outcome['navigation']['city_queries_started']==2 and outcome['navigation']['city_candidates_skipped']==1
     print('5 next-city cases passed: current excluded, used skipped, new round, no alternative, same GeoID blocked.')
+
+    shared_rotation(Path(sys.argv[1]).resolve(strict=True))

@@ -36,7 +36,12 @@ def recoverable(report):
                 children.append(value.get('last_city_navigation'))
             current_transport=any(recoverable_adb(child) for child in children)
             current_navigation=any(type(child) is dict and child.get('stage')=='navigation-stopped' and child.get('error') in RETRY_CODES for child in children)
-            if not (current_transport or current_navigation or scan):codes.add('unverified-host-failure')
+            from one_chat_device import verified_early_wrong_screen
+            current_read=(value.get('host_checkpoint')=='chat-read'
+                and value.get('error_type')=='ReadStopped'
+                and value.get('failure_point')=='bound-chat-read-failed'
+                and verified_early_wrong_screen(value.get('last_read_failure')))
+            if not (current_transport or current_navigation or scan or current_read):codes.add('unverified-host-failure')
         if recoverable_adb(value):codes.add('native-transport-error')
         for key in ('reason','error','host_failure'):
             v=value.get(key)

@@ -64,7 +64,11 @@ def run(config_path):
             else:raise AssertionError('Cross-port duplicate greeting authorized')
             import mumu_cities
             names=['Synthetic city '+chr(65+i) for i in range(20)]
-            token,allowed,_=mumu_cities.reserve(store,names)
+            with store.connection() as db:
+                db.execute('INSERT OR IGNORE INTO mumu_city_used VALUES(?)',(names[-1].lower(),))
+            token,allowed,used=mumu_cities.reserve(store,names)
+            import search_city
+            search_city.build_next(allowed,used)
             other_token,other_allowed,_=mumu_cities.reserve(store2,names)
             assert not set(allowed)&set(other_allowed)
             # Strict native-result validation has separate unit/native tests;

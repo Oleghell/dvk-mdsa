@@ -57,13 +57,16 @@ def reserve(store, cities):
         except MumuError:count=len(DEFAULT_PORTS)
         secrets.SystemRandom().shuffle(fresh)
         candidates=fresh[:min(6,max(1,len(free)//max(1,count)))]
+        current=[c for c,d,state in rows if d==device and state=='active' and c in allowed]
+        # Native sees only this port's reserved candidates/current city. Its
+        # used-history MUST be a subset of that same list, not the whole pool.
+        selected=candidates+current[:max(0,6-len(candidates))]
+        checked,seen=search_city.rotation_inputs(
+            [allowed[c] for c in selected], [allowed[c] for c in selected if c in used])
+        # Complete the pure argument preflight BEFORE committing any new claim.
         for city in candidates:
             db.execute('INSERT INTO mumu_city_claims VALUES(?,?,?,?)',(city,device,'pending',token))
-        current=[c for c,d,state in rows if d==device and state=='active' and c in allowed]
-        # Native needs the old city name for strict diagnostics. It is already
-        # reserved by this port, so it is also a safe alternative if UI moved.
-        selected=candidates+current[:max(0,6-len(candidates))]
-    return token,[allowed[c] for c in selected],[allowed[c] for c in used if c in allowed]
+    return token,checked,seen
 
 
 def complete(store, token, cities, value):

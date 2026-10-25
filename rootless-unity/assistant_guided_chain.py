@@ -438,7 +438,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     soft_retries += 1
                     delay = .5
                 out['diagnostics']['read_retries'] += 1
-                progress('Повторяю только чтение того же чата; отправки нет.' if verified_read_budget(failure) else
+                from one_chat_device import verified_early_wrong_screen
+                progress('Экран чата ещё не подтверждён. Повторяю только чтение; отправки нет.' if verified_early_wrong_screen(failure) else
+                         'Повторяю только чтение того же чата; отправки нет.' if verified_read_budget(failure) else
                          'История ещё загружается. Жду тот же чат; отправки нет.')
                 if pause(delay) or stopped.is_set():
                     raise StateError('cancelled')
