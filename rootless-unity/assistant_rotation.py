@@ -62,7 +62,11 @@ def after_exhaustion(executable, folder, result, store, cancelled, progress):
         if cancelled():
             change.update(status='cancelled', reason='cancelled')
             return result
-        value = search_city._capture_next(executable, folder, cities, used, cancelled)
+        if getattr(store,'mumu_shared_claims',False):
+            from mumu_cities import change as shared_change
+            value,cities=shared_change(store,cities,lambda allowed,seen:search_city._capture_next(executable,folder,allowed,seen,cancelled))
+        else:
+            value = search_city._capture_next(executable, folder, cities, used, cancelled)
         search_city.validate_next(value, cities)
         n = value['navigation']
         if n['stage'] != 'navigation-ready':

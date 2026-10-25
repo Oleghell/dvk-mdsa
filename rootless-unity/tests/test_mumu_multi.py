@@ -52,14 +52,15 @@ class SharedDatabase(unittest.TestCase):
         self.path=Path(self.tmp.name)/'assistant.sqlite3';self.legacy=Path(self.tmp.name)/'old'
     def store(self,n):return SharedStore(self.path,self.legacy,device_port=n)
 
-    def test_old_journal_preserved_only_original_port_claimed(self):
+    def test_old_journal_preserved_and_new_greetings_globally_claimed(self):
         old=Store(self.path,self.legacy)
         action=old.reserve(pending(), 'Hi',approved=True)
         old.finish(action,dict(send_attempted=False,send_handler_returned=False))
         a,b=self.store(5557),self.store(5563)
-        self.assertEqual(a.visited_peers(),[])
+        self.assertEqual(a.visited_peers(),['200'])
         self.assertEqual(b.visited_peers(),['200'])
-        a.reserve(pending(account='101'), 'Hi',approved=True)
+        with self.assertRaises(SharedPeerClaimed):a.reserve(pending(account='101'), 'Hi',approved=True)
+        self.assertFalse(a.peer_terminal(pending(account='101')))
         self.assertEqual(b.summary()['statuses'],{'not-invoked':1})
         self.assertEqual(old.summary(),b.summary())
         self.assertNotIn(b'Hi',self.path.read_bytes())
@@ -111,16 +112,16 @@ except SharedPeerClaimed:print('claimed')
                 if child.poll() is None:child.kill()
                 child.communicate()
 
-    def test_local_unknown_never_released_but_other_port_not_claimed(self):
+    def test_unknown_initial_greeting_never_released_on_any_port(self):
         a=self.store(5557);action=a.reserve(pending(),'Hello',approved=True)
         from assistant_profiles import clear_history
         clear_history(a)
         self.assertTrue(self.store(5557).peer_claimed(pending(account='777')))
-        self.assertFalse(self.store(5559).peer_claimed(pending(account='777')))
+        self.assertTrue(self.store(5559).peer_claimed(pending(account='777')))
         with self.assertRaises(SharedPeerClaimed):self.store(5557).reserve(pending(account='777'),'Hi',approved=True)
         a.finish(action,dict(send_attempted=True,send_handler_returned=False))
         self.assertTrue(self.store(5557).peer_claimed(pending(account='777')))
-        self.assertFalse(self.store(5559).peer_claimed(pending(account='777')))
+        self.assertTrue(self.store(5559).peer_claimed(pending(account='777')))
 
     def test_unapproved_and_invalid_do_not_claim(self):
         a=self.store(5557)

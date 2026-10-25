@@ -53,11 +53,33 @@ def run(config_path):
                 value=float.fromhex('0x1.ab701a79cfa37p+30')
                 db.execute('INSERT INTO float_test VALUES(?,?)',('one',value))
                 assert db.execute('SELECT value FROM float_test').fetchone()[0].hex()==value.hex()
+            # New policies use the same primary transaction, not local caches.
+            from mumu_store import SharedPeerClaimed
+            person=dict(attempt=1,account='100',peer='9001',chat='-1',variant=0)
+            store2.reserve(person,'Synthetic',approved=True)
+            assert store.peer_claimed(dict(person,account='101'))
+            assert not store.peer_terminal(dict(person,account='101'))
+            try:store.reserve(dict(person,account='101'),'Synthetic',approved=True)
+            except SharedPeerClaimed:pass
+            else:raise AssertionError('Cross-port duplicate greeting authorized')
+            import mumu_cities
+            names=['Synthetic city '+chr(65+i) for i in range(20)]
+            token,allowed,_=mumu_cities.reserve(store,names)
+            other_token,other_allowed,_=mumu_cities.reserve(store2,names)
+            assert not set(allowed)&set(other_allowed)
+            # Strict native-result validation has separate unit/native tests;
+            # use their complete synthetic result to exercise PG completion SQL.
+            sys.path.insert(0,str(Path(__file__).parent/'tests'))
+            from test_search_city import ready_city
+            city_value=ready_city()
+            city_value['navigation'].update(city_selected_name=allowed[0],city_previous_name=None,city_round_reset=False)
+            mumu_cities.complete(store,token,allowed,city_value)
+            assert mumu_cities.owns(store,allowed[0])
             # Preview writes must not touch PG, even when the real journal is PG.
             with patch.object(cloud,'readonly',lambda _:connection()):
                 with cloud.memory_snapshot(Path(folder)/'assistant.sqlite3',1024*1024) as ram:
                     ram.execute('DELETE FROM manual_actions')
-                with store2.connection() as db:assert db.execute('SELECT COUNT(*) FROM manual_actions').fetchone()[0]==1
+                with store2.connection() as db:assert db.execute('SELECT COUNT(*) FROM manual_actions').fetchone()[0]==2
             # A tiny synthetic SQLite source tests binary/float/NULL migration,
             # latest-local cutover, and refusal to overwrite an active cloud DB.
             source=Path(folder)/'source.sqlite3'

@@ -32,7 +32,7 @@ def worker(port):
  try:
   rows=raw.execute('SELECT name,sqlite_sql FROM dvk_private._dvk_schema').fetchall()
   local.schemas={n:schema_info(s) for n,s in rows}
-  statements=['CREATE TEMP TABLE _dvk_schema AS SELECT * FROM dvk_private._dvk_schema']
+  statements=['CREATE TEMP TABLE _dvk_schema (LIKE dvk_private._dvk_schema INCLUDING ALL)', 'INSERT INTO pg_temp._dvk_schema SELECT * FROM dvk_private._dvk_schema']
   for n,s in rows:statements+=['CREATE TEMP TABLE '+ident(n)+' (LIKE dvk_private.'+ident(n)+' INCLUDING ALL)','INSERT INTO pg_temp.'+ident(n)+' SELECT * FROM dvk_private.'+ident(n)]
   raw.execute(';'.join(statements),prepare=False);raw.execute('SET search_path TO pg_temp,pg_catalog')
   barrier.wait(timeout=90);start=time.monotonic()

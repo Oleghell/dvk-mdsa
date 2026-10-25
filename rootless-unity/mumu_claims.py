@@ -1,4 +1,4 @@
-"""Skip a locally used or terminally blocked EMPTY chat via checked native Back.
+"""Skip a globally greeted or terminally blocked EMPTY chat via checked native Back.
 No cancellation, fake history, false successful-send flags or handler retries.
 """
 from uikit_profile_navigation import replace_once

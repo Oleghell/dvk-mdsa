@@ -18,7 +18,7 @@ KNOWN = CITY_ERRORS | READ_ERRORS | GROQ_ERRORS | NAV_ERRORS | PROFILE_ERRORS | 
     'manual-review', 'telegram-outcome-unknown', 'contact-payload-blocked', 'telegram-disabled',
     'chat-check-stopped','navigation-check-stopped','unrecognized-diagnostic-code','bound-chat-read-failed', 'snapshot-validation-failed', 'binding-or-history-check-stopped',
     'send-outcome-unknown', 'outgoing-not-observed', 'return-not-verified', 'city-not-verified',
-    'city-no-alternative', 'search-cycle-limit', 'profile-scan-limit', 'profile-check-stopped',
+    'city-pool-exhausted', 'city-reservation-unresolved', 'city-no-alternative', 'search-cycle-limit', 'profile-scan-limit', 'profile-check-stopped',
     'device-or-journal-check-stopped', 'inbox-not-finished', 'profiles-not-finished',
     'guided-contact-history-changed', 'contact-protection-failed', 'contact-payload-invalid',
     'contact-limit-exceeded', 'guided-binding-not-authorized', 'guided-outgoing-not-verified',

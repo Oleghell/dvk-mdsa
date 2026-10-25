@@ -257,18 +257,22 @@ def launch(self_check=False):
             except Exception:
                 note.set('Тест не выполнен. Сначала сохрани токен и Chat ID.')
         def clear():
+            try:
+                selected=device_table.selection()
+                target=int(selected[0]) if selected else parse_ports(ports_box.get('1.0','end'))[0]
+            except (ValueError,IndexError,MumuError):
+                note.set('Сначала выбери порт MuMu в главном окне.');return
             if not messagebox.askyesno('Очистить историю анкет',
-                    'Забыть просмотренные анкеты и использованные города?\n'
-                    'Журнал отправленных сообщений сохранится — это защита от повторных приветствий.',
-                    parent=w):
-                return
+                    f'Забыть просмотренные анкеты и резерв города MuMu ADB {target}?\n'
+                    'Сначала останови этот порт и вручную проверь экран поиска.\n'
+                    'Журнал отправок и общая защита от повторных приветствий сохранятся.',parent=w):return
             try:
                 from assistant_profiles import clear_history
-                from assistant_store import Store
-                clear_history(Store())
-                note.set('История анкет и городов очищена. Журнал отправок сохранён.')
+                from mumu_store import SharedStore
+                clear_history(SharedStore(device_port=target))
+                note.set(f'История поиска MuMu {target} очищена. Журнал отправок сохранён.')
             except Exception:
-                note.set('Не удалось очистить историю. Закрой другие окна программы.')
+                note.set('Не удалось очистить историю. Останови выбранный порт и другие его копии.')
         test_stop=threading.Event()
         def test_groq():
             test_ai_button.configure(state='disabled')

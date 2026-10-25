@@ -81,7 +81,7 @@ def monitor(script, store, text, approve, done, cancelled, state):
             pending = dict(cohort_pass.Store.check(pending))
             if cancelled() or done.is_set():
                 return
-            # A terminal global outcome or local prior attempt skips before
+            # A terminal global outcome or prior greeting on any port skips before
             # typing; reserve below rechecks atomically after approval.
             if getattr(store, 'mumu_shared_claims', False) is True and store.peer_claimed(pending):
                 from mumu_claims import skip

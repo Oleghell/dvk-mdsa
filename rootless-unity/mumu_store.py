@@ -3,7 +3,7 @@
 The unchanged engine has chat-only primary keys. A finite identifier adapter gives
 those internal tables a device namespace in the SAME database; chat IDs are never
 assumed unique across accounts/phones. Only authored SQL uses this adapter; bound
-message/key values are not rewritten. Only accepted contacts and explicit refusals block new greetings globally.
+message/key values are not rewritten. Initial greetings are globally deduplicated, independently of terminal bans.
 """
 from contextlib import contextmanager, closing
 import json
@@ -25,7 +25,7 @@ TABLES = frozenset(('manual_actions profile_visits search_session city_rotation_
 TOKENS = re.compile(r'\b(' + '|'.join(sorted(TABLES, key=len, reverse=True)) + r')\b')
 
 class SharedPeerClaimed(StateError):
-    """Local attempt or a global terminal outcome prevents authorization."""
+    """A global greeting claim or terminal outcome prevents a new greeting."""
 
 class Cursor:
     def __init__(self, cursor, prefix, schema=False):
@@ -82,10 +82,13 @@ class SharedStore(BaseStore):
                   peer TEXT PRIMARY KEY,checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
                 db.execute('CREATE TABLE IF NOT EXISTS mumu_recovery_skips(peer TEXT PRIMARY KEY)')
                 # Old global claims/visits/skips remain an audit, NOT a ban.
-                # A greeting on another phone is not a contact/refusal outcome.
+                # Greeting claims have their own registry, not terminal communication bans.
                 from mumu_peer_policy import initialize, backfill_contacts
                 initialize(db)
                 backfill_contacts(db)
+                import mumu_greetings, mumu_cities
+                mumu_greetings.initialize(db)
+                mumu_cities.initialize(db)
                 # Old releases accidentally shared receipt keys across devices.
                 # Copy ONLY receipts whose salted fingerprint matches this
                 # phone's persisted observation; never guess the owner by ChatId.
@@ -121,13 +124,13 @@ class SharedStore(BaseStore):
 
     @staticmethod
     def blocked(db,peer):
-        return (db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?',(peer,)).fetchone() is not None
+        return (db.execute('SELECT 1 FROM mumu_greeting_claims WHERE peer=?',(peer,)).fetchone() is not None
+            or db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?',(peer,)).fetchone() is not None
             or db.execute('SELECT 1 FROM manual_actions WHERE peer=?',(peer,)).fetchone() is not None
             or db.execute('SELECT 1 FROM profile_recovery_skips WHERE peer=?',(peer,)).fetchone() is not None)
 
     def peer_claimed(self,pending):
-        # Preserve the native checked-skip API; its meaning is now local send
-        # history OR a confirmed global terminal outcome, not another greeting.
+        # This check only authorizes a NEW greeting, never an existing reply.
         pending=LegacyStore.check(pending)
         with self.connection() as db:return self.blocked(db,pending['peer'])
 
@@ -148,9 +151,11 @@ class SharedStore(BaseStore):
         self.check_legacy(pending['account'],pending['peer'])
         with self.connection() as db:
             # Outcome and reservation serialize in the SAME SQLite transaction.
-            # No global lock is acquired by a mere greeting on another port.
+            # Claim and local journal commit atomically; replies use terminal bans only.
             if self.blocked(db,pending['peer']):
-                raise SharedPeerClaimed('Локальная попытка уже сохранена или контакт/отказ получен на одном из MuMu.')
+                raise SharedPeerClaimed('Приветствие уже зарезервировано или контакт/отказ получен на одном из MuMu.')
+            db.execute('INSERT INTO mumu_greeting_claims(peer,device,account) VALUES(?,?,?)',
+                       (pending['peer'],str(self.device_port),pending['account']))
             cur=db.execute("""INSERT INTO manual_actions
               (account,peer,initial_chat,text_hash,confirmed,status) VALUES(?,?,?,?,1,'reserved-unknown')""",
               (pending['account'],pending['peer'],pending['chat'],hashlib.sha256(text.encode()).hexdigest()))
@@ -163,7 +168,7 @@ class SharedStore(BaseStore):
         from conversation_engine import identifier
         with self.connection() as db:
             db.execute("CREATE TABLE IF NOT EXISTS profile_visits(peer TEXT PRIMARY KEY,friends_count INTEGER,history_status TEXT NOT NULL,checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
-            values=[x[0] for x in db.execute('SELECT peer FROM profile_visits UNION SELECT peer FROM manual_actions UNION SELECT peer FROM profile_recovery_skips UNION SELECT peer FROM mumu_peer_blocks')]
+            values=[x[0] for x in db.execute('SELECT peer FROM profile_visits UNION SELECT peer FROM manual_actions UNION SELECT peer FROM profile_recovery_skips UNION SELECT peer FROM mumu_peer_blocks UNION SELECT peer FROM mumu_greeting_claims')]
         if len(values)>10000:raise StateError('История больше безопасного лимита снимка; журналы не удаляй.')
         return [identifier(x) for x in values]
 

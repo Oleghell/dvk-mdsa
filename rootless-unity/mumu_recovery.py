@@ -111,6 +111,29 @@ class Repair:
         return False
 
 
+def resume_recheck(recheck, stopped, progress, wait):
+    """Read-only reconnect after a long pause; never retry UI/send/identity failures."""
+    from assistant_pause import boundary
+    from startup_failure import clean,recoverable_adb
+    attempts=0
+    while not stopped.is_set():
+        boundary(stopped,restart=False)
+        if stopped.is_set():return False
+        try:
+            recheck()
+            return True
+        except Exception as error:
+            evidence=clean(getattr(error,'_dvk_failure',None))
+            transient={'connection-refused','connection-timeout','device-offline','device-not-found','command-timeout'}
+            if not (isinstance(error,(ConnectionError,TimeoutError)) or recoverable_adb(evidence)
+                    or evidence and evidence.get('adb_reason') in transient):
+                raise
+            attempts+=1
+            progress('Продолжение порта • восстанавливаю связь после паузы; отправки не повторяются.')
+            if wait(min(30,2**min(attempts-1,5))):return False
+    return False
+
+
 def run(settings,stopped,approve,progress=lambda _:None,*,mode='full',fresh_session=False,
         write=None,continuous=True,monitor=None,repair=None,wait=None,json_alert=None,recheck=lambda:None):
     from assistant_monitor import run as engine,write_report,REPORT
@@ -132,12 +155,14 @@ def run(settings,stopped,approve,progress=lambda _:None,*,mode='full',fresh_sess
             if stopped.is_set():break
             # Keep original endpoint/boot locks and journals. The new engine
             # pass verifies navigation again; never perform a speculative Back.
-            recheck()
+            if not resume_recheck(recheck,stopped,progress,wait):break
             progress('Порт продолжен • проверяю текущий экран; отправки не повторяются.')
             if entered:first=False
             continue
         first=False
-        if out.get('status')=='cancelled' or stopped.is_set():return out
+        boundary(stopped,restart=False)
+        if stopped.is_set():return dict(out,status='cancelled',reason='cancelled')
+        if out.get('status')=='cancelled':return out
         can_recover=recoverable(out)
         if settings.errors_enabled and out.get('status')=='stopped':
             try:json_alert(dict(out,status='recovering') if can_recover else out)

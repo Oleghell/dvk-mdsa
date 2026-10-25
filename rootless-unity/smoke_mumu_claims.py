@@ -55,20 +55,16 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
             assert not thread.is_alive()
             manual.validate(raw,shared_peer_skipped=state.get('shared_peer_skipped',False))
             n=raw['navigation'];counts=script.exports_sync.counts()
+            assert state=={'shared_peer_skipped':True},state
+            assert n['return_verified'] is True and n['shared_peer_skipped'] is True
+            assert n['history_status']=='empty' and n['send_attempted'] is False and n['send_handler_returned'] is False
+            assert all(v==0 for v in counts.values()),counts
+            assert len(approvals)==(case=='race-during-typing')
+            assert store.summary()['reserved']==0 and other.summary()['reserved']==1
             if case=='greeting-only':
-                assert set(state)=={'action_id'} and not state.get('shared_peer_skipped'),state
-                assert n['return_verified'] and not n['shared_peer_skipped']
-                assert n['send_attempted'] and n['send_handler_returned']
-                assert counts.pop('sends')==1 and all(v==0 for v in counts.values()),counts
-                assert len(approvals)==1 and store.summary()['reserved']==other.summary()['reserved']==1
-            else:
-                assert state=={'shared_peer_skipped':True},state
-                assert n['return_verified'] is True and n['shared_peer_skipped'] is True
-                assert n['history_status']=='empty' and n['send_attempted'] is False and n['send_handler_returned'] is False
-                assert all(v==0 for v in counts.values()),counts
-                assert len(approvals)==(case=='race-during-typing')
-                assert store.summary()['reserved']==0 and other.summary()['reserved']==1
-            print('MuMu terminal outcome:',case,'verified return; no leaked handles',flush=True)
+                with store.connection() as db:
+                    assert db.execute('SELECT COUNT(*) FROM mumu_peer_blocks').fetchone()[0]==0
+            print('MuMu shared greeting/terminal outcome:',case,'verified return; no leaked handles',flush=True)
         finally:
             done.set()
             if thread:thread.join(timeout=5)

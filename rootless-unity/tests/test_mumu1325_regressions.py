@@ -77,15 +77,17 @@ class GlobalPeer(unittest.TestCase):
                 s.reserve(pending(peer=str(port+100),account=str(port+200)),'Hi',approved=True)
             with closing(sqlite3.connect(path,isolation_level=None)) as db:
                 db.execute('DELETE FROM mumu_peer_claims')
+                db.execute('DROP TABLE mumu_greeting_claims')
                 old={row[0]:db.execute('SELECT * FROM '+row[0]).fetchall() for row in db.execute("SELECT name FROM sqlite_master WHERE name='manual_actions' OR name GLOB 'm[0-9][0-9][0-9][0-9]__manual_actions'").fetchall()}
             fresh=SharedStore(path,legacy,device_port=5559)
             for port in (5563,5557,5559,5561,5565):
                 person=pending(peer=str(port+100),account='999')
-                self.assertEqual(fresh.peer_claimed(person),port==5559)
+                self.assertTrue(fresh.peer_claimed(person))
+                self.assertFalse(fresh.peer_terminal(person))
             with closing(sqlite3.connect(path,isolation_level=None)) as db:
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM mumu_peer_claims').fetchone()[0],0)
                 for table,rows in old.items():self.assertEqual(db.execute('SELECT * FROM '+table).fetchall(),rows)
-    def test_cross_port_reservations_both_allowed_before_terminal_outcome(self):
+    def test_cross_port_initial_greeting_reservations_have_one_winner(self):
         with tempfile.TemporaryDirectory() as t:
             path=Path(t)/'db';legacy=Path(t)/'old'
             stores=[SharedStore(path,legacy,device_port=p) for p in (5557,5563)]
@@ -97,7 +99,7 @@ class GlobalPeer(unittest.TestCase):
             ts=[threading.Thread(target=claim,args=(s,str(i+100))) for i,s in enumerate(stores)]
             for th in ts:th.start()
             for th in ts:th.join(10);self.assertFalse(th.is_alive())
-            self.assertEqual(sorted(results),['won','won'])
+            self.assertEqual(sorted(results),['blocked','won'])
 
 class Diagnostics(unittest.TestCase):
     def test_native_no_send_diagnostic_survives_but_secrets_do_not(self):

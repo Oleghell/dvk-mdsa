@@ -54,10 +54,18 @@ class Session:
 def clear_history(store):
     """Forget viewed profiles and city rotation. Send journals are kept on purpose:
     they are the protection against a second greeting to the same person."""
-    with store.connection() as db:
-        for table in ('profile_visits', 'city_rotation_used', 'search_session'):
-            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
-                db.execute(f'DELETE FROM {table}')
+    from contextlib import nullcontext
+    from assistant_lock import operation_lock
+    shared=getattr(store,'mumu_shared_claims',False)
+    path=store.path.parent
+    if shared and store.device_port!=5563:path=path/'devices'/str(store.device_port)
+    with operation_lock(path/'worker.lock') if shared else nullcontext():
+        with store.connection() as db:
+            for table in ('profile_visits', 'city_rotation_used', 'search_session'):
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                    db.execute(f'DELETE FROM {table}')
+            if getattr(store,'mumu_shared_claims',False):
+                db.execute('DELETE FROM mumu_city_claims WHERE device=?',(str(store.device_port),))
     return True
 
 
@@ -70,7 +78,11 @@ def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics
     history = History(store)
     used = history.used(cities)
     secrets.SystemRandom().shuffle(cities)
-    value = city_next(settings.adb, settings.folder, cities, used, stopped.is_set)
+    if getattr(store,'mumu_shared_claims',False):
+        from mumu_cities import change
+        value,cities=change(store,cities,lambda allowed,seen:city_next(settings.adb,settings.folder,allowed,seen,stopped.is_set))
+    else:
+        value = city_next(settings.adb, settings.folder, cities, used, stopped.is_set)
     search_city.validate_next(value, cities)
     n = value['navigation']
     if diagnostics is not None:
@@ -120,7 +132,11 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             session.set('city', city)
             session.set('city_changed_at', datetime.now(timezone.utc).isoformat(timespec='seconds'))
 
-        if fresh_session or out['current_city'] is None:
+        shared_city_ok=True
+        if getattr(store,'mumu_shared_claims',False):
+            from mumu_cities import owns
+            shared_city_ok=owns(store,out['current_city'])
+        if fresh_session or out['current_city'] is None or not shared_city_ok:
             new_city('Поиск • выбираю город и «Только онлайн»')
         while out['qualified_profiles'] < limit:
             boundary(stopped)
@@ -256,7 +272,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
         if cycle_pending and not (getattr(error,'_dvk_profile_not_executed',False) is True and not offered):
             out.update(send_attempts_unknown=True, greetings_sent=None)
         known = {'profile-recovery-limit', 'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
-                 'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'search-cycle-limit', 'profile-scan-limit'}
+                 'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'city-pool-exhausted', 'city-reservation-unresolved', 'search-cycle-limit', 'profile-scan-limit'}
         reason = 'cancelled' if stopped.is_set() else (
             str(error) if isinstance(error, StateError) and str(error) in known else 'device-or-journal-check-stopped')
         status = ('profiles-cancelled' if reason == 'cancelled' else

@@ -1,4 +1,4 @@
-"""Cross-port availability follows contacts/refusals, not greeting claims."""
+"""New greetings deduplicate globally; only contacts/refusals ban replies."""
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -35,14 +35,15 @@ class Availability(unittest.TestCase):
             h.append((a['text'],True));c.proposal(snapshot(*h))
             if a['kind']=='question':h.append(('Хорошо',False))
         return h
-    def test_greeting_without_conversation_does_not_block_other_ports(self):
+    def test_greeting_without_conversation_prevents_second_port_greeting_only(self):
         self.reserve(self.a)
         self.assertTrue(self.a.peer_claimed(pending()))
-        self.assertFalse(self.b.peer_claimed(pending()))
-        self.assertNotIn('200',self.b.visited_peers())
-        self.reserve(self.b)
-        self.assertEqual(self.a.summary()['reserved'],1);self.assertEqual(self.b.summary()['reserved'],1)
-    def test_all_local_send_statuses_stay_local_across_restart_and_clear(self):
+        self.assertTrue(self.b.peer_claimed(pending()))
+        self.assertIn('200',self.b.visited_peers())
+        self.assertFalse(self.b.peer_terminal(pending()))
+        with self.assertRaises(SharedPeerClaimed):self.reserve(self.b)
+        self.assertEqual(self.a.summary()['reserved'],1);self.assertEqual(self.b.summary()['reserved'],0)
+    def test_all_send_statuses_claim_globally_across_restart_and_clear(self):
         for attempted,returned in ((False,False),(True,False),(True,True)):
             with self.subTest(status=(attempted,returned)):
                 peer=str(1000+10*int(attempted)+int(returned));p=pending(peer=peer)
@@ -50,7 +51,8 @@ class Availability(unittest.TestCase):
                 self.a.finish(action,dict(send_attempted=attempted,send_handler_returned=returned))
                 clear_history(self.a)
                 self.assertTrue(self.store(5557).peer_claimed(p))
-                self.assertFalse(self.store(5559).peer_claimed(p))
+                self.assertTrue(self.store(5559).peer_claimed(p))
+                self.assertFalse(self.store(5559).peer_terminal(p))
                 with self.assertRaises(SharedPeerClaimed):self.a.reserve(p,'Hi',approved=True)
     def test_profile_visit_and_recovery_skip_are_phone_local(self):
         self.a.record_visit('201',dict(profile_verified=True,friends_count=10,history_status='empty'))
@@ -109,7 +111,8 @@ class Availability(unittest.TestCase):
         enable(self.a)
         with self.a.connection() as db:db.execute("UPDATE manual_actions SET created_at=datetime('now','-4000 seconds')")
         self.assertIsNone(reason(self.a,WHO))
-        self.assertFalse(self.b.peer_claimed(pending()))
+        self.assertTrue(self.b.peer_claimed(pending()))
+        self.assertFalse(self.b.peer_terminal(pending()))
     def test_contact_backfill_includes_original_and_future_namespaces_not_declined(self):
         for port,peer,stage in ((5563,'230','done'),(16790,'231','done'),(5561,'232','declined'),(5565,'233','manual-review')):
             s=self.store(port);GuidedChain(s)
