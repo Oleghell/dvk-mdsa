@@ -14,6 +14,7 @@ from one_chat_probe import identity
 from one_chat_send import checked
 from conversation_engine import CONTACT_TEXT
 from shared_contact import display_name
+from mumu_peer_policy import ensure_communication_allowed, PeerCommunicationBlocked
 
 from version import VERSION
 from assistant_authorization import flags
@@ -350,6 +351,7 @@ class GuidedChain(Chain):
     def reserve_confirmed(self, who, action):
         self.authorized(who)
         with self.store.connection() as db:
+            ensure_communication_allowed(self.store,who,db=db)
             stage = db.execute('SELECT stage FROM chain_dialogs WHERE chat=?',
                                (who['chat'],)).fetchone()
             if not stage or stage[0] != 'pending-' + action['kind']:
@@ -489,6 +491,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             excerpts=[m['text'] if isinstance(m['text'],str) else '[нет текста]' for m in before['messages'] if m['sender']==who['peer'] and (m['id'] not in seen_ids or m['id'] in unanswered_ids)]
             if excerpts and exit_capture is not None:exit_capture(excerpts)
             try:
+                ensure_communication_allowed(chain.store,who)
                 host_checkpoint='chat-proposal'
                 stage, action = chain.proposal(before)
             except StateError as error:
@@ -666,6 +669,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                                 'none', 'managed-exception', 'submission-already-attempted'}:
                             send_failure = 'send-native-check-failed'
                             out['diagnostics']['last_send_failure'] = code
+                except PeerCommunicationBlocked:
+                    raise  # Denied before adapter: never mislabel this as an unknown send.
                 except Exception as send_error:
                     from one_chat_device import ReadStopped
                     if isinstance(send_error, ReadStopped):
@@ -717,6 +722,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             out.update(status='chain-paused', reason='wait-timeout')
             return out
         out.update(status='chain-cancelled', reason='cancelled')
+    except PeerCommunicationBlocked:
+        out['diagnostics']['failure_point']='peer-contact-blocked'
+        out.update(status='chain-waiting',reason='peer-contact-blocked')
     except HistorySnapshotTooLarge:
         out['diagnostics']['failure_point']='history-snapshot-too-large'
         out.update(status='chain-cancelled' if stopped.is_set() else 'chain-waiting',

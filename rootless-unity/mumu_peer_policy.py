@@ -50,3 +50,27 @@ def explicit_refusal(messages,*,requested):
             or re.fullmatch(r'(?:нет|нету|не хочу|не надо)[.!?,)\s]*',plain)):
             return True
     return False
+
+
+from assistant_store import StateError
+
+class PeerCommunicationBlocked(StateError):
+    """A verified global terminal outcome forbids further peer messages."""
+    def __init__(self):super().__init__('peer-contact-blocked')
+
+
+def ensure_communication_allowed(store,who,*,db=None):
+    """Deny-only guard. No permits, replay, state reset or identity guessing.
+
+    Reservation and adapter-entry callers pass their current IMMEDIATE SQLite
+    transaction so a previously committed outcome cannot be missed there.
+    A send already entered before a concurrent outcome cannot be recalled.
+    """
+    if getattr(store,'mumu_shared_claims',False) is not True:return
+    from one_chat_probe import identity
+    who=identity(who)
+    if db is None:
+        with store.connection() as connection:
+            return ensure_communication_allowed(store,who,db=connection)
+    if db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?',(who['peer'],)).fetchone() is not None:
+        raise PeerCommunicationBlocked()

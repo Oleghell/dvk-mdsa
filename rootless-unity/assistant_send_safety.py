@@ -40,6 +40,8 @@ def matching(db,session,who,action):
 
 def begin(chain,session,who,action):
     with chain.store.connection() as db:
+        from mumu_peer_policy import ensure_communication_allowed
+        ensure_communication_allowed(chain.store,who,db=db)
         matching(db,session,who,action)
         return db.execute("INSERT INTO chain_send_attempts(session,outcome) VALUES(?,'unknown')",(session,)).lastrowid
 
