@@ -74,5 +74,11 @@ if __name__=='__main__':
  print('Synthetic 130-model scan frames:',baseline_frames,'->',fast_frames,flush=True)
  one(library,871,slow=True)
 
- from smoke_dialog_browser import integration
- integration(library,872,cached_models=True)
+ # The integration owns its own journal/device child. Use a fresh host too:
+ # reusing one Frida manager after all short-lived ABI attachments can stall
+ # detach on some hosts, although this same integration passes in isolation.
+ # This retains every assertion and does not retry any test/send operation.
+ subprocess.run([sys.executable,'-c',
+  'from pathlib import Path;import sys;from smoke_dialog_browser import integration;'
+  'integration(Path(sys.argv[1]),872,cached_models=True)',str(library)],
+  cwd=Path(__file__).resolve().parent,check=True,timeout=90)
