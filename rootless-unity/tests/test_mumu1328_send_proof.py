@@ -145,7 +145,9 @@ class SetupTransport(unittest.TestCase):
         from test_search_online import OnlineFake
         from test_mumu1315 import error_at
         from one_chat_send_device import inspect_submission
-        from smoke_one_chat_send import BEFORE
+        # Unit fixture only: native smoke modules import Frida before CI installs it.
+        from test_one_chat_preview import snap as send_snapshot
+        BEFORE=send_snapshot()
         for method,stage in (('create_script','script-create'),('load','script-load')):
             f=OnlineFake();error=error_at(stage);setattr(f,method,MagicMock(side_effect=error))
             with self.assertRaises(SubmissionNotStarted) as caught:
