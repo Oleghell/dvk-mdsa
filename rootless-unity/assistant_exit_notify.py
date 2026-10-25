@@ -9,7 +9,7 @@ import json
 import telegram_notify
 
 REASONS = {
- 'peer-contact-blocked':'Новые сообщения запрещены: на одном из MuMu уже получен контакт или явный отказ. Общая блокировка действует и на открытые диалоги.',
+ 'peer-contact-blocked':'В общей базе есть запрет новых сообщений: получен контакт, зафиксирован отказ или установлен ручной запрет /num. Запрет действует и на открытые диалоги.',
  'reply-excluded':'Диалог исключён режимом «Новые анкеты». Возраст первого приветствия не ограничивает ответы.',
  'new-start-excluded':'Диалог существовал до запуска «Новые анкеты». По этому режиму ответы разрешены только новым собеседникам.',
  'reply-window-expired':'Сохранён устаревший временной пропуск. Возраст приветствия больше не является причиной исключения.',
@@ -53,6 +53,56 @@ REASONS = {
  'groq-repeat-greeting':'ИИ снова поздоровался. Такой ответ не отправляю.',
  'openrouter-repeat-greeting':'ИИ снова поздоровался. Такой ответ не отправляю.',
 }
+
+def blocked_explanation(store, who):
+    """Read-only notice detail from the real global row, never an unblock."""
+    if getattr(store, 'mumu_shared_claims', False) is not True:
+        return None
+    with store.connection() as db:
+        row = db.execute('SELECT reason,device FROM mumu_peer_blocks WHERE peer=?',
+                         (who['peer'],)).fetchone()
+    if row is None:
+        return None
+    reasons = {
+        'contact-received': 'В общей базе отмечен полученный контакт.',
+        'contact-refused': 'В общей базе зафиксирован явный отказ.',
+        'manual-block': 'В общей базе установлен ручной запрет /num.',
+    }
+    explanation = reasons.get(row[0])
+    if explanation is None:
+        return None
+    # A database string is not trusted display text. Only a validated port or
+    # the fixed Telegram source may leave this read; no peer/account/chat IDs.
+    if row[1] == 'telegram' and row[0] == 'manual-block':
+        explanation += ' Источник: команда Telegram.'
+    else:
+        from mumu_common import port, MumuError
+        try:
+            source = port(row[1])
+        except MumuError:
+            source = None
+        if source is not None:
+            explanation += ' Источник записи: MuMu ADB ' + str(source) + '.'
+    return explanation + ' Новые сообщения запрещены на всех MuMu; запись автоматически не снимается.'
+
+
+def unknown_send_explanation(store, who):
+    """Fixed journal labels only; neither absence nor return proves delivery."""
+    kinds = {'question': 'вопрос', 'contact': 'предложение перейти',
+             'clarify': 'уточнение контакта', 'followup': 'ответ по контексту'}
+    statuses = {'reserved-unknown': 'резерв с неизвестным исходом',
+                'unknown': 'неизвестный исход',
+                'handler-returned-unconfirmed': 'обработчик завершился, сообщение ещё не подтверждено в истории'}
+    with store.connection() as db:
+        rows = db.execute('SELECT kind,status FROM chain_actions WHERE chat=?',
+                          (who['chat'],)).fetchall()
+    details = [kinds[kind] + ' — ' + statuses[status]
+               for kind, status in rows if kind in kinds and status in statuses]
+    if not details:
+        return None
+    return ('В журнале: ' + '; '.join(sorted(details)) +
+            '. Это не подтверждение доставки. Повторной отправки не будет.')
+
 
 def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, photo_status=None, photo_sender=None):
     reason = result.get('reason')
@@ -111,6 +161,12 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
         'contact-batch-ambiguous':'Не удалось безопасно связать контакт с текущим этапом.',
     }
     explanation = review_text.get(cause,REASONS.get(reason,'Не удалось безопасно продолжить этот чат.'))
+    if reason == 'peer-contact-blocked':
+        explanation = blocked_explanation(chain.store, who) or explanation
+    if reason == 'send-outcome-unknown':
+        detail = unknown_send_explanation(chain.store, who)
+        if detail:
+            explanation += ' ' + detail
     if reason == 'greeting-not-verified':
         anchor=(result.get('diagnostics') or {}).get('greeting_anchor_failure')
         explanation={

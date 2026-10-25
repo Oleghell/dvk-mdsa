@@ -126,7 +126,7 @@ def diagnostic_json(report):
     structures = {'recovery_failure','initial_run','last_profile_run','last_pass','inbox','profiles',
         'last_profile_diagnostics','last_city_navigation','last_navigation','last_navigation_failure',
         'last_preparation_failure','preparation_failure','last_chat_diagnostics','last_read_failure','diagnostic','recovery_events','ai_failures'}
-    numbers = {'send_preflight_retries','recovery_attempts','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
+    numbers = {'read_retries','send_preflight_retries','recovery_attempts','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
         'setup_retry_attempts','profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
         'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',

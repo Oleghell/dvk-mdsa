@@ -30,7 +30,13 @@ def verified_read_budget(value):
     identity_scalar=scalar in ("account-id", "peer-id", "chat-id")
     message_scalar=scalar in ("message-id", "message-sender-id", "message-chat-id")
     phase_ok=(phase in ("identity", "model", "manager", "loaded-flag", "count", "recheck", "sample") and identity_scalar
-              or phase == "last-message" and (identity_scalar or message_scalar))
+              or phase == "last-message" and (identity_scalar or message_scalar)
+              # read_latest rechecks the last message header AFTER collection,
+              # at sample. Report 137 stopped here with message-chat-id. This
+              # is still an interrupted read, never identity or send proof.
+              or phase == "sample" and message_scalar
+                 and type(value.get("message_slot")) is int
+                 and 0 <= value["message_slot"] < MAX_MESSAGES)
     # A budget expiry during initial ID getters is an interrupted observation,
     # NOT an identity mismatch. Retry only the fixed reader with the SAME expected
     # identity, from scratch; a later Back still independently checks that ID.
