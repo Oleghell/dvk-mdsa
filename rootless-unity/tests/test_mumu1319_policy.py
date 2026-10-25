@@ -54,28 +54,27 @@ class Window(Base):
     def set_age(self,age):
         with self.store.connection() as db:
             db.execute("UPDATE manual_actions SET created_at=datetime('now',?)",('-'+str(age)+' seconds',))
-    def test_exact_one_hour_and_persistent_expiration(self):
-        self.journal();window.enable(self.store)
-        with self.store.connection() as db:created=db.execute("SELECT CAST(strftime('%s',created_at) AS INTEGER) FROM manual_actions").fetchone()[0]
-        self.assertIsNone(window.reason(self.store,WHO,clock=lambda:created+3599.999))
-        self.assertEqual(window.reason(self.store,WHO,clock=lambda:created+3600),'reply-window-expired')
-        # Restart/clock rollback do not reopen the skipped conversation.
-        self.assertEqual(window.reason(self.store,WHO,clock=lambda:created+5),'reply-window-expired')
-        with self.store.connection() as db:self.assertEqual(db.execute('SELECT status FROM manual_actions').fetchone()[0],'handler-returned-unconfirmed')
-    def test_expired_targets_never_open_or_read(self):
-        self.journal();window.enable(self.store);self.set_age(3601)
-        out=self.walk([],[])
-        self.assertEqual(out['status'],'inbox-empty');self.nav.assert_not_called();self.reader.assert_not_called()
-        self.assertEqual(self.sent,[])
+    def test_old_greeting_does_not_expire_fresh_incoming(self):
+        self.journal();window.enable(self.store);self.set_age(86400)
+        for now in (0,3600,10**12):
+            self.assertIsNone(window.reason(self.store,WHO,clock=lambda:now))
+        h=msg(1002,'Привет');q=msg(1003,QUESTIONS[0],True)
+        out=self.walk([nav('opened',WHO),nav('returned',WHO),nav('search-ready')],
+                      [snap(h),snap(h),snap(h,q)])
+        self.assertEqual(out['status'],'inbox-completed');self.assertEqual(self.sent,[QUESTIONS[0]])
+
     def test_fresh_targets_remain_eligible(self):
         self.journal();window.enable(self.store)
         a,u=__import__('assistant_inbox').inbox_targets(self.chain())
         self.assertEqual(len(a)+len(u),1)
-    def test_no_reliable_greeting_time_is_not_invented(self):
+
+    def test_missing_greeting_timestamp_does_not_invent_incoming_age(self):
         c=self.chain();c.bind(snap(),(snap()['messages'][0]['text'],),approved=True)
         window.enable(self.store)
-        self.assertEqual(window.reason(self.store,WHO),'reply-age-unverified')
-        self.assertEqual(__import__('assistant_inbox').inbox_targets(c),([],[]))
+        self.assertIsNone(window.reason(self.store,WHO))
+        a,u=__import__('assistant_inbox').inbox_targets(c)
+        self.assertEqual(len(a)+len(u),1)
+
     def test_new_start_excludes_old_even_if_new_incoming_but_not_new_peers(self):
         self.journal();window.enable(self.store,new_only=True)
         self.assertEqual(window.reason(self.store,WHO),'new-start-excluded')
@@ -84,22 +83,23 @@ class Window(Base):
         reopened=__import__('assistant_store').Store(self.store.path,self.store.legacy)
         self.assertEqual(window.reason(reopened,WHO),'new-start-excluded')
         self.assertIn(WHO['peer'],reopened.visited_peers())
-    def test_guard_blocks_proposal_without_ai_or_action_changes(self):
+    def test_new_start_guard_blocks_proposal_without_ai_or_action_changes(self):
         self.journal();c=self.chain();c.bind(snap(),(snap()['messages'][0]['text'],),approved=True)
-        window.enable(self.store);self.set_age(3601)
+        window.enable(self.store,new_only=True)
         c.responder=MagicMock(side_effect=AssertionError('No AI'))
         self.assertEqual(c.proposal(snap(msg(1002,'Привет'))),('reply-excluded',None))
         with self.store.connection() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM chain_actions').fetchone()[0],0)
         c.responder.assert_not_called()
-    def test_expiration_during_typing_never_reserves_or_sends(self):
+
+    def test_greeting_aging_during_typing_does_not_cancel_fresh_reply(self):
         self.journal();window.enable(self.store)
-        def expire(*a):self.set_age(3601);return True
-        self.approve.side_effect=expire
-        out=self.walk([nav('opened',WHO),nav('returned',WHO),nav('search-ready')],[snap(msg(1002,'Привет')),snap(msg(1002,'Привет'))])
-        self.assertEqual(out['status'],'inbox-completed');self.assertEqual(self.sent,[])
-        self.assertEqual(out['submission_calls'],0)
-        with self.store.connection() as db:
-            self.assertEqual(db.execute("SELECT status FROM chain_actions WHERE kind='question'").fetchone()[0],'awaiting-approval')
+        def age(*a):self.set_age(86400);return True
+        self.approve.side_effect=age
+        h=msg(1002,'Привет');q=msg(1003,QUESTIONS[0],True)
+        out=self.walk([nav('opened',WHO),nav('returned',WHO),nav('search-ready')],
+                      [snap(h),snap(h),snap(h,q)])
+        self.assertEqual(out['status'],'inbox-completed');self.assertEqual(self.sent,[QUESTIONS[0]])
+
 
 class Namespace(unittest.TestCase):
     def test_new_start_is_port_scoped_claims_are_unchanged(self):

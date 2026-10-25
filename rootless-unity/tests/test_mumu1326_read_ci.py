@@ -56,17 +56,19 @@ class ActualReadBudget(Base):
         self.assertEqual(out['reason'],'new-start-excluded')
         self.assertIn('до запуска',sender.call_args.args[0])
         self.assertEqual(window.reason(self.store,WHO),'new-start-excluded')
-    def test_expired_explanation_not_confused_with_new_mode(self):
+    def test_old_greeting_has_no_expiry_explanation(self):
         self.journal();c=self.chain();window.enable(self.store)
         with self.store.connection() as db:
             db.execute("UPDATE manual_actions SET created_at=datetime('now','-3601 seconds')")
         out=notify_exit(c,WHO,dict(reason='reply-excluded'),sender=lambda text:True)
-        self.assertEqual(out['reason'],'reply-window-expired')
-    def test_age_unverified_explanation_preserves_fail_closed_rule(self):
+        self.assertEqual(out['reason'],'reply-excluded')
+        self.assertIsNone(window.reason(self.store,WHO))
+    def test_missing_greeting_time_is_not_incoming_age(self):
         self.journal();c=self.chain();window.enable(self.store)
         with self.store.connection() as db:db.execute("UPDATE manual_actions SET created_at='invalid'")
         out=notify_exit(c,WHO,dict(reason='reply-excluded'),sender=lambda text:True)
-        self.assertEqual(out['reason'],'reply-age-unverified')
+        self.assertEqual(out['reason'],'reply-excluded')
+        self.assertIsNone(window.reason(self.store,WHO))
 
 
 class NativeCI(unittest.TestCase):

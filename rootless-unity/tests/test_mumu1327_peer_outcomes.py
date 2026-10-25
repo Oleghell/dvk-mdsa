@@ -108,7 +108,7 @@ class Availability(unittest.TestCase):
         from assistant_reply_window import enable,reason
         enable(self.a)
         with self.a.connection() as db:db.execute("UPDATE manual_actions SET created_at=datetime('now','-4000 seconds')")
-        self.assertEqual(reason(self.a,WHO),'reply-window-expired')
+        self.assertIsNone(reason(self.a,WHO))
         self.assertFalse(self.b.peer_claimed(pending()))
     def test_contact_backfill_includes_original_and_future_namespaces_not_declined(self):
         for port,peer,stage in ((5563,'230','done'),(16790,'231','done'),(5561,'232','declined'),(5565,'233','manual-review')):
