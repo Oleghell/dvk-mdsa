@@ -191,6 +191,12 @@ def build(expected=None, *, read_name=False, scoped_traversal=False, read_latest
     # Use one stable key order on both sides; IDs are literal validated decimals.
     expected = {k: expected[k] for k in ('account', 'peer', 'chat')} if expected else None
     source = state.FUNCTION
+    # Start observation on the next verified Unity frame, not after a blind
+    # one-second warm-up on EVERY read. Readiness/identity/load checks below
+    # remain mandatory; the separate 1000ms two-complete-sample interval and
+    # history-loading backoff are unchanged. The sender inherits these checks.
+    source = replace_once(source, 'waitAt:0,nextActionAt:Date.now()+1000,stop:null',
+                          'waitAt:0,nextActionAt:Date.now(),stop:null')
     source = replace_once(source, 'sample:null,waitSignature:null', 'sample:null,historyChunk:null,waitSignature:null')
     source = replace_once(source, "n.wait_reason=reason;n.history_status='not-ready';", "state.historyChunk=null;n.wait_reason=reason;n.history_status='not-ready';")
     source = replace_once(source, "n.metadata_checkpoint='ready';return s;", "n.metadata_checkpoint='ready';return prepareOneChat(f,s,getClass);")
