@@ -1,4 +1,4 @@
-"""One local consumer per bot; only aggregate queries from configured chat ID.
+"""One local consumer per bot; aggregate queries and explicit MuMu deny commands from configured chat ID.
 
 No remote Start/Stop, no device actions, no contacts in replies. Update IDs are
 committed BEFORE sending: an uncertain Telegram response is never retried.
@@ -38,10 +38,20 @@ def command(update,chat):
     if type(text) is not str or len(text)>100:return None
     import re
     found=re.fullmatch(r'(/today|/yesterday|/week|/month|/city)(?:@[A-Za-z0-9_]{5,32})?\s*',text)
-    return found[1] if found else None
+    if found:return found[1]
+    # Mutating commands require the configured PRIVATE chat and its own sender.
+    # Forwarded/channel/group messages cannot write the shared deny registry.
+    sender=message.get('from')
+    if (cid <= 0 or message['chat'].get('type') != 'private'
+        or not isinstance(sender,dict) or type(sender.get('id')) is not int
+        or sender['id'] != cid or sender.get('is_bot') is not False
+        or any(k in message for k in ('forward_origin','forward_from','forward_from_chat','forward_date','sender_chat'))):
+        return None
+    found=re.fullmatch(r'/num(?:@[A-Za-z0-9_]{5,32})?(?:\s+([^\r\n]+?))?\s*',text)
+    return ('/num' + ((' ' + found[1].strip()) if found[1] else '')) if found else None
 
 
-def cycle(token,chat,offset,commit,*,fetcher=fetch,sender=telegram.send,renderer=render):
+def cycle(token,chat,offset,commit,*,fetcher=fetch,sender=telegram.send,renderer=render,blocker=None):
     updates=fetcher(token,offset)
     for update in updates:
         uid=update['update_id']
@@ -50,11 +60,36 @@ def cycle(token,chat,offset,commit,*,fetcher=fetch,sender=telegram.send,renderer
         offset=uid+1
         action=command(update,chat)
         if action:
-            try:text=renderer(action)
-            except Exception:text='Статистика временно недоступна. Рабочая база не изменена.'
+            if action == '/num' or action.startswith('/num '):
+                text=manual_reply(action,blocker=blocker)
+            else:
+                try:text=renderer(action)
+                except Exception:text='Статистика временно недоступна. Рабочая база не изменена.'
             try:sender(token,chat,text)
             except Exception:pass  # May have been accepted, no resend.
     return offset
+
+
+
+def manual_reply(action, *, blocker=None):
+    """Acknowledge only a committed deny; malformed IDs never reach SQLite."""
+    from conversation_engine import identifier
+    try:
+        parts=action.split()
+        if len(parts) != 2 or parts[0] != '/num':raise ValueError()
+        peer=identifier(parts[1])
+    except Exception:
+        return 'Использование: /num <ID пользователя ДругВокруг>. Только положительный числовой ID, не номер телефона и не Chat ID.'
+    try:
+        if blocker is None:
+            from mumu_peer_policy import manual_block
+            blocker=manual_block
+        inserted=blocker(peer)
+        if type(inserted) is not bool:raise ValueError()
+    except Exception:
+        return 'Запрет не подтверждён. Проверь общую базу MuMu и права доступа. Автоматического повтора команды нет.'
+    return ('ID '+peer+(': ручной запрет сохранён.' if inserted else ': запрет уже существует.')+
+        ' Новые сообщения запрещены на всех портах MuMu. Уже начавшуюся отправку отменить нельзя; журналы неизвестных отправок не изменены.')
 
 
 def serve(stop):

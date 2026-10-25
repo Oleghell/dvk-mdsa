@@ -104,7 +104,7 @@ def platform_signals(messages, app):
         if not re.search(r'\b'+app+r'\b',value):continue
         negative |= bool(re.search(r'\b'+app+r'\s+(?:у меня\s+)?(?:не работает|нет|нету|не пользуюсь)\b',value)
             or re.search(r'\b(?:нет|нету|не работает|не пользуюсь)\s+(?:у меня\s+)?'+app+r'\b',value))
-        positive |= bool(re.search(r'\b'+app+r'\s+(?:у меня\s+)?(?:есть|работает|лучше|удобнее|удобно)\b',value)
+        positive |= bool(re.search(r'\b'+app+r'\s+(?:(?:у меня|сейчас|пока|еще|все еще)\s+){0,3}(?:есть|работает|живой|жива|жив|живое|лучше|удобнее|удобно)\b',value)
             or re.search(r'\b(?:есть|пользуюсь|давай|можно|лучше)\s+(?:в\s+)?'+app+r'\b',value)
             or re.fullmatch(app,value))
     return positive and not negative, negative

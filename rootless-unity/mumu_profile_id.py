@@ -72,7 +72,7 @@ def lookup(path,peer):
             return 'unavailable','registry-unavailable'
         row=db.execute('SELECT reason FROM mumu_peer_blocks WHERE peer=?',(peer,)).fetchone()
         if row is None:return 'not-blocked','none'
-        if row[0] not in {'contact-received','contact-refused'}:return 'unavailable','registry-unavailable'
+        if row[0] not in {'contact-received','contact-refused','manual-block'}:return 'unavailable','registry-unavailable'
         return 'blocked',row[0]
     except sqlite3.Error:return 'unavailable','registry-unavailable'
     finally:
@@ -84,7 +84,7 @@ def checked_result(value):
     identifier(value['peer'])
     if type(value['samples']) is not int or value['samples']!=2 or value['read_only'] is not True:raise ProfileIdError()
     if (value['block_status'],value['block_reason']) not in {
-        ('not-blocked','none'),('blocked','contact-received'),('blocked','contact-refused'),('unavailable','registry-unavailable')}:
+        ('not-blocked','none'),('blocked','contact-received'),('blocked','contact-refused'),('blocked','manual-block'),('unavailable','registry-unavailable')}:
         raise ProfileIdError()
     return dict(value)
 
@@ -104,7 +104,7 @@ def display(value,footer=''):
         footer=identifier(footer)
         comparison='Совпадает с введённым ID внизу анкеты.' if footer==value['peer'] else 'НЕ совпадает с введённым ID. Не используй результат как подтверждение соответствия.'
     else:comparison='С ID внизу анкеты не сравнивали. При необходимости введи его вручную.'
-    label={'contact-received':'ЗАПРЕТ: ранее получен контакт.','contact-refused':'ЗАПРЕТ: ранее получен явный отказ.',
+    label={'manual-block':'ЗАПРЕТ: ID внесён вручную командой /num.','contact-received':'ЗАПРЕТ: ранее получен контакт.','contact-refused':'ЗАПРЕТ: ранее получен явный отказ.',
         'none':'В общей базе запрет не найден. Это не разрешение на отправку.',
         'registry-unavailable':'Статус запрета НЕИЗВЕСТЕН: общая база не доступна или ещё не создана.'}[value['block_reason']]
     return 'ID открытой анкеты: '+value['peer']+'\n'+comparison+'\n'+label+'\nПроверка только чтением; база и переписка не изменены.'

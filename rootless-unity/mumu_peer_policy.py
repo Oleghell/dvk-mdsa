@@ -5,7 +5,7 @@ All writes use the caller's transaction; contact data/bodies never enter this ta
 """
 import re
 
-REASONS={'contact-received','contact-refused'}
+REASONS={'contact-received','contact-refused','manual-block'}
 
 def initialize(db):
     db.execute("""CREATE TABLE IF NOT EXISTS mumu_peer_blocks(
@@ -74,3 +74,42 @@ def ensure_communication_allowed(store,who,*,db=None):
             return ensure_communication_allowed(store,who,db=connection)
     if db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?',(who['peer'],)).fetchone() is not None:
         raise PeerCommunicationBlocked()
+
+
+def manual_block(peer, path=None):
+    """Human-entered deny only. Existing terminal outcomes and journals stay intact.
+
+    Never creates a missing DB/registry or invents an account/contact receipt.
+    No Telegram credentials or message bodies are accepted by this interface.
+    """
+    import os
+    import sqlite3
+    from pathlib import Path
+    from conversation_engine import identifier
+    peer = identifier(peer)
+    if os.environ.get('DVK_MORELOGIN') == '1':
+        raise ValueError('MuMu registry only')
+    if path is None:
+        from mumu_common import root_directory
+        path = root_directory() / 'assistant.sqlite3'
+    path = Path(path)
+    if not path.is_file():
+        raise ValueError('MuMu registry unavailable')
+    db = sqlite3.connect(path.resolve().as_uri() + '?mode=rw', uri=True, timeout=5)
+    try:
+        with db:
+            db.execute('BEGIN IMMEDIATE')
+            # The real shared schema must exist. Do not initialize a replacement.
+            db.execute('SELECT peer,reason,device,account,chat FROM mumu_peer_blocks LIMIT 0')
+            exists = db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?', (peer,)).fetchone()
+            inserted = False
+            if exists is None:
+                cursor = db.execute(
+                    "INSERT INTO mumu_peer_blocks(peer,reason,device,account,chat) VALUES(?,?,?,?,?)",
+                    (peer, 'manual-block', 'telegram', '', ''))
+                if cursor.rowcount != 1:
+                    raise ValueError('MuMu deny was not written')
+                inserted = True
+        return inserted
+    finally:
+        db.close()

@@ -121,6 +121,14 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
     if reason=='ai-temporarily-unavailable':
         from mumu_ai import failure_explanation
         explanation=failure_explanation((result.get('diagnostics') or {}).get('ai_failures',[]))
+    if reason in ('history-read-budget-timeout','history-loading-timeout'):
+        # Use the SAME closed export filter as JSON diagnostics, never raw
+        # exceptions, IDs, message bodies or arbitrary native field values.
+        from assistant_error_notify import diagnostic_json
+        failure=(result.get('diagnostics') or {}).get('last_read_failure')
+        safe=json.loads(diagnostic_json(dict(last_read_failure=failure)))['diagnostic'].get('last_read_failure',{})
+        detail=[safe[k] for k in ('error','read_checkpoint','identity_checkpoint','scalar_checkpoint') if isinstance(safe.get(k),str)]
+        if detail:explanation+=' Диагностика чтения: '+', '.join(detail)+'.'
     contact_received=(result.get('stages') or {}).get('peer_contact') is True
     label='Успех: Контакт получен. ' if contact_received else 'Статус: ' if reason in ('contact-followup-sent','contact-clarification-sent') else 'Пропущено: '
     text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Текст сообщения не включён в уведомление.\n') + label + explanation
