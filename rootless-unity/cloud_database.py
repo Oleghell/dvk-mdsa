@@ -14,6 +14,26 @@ class CloudDatabaseError(sqlite3.OperationalError):
     def __init__(self,code='cloud-database-unavailable'):
         super().__init__(code);self.code=code
 
+DATABASE_CODES={'cloud-database-unavailable','cloud-database-config-invalid','cloud-dataset-not-ready',
+    'cloud-database-lock-timeout','cloud-database-query-timeout','cloud-database-capacity',
+    'cloud-database-permission','cloud-database-constraint','cloud-sql-syntax-error','cloud-schema-missing',
+    'cloud-sql-unsupported','cloud-transaction-invalid','cloud-transaction-required','cloud-readonly-violation'}
+DATABASE_OPERATIONS={'connect','begin','commit','rollback','schema','catalog','read','write','lock','unknown'}
+
+def diagnostic(error):
+    if type(error) is not CloudDatabaseError:return None
+    code=error.code if error.code in DATABASE_CODES else 'cloud-database-unavailable'
+    operation=getattr(error,'operation','unknown')
+    return dict(code=code,operation=operation if operation in DATABASE_OPERATIONS else 'unknown',automatic_retry=False)
+
+def operation(sql):
+    if 'pg_advisory_xact_lock' in sql:return 'lock'
+    token=sql.lstrip().split(None,1)[0].upper() if sql.strip() else ''
+    if token in {'BEGIN','COMMIT','ROLLBACK'}:return token.lower()
+    if token=='CREATE':return 'schema'
+    if '_dvk_schema' in sql:return 'catalog'
+    return 'read' if token=='SELECT' else 'write'
+
 def root():
     value=os.environ.get('LOCALAPPDATA')
     if not value:raise CloudDatabaseError('cloud-database-config-invalid')
@@ -100,7 +120,8 @@ def raw_connect(cfg):
         if db is not None:
             try:db.close()
             except Exception:pass
-        raise CloudDatabaseError() from None
+        value=CloudDatabaseError();value.operation='connect'
+        raise value from None
 
 class Cursor:
     def __init__(self,rows=(),*,rowcount=None,lastrowid=None):
@@ -120,8 +141,15 @@ class Connection:
     def _run(self,sql,params=()):
         try:return self.raw.execute(sql,params or None,prepare=False)
         except Exception as error:
-            if getattr(error,'sqlstate',None)=='23505':raise sqlite3.IntegrityError('cloud-journal-conflict') from None
-            raise CloudDatabaseError() from None
+            state=getattr(error,'sqlstate',None)
+            if state=='23505':raise sqlite3.IntegrityError('cloud-journal-conflict') from None
+            codes={'55P03':'cloud-database-lock-timeout','57014':'cloud-database-query-timeout',
+                '53300':'cloud-database-capacity','42501':'cloud-database-permission',
+                '23502':'cloud-database-constraint','23514':'cloud-database-constraint',
+                '42601':'cloud-sql-syntax-error','42P01':'cloud-schema-missing'}
+            value=CloudDatabaseError(codes.get(state,'cloud-database-unavailable'))
+            value.operation=operation(sql)
+            raise value from None
     def execute(self,sql,params=()):
         if self.closed:raise CloudDatabaseError()
         upper=sql.strip().rstrip(';').upper()
@@ -133,7 +161,10 @@ class Connection:
             if self.in_transaction:raise CloudDatabaseError('cloud-transaction-invalid')
             begin='BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' if self.read_only else 'BEGIN'
             self._run(begin);self.in_transaction=True
-            self._run("SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'; SET LOCAL synchronous_commit=on")
+            if getattr(_local,"initializing",False):
+                self._run("SET LOCAL statement_timeout='65000'; SET LOCAL lock_timeout='60000'; SET LOCAL synchronous_commit=on")
+            else:
+                self._run("SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'; SET LOCAL synchronous_commit=on")
             if not self.read_only:self._run('SELECT pg_advisory_xact_lock(%s)',(LOCK_ID,))
             return Cursor()
         if upper in ('COMMIT','ROLLBACK'):
@@ -230,3 +261,10 @@ def memory_snapshot(path,limit):
                     memory.executemany('INSERT INTO '+ident(name)+' VALUES('+','.join('?' for _ in info['columns'])+')',batch)
         memory.commit()
         yield memory
+
+@contextmanager
+def journal_initialization():
+    """Longer lock wait ONLY at bootstrap, never an automatic retry or send."""
+    previous=getattr(_local,'initializing',False);_local.initializing=True
+    try:yield
+    finally:_local.initializing=previous

@@ -100,9 +100,13 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                 return out  # ID is returned through the local pipe, never a report.
             stage='journal-initialization'
             from assistant_reply_window import enable
-            enable(Store(),new_only=spec['mode']=='new')
             from assistant_contact_policy import enable as contact_only
-            contact_only(Store())
+            from cloud_database import journal_initialization
+            progress('Открываю общий журнал базы. При параллельном старте ожидаю завершения инициализации другого MuMu.')
+            with journal_initialization():
+                journal=Store()
+                enable(journal,new_only=spec['mode']=='new')
+                contact_only(journal)
             from assistant_monitor import REPORT
             from mumu_recovery import run as monitor
             stage='monitor'
@@ -142,13 +146,17 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
         from startup_failure import clean
         name=type(error).__name__
         types={'MumuError','StateError','TestError','ReadStopped','ConfigError','ValueError',
-               'FileNotFoundError','PermissionError','OSError','ModuleNotFoundError','ImportError','RuntimeError','OperationalError','IntegrityError'}
+               'FileNotFoundError','PermissionError','OSError','ModuleNotFoundError','ImportError','RuntimeError','OperationalError','IntegrityError','CloudDatabaseError'}
         report=dict(tool_version=VERSION,platform='MuMu',device_port=n,status='stopped',
             stage=stage,error_type=name if name in types else 'OtherError',
             reason='cancelled' if stopped.is_set() else 'startup-failed',
             evidence=clean(getattr(error,'_dvk_failure',None)),automatic_retry=False)
+        from cloud_database import diagnostic as cloud_diagnostic
+        database=cloud_diagnostic(error)
+        if database is not None:report['database']=database
         atomic(device_directory(n)/'last-startup.json',report)
-        raise MumuError('Этап: '+stage+'. Тип: '+report['error_type']+'. См. last-startup.json.') from None
+        detail=' Код базы: '+database['code']+'.' if database else ''
+        raise MumuError('Этап: '+stage+'. Тип: '+report['error_type']+'.'+detail+' См. last-startup.json.') from None
 
 
 def pipe_line(fd,limit):

@@ -151,3 +151,40 @@ class CloudCutoverOrdering(unittest.TestCase):
                 with self.assertRaises(OSError):cloud_setup.install(config)
                 migrate.assert_not_called()
             self.assertFalse((root/'database.dpapi').exists())
+
+class CloudStartupFailures(unittest.TestCase):
+    def test_lock_timeout_is_fixed_code_without_exception_body(self):
+        class LockError(Exception):sqlstate='55P03'
+        raw=FakeRaw()
+        def failed(*a,**kw):raise LockError('PRIVATE SQL, contact and password')
+        raw.execute=failed
+        with self.assertRaises(cloud.CloudDatabaseError) as result:
+            cloud.Connection(raw,{},{})._run('SELECT pg_advisory_xact_lock(%s)',(1,))
+        self.assertEqual(cloud.diagnostic(result.exception),dict(code='cloud-database-lock-timeout',operation='lock',automatic_retry=False))
+        self.assertNotIn('PRIVATE',str(result.exception))
+    def test_unknown_code_and_operation_are_not_exported(self):
+        error=cloud.CloudDatabaseError('PRIVATE');error.operation='SELECT PRIVATE'
+        self.assertEqual(cloud.diagnostic(error),dict(code='cloud-database-unavailable',operation='unknown',automatic_retry=False))
+        self.assertIsNone(cloud.diagnostic(RuntimeError('PRIVATE')))
+    def test_startup_timeout_scope_does_not_change_normal_transactions(self):
+        raw=FakeRaw()
+        with cloud.journal_initialization():
+            db=cloud.Connection(raw,{},{});db.execute('BEGIN IMMEDIATE');db.execute('ROLLBACK')
+        self.assertTrue(any("lock_timeout='60000'" in sql for sql,_ in raw.queries))
+        raw=FakeRaw();db=cloud.Connection(raw,{},{});db.execute('BEGIN IMMEDIATE')
+        self.assertTrue(any("lock_timeout='10000'" in sql for sql,_ in raw.queries))
+        self.assertFalse(any("lock_timeout='60000'" in sql for sql,_ in raw.queries))
+    def test_contact_backfill_is_set_based_and_preserves_existing_bans(self):
+        from mumu_peer_policy import initialize,backfill_contacts
+        db=sqlite3.connect(':memory:')
+        try:
+            initialize(db)
+            db.execute('CREATE TABLE chain_dialogs(account TEXT,peer TEXT,chat TEXT,stage TEXT)')
+            db.executemany('INSERT INTO chain_dialogs VALUES(?,?,?,?)', [('a','first','c1','done'),('a','first','c2','done'),('a','null',None,'done'),('a','not-done','c3','declined')])
+            db.execute("INSERT INTO mumu_peer_blocks(peer,reason,device,account,chat) VALUES('first','manual-block','telegram','','')")
+            backfill_contacts(db)
+            self.assertEqual(db.execute('SELECT peer,reason FROM mumu_peer_blocks').fetchall(),[('first','manual-block')])
+            db.execute("INSERT INTO chain_dialogs VALUES('a','second','c4','done')")
+            backfill_contacts(db)
+            self.assertEqual(db.execute("SELECT reason FROM mumu_peer_blocks WHERE peer='second'").fetchone(),('contact-received',))
+        finally:db.close()

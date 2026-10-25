@@ -32,8 +32,13 @@ def backfill_contacts(db):
         outbox=prefix+'chain_contact_outbox'
         condition="stage='done'"
         if outbox in names:condition+=" OR EXISTS(SELECT 1 FROM "+outbox+" o WHERE o.chat=c.chat)"
-        for account,peer,chat in db.execute('SELECT account,peer,chat FROM '+table+' c WHERE '+condition).fetchall():
-            record(db,dict(account=account,peer=peer,chat=chat),'contact-received',device)
+        # Set-based backfill: do not hold the shared PostgreSQL write lock
+        # across one network round-trip for every historical contact.
+        # SQLite OR IGNORE skipped NOT NULL violations; preserve that behavior
+        # explicitly because PG ON CONFLICT only skips uniqueness conflicts.
+        db.execute("INSERT OR IGNORE INTO mumu_peer_blocks(peer,reason,device,account,chat) "
+            "SELECT c.peer,'contact-received',?,c.account,c.chat FROM "+table+
+            " c WHERE ("+condition+") AND c.peer IS NOT NULL AND c.account IS NOT NULL AND c.chat IS NOT NULL",(device,))
 
 
 def explicit_refusal(messages,*,requested):
