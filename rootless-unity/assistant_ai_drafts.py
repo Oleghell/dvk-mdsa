@@ -38,11 +38,12 @@ def restore(chain, chat, kind, expected_hash, connection=None, snapshot=None):
 
 def prepare(chain, snapshot, action):
     chat, kind = snapshot['identity']['chat'], action['kind']
-    from assistant_contact_clarify import MAX_TEXT,max_selected,NUMBER_TEXT,indifferent_selected
+    from assistant_contact_clarify import MAX_TEXT,max_selected,NUMBER_TEXT,indifferent_selected,alternative_text,selected_alternative_text
     forced_max = kind=='clarify' and max_selected([m for m in snapshot['messages'] if m['sender']==snapshot['identity']['peer']])
     with chain.store.connection() as db:
         forced_number = kind=='clarify' and indifferent_selected(db,snapshot)
-        forced_text = MAX_TEXT if forced_max else NUMBER_TEXT if forced_number else None
+        selected_text=selected_alternative_text(db,snapshot) if kind=='clarify' else None
+        forced_text = MAX_TEXT if forced_max else selected_text or (NUMBER_TEXT if forced_number else None)
         row = db.execute('SELECT status FROM ai_drafts WHERE chat=? AND kind=?', (chat, kind)).fetchone()
         if row is None:
             if chain.responder is None and not forced_text:

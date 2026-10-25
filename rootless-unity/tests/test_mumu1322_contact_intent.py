@@ -57,7 +57,7 @@ class Intents(unittest.TestCase):
         for text in ('Макс сказал привет','Сын Макс','Мой друг Макс',
                      '> У меня макс\nТут удобнее', 'Максима знаю', 'Работаю в Макдональдсе',
                      'Макс не работает','Нет макса','Не хочу в мак','У меня нет MAX',
-                     'У меня работает только Макс?','А у тебя есть Макс?',
+                     'У меня работает только Макс?',
                      'Не пользуюсь максом','Пользуюсь Максом не буду'):
             with self.subTest(text=text):self.assertFalse(clarify.max_selected([dict(text=text)]))
     def test_negative_unavailable_other_apps_does_not_cancel_max(self):

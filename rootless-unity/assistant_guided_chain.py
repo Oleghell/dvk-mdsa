@@ -205,14 +205,15 @@ class GuidedChain(Chain):
         with self.store.connection() as db:
             anchored_request=receipt_requested(db,who,snapshot['messages'])
         requested=anchored_request or bool(row and row[0]=='wait-contact') or voluntary_batch(new_peer)
-        from assistant_contact_clarify import max_selected
+        from assistant_contact_clarify import max_selected,alternative_text,selected_alternative_text
         max_choice=max_selected([m for m in snapshot['messages'] if m['sender']==who['peer']])
         from assistant_contact_followup import refused,scoped_messages
         with self.store.connection() as db:
+            alt_text=selected_alternative_text(db,snapshot,[m['id'] for m in new_peer])
             refusal_inputs=scoped_messages(db,snapshot,[m['id'] for m in new_peer],requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')))
         if (any(self_shared(m['text'],requested=requested) for m in new_peer)
                 or refused(refusal_inputs if row and row[0] in ('wait-contact','pending-clarify','pending-followup') else new_peer,
-                           requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')),alternative_selected=max_choice)):
+                           requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')),alternative_selected=max_choice or bool(alt_text))):
             # consume still checks complete history, hashes, identity, third-party
             # context and pending sends. Do not repair/reset a prior terminal state.
             stage,action=self.consume(snapshot)

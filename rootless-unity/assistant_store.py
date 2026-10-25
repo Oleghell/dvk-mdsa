@@ -41,6 +41,8 @@ class Store:
               status TEXT NOT NULL CHECK(status IN ('reserved-unknown','not-invoked',
                 'attempted-unknown','handler-returned-unconfirmed')),
               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(account,peer))''')
+            from assistant_statistics import greeting_backfill
+            greeting_backfill(db)
 
     def visited_peers(self):
         with self.connection() as db:
@@ -114,6 +116,8 @@ class Store:
               (pending['account'], pending['peer'], pending['chat'], hashlib.sha256(text.encode()).hexdigest()))
             from assistant_statistics import remember_city
             remember_city(db,pending['account'],pending['peer'])
+            from assistant_statistics import greeting_reserved
+            greeting_reserved(db,pending['account'],pending['peer'])
             return cur.lastrowid
 
     def finish(self, action_id, navigation):
@@ -124,10 +128,13 @@ class Store:
         status = ('handler-returned-unconfirmed' if returned else
                   'attempted-unknown' if attempted else 'not-invoked')
         with self.connection() as db:
+            owner=db.execute('SELECT account,peer FROM manual_actions WHERE id=?',(action_id,)).fetchone()
             cur = db.execute("UPDATE manual_actions SET status=? WHERE id=? AND status='reserved-unknown'",
                              (status, action_id))
             if cur.rowcount != 1:
                 raise StateError('Резерв отправки не найден или уже завершён.')
+            from assistant_statistics import greeting_finished
+            greeting_finished(db,owner[0],owner[1],status)
         return status
 
     def summary(self):

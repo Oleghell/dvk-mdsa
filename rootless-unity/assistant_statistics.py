@@ -1,4 +1,4 @@
-"""Aggregate only voluntary-contact events. No phone numbers, handles or bodies."""
+"""Aggregate contact and first-greeting events. No bodies, numbers or handles."""
 from datetime import datetime,timedelta,time,timezone
 from contextlib import closing
 import hashlib
@@ -8,6 +8,8 @@ import re
 import sqlite3
 
 DDL=(
+ '''CREATE TABLE IF NOT EXISTS global_greeting_statistics(
+ event_key TEXT PRIMARY KEY,started_at TEXT NOT NULL,city TEXT NOT NULL,status TEXT NOT NULL)''',
  '''CREATE TABLE IF NOT EXISTS global_contact_statistics(
  event_key TEXT PRIMARY KEY,received_at TEXT NOT NULL,city TEXT NOT NULL,
  phone_count INTEGER NOT NULL,handle_count INTEGER NOT NULL,telegram TEXT NOT NULL)''',
@@ -67,7 +69,7 @@ def bounds(command,now=None):
 
 COMMANDS=('/today','/yesterday','/week','/month','/city')
 
-def render(command,path=None,now=None):
+def _render_contacts(command,path=None,now=None):
     if command not in COMMANDS:raise ValueError('Unknown command')
     path=database_path() if path is None else Path(path)
     label={'/today':'Сегодня','/yesterday':'Вчера','/week':'Последние 7 дней','/month':'Последние 30 дней','/city':'Города поиска — всё время'}[command]
@@ -85,3 +87,65 @@ def render(command,path=None,now=None):
           COALESCE(SUM(telegram='accepted'),0),COALESCE(SUM(telegram='unknown'),0)
           FROM global_contact_statistics WHERE received_at>=? AND received_at<?''',(first,last)).fetchone()
     return title+f'Контакт дали: {row[0]} собеседников\n📱 С номером: {row[1]}\n💬 С ником/ссылкой: {row[2]}\n✅ Telegram принял: {row[3]}\n❔ Отправка не подтверждена: {row[4]}\nДни — по часовому поясу компьютера. Учёт с обновления, без старой истории.'
+
+
+
+def greeting_reserved(db,account,peer,now=None):
+    initialize(db)
+    key=peer_key(account,peer)
+    row=db.execute('SELECT city FROM global_peer_city WHERE peer_key=?',(key,)).fetchone()
+    city=row[0] if row and valid_city(row[0]) else 'Неизвестен'
+    stamp=(now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat(timespec='seconds')
+    db.execute("INSERT OR IGNORE INTO global_greeting_statistics VALUES(?,?,?,'reserved-unknown')",(key,stamp,city))
+
+
+def greeting_finished(db,account,peer,status):
+    if status not in ('handler-returned-unconfirmed','attempted-unknown','not-invoked'):raise ValueError('Invalid greeting status')
+    db.execute("UPDATE global_greeting_statistics SET status=? WHERE event_key=? AND status='reserved-unknown'",(status,peer_key(account,peer)))
+
+
+def greeting_summary(command,path,now=None):
+    path=Path(path)
+    if not path.exists():return 'Первые приветствия: 0; учёт с обновления.'
+    current=(now or datetime.now().astimezone()).astimezone(timezone.utc)
+    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=5)) as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='global_greeting_statistics'").fetchone():
+            return 'Первые приветствия: учёт начнётся после обновления, без пересчёта старых резервов.'
+        if command=='/city':
+            row=db.execute("SELECT MIN(started_at) FROM global_greeting_statistics").fetchone()
+            first=row[0] or current.isoformat(timespec='seconds');last=current.isoformat(timespec='seconds')
+        else:first,last=bounds(command,now)
+        confirmed,unknown=db.execute("""SELECT COALESCE(SUM(status='handler-returned-unconfirmed'),0),
+          COALESCE(SUM(status IN ('reserved-unknown','attempted-unknown')),0)
+          FROM global_greeting_statistics WHERE started_at>=? AND started_at<?""",(first,last)).fetchone()
+        end=min(current,datetime.fromisoformat(last));begin=datetime.fromisoformat(first)
+        hours=max(0.,(end-begin).total_seconds()/3600)
+        average=confirmed/hours if hours>0 else 0.
+        cities=[]
+        if command=='/city':
+            cities=db.execute("SELECT city,COUNT(*) FROM global_greeting_statistics WHERE status='handler-returned-unconfirmed' GROUP BY city ORDER BY COUNT(*) DESC,city LIMIT 10").fetchall()
+    text=f'Новым собеседникам написано: {confirmed}\nНеизвестный исход первого приветствия: {unknown}\nСреднее новых за календарный час: {average:.2f}'
+    if cities:text+='\nПервые приветствия по городам поиска:\n'+'\n'.join(c+' — '+str(n) for c,n in cities)
+    return text+'\nСчитаются первые приветствия с возвратом обработчика, не доказанная доставка. Среднее — за прошедшие часы периода, включая простои; не сумма скоростей портов. Учёт с обновления и из проверенных записей журнала.'
+
+
+def render(command,path=None,now=None):
+    if command not in COMMANDS:raise ValueError('Unknown command')
+    path=database_path() if path is None else Path(path)
+    return _render_contacts(command,path,now)+'\n\n'+greeting_summary(command,path,now)
+
+
+
+def greeting_backfill(db):
+    """Import only explicit greeting journal statuses/timestamps, never infer delivery."""
+    db.execute('CREATE TABLE IF NOT EXISTS inbox_reply_policy(key TEXT PRIMARY KEY,value INTEGER NOT NULL)')
+    if db.execute("SELECT 1 FROM inbox_reply_policy WHERE key='greeting-statistics-v1' AND value=1").fetchone():return
+    for account,peer,status,created in db.execute('SELECT account,peer,status,created_at FROM manual_actions').fetchall():
+        if status not in ('reserved-unknown','handler-returned-unconfirmed','attempted-unknown','not-invoked'):continue
+        try:
+            stamp=datetime.fromisoformat(created)
+            if stamp.tzinfo is None:stamp=stamp.replace(tzinfo=timezone.utc)
+        except (ValueError,TypeError):continue
+        greeting_reserved(db,account,peer,now=stamp)
+        if status!='reserved-unknown':greeting_finished(db,account,peer,status)
+    db.execute("INSERT OR REPLACE INTO inbox_reply_policy VALUES('greeting-statistics-v1',1)")

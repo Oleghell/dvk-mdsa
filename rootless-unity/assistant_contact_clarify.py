@@ -7,11 +7,13 @@ NEGATIVE = re.compile(r'не\s+(?:хочу|надо|могу|пользуюсь|
 
 def chosen(messages):
     if max_selected(messages):return True
+    from assistant_contact_intent import available_alternative
     texts=[m['text'] for m in messages if isinstance(m.get('text'),str)]
     value=' / '.join(texts)
     from shared_contact import contact_items
     if any(contact_items(text,allow_unformatted=True) for text in texts):
         return False  # Do not ask for a contact already present but not safely self-attributed.
+    if available_alternative(messages):return True
     if indifferent(messages):return True
     # A terse list is an explicit choice in this already-requested-contact stage.
     # Do not treat questions/objections mentioning an app as agreement.
@@ -46,3 +48,19 @@ def indifferent_selected(db, snapshot, new_ids=()):
             ids.add(trigger);values=json.loads(inputs)
             if type(values) is list:ids.update(x for x in values if type(x) is str)
     return indifferent([m for m in snapshot['messages'] if m['sender']==snapshot['identity']['peer'] and m['id'] in ids])
+
+WHATSAPP_TEXT = 'По какому номеру могу найти тебя в WhatsApp, если тебе удобно?'
+TELEGRAM_TEXT = 'Какой у тебя ник в Telegram, если тебе удобно поделиться?'
+
+def alternative_text(messages):
+    from assistant_contact_intent import available_alternative
+    return {'whatsapp':WHATSAPP_TEXT,'telegram':TELEGRAM_TEXT}.get(available_alternative(messages))
+
+
+def selected_alternative_text(db,snapshot,new_ids=()):
+    """Current or exact journal-recorded contact inputs, not arbitrary old consent."""
+    who=snapshot['identity'];ids=set(new_ids)
+    ids.update(r[0] for r in db.execute("SELECT trigger FROM chain_actions WHERE chat=? AND kind IN ('clarify','followup')",(who['chat'],)))
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_draft_inputs'").fetchone():
+        ids.update(r[0] for r in db.execute("SELECT message FROM ai_draft_inputs WHERE chat=? AND kind IN ('clarify','followup')",(who['chat'],)))
+    return alternative_text([m for m in snapshot['messages'] if m['sender']==who['peer'] and m['id'] in ids])

@@ -293,6 +293,15 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         reason = 'visible-pass-limit'
         groups = [(attention, False, 'pending'), (list(unread), True, 'unread'),
                   (read_round(chain, unread), False, 'read')]
+        if getattr(chain.store,'mumu_shared_claims',False):
+            # Let native row order decide, not unread/pending grouping. Both
+            # read and unread inputs retain needs_reply_only/receipt filtering.
+            combined={}
+            for items,_,_ in groups:
+                for who in items:combined.setdefault((who['account'],who['peer']),who)
+            groups=[(list(combined.values()),False,'recent')]
+            out['recent_window_limit']=50
+            out['recent_window_direction']='bottom-up'
         processed=set()
         def page_groups():
             attention,unread=inbox_targets(chain)
@@ -307,6 +316,9 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             from assistant_pause import boundary
             boundary(stopped)
             if stopped.is_set():raise StateError('cancelled')
+            if getattr(chain.store,'mumu_shared_claims',False) and out['dialogs_processed']>=50:
+                reason='recent-window-limit'
+                break
             if not groups:
                 if not pager.advance():
                     reason='available-exhausted'
@@ -539,7 +551,8 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         if navigator is None:
             from dialog_models import perform as model_navigation
             from functools import partial
-            navigator=partial(model_navigation,progress=progress)
+            options={'recent_limit':50,'reverse':True} if getattr(prepared_store,'mumu_shared_claims',False) else {}
+            navigator=partial(model_navigation,progress=progress,**options)
     with checkpoint('inbox-config'):
         prepared_greetings=entries(config_directory(),'greetings',256) if greetings is None else greetings
     # No screen paging, automatic swipes or return-to-top scan.

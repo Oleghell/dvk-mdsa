@@ -54,8 +54,9 @@ class Statistics(unittest.TestCase):
   def connect(*args,**kwargs):
    value=real(*args,**kwargs);opened.append(value);return value
   with patch('assistant_statistics.sqlite3.connect',side_effect=connect):stats.render('/today',self.path)
-  self.assertEqual(len(opened),1)
-  with self.assertRaises(sqlite3.ProgrammingError):opened[0].execute('SELECT 1')
+  self.assertEqual(len(opened),2)
+  for connection in opened:
+   with self.assertRaises(sqlite3.ProgrammingError):connection.execute('SELECT 1')
  def test_old_database_is_not_backfilled(self):
   old=Path(self.temp.name)/'old.sqlite3'
   sqlite3.connect(old).close()

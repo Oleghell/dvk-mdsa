@@ -18,7 +18,7 @@ from one_chat_probe import identity
 from one_chat_send import checked
 from shared_contact import self_shared, voluntary_batch, payload as contact_payload, display_name
 from telegram_notify import protect
-from assistant_contact_clarify import TEXT as CLARIFY_TEXT, chosen as chose_messenger, MAX_TEXT, max_selected, NUMBER_TEXT, indifferent_selected
+from assistant_contact_clarify import TEXT as CLARIFY_TEXT, chosen as chose_messenger, MAX_TEXT, max_selected, NUMBER_TEXT, indifferent_selected, alternative_text, selected_alternative_text, WHATSAPP_TEXT, TELEGRAM_TEXT
 
 from assistant_contact_followup import TEXT as FOLLOWUP_TEXT, eligible as followup_eligible, refused as contact_refused
 
@@ -28,7 +28,7 @@ REVIEW_CAUSES = {'history-missing', 'history-edited', 'contact-batch-ambiguous',
                  'unjournalled-outgoing', 'legacy-incoming-ambiguous',
                  'legacy-contact-not-shared', 'legacy-reply-unclassified',
                  'ai-context-review', 'review-cause-unavailable'}
-REPLIES = QUESTIONS + (CONTACT_TEXT, CLARIFY_TEXT, MAX_TEXT, NUMBER_TEXT, FOLLOWUP_TEXT)
+REPLIES = QUESTIONS + (CONTACT_TEXT, CLARIFY_TEXT, MAX_TEXT, NUMBER_TEXT, WHATSAPP_TEXT, TELEGRAM_TEXT, FOLLOWUP_TEXT)
 POSITIVE = re.compile(r'^(?:вс[её]\s+)?(?:хорошо|отлично|нормально|норм|супер|прекрасно|замечательно|неплохо|класс)(?:\s+(?:спасибо|вс[её]\s+хорошо))?[\s!.,)🙂😊👍]*$', re.I)
 HELLO = re.compile(r'^(?:привет(?:ик)?|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|хай|hello|hi)[\s!.,)🙂😊👋]*$', re.I)
 
@@ -124,7 +124,8 @@ class Chain:
             outgoing = [m for m in new if m['sender'] == who['account']]
             max_choice = max_selected([m for m in messages if m['sender']==who['peer']])
             number_choice = indifferent_selected(db,s,[m['id'] for m in incoming])
-            clarify_text = MAX_TEXT if max_choice else NUMBER_TEXT if number_choice else CLARIFY_TEXT
+            alt_text=selected_alternative_text(db,s,[m['id'] for m in incoming])
+            clarify_text = MAX_TEXT if max_choice else alt_text or (NUMBER_TEXT if number_choice else CLARIFY_TEXT)
             pending_contact_observed = False
             pending_contact_kind = stage.removeprefix('pending-')
             if stage in ('pending-contact','pending-clarify','pending-followup') and len(outgoing) == 1:
@@ -142,7 +143,7 @@ class Chain:
             refusal_inputs = scoped_messages(db,s, [m['id'] for m in incoming],requested=contact_requested)
             if (any(m['text'] and REFUSAL.search(normalized(m['text'])) for m in incoming)
                     or contact_refused(refusal_inputs if contact_requested else incoming,
-                                       requested=contact_requested,contact_shared=bool(shared),alternative_selected=max_choice)):
+                                       requested=contact_requested,contact_shared=bool(shared),alternative_selected=max_choice or bool(alt_text))):
                 # Respect an explicit stay-here/no-apps preference already read
                 # by an older version too. This never replays or removes actions.
                 stage = 'declined'

@@ -147,6 +147,8 @@ class SharedStore(BaseStore):
               (pending['account'],pending['peer'],pending['chat'],hashlib.sha256(text.encode()).hexdigest()))
             from assistant_statistics import remember_city
             remember_city(db,pending['account'],pending['peer'])
+            from assistant_statistics import greeting_reserved
+            greeting_reserved(db,pending['account'],pending['peer'])
             return cur.lastrowid
 
     def visited_peers(self):

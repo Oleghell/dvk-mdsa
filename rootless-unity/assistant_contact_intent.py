@@ -31,13 +31,17 @@ def max_selected(messages):
             if not APP.search(clause):continue
             value=words(clause).replace("друг вокруг","другвокруг")
             # Neither a quoted question nor a person named Max chooses an app.
-            if '?' in clause or '？' in clause or PERSON.search(value) or re.search(r'\bс\s+'+MAX+r'\b',value):continue
+            if '?' in clause or '？' in clause:
+                option=re.fullmatch(r'(?:а\s+)?(?:(?:в\s+)?'+MAX+r'(?:\s+(?:нет|есть|можно))?|(?:можно\s+в|у тебя есть)\s+'+MAX+r')',value)
+                if option:positive=True
+                continue
+            if PERSON.search(value) or re.search(r'\bс\s+'+MAX+r'\b',value):continue
             deny=(re.search(r'\b(?:нет|нету|не установлен\w*)\s+(?:у меня\s+)?'+MAX+r'\b',value)
                 or re.search(r'\bне\s+(?:хочу|могу|буду|пользуюсь|работает)\s+(?:в\s+|через\s+)?'+MAX+r'\b',value)
                 or re.search(r'\b'+MAX+r'\s+(?:у меня\s+)?(?:нет|нету|не\s+(?:работает|пользуюсь|буду|хочу|установлен\w*))\b',value))
             if deny:return False
             bare=re.fullmatch(r'(?:давай(?:те)?\s+)?(?:в\s+)?'+MAX,value)
-            before=re.search(r'\b(?:есть|только|пользуюсь|сижу|общаюсь|переписываюсь|работает|установлен\w*|давай(?:те)?|можно|лучше|удобнее|предпочитаю)\b(?:\s+\w+){0,4}\s+'+MAX+r'\b',value)
+            before=re.search(r'\b(?:есть|тольк[оа]|пользуюсь|сижу|общаюсь|переписываюсь|работает|установлен\w*|давай(?:те)?|можно|лучше|удобнее|предпочитаю)\b(?:\s+\w+){0,4}\s+'+MAX+r'\b',value)
             after=re.search(r'\b'+MAX+r'\s+(?:(?:у меня|мне|тоже|сейчас|пока|только|можешь)\s+){0,3}(?:есть|работает|установлен\w*|можно|удобнее|только|скача\w*)\b',value)
             owner=re.fullmatch(r'(?:ну\s+)?у меня\s+(?:есть\s+)?'+MAX,value)
             positive |= bool((bare and not other_available) or before or after or owner)
@@ -80,3 +84,35 @@ def unavailable(text):
         or re.fullmatch(r'не работает',value)
         or re.search(r'\bнет\s+ни\s+того\s+ни\s+другого\b',value)
         or re.search(r'\b(?:ни\s+того\s+ни\s+другого)\b',value))
+
+
+TG = r'(?:телеграм(?:м)?(?:а|е|ом|у)?|telegram|тг|телег[аеу])'
+WA = r'(?:ва(?:тс|тц|ц|с)апп?(?:а|е|ом)?|вотсап(?:а|е|ом)?|whats\s?app)'
+
+def platform_signals(messages, app):
+    positive=negative=False
+    clauses=[]
+    for message in messages:
+        raw=message.get('text')
+        if not isinstance(raw,str):continue
+        for line in raw.splitlines():
+            if line.lstrip().startswith('>'):continue
+            clauses.extend(re.split(r'[,;.!]+',visible(line)))
+    for text in clauses:
+        if '?' in text or '？' in text:continue
+        value=words(text)
+        if not re.search(r'\b'+app+r'\b',value):continue
+        negative |= bool(re.search(r'\b'+app+r'\s+(?:у меня\s+)?(?:не работает|нет|нету|не пользуюсь)\b',value)
+            or re.search(r'\b(?:нет|нету|не работает|не пользуюсь)\s+(?:у меня\s+)?'+app+r'\b',value))
+        positive |= bool(re.search(r'\b'+app+r'\s+(?:у меня\s+)?(?:есть|работает)\b',value)
+            or re.search(r'\b(?:есть|пользуюсь|давай|можно|лучше)\s+(?:в\s+)?'+app+r'\b',value)
+            or re.fullmatch(app,value))
+    return positive and not negative, negative
+
+
+def available_alternative(messages):
+    """Scope absence to its app; never veto an explicitly available other app."""
+    tg,tg_no=platform_signals(messages,TG);wa,wa_no=platform_signals(messages,WA)
+    if wa and tg_no:return 'whatsapp'
+    if tg and wa_no:return 'telegram'
+    return None
