@@ -1,6 +1,7 @@
 """Explicit read-only settings check. No device, Frida, account or send needed."""
 import copy,json,os,sqlite3,subprocess,sys,tempfile,threading,unittest
 from pathlib import Path
+from contextlib import closing
 from unittest.mock import MagicMock,patch
 import mumu_profile_id as probe
 
@@ -59,13 +60,13 @@ class ReadOnly(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'missing.db';self.assertEqual(probe.lookup(p,PEER),('unavailable','registry-unavailable'))
             self.assertFalse(p.exists())
-            with sqlite3.connect(p):pass
+            with closing(sqlite3.connect(p)):pass
             before=p.read_bytes();self.assertEqual(probe.lookup(p,PEER),('unavailable','registry-unavailable'))
             self.assertEqual(before,p.read_bytes())
     def test_registry_read_only_exact_id_and_no_schema_journal_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'state.db'
-            with sqlite3.connect(p) as db:
+            with closing(sqlite3.connect(p)) as db, db:
                 db.execute('CREATE TABLE mumu_peer_blocks(peer TEXT PRIMARY KEY,reason TEXT)')
                 db.execute('INSERT INTO mumu_peer_blocks VALUES(?,?)',(PEER,'contact-refused'))
                 db.execute('INSERT INTO mumu_peer_blocks VALUES(?,?)',('4470000002','contact-received'))
@@ -90,8 +91,25 @@ class ReadOnly(unittest.TestCase):
             out=probe.run(Settings(),lambda:False)
             self.assertEqual(out,result(status='unavailable',reason='registry-unavailable'))
             self.assertEqual(list(Path(tmp).iterdir()),[])
+    def test_source_checks_never_depend_on_system_text_encoding(self):
+        original=Path.read_text
+        def explicit(path,*args,**kwargs):
+            self.assertEqual(kwargs.get('encoding'),'utf-8')
+            return original(path,*args,**kwargs)
+        with patch.object(Path,'read_text',explicit):
+            self.test_ui_button_and_worker_branch_are_explicit_and_packaged()
+    def test_registry_fixtures_and_lookups_close_every_sqlite_connection(self):
+        original=sqlite3.connect;connections=[]
+        def tracked(*args,**kwargs):
+            db=original(*args,**kwargs);connections.append(db);return db
+        with patch.object(sqlite3,'connect',side_effect=tracked):
+            self.test_missing_and_incomplete_registry_is_unknown_and_never_created()
+            self.test_registry_read_only_exact_id_and_no_schema_journal_changes()
+        self.assertTrue(connections)
+        for db in connections:
+            with self.assertRaises(sqlite3.ProgrammingError):db.execute('SELECT 1')
     def test_ui_button_and_worker_branch_are_explicit_and_packaged(self):
-        app=(ROOT/'assistant_app.py').read_text();worker=(ROOT/'mumu_worker.py').read_text()
+        app=(ROOT/'assistant_app.py').read_text(encoding='utf-8');worker=(ROOT/'mumu_worker.py').read_text(encoding='utf-8')
         self.assertIn("text='Проверить ID',command=check_profile_id",app)
         self.assertIn("'profile-id',False,id_stop",app)
         self.assertIn('if busy:return',app)
@@ -100,7 +118,7 @@ class ReadOnly(unittest.TestCase):
         self.assertIn('return out',branch)
         self.assertNotIn('Store()',branch.replace('# No Store()', '#'))
         self.assertNotIn('monitor(',branch)
-        self.assertIn("'mumu_profile_id'",(ROOT/'mumu.spec').read_text())
+        self.assertIn("'mumu_profile_id'",(ROOT/'mumu.spec').read_text(encoding='utf-8'))
 
 
 class Worker(unittest.TestCase):
@@ -124,7 +142,7 @@ mumu_worker.configure=configure
 out=mumu_worker.run(dict(port=5557,settings=dict(adb=str(base/'adb'),folder=str(base/'apks')),mode='profile-id',fresh=False),threading.Event())
 assert out['peer']==peer
 assert not list(base.rglob('*.sqlite3'))
-for path in base.rglob('*.json'):assert peer not in path.read_text()
+for path in base.rglob('*.json'):assert peer not in path.read_text(encoding='utf-8')
 print('read-only-ok')
 """
         with tempfile.TemporaryDirectory() as tmp:
