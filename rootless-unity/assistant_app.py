@@ -51,6 +51,7 @@ def launch(self_check=False):
     dialog = None
     first_profiles_run = True
     port_controls = {}
+    id_check_stop = [None]
 
     def refresh():
         start.configure(state='disabled' if busy else 'normal')
@@ -63,6 +64,7 @@ def launch(self_check=False):
 
     def cancel():
         stopped.set()
+        if id_check_stop[0] is not None:id_check_stop[0].set()
         status.set('Останавливаю. Выполненные действия не откатываются.')
 
     def worker(current, mode, fresh, ports):
@@ -107,8 +109,8 @@ def launch(self_check=False):
         container.pack(fill='both', expand=True)
         tabs = ttk.Notebook(container)
         tabs.pack(fill='both', expand=True)
-        box, ai_box, check_box, tg_box = (ttk.Frame(tabs, padding=12) for _ in range(4))
-        for tab, title in ((box, 'Поиск и ответы'), (ai_box, 'ИИ / ключи'), (check_box, 'Проверка ключа'), (tg_box, 'Telegram')):
+        box, ai_box, check_box, tg_box, id_box = (ttk.Frame(tabs, padding=12) for _ in range(5))
+        for tab, title in ((box, 'Поиск и ответы'), (ai_box, 'ИИ / ключи'), (check_box, 'Проверка ключа'), (tg_box, 'Telegram'), (id_box, 'Проверка ID')):
             tabs.add(tab, text=title)
         adb = tk.StringVar(value=settings.adb)
         folder = tk.StringVar(value=settings.folder)
@@ -348,6 +350,49 @@ def launch(self_check=False):
         ttk.Button(ai_box, text='Открыть правила ИИ', command=edit_rules).pack(anchor='w', pady=8)
         test_ai_button = ttk.Button(ai_box, text='Тест ИИ (введённый или сохранённый ключ)', command=test_groq)
         test_ai_button.pack(anchor='w', pady=8)
+        # Explicit user-started, current-profile-only, isolated worker mode.
+        id_stop = threading.Event()
+        try:id_ports = parse_ports(ports_box.get('1.0','end'))
+        except Exception:id_ports = []
+        id_port = tk.StringVar(value=str(id_ports[0]) if id_ports else '')
+        id_footer = tk.StringVar(value='')
+        id_note = tk.StringVar(value='Останови рабочие порты. Вручную открой анкету на выбранном MuMu. Проверка не прокручивает профиль, не открывает чат и ничего не отправляет.')
+        ttk.Label(id_box,text='Порт MuMu').pack(anchor='w')
+        ttk.Combobox(id_box,textvariable=id_port,values=[str(n) for n in id_ports],state='readonly',width=14).pack(anchor='w',pady=6)
+        ttk.Label(id_box,text='ID внизу анкеты для сравнения (необязательно)').pack(anchor='w')
+        ttk.Entry(id_box,textvariable=id_footer,width=28).pack(anchor='w',pady=6)
+        ttk.Label(id_box,text='Считывается User.get_Id. Соответствие надписи внизу проверяется только при вводе ID для сравнения.',wraplength=500).pack(anchor='w',pady=6)
+        def check_profile_id():
+            nonlocal busy
+            if busy:return
+            try:
+                from mumu_common import port as check_port
+                from conversation_engine import identifier
+                n=check_port(id_port.get())
+                if n not in id_ports:raise ValueError()
+                footer=id_footer.get().strip()
+                if footer:identifier(footer)
+                current=replace(settings,adb=adb.get().strip(),folder=folder.get().strip()).check()
+            except Exception:
+                id_note.set('Проверь порт, пути ADB/test-apks и ID: только положительные цифры без пробелов.')
+                return
+            id_stop.clear();id_check_stop[0]=id_stop
+            busy=True;refresh();id_button.configure(state='disabled')
+            id_note.set('Читаю ID открытой анкеты дважды. База и переписка не изменяются.')
+            def work():
+                try:
+                    import json
+                    from mumu_controller import run_one
+                    from mumu_profile_id import display
+                    raw=run_one(n,current,'profile-id',False,id_stop,lambda *_:None)
+                    result=display(json.loads(raw),footer)
+                except Exception:
+                    result='ID не подтверждён. Убедись, что открыта анкета, рабочие процессы остановлены, ADB/Gadget доступны. См. last-startup.json выбранного порта. Никакого разрешения писать не выдано.'
+                events.put(('profile-id-result',(w,id_note,id_button,result)))
+            threading.Thread(target=work,daemon=True).start()
+        id_button=ttk.Button(id_box,text='Проверить ID',command=check_profile_id)
+        id_button.pack(anchor='w',pady=8)
+        ttk.Label(id_box,textvariable=id_note,wraplength=500).pack(anchor='w',pady=6)
         actions = ttk.Frame(container)
         actions.pack(fill='x', pady=8)
         ttk.Button(actions, text='Сохранить', command=store).pack(side='left')
@@ -358,11 +403,14 @@ def launch(self_check=False):
             nonlocal dialog
             test_stop.set()
             check_stop.set()
+            id_stop.set()
+            id_footer.set('')
             check_value.set('')
             token.set('')
             ai_key.set('')
             dialog = None
             w.destroy()
+        w._profile_id_controls=(tabs,id_box,id_button)
         w.protocol('WM_DELETE_WINDOW', close_settings)
 
     start = ttk.Button(controls, text='Старт', command=begin)
@@ -424,6 +472,15 @@ def launch(self_check=False):
         nonlocal busy
         while not events.empty():
             kind, value = events.get_nowait()
+            if kind == 'profile-id-result':
+                busy=False;id_check_stop[0]=None
+                window,variable,button,text=value
+                try:
+                    if window.winfo_exists():
+                        variable.set(text);button.configure(state='normal')
+                except tk.TclError:pass
+                status.set('Проверка ID завершена. Результат — в настройках; сообщений не отправлялось.')
+                refresh();continue
             if kind == 'device-progress':
                 n,text=value
                 control=port_controls.get(n);state=control.state() if control is not None else 'finished'
@@ -481,6 +538,10 @@ def launch(self_check=False):
         configure()
         root.update()
         assert dialog.winfo_viewable() and events.empty()
+        id_tabs,id_tab,id_button=dialog._profile_id_controls
+        id_tabs.select(id_tab);root.update()
+        assert id_button.winfo_viewable() and str(id_button.cget('state'))=='normal'
+        assert not busy and id_check_stop[0] is None and events.empty()
         root.destroy()
         return
     import telegram_statistics

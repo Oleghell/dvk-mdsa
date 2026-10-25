@@ -209,7 +209,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 808:boolbox.value=0;return &boolbox;
  case 809:return mode==884?&model_other_manager:&browser_manager;
  case 810:browser_long=mode==876?0:mode==805?101:100;return &browser_long_box;
- case 811:browser_long=((Object *)obj)->value==1?200:201;return &browser_long_box;
+ case 811:browser_long=mode==865?4470000001LL:mode==866?0:mode==867&&contact_user_reads>=2?201:((Object *)obj)->value==1?200:201;return &browser_long_box;
  case 812:browser_long=mode==875?0:((Object *)obj)->value==1?300:301;return &browser_long_box;
  case 813:return mode==803?&browser_chats[0]:browser_selected;
  case 814:return mode==814?&browser_users[0]:&browser_users[browser_selected->value];

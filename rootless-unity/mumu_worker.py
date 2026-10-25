@@ -91,6 +91,13 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
             boot_key=hashlib.sha256(boot.encode()).hexdigest()
             scopes.enter_context(operation_lock(root_directory()/'locks'/(boot_key+'.lock')))
             recheck(adb,boot)
+            if spec['mode']=='profile-id':
+                # No Store(), reply policy, monitor, AI, Telegram or journal write.
+                stage='profile-id-read'
+                from mumu_profile_id import run as read_profile_id
+                out=read_profile_id(current,stopped.is_set,progress)
+                atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,status='finished',stage=stage,automatic_retry=False))
+                return out  # ID is returned through the local pipe, never a report.
             stage='journal-initialization'
             from assistant_reply_window import enable
             enable(Store(),new_only=spec['mode']=='new')
@@ -160,7 +167,7 @@ def pipe_line(fd,limit):
 def main():
     # The console worker is packed beside the GUI and has its own stdio pipes.
     if sys.argv[1:]==['--mumu-worker-self-check']:
-        import mumu_store,mumu_fast_adb,mumu_claims,mumu_pause,assistant_pause,assistant_profile_read
+        import mumu_store,mumu_fast_adb,mumu_claims,mumu_pause,assistant_pause,assistant_profile_read,mumu_profile_id
         assert serial(5557)=='127.0.0.1:5557'
         return 0
     if sys.argv[1:]!=['--mumu-worker']:return 2
@@ -178,7 +185,8 @@ def main():
         value=json.loads(raw)
         if type(value) is not dict or set(value)!={'port','mode','fresh','settings'}:raise MumuError('Invalid spec')
         port(value['port'])
-        if value['mode'] not in ('full','inbox','new') or type(value['fresh']) is not bool or type(value['settings']) is not dict:raise MumuError('Invalid spec')
+        if value['mode'] not in ('full','inbox','new','profile-id') or type(value['fresh']) is not bool or type(value['settings']) is not dict:raise MumuError('Invalid spec')
+        if value['mode']=='profile-id' and value['fresh'] is not False:raise MumuError('Invalid spec')
         def watch():
             # EOF means parent died: revoke permission, do not leave orphan senders.
             while True:
@@ -193,6 +201,9 @@ def main():
                     stopped.set();return
         threading.Thread(target=watch,daemon=True).start()
         out=run(value,stopped,lambda text:emit('progress',str(text)[:3000]))
+        if value['mode']=='profile-id':
+            from mumu_profile_id import checked_result
+            emit('result',json.dumps(checked_result(out),ensure_ascii=True));return 0
         from assistant_monitor import summary
         emit('result',summary(out));return 0
     except Exception as error:

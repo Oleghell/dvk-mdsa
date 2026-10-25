@@ -7,7 +7,7 @@ from assistant_dialog_pages import page_source
 import dialog_browser as browser
 WHO=dict(account='100',peer='200',chat='300')
 
-def one(library,mode,phase):
+def one(library,mode,phase,*,id_probe=False):
  child=subprocess.Popen([sys.executable,'-u','-c',
   "import ctypes,sys,time\nl=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)\nl.fixture_init(int(sys.argv[2]));l.fixture_browser_entry(int(sys.argv[3]))\nprint('ready',flush=True)\nfor _ in range(12000):\n l.fixture_tick();time.sleep(.003)",
   str(library),str(mode),str(phase)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
@@ -15,13 +15,20 @@ def one(library,mode,phase):
  try:
   assert child.stdout.readline().strip()=='ready'
   session=frida.get_local_device().attach(child.pid)
-  source=page_source() if phase==1 else profile_source(WHO)
+  from mumu_profile_id import build as id_source,validated_peer,ProfileIdError
+  source=id_source() if id_probe else page_source() if phase==1 else profile_source(WHO)
   script=session.create_script(source+'''
 rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();return [r('fixture_handles'),r('fixture_bad_frees'),r('fixture_off_thread_calls'),r('fixture_browser_clicks'),r('fixture_browser_backs'),r('fixture_route_bad')];}};''')
   script.load();raw=script.exports_sync.probe();n=raw['navigation'];counts=script.exports_sync.counts()
   assert counts==[0]*6,(mode,n,counts)
   assert n['handles_acquired']==n['handles_released'],(mode,n)
-  if phase==1:
+  if id_probe:
+   if mode in (860,865) and phase in (4,5):assert validated_peer(raw)==('4470000001' if mode==865 else '200'),(mode,n)
+   else:
+    try:validated_peer(raw)
+    except ProfileIdError:pass
+    else:raise AssertionError(('Unverified profile ID accepted',mode,n))
+  elif phase==1:
    rows=n.pop('private_page');out=browser.validate(raw,'open',allowed=())
    assert out['state']=='exhausted' and len(rows)==2 and rows[1]==WHO,(rows,out)
   elif mode==860:
@@ -32,7 +39,7 @@ rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFun
    # Reusing the tabs owner reduces calls: hidden views now hit frame bound first.
    expected={861:'identity-not-bound',862:'signature-mismatch',863:'identity-changed',864:'frame-limit'}[mode]
    assert n['error']==expected and not n['destination_verified'],(mode,n)
-  print('Synthetic contact profile/page',mode,phase,'passed',flush=True)
+  print('Synthetic contact profile/page',mode,phase,'ID-only' if id_probe else 'bound','passed',flush=True)
  finally:
   if script:
    try:script.unload()
@@ -50,3 +57,9 @@ if __name__=='__main__':
  one(library,800,1)
  for mode in range(860,865):one(library,mode,4)
  one(library,860,5)
+
+# Same release suite: read-only ID check, large Int64, wrong screen/type/change/zero.
+if __name__=='__main__':
+ for mode in (860,862,863,864,865,866,867):one(library,mode,4,id_probe=True)
+ one(library,860,5,id_probe=True)
+ one(library,860,1,id_probe=True)
