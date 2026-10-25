@@ -1,4 +1,7 @@
 /* Synthetic owned objects only; no APKs, credentials or real messages. */
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #define il2cpp_class_from_name old_class_from_name
 #define il2cpp_class_get_method_from_name old_method
 #define il2cpp_class_get_image old_image
@@ -87,11 +90,11 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   managed_calls++;if(TID()!=main_id)off_thread_calls++;
   boolbox.value=mode==577;return &boolbox;
  }
- if(((mode>=570&&mode<=575)||mode==583||mode==584)&&m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=(mode==583||mode==584)?6:mode==575?65:mode==572&&items<4?16:18;return &integer_box;}
- if(((mode>=570&&mode<=575)||mode==583||mode==584)&&m->action==109){
+ if(((mode>=570&&mode<=575)||mode==583||mode==584||(mode>=585&&mode<=587))&&m->action==51){managed_calls++;if(TID()!=main_id)off_thread_calls++;integer_value=(mode==583||mode==584)?6:(mode>=585&&mode<=587)?16:mode==575?65:mode==572&&items<4?16:18;return &integer_box;}
+ if(((mode>=570&&mode<=575)||mode==583||mode==584||(mode>=585&&mode<=587))&&m->action==109){
   managed_calls++;if(TID()!=main_id)off_thread_calls++;items++;
-  if(!args||!args[0]||*(int *)args[0]<0||*(int *)args[0]>=((mode==583||mode==584)?6:mode==575?65:18)){*exc=&exception;return NULL;}
-  if(mode==583||mode==584){
+  if(!args||!args[0]||*(int *)args[0]<0||*(int *)args[0]>=((mode==583||mode==584)?6:(mode>=585&&mode<=587)?16:mode==575?65:18)){*exc=&exception;return NULL;}
+  if(mode==583||mode==584||mode==586){
 #ifdef _WIN32
    Sleep(35);
 #else
@@ -133,7 +136,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 102:long_value=mode==528?0:mode==529?-1:((mode==506&&sample_frames>1)||(mode==573&&items>=4))?201:200;break;
  case 103:if(mode==576&&body_reads>=4&&++sample_budget_checks==5)slow();long_value=mode==530?0:mode==531?-1:300;break;
  case 104:long_value=batch_index>=0?1001+batch_index:mode==520?0:mode==521?-1:in&&mode!=503?1002:1001;break;
- case 105:long_value=mode==574&&batch_index==17?999:mode==522?0:mode==523?-1:in?(mode==501?999:200):100;break;
+ case 105:long_value=((mode==574&&batch_index==17)||(mode==587&&batch_index==15))?999:mode==522?0:mode==523?-1:in?(mode==501?999:200):100;break;
  case 106:
   if(!in)own_chat_reads++;
   long_value=mode==524||(!in&&mode==563)?0:mode==525||(in&&mode==562)?-1:

@@ -336,7 +336,9 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             progress(f'Ищу следующий чат • обработано {out["dialogs_processed"]}' +
                      (' • проверка прочитанного' if group_kind == 'read' else ''))
             host_checkpoint = 'inbox-open'
-            selected = call('open', allowed=with_seen_ids(chain,allowed),
+            from assistant_stage_timing import timed
+            open_timing = {}
+            selected = timed(open_timing, 'open', call, 'open', allowed=with_seen_ids(chain,allowed),
                             entry=entry, unread_only=unread_only, needs_reply_only=True)
             entry = 'dialogs'
             if selected['state'] == 'exhausted':
@@ -368,6 +370,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 pause=pause, max_polls=8, until_waiting=True, snapshot_capture=capture_snapshot, exit_capture=lambda texts:exit_messages.__setitem__(slice(None),texts), contact_photo=contact_photo,
                 contact_reader=lambda expected: reader(settings.adb, settings.folder,
                                                        stopped.is_set, expected, read_name=True))
+            result['diagnostics'].update(open_timing)
             out['last_chat_diagnostics'] = result['diagnostics']
             out['automatic_authorizations'] += result.get('automatic_authorizations', 0)
             for key in ('confirmations', 'submission_calls', 'handler_returns'):
@@ -431,8 +434,9 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 preview=notify_exit(chain,who,dict(result,_exit_messages=exit_messages),enabled=False)
                 capture_needed=preview['notification']!='already-attempted'
             if capture_needed:
+                progress('Снимок чата для уведомления • чтение завершено.')
                 try:
-                    exit_image=exit_photo(who)
+                    exit_image=timed(result['diagnostics'], 'exit_photo', exit_photo, who)
                     from assistant_contact_photo import png_size
                     png_size(exit_image);exit_image_status='captured'
                 except Exception:
@@ -444,7 +448,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 chain.mark_review(who)
             progress('Исходящее подтверждено → возвращаюсь к списку.' if result['outgoing_observed_this_run'] and not unanswered else 'Возвращаюсь к списку диалогов.')
             host_checkpoint = 'inbox-back'
-            call('back', expected=who)
+            timed(result['diagnostics'], 'back', call, 'back', expected=who)
             # Only a successful, SAME-chat back may make a read failure local.
             # Do not change chain stage, reservations, consumed messages or review state.
             if deferred or ai_deferred or answer_deferred or photo_deferred:

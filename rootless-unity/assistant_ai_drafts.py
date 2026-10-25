@@ -64,6 +64,10 @@ def prepare(chain, snapshot, action):
     with chain.store.connection() as db:
         reply_ids = [r[0] for r in db.execute('SELECT message FROM ai_draft_inputs WHERE chat=? AND kind=?', (chat,kind))]
     context = dict(snapshot, _reply_ids=reply_ids)
+    if not forced_text:
+        progress = getattr(chain, 'ai_progress', None)
+        if callable(progress):
+            progress('Ожидаю ответ ИИ • история уже прочитана.')
     value = continuation(dict(decision='reply',text=forced_text) if forced_text else chain.responder(kind, context), kind, snapshot=context)
     if value['decision'] != 'reply':
         stage = 'declined' if value['decision'] == 'decline' else 'manual-review'

@@ -131,6 +131,8 @@ def diagnostic_json(report):
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
         'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
         'entry_read_budget_retries','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs'}
+    from assistant_stage_timing import FIELDS as TIMING_FIELDS
+    numbers |= TIMING_FIELDS
     flags = {'input_disabled_verified','history_wait_exhausted','history_budget_exhausted','history_snapshot_oversized','post_send_checked','send_no_invocation_verified','profile_script_executed','submission_attempted','submission_returned','contact_review_reconciled','send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',
         'open_attempted','open_completed','chat_open_attempted','chat_open_completed','chat_identity_verified',
         'chat_back_attempted','chat_back_completed','chat_return_verified','profile_read_skipped',

@@ -25,7 +25,8 @@ def one(library, mode, expected=None, *, read_latest=False, read_name=False, rea
             source=source.replace('if(chunk.headers.length<first){verifyWho();return;}',
                 'if(chunk.headers.length<first){{const until=Date.now()+40;while(Date.now()<until){}}verifyWho();return;}')
         if mode==584:
-            source=source.replace('const chunkSize=first<=16?1:4;', 'const chunkSize=4;')
+            source=source.replace('if(!canContinue(i,start,chunk.headerCost))break;', 'if(i>start&&Date.now()>deadline-30)break;')
+            source=source.replace('if(!canContinue(i,start,chunk.bodyCost))break;', 'if(i>start&&Date.now()>deadline-30)break;')
         script=session.create_script(source+'''
         rpc.exports={root(){return probeUIKitRoot();},counts(){
           const get=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
@@ -44,10 +45,10 @@ def one(library, mode, expected=None, *, read_latest=False, read_name=False, rea
             assert private is not None,(mode,out,counts)
             assert private['latest_message_id']==(None if mode==581 else '1001' if mode==580 else '1002'),(mode,out,counts)
             assert len(private['messages'])==2
-        elif mode in (570,571,572,575,583):
+        elif mode in (570,571,572,575,583,585,586):
             assert private is not None,(mode,out,counts)
-            assert len(private['messages'])==(6 if mode==583 else 65 if mode==575 else 18),(mode,out)
-            assert [x['id'] for x in private['messages']]==[str(1001+i) for i in range(6 if mode==583 else 65 if mode==575 else 18)]
+            assert len(private['messages'])==(6 if mode==583 else 16 if mode in (585,586) else 65 if mode==575 else 18),(mode,out)
+            assert [x['id'] for x in private['messages']]==[str(1001+i) for i in range(6 if mode==583 else 16 if mode in (585,586) else 65 if mode==575 else 18)]
             assert all(x['text']=='Reply' for x in private['messages'][1:])
         elif (mode in (500,507,550,560,567,568) or mode==602 and read_input) and expected['peer']=='200':
             assert private is not None,(mode,out,counts)
@@ -60,7 +61,7 @@ def one(library, mode, expected=None, *, read_latest=False, read_name=False, rea
                 assert out['navigation']['error']=='frame-budget',(mode,out,counts)
             if mode==551:
                 assert out['navigation']['error']=='view-parent-depth-limit' and counts['bodies']==0,(mode,out,counts)
-            if mode in (561,562,563,564,566,573,574):
+            if mode in (561,562,563,564,566,573,574,587):
                 assert counts['bodies']==0,(mode,out,counts)
             if mode==564:
                 assert out['navigation']['error']=='local-own-message-unanchored',(mode,out)
@@ -88,7 +89,9 @@ def one(library, mode, expected=None, *, read_latest=False, read_name=False, rea
             assert private is None and counts['sends']==0,(mode,counts)
         if read_input and private is not None:
             assert private['input_enabled'] is (mode!=602),(mode,out,counts)
+        timing_counts=dict(frames=out['navigation']['frames'],managed_calls=out['navigation']['managed_calls'],samples=out['navigation']['samples'])
         print('Synthetic one-chat',mode,'identity' if expected is None else 'read',out['navigation']['stage'],out['navigation']['error'],flush=True)
+        return timing_counts
     finally:
         if script:
             try:script.unload()
@@ -108,7 +111,7 @@ if __name__=='__main__':
         for names in (False,True):
             one(lib,mode,dict(account='100',peer='200',chat='300'),read_input=True,read_latest=True,read_name=names)
     who=dict(account='100',peer='200',chat='300')
-    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575,576,577,578,583,584):one(lib,mode,who)
+    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575,576,577,578,583,584,585,586,587):one(lib,mode,who)
     for mode in (579,580,581,582):one(lib,mode,who,read_latest=True)
     one(lib,579,who,read_latest=True,read_name=True)
     one(lib,500,dict(account='100',peer='201',chat='300'))

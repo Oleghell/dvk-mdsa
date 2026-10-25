@@ -138,20 +138,24 @@ COLLECT = r'''
    const chunk=state.historyChunk;
    if(chunk.identity!==JSON.stringify(who))fail('identity-changed');
    if(chunk.count!==first){state.historyChunk=null;invalidate('changing-count');return;}
-   // Short dialogs should not spend the remaining frame on four messages.
-   // Keep the established four-item bound for larger histories so their full
-   // two-sample read still fits the unchanged total frame/call limits.
-   const chunkSize=first<=16?1:4;
+   // Short chats previously paid full view/identity/readiness traversal for
+   // EVERY single header and body. At low Unity FPS this dominated wall time.
+   // Batch up to four, but learn the current getter cost before another item;
+   // reserve 30ms plus twice that cost for the unchanged end-of-frame checks.
+   const chunkSize=4;
+   const canContinue=(i,start,cost)=>i===start||Date.now()+Math.max(1,cost||0)*2<=deadline-30;
    const end=Math.min(first,(chunk.phase==='headers'?chunk.headers.length:chunk.messages.length)+chunkSize);
    if(chunk.phase==='headers'){
     const start=chunk.headers.length;
     for(let i=start;i<end;i++){
-     if(i>start&&Date.now()>deadline-30)break;
+     if(!canContinue(i,start,chunk.headerCost))break;
+     const itemStarted=Date.now();
      n.message_slot=i;const message=messageAt(i),handle=own(message),bits=messageHeader(message);
      if(chunk.headers.some(row=>row.bits.id===bits.id))fail('message-invalid');
      if(bits.chatId.startsWith('-'))chunk.localOwn++;
      else if(bits.sender===who.peer&&!bits.mine&&bits.chatId===who.chat)chunk.peerAnchors++;
      chunk.headers.push({pointer:message.toString(),bits});releaseOne(handle);
+     chunk.headerCost=Math.max(chunk.headerCost||0,Date.now()-itemStarted);
     }
     if(chunk.headers.length<first){verifyWho();return;}
     if(chunk.localOwn>0&&chunk.peerAnchors===0)fail('local-own-message-unanchored');
@@ -159,7 +163,8 @@ COLLECT = r'''
    }else if(chunk.phase==='bodies'){
     const start=chunk.messages.length;
     for(let i=start;i<end;i++){
-     if(i>start&&Date.now()>deadline-30)break;
+     if(!canContinue(i,start,chunk.bodyCost))break;
+     const itemStarted=Date.now();
      n.message_slot=i;const row=chunk.headers[i],message=messageAt(i),handle=own(message);
      if(message.toString()!==row.pointer||JSON.stringify(messageHeader(message))!==JSON.stringify(row.bits))fail('message-invalid');
      const {id,sender}=row.bits;let text=null;
@@ -170,6 +175,7 @@ COLLECT = r'''
       text=length===0?'':chars.readUtf16String(length);if(text===null||text.includes('\u0000'))fail('message-invalid');releaseOne(sh);
      }
      chunk.messages.push({id,sender,text});releaseOne(handle);
+     chunk.bodyCost=Math.max(chunk.bodyCost||0,Date.now()-itemStarted);
     }
     if(chunk.messages.length===first)chunk.phase='complete';
     verifyWho();return;

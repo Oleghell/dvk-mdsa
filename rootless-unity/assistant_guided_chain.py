@@ -17,6 +17,7 @@ from shared_contact import display_name
 from mumu_peer_policy import ensure_communication_allowed, PeerCommunicationBlocked
 
 from version import VERSION
+from assistant_stage_timing import timed
 from assistant_authorization import flags
 from assistant_history_wait import (verified_loading, HistoryWaitExpired, WAIT_SECONDS,
                                     WAIT_INTERVAL, MAX_READ_ATTEMPTS, verified_read_budget,
@@ -71,6 +72,7 @@ class GuidedChain(Chain):
         # conservatively verified as the peer's self-shared contact.
         super().__init__(store, contact_notifications=True, **kwargs)
         self.responder = responder
+        self.ai_progress = None
         from assistant_ai_drafts import initialize
         initialize(store)
         with self.store.connection() as db:
@@ -381,10 +383,13 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         return out
     pause = stopped.wait if pause is None else pause
     who = identity(who)
-    with chain.store.connection() as db:
-        observed_at_start = {row[0] for row in db.execute(
-            "SELECT kind FROM chain_actions WHERE chat=? AND status='outgoing-observed'",
-            (who['chat'],))}
+    progress('Проверяю журнал диалога.')
+    def observed_actions():
+        with chain.store.connection() as db:
+            return {row[0] for row in db.execute(
+                "SELECT kind FROM chain_actions WHERE chat=? AND status='outgoing-observed'",
+                (who['chat'],))}
+    observed_at_start = timed(out['diagnostics'], 'bind', observed_actions)
     host_checkpoint='chat-read'
     def read(source=reader, *, keep_latest=False):
         nonlocal host_checkpoint
@@ -397,7 +402,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         budget_failures = 0
         for attempt in range(MAX_READ_ATTEMPTS):
             try:
-                private = source(who)  # Every native read independently rechecks the SAME bound identity.
+                progress('Читаю историю • проверяю текущий чат.')
+                private = timed(out['diagnostics'], 'read', source, who)  # Fresh SAME-bound read, never cached.
                 break
             except ReadStopped as error:
                 failure = out['diagnostics']['last_read_failure'] = safe_read_failure(error)
@@ -461,10 +467,13 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         if keep_latest and 'latest_message_id' in private:
             value['latest_message_id']=private['latest_message_id']
         return value
+    previous_ai_progress = chain.ai_progress
+    chain.ai_progress = progress
     try:
         before = read(keep_latest=True)
+        progress('История прочитана • сверяю журнал диалога.')
         host_checkpoint='chat-bind'
-        chain.bind(before, greetings, approved=True)
+        timed(out['diagnostics'], 'bind', chain.bind, before, greetings, approved=True)
         from assistant_contact_receipt import reviewable,reconcile
         with chain.store.connection() as db:
             contact_review=reviewable(db,who['chat'])
@@ -493,7 +502,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             try:
                 ensure_communication_allowed(chain.store,who)
                 host_checkpoint='chat-proposal'
-                stage, action = chain.proposal(before)
+                stage, action = timed(out['diagnostics'], 'proposal', chain.proposal, before)
             except StateError as error:
                 if str(error) != 'contact-name-required':
                     raise
@@ -522,7 +531,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 if not extends_snapshot(before, named):
                     raise StateError('guided-contact-history-changed')
                 before = named
-                stage, action = chain.proposal(before)
+                stage, action = timed(out['diagnostics'], 'proposal', chain.proposal, before)
             out['stage'] = stage
             out['stages']['greeting'] = True
             with chain.store.connection() as db:
@@ -546,12 +555,12 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             if stage == 'done':
                 if chain.media_required and notifier is not None:
                     try:
-                        chain.prepare_media(who,contact_photo)
+                        timed(out['diagnostics'], 'media', chain.prepare_media, who, contact_photo)
                     except Exception as error:
                         if str(error) in ('profile-return-not-verified','cancelled'):raise
                         out.update(status='chain-waiting',reason='contact-photo-unavailable')
                         return out
-                notification = chain.notify(who, notifier, stopped.is_set)
+                notification = timed(out['diagnostics'], 'notify', chain.notify, who, notifier, stopped.is_set)
                 if notification == 'cancelled':
                     break
                 if notification == 'nothing-pending':
@@ -618,7 +627,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                          'Подготовлено предложение перейти в мессенджер.')
                 if stopped.is_set():
                     break
-                if approve(action['kind'], action['text'], stopped.is_set) is not True:
+                if timed(out['diagnostics'], 'pacing', approve, action['kind'], action['text'], stopped.is_set) is not True:
                     out.update(status='chain-paused', reason='message-not-approved')
                     return out
                 out['automatic_authorizations' if out['automatic_send'] else 'confirmations'] += 1
@@ -649,7 +658,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 input_disabled = False
                 try:
                     from assistant_send_safety import submit_checked
-                    result, deferred = submit_checked(chain,send_authorization,who,action,fresh,
+                    result, deferred = timed(out['diagnostics'],'submit',submit_checked,chain,send_authorization,who,action,fresh,
                         sender,stopped,progress,out['diagnostics'])
                     if deferred:
                         out.update(status='chain-waiting',reason='send-preflight-deferred')
@@ -788,6 +797,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         out['diagnostics']['failure_point'] = reason
         out.update(status='chain-cancelled' if stopped.is_set() else 'chain-stopped',
                    reason='cancelled' if stopped.is_set() else reason)
+    finally:
+        chain.ai_progress = previous_ai_progress
     return out
 
 
