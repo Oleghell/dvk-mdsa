@@ -16,7 +16,7 @@ from assistant_store import Store as BaseStore, StateError
 from assistant_config import check_text
 from cohort_pass import Store as LegacyStore
 from mumu_common import root_directory, port
-from cloud_database import connect
+from cloud_database import connect,journal_initialization
 
 TABLES = frozenset(('manual_actions profile_visits search_session city_rotation_used '
     'chain_send_authorizations chain_send_attempts chain_contact_media chain_contact_outbox chain_dialogs chain_review_reasons '
@@ -62,6 +62,7 @@ class Connection:
 
 class SharedStore(BaseStore):
     mumu_shared_claims=True
+    @journal_initialization()
     def __init__(self,path=None,legacy_directory=None,*,device_port=None):
         self.device_port=port(device_port if device_port is not None else os.environ.get('DVK_MUMU_PORT','5563'))
         self.prefix='' if self.device_port==5563 else 'm'+str(self.device_port)+'__'

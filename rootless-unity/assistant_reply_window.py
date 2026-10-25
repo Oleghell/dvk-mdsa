@@ -59,4 +59,9 @@ def eligible(store, rows):
     if not rows:return []
     with store.connection() as db:
         if not active(db):return list(rows)
-        return [who for who in rows if exclusion(db,who) is None]
+        # Remove only obsolete age rules; terminal/manual/new-start exclusions
+        # remain authoritative. Read their keys once, not once per dialog while
+        # holding the shared PostgreSQL transaction lock.
+        clear_legacy_age_exclusions(db)
+        blocked=set(db.execute('SELECT account,peer FROM inbox_reply_exclusions'))
+        return [who for who in rows if (who['account'],who['peer']) not in blocked]

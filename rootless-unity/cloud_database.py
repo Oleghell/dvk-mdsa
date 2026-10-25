@@ -20,6 +20,13 @@ DATABASE_CODES={'cloud-database-unavailable','cloud-database-config-invalid','cl
     'cloud-sql-unsupported','cloud-transaction-invalid','cloud-transaction-required','cloud-readonly-violation'}
 DATABASE_OPERATIONS={'connect','begin','commit','rollback','schema','catalog','read','write','lock','unknown'}
 
+def clean_diagnostic(value):
+    if not isinstance(value,dict) or set(value)!={'code','operation','automatic_retry'}:return None
+    if type(value['code']) is not str or value['code'] not in DATABASE_CODES:return None
+    if type(value['operation']) is not str or value['operation'] not in DATABASE_OPERATIONS:return None
+    if value['automatic_retry'] is not False:return None
+    return dict(value)
+
 def diagnostic(error):
     if type(error) is not CloudDatabaseError:return None
     code=error.code if error.code in DATABASE_CODES else 'cloud-database-unavailable'

@@ -121,7 +121,8 @@ def inbox_targets(chain):
           SELECT s.account,s.peer,COALESCE(c.chat,s.chat),c.stage,
             EXISTS(SELECT 1 FROM chain_contact_outbox o WHERE o.chat=c.chat AND o.status='pending'),
             EXISTS(SELECT 1 FROM chain_actions a WHERE a.chat=c.chat
-                   AND a.status IN ('awaiting-approval','handler-returned-unconfirmed'))
+                   AND a.status IN ('awaiting-approval','handler-returned-unconfirmed')),
+            EXISTS(SELECT 1 FROM chain_contact_media media WHERE media.chat=c.chat)
           FROM sources s LEFT JOIN chain_dialogs c ON c.account=s.account AND c.peer=s.peer
           ORDER BY s.account,s.peer''').fetchall()
     attention, unread = [], []
@@ -129,10 +130,10 @@ def inbox_targets(chain):
     receipt_reviews=contact_candidates(chain.store)
     from assistant_legacy_recovery import candidates
     recoverable=candidates(chain.store) if chain.responder is not None else set()
-    for account, peer, chat, stage, outbox, pending in rows:
+    for account, peer, chat, stage, outbox, pending, media in rows:
         item = dict(account=account, peer=peer, chat=chat)
         if stage in TERMINAL and (account,peer,chat) not in recoverable | receipt_reviews:
-            if stage=='done' and outbox and chain.media_required and not chain.has_media(item):
+            if stage=='done' and outbox and chain.media_required and not media:
                 attention.append(item)
             continue
         elif pending or (stage or '').startswith('pending-'):
@@ -177,18 +178,31 @@ def with_seen_ids(chain, allowed):
                 JOIN chain_contact_outbox o ON o.chat=c.chat
                 WHERE c.stage='done' AND o.status='pending'
                 AND NOT EXISTS(SELECT 1 FROM chain_contact_media m WHERE m.chat=c.chat)"""))
-        for who in allowed:
-            from assistant_reply_audit import initialize
-            initialize(db)
-            from assistant_skip_audit import initialize as skips
-            skips(db)
-            rows=db.execute('''SELECT message FROM chain_seen WHERE chat=? AND message NOT IN
-              (SELECT message FROM chain_reply_receipts WHERE chat=? AND status='pending')
-              UNION SELECT r.message FROM chain_reply_receipts r JOIN inbox_reported_inputs s
-                ON r.chat=s.chat AND r.message=s.message AND r.fingerprint=s.fingerprint
-              WHERE r.chat=? LIMIT 129''', (who['chat'],who['chat'],who['chat'])).fetchall()
-            if len(rows)>128 and (who['account'],who['peer'],who['chat']) not in receipt_reviews:raise StateError('observed-history-too-large')
-            out.append(dict(who,seen_ids=[] if (who['account'],who['peer'],who['chat']) in receipt_reviews else [r[0] for r in rows]))
+        from assistant_reply_audit import initialize
+        from assistant_skip_audit import initialize as skips
+        initialize(db);skips(db)
+        # At most 128 chats / 256 parameters and 129 rows per chat per query.
+        # The 129th remains a hard overflow signal, never silent truncation.
+        for offset in range(0,len(allowed),128):
+            batch=allowed[offset:offset+128]
+            chats=list(dict.fromkeys(who['chat'] for who in batch))
+            marks=','.join('?' for _ in chats)
+            query="""SELECT chat,message FROM (
+              SELECT chat,message,ROW_NUMBER() OVER(PARTITION BY chat ORDER BY message) AS item_number FROM (
+                SELECT s.chat,s.message FROM chain_seen s WHERE s.chat IN ("""+marks+""") AND s.message NOT IN
+                  (SELECT message FROM chain_reply_receipts WHERE chat=s.chat AND status='pending')
+                UNION SELECT r.chat,r.message FROM chain_reply_receipts r JOIN inbox_reported_inputs i
+                  ON r.chat=i.chat AND r.message=i.message AND r.fingerprint=i.fingerprint
+                  WHERE r.chat IN ("""+marks+""")
+              ) observed
+            ) ranked WHERE item_number<=129 ORDER BY chat,message"""
+            seen={chat:[] for chat in chats}
+            for chat,message in db.execute(query,tuple(chats+chats)):seen[chat].append(message)
+            for who in batch:
+                rows=seen[who['chat']]
+                review=(who['account'],who['peer'],who['chat']) in receipt_reviews
+                if len(rows)>128 and not review:raise StateError('observed-history-too-large')
+                out.append(dict(who,seen_ids=[] if review else rows))
     return targets(out)
 
 
@@ -219,13 +233,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     # conversation just to deliver an already encrypted, verified contact.
     with checkpoint('inbox-outbox'):
         with chain.store.connection() as db:
-            pending=db.execute("SELECT c.account,c.peer,c.chat FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat WHERE c.stage='done' AND o.status='pending'").fetchall()
+            query="SELECT c.account,c.peer,c.chat FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat WHERE c.stage='done' AND o.status='pending'"
+            if chain.media_required:query+=" AND EXISTS(SELECT 1 FROM chain_contact_media media WHERE media.chat=c.chat)"
+            pending=db.execute(query).fetchall()
         for account,peer,chat in pending:
             if stopped.is_set():
                 out.update(status='inbox-cancelled',reason='cancelled')
                 return out
             who=dict(account=account,peer=peer,chat=chat)
-            if chain.media_required and not chain.has_media(who):continue
             status=chain.notify(who,notifier,stopped.is_set)
             if status in out['contact_notifications']:out['contact_notifications'][status]+=1
             if status=='accepted':out['contacts_forwarded']+=1
@@ -233,6 +248,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     def pending_contacts():
         with chain.store.connection() as db:
             return db.execute("SELECT COUNT(*) FROM chain_contact_outbox WHERE status='pending'").fetchone()[0]
+    progress('Подготавливаю список диалогов из общей базы…')
     with checkpoint('inbox-targets'):
         out['contact_delivery_pending']=pending_contacts()
         history_wait.initialize(chain.store)
@@ -554,6 +570,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     with checkpoint('inbox-ai'):
         from assistant_ai import responder as make_responder
         responder = make_responder(settings.ai_provider, settings.ai_model, stopped.is_set) if settings.groq_enabled else None
+    progress('Подготавливаю базу первого прохода по входящим…')
     with checkpoint('inbox-database'):
         prepared_store=Store() if store is None else store
     with checkpoint('inbox-chain'):

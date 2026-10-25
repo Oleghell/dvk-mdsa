@@ -65,7 +65,14 @@ def reviewable(db,chat):
 def candidates(store):
     with store.connection() as db:
         db.execute('CREATE TABLE IF NOT EXISTS chain_contact_review_probes(chat TEXT PRIMARY KEY,status TEXT NOT NULL)')
-        return {(a,p,c) for a,p,c in db.execute("SELECT account,peer,chat FROM chain_dialogs WHERE stage='manual-review' AND chat NOT IN (SELECT chat FROM chain_contact_review_probes)") if reviewable(db,c)}
+        # Same receipt-only predicates as reviewable(), evaluated in one query.
+        return set(db.execute("""SELECT c.account,c.peer,c.chat FROM chain_dialogs c
+          JOIN chain_review_reasons r ON r.chat=c.chat
+          WHERE c.stage='manual-review' AND c.greeting IS NOT NULL
+            AND r.reason='contact-batch-ambiguous'
+            AND c.chat NOT IN (SELECT chat FROM chain_contact_review_probes)
+            AND EXISTS(SELECT 1 FROM chain_actions a WHERE a.chat=c.chat AND a.kind='contact' AND a.status='outgoing-observed')
+            AND NOT EXISTS(SELECT 1 FROM chain_contact_outbox o WHERE o.chat=c.chat)"""))
 
 
 def reserve_probe(chain,who):

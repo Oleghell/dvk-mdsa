@@ -10,7 +10,7 @@ STAGES = {
 ERRORS = {'prepare-'+s+'-failed' for s in STAGES} | AI_ERRORS | {'configuration-invalid'}
 TYPES = {'ValueError','TypeError','KeyError','AttributeError','FileNotFoundError','PermissionError',
  'ModuleNotFoundError','ImportError','OSError','RuntimeError','StateError','GroqError','ConfigError',
- 'TelegramError','OperationalError','DatabaseError','IntegrityError','ProgrammingError','InterfaceError','OtherError'}
+ 'TelegramError','OperationalError','DatabaseError','IntegrityError','ProgrammingError','InterfaceError','OtherError','CloudDatabaseError'}
 DATABASE_CODES = {'SQLITE_ERROR','SQLITE_AUTH','SQLITE_BUSY','SQLITE_BUSY_SNAPSHOT',
  'SQLITE_BUSY_RECOVERY','SQLITE_LOCKED','SQLITE_LOCKED_SHAREDCACHE','SQLITE_READONLY',
  'SQLITE_CANTOPEN','SQLITE_CORRUPT','SQLITE_NOTADB','SQLITE_FULL','SQLITE_IOERR',
@@ -20,7 +20,7 @@ CONFIG_REASONS = {'file-unavailable','invalid-json','invalid-structure','invalid
 
 def clean(value):
     required={'stage','error','error_type'}
-    if not isinstance(value,dict) or not required<=set(value) or set(value)-required-{'database_code','config_field','config_reason'}:return None
+    if not isinstance(value,dict) or not required<=set(value) or set(value)-required-{'database_code','config_field','config_reason','database'}:return None
     for key,allowed in (('stage',STAGES),('error',ERRORS),('error_type',TYPES)):
         if type(value[key]) is not str or value[key] not in allowed:return None
     if 'database_code' in value and (type(value['database_code']) is not str or value['database_code'] not in DATABASE_CODES):return None
@@ -28,6 +28,9 @@ def clean(value):
         if not {'config_field','config_reason'}<=set(value):return None
         if type(value['config_field']) is not str or value['config_field'] not in CONFIG_FIELDS:return None
         if type(value['config_reason']) is not str or value['config_reason'] not in CONFIG_REASONS:return None
+    if 'database' in value:
+        from cloud_database import clean_diagnostic
+        if clean_diagnostic(value['database']) is None:return None
     return dict(value)
 
 def record(error,stage):
@@ -47,6 +50,9 @@ def record(error,stage):
         field=getattr(error,'field',None);reason=getattr(error,'reason',None)
         if type(field) is str and field in CONFIG_FIELDS and type(reason) is str and reason in CONFIG_REASONS:
             value.update(config_field=field,config_reason=reason)
+    from cloud_database import diagnostic
+    database=diagnostic(error)
+    if database is not None:value['database']=database
     error._dvk_preparation=value
     return dict(value)
 
@@ -101,4 +107,5 @@ def message(report):
     if 'config_field' in v:
         text+=' Файл: config/'+v['config_field']+'.json. Причина: '+v['config_reason']+'.'
     if 'database_code' in v:text+=' Код базы: '+v['database_code']+'.'
+    if 'database' in v:text+=' Код облачной базы: '+v['database']['code']+'. Операция: '+v['database']['operation']+'.'
     return text+' ['+v['error']+'; '+v['error_type']+']'

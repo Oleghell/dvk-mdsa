@@ -111,7 +111,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
             from mumu_recovery import run as monitor
             stage='monitor'
             atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,status='running',stage=stage,automatic_retry=False))
-            progress('Подключено. Обрабатываю диалоги и анкеты.')
+            progress('Соединение проверено. Подготавливаю первый проход по диалогам и анкетам.')
             def write(value):
                 def scope(v):
                     if type(v) is dict:
