@@ -83,13 +83,16 @@ def build(before, *, text=QUESTION):
    verifyWho();
    if(!resolve(candidate).equals(current)||!checkView(current)||!call(s.messages,chat).equals(cm)||bool(s.historyLoading,cm)||!bool(s.value,field)||integer(s.count,cm)!==first||!bool(s.input,chat))fail('screen-not-ready');
    // Durable host reservation precedes this entire script. Native latch precedes invocation.
-   oneSubmissionAttempted=true;n.submission_attempted=true;n.app_actions_attempted=true;n.messages_sent=null;
    call(s.submit,current,args);n.submission_returned=true;
    n.private_result={identity:who,messages};n.read_checkpoint='complete';n.samples=2;
 '''.replace('__BEFORE__', json.dumps(before['messages'])).replace('__QUESTION__', json.dumps(text)))
     source = replace_once(source, "stringChars:bind('string_chars','pointer',['pointer'])", "stringChars:bind('string_chars','pointer',['pointer']),newString:bind('string_new','pointer',['pointer'])")
     source = replace_once(source, '"il2cpp_string_chars"]', '"il2cpp_string_chars", "il2cpp_string_new"]')
     source = replace_once(source, json.dumps(sorted(reader.ERRORS)), json.dumps(sorted(ERRORS)))
+    # call() still has deadline, receiver and signature checks. Mark an
+    # attempt only AFTER these checks, immediately before the native invoke.
+    source = replace_once(source, '   const out=f.invoke(m,receiver,params,ex);',
+        "   if(entry===s.submit&&Date.now()>deadline)fail('frame-budget');if(entry===s.submit&&(state.stop!==null||fixedCancellationRequested))fail('cancelled');\n   if(entry===s.submit){if(oneSubmissionAttempted)fail('submission-already-attempted');oneSubmissionAttempted=true;n.submission_attempted=true;n.app_actions_attempted=true;n.messages_sent=null;}\n   const out=f.invoke(m,receiver,params,ex);")
     return 'let oneSubmissionAttempted=false;\n' + source
 
 
@@ -155,3 +158,20 @@ def input_disabled_before_submission(result):
         and n['metadata_checkpoint']=='ready' and n['read_checkpoint']=='sample'
         and n['identity_checkpoint']=='recheck' and n['scalar_checkpoint']=='chat-id'
         and n['scalar_state']=='positive' and n['wait_reason']=='none')
+
+
+PREFLIGHT_RETRY_ERRORS={'send-setup-unavailable','frame-budget','call-limit','frame-limit','transition-timeout','history-not-ready','screen-not-ready'}
+
+def no_submission_proof(result):
+    """Closed, validated native result, never exception text or missing flags.
+
+    A second root() can report submission-already-attempted with false flags;
+    it is deliberately excluded, so it cannot erase an earlier invocation.
+    """
+    if not isinstance(result,dict) or result.get('attempted') is not False or result.get('handler_returned') is not False:return None
+    try:n=checked_diagnostic(result.get('native_check'))
+    except (ValueError,KeyError,TypeError):return None
+    if (n['root_stage']!='root-ready' or n['navigation_stage']!='navigation-stopped'
+        or n['metadata_checkpoint']!='ready'
+        or n['navigation_error'] not in PREFLIGHT_RETRY_ERRORS|{'submission-snapshot-changed'}):return None
+    return n['navigation_error']

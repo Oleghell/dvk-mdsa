@@ -359,6 +359,8 @@ class GuidedChain(Chain):
                              (who['chat'], action['kind'], text_hash(action['text'])))
             if cur.rowcount != 1:
                 raise StateError('guided-send-already-reserved')
+            from assistant_send_safety import authorize
+            return authorize(db,who,action)
 
 def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
          greetings=(), notifier=None, progress=lambda _: None, pause=None,
@@ -636,14 +638,19 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 if reply_exclusion(chain.store,who):
                     out.update(status='chain-waiting',reason='reply-excluded')
                     return out
-                chain.reserve_confirmed(who, action)
+                send_authorization = chain.reserve_confirmed(who, action)
                 if stopped.is_set():
                     break
                 out['submission_calls'] += 1
                 send_failure = None
                 input_disabled = False
                 try:
-                    result = sender(fresh, action['text'])
+                    from assistant_send_safety import submit_checked
+                    result, deferred = submit_checked(chain,send_authorization,who,action,fresh,
+                        sender,stopped,progress,out['diagnostics'])
+                    if deferred:
+                        out.update(status='chain-waiting',reason='send-preflight-deferred')
+                        return out
                     returned = (isinstance(result, dict) and result.get('attempted') is True
                                 and result.get('handler_returned') is True)
                     if isinstance(result,dict):

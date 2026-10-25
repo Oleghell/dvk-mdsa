@@ -384,7 +384,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                          'Контакт получен • результат передачи в Telegram требует проверки')
             if result['telegram_used']:
                 out['personal_data_exported'] = True
-            deferred = result['reason'] in ('history-loading-timeout','history-read-budget-timeout','history-snapshot-too-large')
+            deferred = result['reason'] in ('history-loading-timeout','history-read-budget-timeout','history-snapshot-too-large','send-preflight-deferred')
             ai_deferred=result['reason']=='ai-temporarily-unavailable'
             answer_deferred=result['reason']=='incoming-answer-pending'
             photo_deferred=(result['reason']=='contact-photo-unavailable' and result['status']=='chain-waiting')
@@ -398,6 +398,11 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             deferred_valid = deferred_valid or (result['reason']=='history-snapshot-too-large'
                 and evidence.get('history_snapshot_oversized') is True
                 and history_wait.verified_oversized(evidence.get('last_read_failure')))
+            from one_chat_send import PREFLIGHT_RETRY_ERRORS
+            deferred_valid = deferred_valid or (result['reason']=='send-preflight-deferred'
+                and evidence.get('send_no_invocation_verified') is True
+                and evidence.get('submission_attempted') is False and evidence.get('submission_returned') is False
+                and evidence.get('last_send_failure') in PREFLIGHT_RETRY_ERRORS|{'submission-snapshot-changed'})
             if deferred and not (result['status'] == 'chain-waiting' and deferred_valid):
                 out.update(status='inbox-stopped', reason='chat-bound-chat-read-failed')
                 return out
@@ -446,7 +451,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 history_wait.defer(chain.store,who,clock=clock)
                 out['history_deferred'] += 1
                 progress('Контакт сохранён. Проверю фото позже, продолжаю другие чаты.' if photo_deferred else
-                         'ИИ не дал проверенный ответ. Проверю чат позже.' if ai_deferred else 'Не удалось дочитать историю. Вернулся в личку; проверю этот чат позже.')
+                         'ИИ не дал проверенный ответ. Проверю чат позже.' if ai_deferred else 'Отправки не было. Проверю чат позже.' if result['reason']=='send-preflight-deferred' else 'Не удалось дочитать историю. Вернулся в личку; проверю этот чат позже.')
             else:
                 history_wait.clear(chain.store,who)
             if notice_needed:
@@ -454,7 +459,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 from assistant_exit_notify import notify_exit
                 event = notify_exit(chain, who, dict(result,_exit_messages=exit_messages), sender=exit_notifier, enabled=exit_notifier is not None, photo=exit_image, photo_status=exit_image_status, photo_sender=exit_photo_sender)
                 out['exit_events'].append(event)
-                if event['notification'] in ('accepted','unknown','already-attempted') and exit_messages and private_snapshot:
+                if (event['notification'] in ('accepted','unknown','already-attempted') and exit_messages and private_snapshot
+                        and result['reason']!='send-preflight-deferred'):
                     from assistant_skip_audit import reported
                     marked=reported(chain,who,private_snapshot[0])
                     if marked and (ai_deferred or answer_deferred):

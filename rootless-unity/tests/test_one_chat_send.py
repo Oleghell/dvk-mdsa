@@ -122,8 +122,10 @@ class SenderSchema(unittest.TestCase):
         source=sender.build(snap())
         self.assertIn('oneSubmissionAttempted=true',source)
         self.assertLess(source.index("JSON.stringify(who)!==JSON.stringify(expectedIdentity)"),source.index('call(s.submit,current,args)'))
-        self.assertLess(source.index("canonical(messages)!==canonical("),source.index('oneSubmissionAttempted=true'))
-        self.assertLess(source.index('oneSubmissionAttempted=true'),source.index('call(s.submit,current,args)'))
+        self.assertIn("canonical(messages)!==canonical(",source)
+        self.assertIn("if(entry===s.submit){if(oneSubmissionAttempted)fail('submission-already-attempted');",source)
+        self.assertLess(source.index('oneSubmissionAttempted=true'),source.index('const out=f.invoke(m,receiver,params,ex);'))
+        self.assertLess(source.index("if(Date.now()>deadline)fail('frame-budget');"),source.index('oneSubmissionAttempted=true'))
         self.assertEqual(source.count('call(s.submit,current,args)'),1)
         for forbidden in ('set_Text','OnMessageButton','ShowSearchSettings','DismissWithCancel','NativeCallback','Interceptor.replace'):
             self.assertNotIn(forbidden,source)

@@ -203,8 +203,9 @@ class AutomaticGreetingAndNativeReply(unittest.TestCase):
         for text in (*QUESTIONS, CONTACT_TEXT):
             source = sender.build(before, text=text)
             self.assertIn(json.dumps(text),source)
-            self.assertLess(source.index('canonical(messages)!==canonical('), source.index('oneSubmissionAttempted=true'))
-            self.assertLess(source.index('oneSubmissionAttempted=true'),source.index('call(s.submit,current,args)'))
+            self.assertIn('canonical(messages)!==canonical(',source)
+            self.assertIn("if(entry===s.submit){if(oneSubmissionAttempted)",source)
+            self.assertLess(source.index('oneSubmissionAttempted=true'),source.index('const out=f.invoke(m,receiver,params,ex);'))
             self.assertEqual(source.count('call(s.submit,current,args)'),1)
         with self.assertRaises(ValueError):
             sender.build(before,text='arbitrary')

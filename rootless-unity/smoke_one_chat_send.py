@@ -15,7 +15,7 @@ WHO=dict(account='100',peer='200',chat='300')
 BEFORE=dict(identity=WHO,messages=[dict(id='1001',sender='100',text='Hello'),dict(id='1002',sender='200',text='Reply')])
 
 
-def one(library,mode,before=None,*,text=QUESTIONS[0]):
+def one(library,mode,before=None,*,text=QUESTIONS[0],preinvoke_error=None,legacy_latch=False):
     sender.checked_reply(text)
     before=before or BEFORE
     child=subprocess.Popen([sys.executable,'-u','-c',
@@ -35,6 +35,17 @@ def one(library,mode,before=None,*,text=QUESTIONS[0]):
         # and exact text forwarding feed the real native Frida ABI below.
         with patch.object(transport, 'capture', side_effect=capture), patch.object(transport, 'inspect_submission', side_effect=inspect):
             source = transport.submit('synthetic-adb', 'owned-fixture', before, text=text)
+        if legacy_latch:
+            # Reproduce the old false-positive attempt while the fixture counts
+            # actual sends independently. Test-only source transformation.
+            latch='oneSubmissionAttempted=true;n.submission_attempted=true;n.app_actions_attempted=true;n.messages_sent=null;'
+            assert source.count(latch)==1
+            source=source.replace(latch,'')
+            source=source.replace('call(s.submit,current,args);',latch+'call(s.submit,current,args);',1)
+        if preinvoke_error is not None:
+            assert preinvoke_error in ('frame-budget','signature-mismatch')
+            source=source.replace('const call=(entry,obj,params=ptr(0))=>{',
+                "const call=(entry,obj,params=ptr(0))=>{if(entry===s.submit)fail('"+preinvoke_error+"');",1)
         script=session.create_script(source+'''
         rpc.exports={root(){return probeUIKitRoot();},counts(){const get=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
           return {handles:get('fixture_handles'),bad:get('fixture_bad_frees'),off:get('fixture_off_thread_calls'),
@@ -43,14 +54,17 @@ def one(library,mode,before=None,*,text=QUESTIONS[0]):
         result=sender.validate(out,before);diag=sender.diagnostic(out);counts=script.exports_sync.counts()
         assert sender.input_disabled_before_submission(dict(result,native_check=diag)) is (mode==602),(mode,diag)
         assert counts['handles']==counts['bad']==counts['off']==counts['wrong']==counts['opens']==counts['closes']==0,(mode,out,counts)
-        expected_send=mode in (600,603,650) and before==BEFORE
+        expected_send=mode in (600,603,650) and before==BEFORE and preinvoke_error is None
         assert counts['sends']==int(expected_send),(mode,out,counts)
-        assert result['attempted']==expected_send,(mode,out,counts)
+        assert result['attempted']==(expected_send or legacy_latch and preinvoke_error is not None),(mode,out,counts)
         assert result['handler_returned']==(expected_send and mode!=603),(mode,out,counts)
+        if preinvoke_error is not None:
+            assert diag['navigation_error']==preinvoke_error and result['attempted'] is legacy_latch,(diag,result)
+            assert sender.no_submission_proof(dict(result,native_check=diag))==('frame-budget' if preinvoke_error=='frame-budget' and not legacy_latch else None)
         if expected_send:
             again=sender.validate(script.exports_sync.root(),before)
             assert not again['attempted'] and script.exports_sync.counts()['sends']==1,(mode,again)
-        print('Synthetic manual send',mode,out['navigation']['error'],counts['sends'],flush=True)
+        print('Synthetic manual send',mode,out['navigation']['error'],'native sends',counts['sends'],'attempt flag',result['attempted'],'legacy latch',legacy_latch,flush=True)
         return result
     finally:
         if script:
@@ -112,5 +126,8 @@ if __name__=='__main__':
     for text in ('Взаимно 🙂 Как настроение?', 'Понимаю. Обменяемся Telegram?', 'Ты написал «Привет». Как дела?'):
         one(library,600,text=text)
     one(library,603,text='Взаимно 🙂 Как дела?')
+    one(library,600,preinvoke_error='frame-budget',legacy_latch=True)
+    one(library,600,preinvoke_error='frame-budget')
+    one(library,600,preinvoke_error='signature-mismatch')
     ai_chain(library)
     print('Synthetic manual-send and whitelisted reply ABI passed. Real recipient delivery is NOT verified.')
