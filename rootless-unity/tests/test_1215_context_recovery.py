@@ -37,7 +37,9 @@ class IdentityBudget(guide.WholeChain):
         self.assertEqual(out['status'],'chain-stopped');self.assertFalse(self.sent)
 
     def test_nonpositive_or_missing_binding_is_not_recoverable(self):
-        for changes in ({'scalar_state':'negative'},{'identity_checkpoint':'initial-ids'},{'metadata_checkpoint':'none'}):
+        for changes in ({'scalar_state':'negative'},{'scalar_state':'zero'},
+                        {'identity_checkpoint':'saved-binding'},{'identity_checkpoint':'distinct-accounts'},
+                        {'metadata_checkpoint':'none'}):
             diag=identity_budget().diagnostic|changes
             self.assertFalse(wait.verified_read_budget(safe_read_failure(ReadStopped('frame-budget',diag))))
 

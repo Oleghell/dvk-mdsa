@@ -34,9 +34,12 @@ def verified_read_budget(value):
     # A budget expiry during initial ID getters is an interrupted observation,
     # NOT an identity mismatch. Retry only the fixed reader with the SAME expected
     # identity, from scratch; a later Back still independently checks that ID.
+    # A getter can return a positive scalar before the frame expires in another
+    # getter/recheck. It is still an INCOMPLETE initial observation, not a bound
+    # identity. Permit the same bounded read-only recovery as for not-read.
     initial_ids=(value.get('identity_checkpoint')=='initial-ids'
         and phase=='identity' and scalar in ('account-id','peer-id','chat-id')
-        and value.get('scalar_state') == 'not-read')
+        and value.get('scalar_state') in ('not-read', 'positive'))
     # IDs were read, but the frame expired before IsActual/IsDraft finished.
     # This is not identity proof: only a new SAME-bound read or verified Back
     # can proceed. In particular, identity-not-bound still never matches.
