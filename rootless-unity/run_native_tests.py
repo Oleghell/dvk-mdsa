@@ -16,7 +16,7 @@ SUITES = (
  ('automatic_fixture', ('assistant_pass', 'mumu_claims')),
  ('profile_navigation_fixture', ('assistant_preview',)),
  ('search_online_fixture', ('search_online',)),
- ('search_city_fixture', ('search_city',)),
+ ('search_city_fixture', ('search_city', 'search_city_state')),
  ('one_chat_fixture', ('one_chat', 'one_chat_send', 'one_chat_name')),
  ('dialog_navigation_fixture', ('dialog_navigation',)),
  ('dialog_browser_fixture', ('dialog_browser', 'contact_profile', 'dialog_models')),

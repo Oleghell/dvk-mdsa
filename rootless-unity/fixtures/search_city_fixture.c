@@ -42,7 +42,7 @@ static void city_init(int m){
  if(m==301)cmeth[5].arity=1;
  if(m==302)cmeth[2].param=&tbool;
  if(m==303)table_field.type=&ctinput;
- if(m==319)form_distance=model_distance=0;
+ if(m==319||m==360)form_distance=model_distance=0;
 }
 static Class *city_class(Image *im,const char *ns,const char *name){int i;for(i=0;i<9;i++){
  Image *expected=i<5?&images[3]:&images[0];

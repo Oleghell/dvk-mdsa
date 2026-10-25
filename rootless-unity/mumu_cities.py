@@ -1,7 +1,7 @@
 """Atomic shared city allocation. No database transaction spans native UI work.
 
 Pending reservations survive failures/restarts: an unknown city transition is
-never guessed or repeated. Explicit history clearing releases this port only.
+never guessed or repeated. Read-only verified reconciliation releases this port only.
 """
 import re
 import secrets
@@ -94,3 +94,71 @@ def change(store, cities, capture):
     search_city.validate_next(value,allowed)
     if value['navigation']['stage']=='navigation-ready':complete(store,token,allowed,value)
     return value,allowed
+
+
+def recover_pending(store,cities,reader,*,cancelled=lambda:False,wait=None,progress=lambda _:None):
+    """Observe actual search state, then reconcile ONLY this port with a CAS.
+
+    No DB transaction spans the read. Transient screen/connection failures wait
+    without releasing claims; malformed proof, identity and DB errors fail hard.
+    Returns a city only when it is owned, configured, OnlineOnly and not nearby.
+    """
+    import time
+    from search_city_state import validate
+    from one_chat_device import ReadStopped,safe_read_failure
+    from startup_failure import clean,recoverable_adb
+    def cancellable_wait(delay):
+        deadline=time.monotonic()+delay
+        while not cancelled():
+            remaining=deadline-time.monotonic()
+            if remaining<=0:return False
+            time.sleep(min(.1,remaining))
+        return True
+    wait=wait or cancellable_wait
+    allowed={search_city.normalize_city(c) for c in search_city.check_cities(list(cities))}
+    device=str(store.device_port);attempt=0
+    retry={'wrong-screen','unexpected-screen','screen-not-ready','frame-limit','frame-budget',
+           'call-limit','transition-timeout','observer-stopped'}
+    while not cancelled():
+        with store.connection() as db:
+            expected=sorted(db.execute('SELECT city,state,token FROM mumu_city_claims WHERE device=?',(device,)).fetchall())
+        if not any(state=='pending' for _,state,_ in expected):return None
+        progress('Резерв города • автоматически проверяю фактический экран MuMu. Отправки не выполняются.')
+        try:
+            value=validate(reader())
+        except Exception as error:
+            failure=safe_read_failure(error) if isinstance(error,ReadStopped) else None
+            if not (failure and failure.get('error') in retry or recoverable_adb(clean(getattr(error,'_dvk_failure',None)))):
+                raise
+            value=None
+        if value is not None:
+            n=value['navigation']
+            if n['state_verified'] is not True:
+                if n['error'] not in retry:raise StateError('city-reservation-unresolved')
+            else:
+                if cancelled():raise StateError('cancelled')
+                name=n['observed_city'];city=search_city.normalize_city(name)
+                with store.connection() as db:
+                    actual=sorted(db.execute('SELECT city,state,token FROM mumu_city_claims WHERE device=?',(device,)).fetchall())
+                    if actual!=expected:continue # A clear/new claim raced the observation; never overwrite it.
+                    owner=db.execute('SELECT device FROM mumu_city_claims WHERE city=?',(city,)).fetchone()
+                    db.execute('CREATE TABLE IF NOT EXISTS search_session(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
+                    db.execute('DELETE FROM mumu_city_claims WHERE device=?',(device,))
+                    if owner and owner[0]!=device:
+                        # A legacy duplicate/current city belongs to another
+                        # port. Do not steal it or use profiles there; rotate.
+                        db.execute('DELETE FROM search_session WHERE key=?',('city',))
+                        progress('Резерв проверен • текущий город занят другим портом, выбираю свободный.')
+                        return None
+                    db.execute('INSERT INTO mumu_city_claims VALUES(?,?,?,?)',(city,device,'active',secrets.token_hex(16)))
+                    db.execute('INSERT OR IGNORE INTO mumu_city_used VALUES(?)',(city,))
+                    db.execute('INSERT INTO search_session VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',('city',name))
+                if n['online_only'] and not n['by_distance'] and city in allowed:
+                    progress('Резерв города восстановлен автоматически • продолжаю текущий поиск.')
+                    return name
+                progress('Резерв проверен • выбираю настроенный город и включаю «Только онлайн».')
+                return None
+        attempt+=1
+        progress('Экран города ещё не подтверждён • жду и повторяю только чтение; другие порты работают.')
+        if wait(min(5,.5*2**min(attempt-1,4))) or cancelled():raise StateError('cancelled')
+    raise StateError('cancelled')

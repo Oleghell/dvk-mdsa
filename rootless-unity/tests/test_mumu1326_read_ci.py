@@ -75,9 +75,9 @@ class NativeCI(unittest.TestCase):
     def test_all_previous_native_suites_preserved_and_unique(self):
         import run_native_tests as runner
         suites=[suite for _,group in runner.SUITES for suite in group]
-        self.assertEqual(len(suites),12);self.assertEqual(len(suites),len(set(suites)))
+        self.assertEqual(len(suites),13);self.assertEqual(len(suites),len(set(suites)))
         self.assertEqual(set(suites),{'assistant_pass','mumu_claims','assistant_preview','search_online',
-            'search_city','one_chat','one_chat_send','one_chat_name','dialog_navigation',
+            'search_city','search_city_state','one_chat','one_chat_send','one_chat_name','dialog_navigation',
             'dialog_browser','contact_profile','dialog_models'})
     def test_chunk_specialization_keeps_long_history_bounds_and_two_samples(self):
         source=one_chat_probe.build(WHO,scoped_traversal=True)

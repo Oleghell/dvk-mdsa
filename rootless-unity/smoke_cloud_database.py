@@ -79,6 +79,9 @@ def run(config_path):
             city_value['navigation'].update(city_selected_name=allowed[0],city_previous_name=None,city_round_reset=False)
             mumu_cities.complete(store,token,allowed,city_value)
             assert mumu_cities.owns(store,allowed[0])
+            from test_mumu1346_city_auto import proof
+            recovered=mumu_cities.recover_pending(store2,names,lambda:proof(other_allowed[0]),wait=lambda _:False)
+            assert recovered==other_allowed[0] and mumu_cities.owns(store2,recovered)
             # Preview writes must not touch PG, even when the real journal is PG.
             with patch.object(cloud,'readonly',lambda _:connection()):
                 with cloud.memory_snapshot(Path(folder)/'assistant.sqlite3',1024*1024) as ram:

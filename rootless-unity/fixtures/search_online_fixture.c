@@ -38,7 +38,7 @@ static void online_init(int m){
  city_init(m);
 #endif
 
- model.value=m==201||m==324;form_model.value=model.value;online_set_calls=online_refresh_calls=online_apply_calls=location_changed=field_reads=0;
+ model.value=m==201||m==324||m==360;form_model.value=model.value;online_set_calls=online_refresh_calls=online_apply_calls=location_changed=field_reads=0;
  if(m==202)om[5].param=&tint;
  if(m==203)cm_field.type=&otpeople;
  if(m==216)om[9].param=&otpeople;

@@ -26,7 +26,7 @@ def report(limit):
                 skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0, skipped_input_disabled=0,
                 read_recovery_limit=MAX_READ_RECOVERIES, consecutive_read_recoveries=0, recovery_events=[], greetings_offered=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
-                greetings_declined=0, city_changes=0, search_budget_rotations=0, last_profile_diagnostics=None,
+                greetings_declined=0, city_changes=0, city_reservations_recovered=0, search_budget_rotations=0, last_profile_diagnostics=None,
                 current_city=None, online_verified=False, per_message_confirmation=True,
                 automatic_send=False, delivery_confirmed=False, return_verified=False,
                 personal_data_exported=False, device_scope='MuMu-4-only', last_error=None, last_city_navigation=None)
@@ -69,12 +69,27 @@ def clear_history(store):
     return True
 
 
-def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics=None):
+def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics=None, city_state_reader=None, progress=lambda _:None):
     """Return the verified city name or raise StateError; never retries."""
     import search_city
     from assistant_rotation import History
     city_next = search_city._capture_next if city_next is None else city_next
     cities = search_city.check_cities(list(cities))
+    if diagnostics is not None:diagnostics['last_city_resumed']=False
+    if getattr(store,'mumu_shared_claims',False):
+        from mumu_cities import recover_pending
+        from search_city_state import capture as current_filter
+        from assistant_pause import boundary
+        def wait(delay):
+            boundary(stopped,restart=False)
+            return stopped.wait(delay)
+        recovered=recover_pending(store,cities,city_state_reader or (lambda:current_filter(settings.adb,settings.folder,stopped.is_set)),
+            cancelled=stopped.is_set,wait=wait,progress=progress)
+        if recovered is not None:
+            if diagnostics is not None:
+                diagnostics['last_city_resumed']=True
+                diagnostics['city_reservations_recovered']=diagnostics.get('city_reservations_recovered',0)+1
+            return recovered
     history = History(store)
     used = history.used(cities)
     secrets.SystemRandom().shuffle(cities)
@@ -125,8 +140,8 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             if stopped.is_set():
                 raise StateError('cancelled')
             progress(text)
-            city = change_city(settings, stopped, store, config.cities, city_next=city_next, diagnostics=out)
-            out['city_changes'] += 1
+            city = change_city(settings, stopped, store, config.cities, city_next=city_next, diagnostics=out, progress=progress)
+            if not out.get('last_city_resumed',False):out['city_changes'] += 1
             out.update(current_city=city, online_verified=True)
             host_checkpoint = 'city-journal'
             session.set('city', city)

@@ -55,6 +55,14 @@ def after_exhaustion(executable, folder, result, store, cancelled, progress):
         return result
     try:
         cities = search_city.check_cities(load().cities)
+        if getattr(store,'mumu_shared_claims',False):
+            from mumu_cities import recover_pending
+            from search_city_state import capture as current_filter
+            recovered=recover_pending(store,cities,lambda:current_filter(executable,folder,cancelled),
+                cancelled=cancelled,progress=progress)
+            if recovered is not None:
+                change.update(status='recovered',reason='verified-current',selected_city=recovered,online_verified=True)
+                return result
         history = History(store)
         used = history.used(cities)
         secrets.SystemRandom().shuffle(cities)
@@ -92,6 +100,8 @@ def status_text(result):
     change = result.get('city_change')
     if change is None:
         return text
+    if change['status'] == 'recovered':
+        return text+' Резерв текущего города восстановлен автоматически. Настройки не изменялись.'
     if change['status'] == 'changed':
         return (f"Новых видимых анкет не осталось. Проверено: {result['checked']}/5. "
                 f"Выбран следующий город: {change['selected_city']}. «Только онлайн» включён. "
