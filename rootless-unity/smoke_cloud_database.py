@@ -120,6 +120,16 @@ def run(config_path):
             # Two independent Windows installations with the SAME port. Only
             # TEMP PostgreSQL tables are used; production records stay untouched.
             from mumu_namespace import ensure_account,owns_account
+            # Real legacy 5563 binding: its generated SQLite UNIQUE index
+            # becomes longer than 63 chars only AFTER installation prefixing.
+            store2.ensure_tables('CREATE TABLE IF NOT EXISTS read_only_bindings(account TEXT NOT NULL,peer TEXT NOT NULL,chat TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(account,peer),UNIQUE(account,chat))')
+            with store2.connection() as db:
+                db.execute("INSERT INTO read_only_bindings(account,peer,chat) VALUES('100','200','300')")
+            default_scope=SharedStore(Path(folder)/'assistant.sqlite3',device_port=5563,installation_id='c'*32)
+            with default_scope.read_connection() as db:
+                assert db.execute('SELECT account,peer,chat FROM read_only_bindings').fetchall()==[('100','200','300')]
+            with store2.read_connection() as db:
+                assert db.execute('SELECT account,peer,chat FROM read_only_bindings').fetchall()==[('100','200','300')]
             scoped_a=SharedStore(Path(folder)/'assistant.sqlite3',device_port=5559,installation_id='a'*32)
             scoped_b=SharedStore(Path(folder)/'assistant.sqlite3',device_port=5559,installation_id='b'*32)
             assert scoped_a.prefix!=scoped_b.prefix

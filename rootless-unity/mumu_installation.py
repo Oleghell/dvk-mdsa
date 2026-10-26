@@ -1,4 +1,5 @@
 """Persistent non-secret machine-bound installation identity, never a send permit."""
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -31,18 +32,48 @@ def machine_fingerprint():
     except Exception:raise MumuError('installation-machine-id-unavailable') from None
 
 
+@contextmanager
+def installation_lock(path):
+    """Bootstrap-only OS lock; do not import the engine before port binding."""
+    path.parent.mkdir(parents=True,exist_ok=True)
+    stream=path.open('a+b');locked=False
+    try:
+        stream.seek(0,2)
+        if stream.tell()==0:stream.write(b'0');stream.flush()
+        stream.seek(0)
+        try:
+            if os.name=='nt':
+                import msvcrt
+                msvcrt.locking(stream.fileno(),msvcrt.LK_NBLCK,1)
+            else:
+                import fcntl
+                fcntl.flock(stream.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+            locked=True
+        except OSError:raise MumuError('installation-id-busy') from None
+        yield
+    finally:
+        try:
+            if locked:
+                if os.name=='nt':
+                    import msvcrt
+                    stream.seek(0);msvcrt.locking(stream.fileno(),msvcrt.LK_UNLCK,1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(),fcntl.LOCK_UN)
+        finally:stream.close()
+
+
 def load(folder=None):
-    from assistant_lock import operation_lock
-    from assistant_store import StateError
     folder=root_directory() if folder is None else Path(folder)
     fingerprint=machine_fingerprint();path=folder/'installation.json'
     # Only the local file lock is retried. Never regenerate a malformed identity,
     # retry database writes or borrow an ID from the exported cloud configuration.
     deadline=time.monotonic()+5
     while True:
-        scope=operation_lock(folder/'installation.lock')
+        scope=installation_lock(folder/'installation.lock')
         try:scope.__enter__();break
-        except StateError:
+        except MumuError as error:
+            if str(error)!='installation-id-busy':raise
             if time.monotonic()>=deadline:raise MumuError('installation-id-busy') from None
             time.sleep(.02)
     try:

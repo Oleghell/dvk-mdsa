@@ -44,7 +44,13 @@ def schema_info(ddl):
         pk=[x[1] for x in sorted(columns,key=lambda x:x[5]) if x[5]]
         unique=[]
         for row in db.execute('PRAGMA index_list('+ident(name)+')').fetchall():
-            if row[3]=='u':unique.append([x[2] for x in db.execute('PRAGMA index_info('+ident(row[1])+')')])
+            if row[3]=='u':
+                # SQLite-generated autoindex names can exceed PostgreSQL's
+                # 63-character limit although the authored TABLE is valid.
+                # Bind the internal name in SQLite only; never relax ident()
+                # or emit this name into PostgreSQL DDL.
+                unique.append([x[0] for x in db.execute(
+                    'SELECT name FROM pragma_index_info(?) ORDER BY seqno',(row[1],))])
     return dict(name=name,columns=columns,pk=pk,unique=unique,
         identity=next((x[1] for x in columns if x[2].upper()=='INTEGER' and x[5] and len(pk)==1),None),sqlite_sql=ddl)
 
