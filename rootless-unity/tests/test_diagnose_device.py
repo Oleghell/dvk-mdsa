@@ -46,7 +46,7 @@ class FakeFrida:
     def attach(self,target):self.attached_to=target;return self
     def create_script(self,source,name):
         self.script_source=source
-        self.exports_sync=SimpleNamespace(runtime=lambda:runtime(),modules=self.get_modules,evidence=evidence,native=ready_metadata)
+        self.exports_sync=SimpleNamespace(runtime=lambda:runtime(),preparevisited=lambda values:True,modules=self.get_modules,evidence=evidence,native=ready_metadata)
         return self
     def get_modules(self):
         if self.phase_error=='rpc':raise type('RPCException',(Exception,),{})('PRIVATE TOKEN')

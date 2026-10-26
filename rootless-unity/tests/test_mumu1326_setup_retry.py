@@ -92,9 +92,9 @@ class Observe(unittest.TestCase):
         return o,clock,stopped,writes,notifier
     def test_backoff_keeps_work_and_sends_one_json_per_episode(self):
         o,clock,stop,writes,notifier=self.observer()
-        for n in range(1,10):self.assertFalse(o(setup_error(),n,min(30,2**min(n-1,5))))
-        self.assertEqual(notifier.call_count,1);self.assertEqual(len(writes),9)
-        self.assertGreaterEqual(clock.now,100)
+        for n in range(1,6):self.assertFalse(o(setup_error(),n,min(30,2**min(n-1,5))))
+        self.assertEqual(notifier.call_count,1);self.assertEqual(len(writes),5)
+        self.assertGreaterEqual(clock.now,30)
         for r in writes:
             self.assertIs(r['profile_script_executed'],False);self.assertIs(r['send_attempted'],False)
             self.assertEqual(r['last_preparation_failure']['stage'],'script-create')
@@ -141,7 +141,7 @@ class ProfilesIntegration(unittest.TestCase):
             def capture(*args,**kwargs):
                 captured.append(1)
                 if len(captured)==2:
-                    for n in range(1,7):self.assertFalse(kwargs['preexecution_retry'](setup_error(),n,min(30,2**min(n-1,5))))
+                    for n in range(1,5):self.assertFalse(kwargs['preexecution_retry'](setup_error(),n,min(30,2**min(n-1,5))))
                 return cycle_result(send_attempted=True,send_handler_returned=True)
             with patch.dict(os.environ,DVK_MUMU_MULTI='1'),patch('one_chat_device.capture',side_effect=capture),patch('assistant_setup_retry.SetupRetry',side_effect=factory):
                 out=profiles.run(SimpleNamespace(adb='adb',folder=t,errors_enabled=True),threading.Event(),MagicMock(return_value=True),

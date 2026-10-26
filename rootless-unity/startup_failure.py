@@ -5,7 +5,7 @@ STAGES = {
  'bundle-check', 'adb-create', 'adb-preflight', 'device-recheck', 'forward-open',
  'device-recheck-after', 'forward-close', 'device-inspection', 'gadget-import',
  'gadget-manager', 'gadget-connect', 'gadget-process', 'gadget-attach',
- 'script-create', 'script-load', 'runtime-check', 'script-run', 'result-validation',
+ 'profile-history-upload','script-create', 'script-load', 'runtime-check', 'script-run', 'result-validation',
  'navigation-source', 'navigation-result', 'navigation-diagnostic', 'navigation-destination'}
 TYPES = {'TransportError','ServerNotRunningError','ProcessNotFoundError','PermissionDeniedError',
  'OperationCancelledError','ProtocolError','InvalidArgumentError','TimedOutError','RPCException',
@@ -70,6 +70,7 @@ def checkpoint(stage, *, adb=None):
         raise
 
 LABELS = {
+ 'profile-history-upload':'Не удалось подготовить список исключённых анкет до начала native-прохода.',
  'bundle-check':'Не удалось проверить комплект APK.',
  'adb-create':'Не удалось подготовить ADB.',
  'adb-preflight':'Не удалось проверить подключение к MuMu №4.',

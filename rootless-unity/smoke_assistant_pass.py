@@ -208,8 +208,61 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
             child.stderr.close()
 
 
+def bootstrap_contract(library):
+    """Exercise actual history RPC + gated root with 10k IDs, no authorization."""
+    child=subprocess.Popen([sys.executable,'-u','-c',
+        "import ctypes,sys,time\nl=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL);l.fixture_init(513);l.fixture_cohort_mode(0);print('ready',flush=True)\nfor _ in range(100000):l.fixture_tick();time.sleep(.003)",str(library)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    session=script=worker=None;result=[];errors=[]
+    try:
+        assert child.stdout.readline().strip()=='ready'
+        session=frida.get_local_device().attach(child.pid)
+        script=session.create_script(manual.prepared_source('Synthetic hello')+'''
+rpc.exports={preparevisited(values){return assistantPrepareVisited(values);},root(){return assistantPreparedRoot();},cancel(){cancelNavigation();},pending(){return cohortReservation();},
+ counts(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();return {opens:r('fixture_opens'),sends:r('fixture_auto_sends'),handles:r('fixture_handles'),bad:r('fixture_auto_bad'),off:r('fixture_off_thread_calls')};}};
+''')
+        script.load()
+        try:script.exports_sync.root()
+        except frida.RPCException:pass
+        else:raise AssertionError('Root ran without history initialization')
+        for invalid in (None,['0'],['-1'],['9223372036854775808'],['1']*10001,['1;evil()']):
+            assert script.exports_sync.preparevisited(invalid) is False
+        assert script.exports_sync.counts()==dict(opens=0,sends=0,handles=0,bad=0,off=0)
+        history=['1']+list(map(str,range(100000,109999)))
+        assert len(history)==10000 and script.exports_sync.preparevisited(history) is True
+        assert script.exports_sync.preparevisited([]) is False
+        def run_root():
+            try:result.append(script.exports_sync.root())
+            except Exception as error:errors.append(type(error).__name__)
+        worker=threading.Thread(target=run_root,daemon=True);worker.start()
+        until=time.monotonic()+10;pending=None
+        while time.monotonic()<until and worker.is_alive():
+            pending=script.exports_sync.pending()
+            if pending is not None:break
+            time.sleep(.05)
+        assert pending is not None and pending['peer']!='1',pending
+        assert script.exports_sync.counts()['sends']==0
+        script.exports_sync.cancel();worker.join(timeout=10)
+        assert not worker.is_alive() and not errors,(errors,result)
+        manual.validate(result[0]);counts=script.exports_sync.counts()
+        assert counts==dict(opens=1,sends=0,handles=0,bad=0,off=0),counts
+        try:script.exports_sync.root()
+        except frida.RPCException:pass
+        else:raise AssertionError('Second root escaped one-shot bootstrap')
+        assert script.exports_sync.counts()==counts
+        print('PASS profile bootstrap: 10k peer IDs as data, no pre-init UI, duplicate init/root rejected, zero sends/handles/off-thread calls',flush=True)
+    finally:
+        if script:
+            try:script.exports_sync.cancel()
+            except Exception:pass
+        if worker:worker.join(timeout=10)
+        if script:script.unload()
+        if session:session.detach()
+        child.terminate();child.wait(timeout=5);child.stdout.close();child.stderr.close()
+
+
 if __name__ == '__main__':
     library = Path(sys.argv[1]).resolve(strict=True)
+    if len(sys.argv)==2:bootstrap_contract(library)
     cases = sys.argv[2:] or ['approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure', 'crowded-search', 'slow-profile', 'slow-profile-baseline','combined-frame','combined-frame-baseline','read-budget-once','read-budget-always','identity-after-budget','history-after-approval','send-return-budget','actual-late','actual-never','actual-identity-change','actual-back-identity','actual-back-unknown','read-budget-pinned','history-loading-skip','history-not-loaded-skip','input-disabled','input-disabled-prepare','input-disabled-after-approval','input-disabled-back-identity','input-disabled-back-unknown']
     # Baseline construction patches a module function: keep it outside workers.
     if 'combined-frame-baseline' in cases:

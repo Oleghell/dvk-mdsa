@@ -59,7 +59,7 @@ def after_exhaustion(executable, folder, result, store, cancelled, progress):
             from mumu_cities import recover_pending
             from search_city_state import capture as current_filter
             recovered=recover_pending(store,cities,lambda:current_filter(executable,folder,cancelled),
-                cancelled=cancelled,progress=progress)
+                cancelled=cancelled,progress=progress,diagnostics=result)
             if recovered is not None:
                 change.update(status='recovered',reason='verified-current',selected_city=recovered,online_verified=True)
                 return result

@@ -6,6 +6,7 @@ approval; its send latch still precedes the handler invocation.
 """
 import json
 import threading
+import time
 
 import chat_batch
 import cohort_pass
@@ -49,6 +50,31 @@ def build(text, visited=()):
     source = replace_once(source, 'const deadline=Date.now()+100;',
         "const deadline=Date.now()+100;\n  if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+100;")
     return 'let assistantSelectedPeer=null;\n' + source
+
+
+def prepared_source(text):
+    """Compile fixed code, then configure bounded peer IDs as DATA before root.
+
+    No eval, no code/text setter, and no native/UI work in initialization RPC.
+    The existing durable reservation and per-peer native ACK remain mandatory.
+    """
+    source=build(text,[])
+    return r"""
+let assistantVisited=null,assistantRootStarted=false;
+function assistantPrepareVisited(values){
+ if(assistantVisited!==null||assistantRootStarted||!Array.isArray(values)||values.length>10000)return false;
+ const checked=[];
+ for(const value of values){
+  if(typeof value!=='string'||!/^[1-9][0-9]{0,18}$/.test(value)||value.length===19&&value>'9223372036854775807')return false;
+  checked.push(value);
+ }
+ assistantVisited=Object.freeze(checked);batchSeen=new Set(assistantVisited);return true;
+}
+function assistantPreparedRoot(){
+ if(assistantVisited===null||assistantRootStarted)throw new Error('profile-not-prepared');
+ assistantRootStarted=true;return probeBatchProfile();
+}
+"""+source
 
 
 def validate(value, *, shared_peer_skipped=False):
@@ -142,9 +168,9 @@ def inspect(port, token, cancelled, text, store, approve, *, frida_api=None):
     except Exception as error:
         error._dvk_profile_not_executed=True
         raise
-    source = build(text, visited) + '''
+    source = prepared_source(text) + '''
 rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
- root(){return probeBatchProfile();},cancel(){cancelNavigation();},
+ root(){return assistantPreparedRoot();},preparevisited(values){return assistantPrepareVisited(values);},cancel(){cancelNavigation();},
  selectedpeer(){return assistantSelectedPeer;},cohortpending(){return cohortReservation();},cohortack(value){return cohortAcknowledge(value);}};
 '''
     try:
@@ -161,6 +187,7 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
     timer.daemon = True
     timer.start()
     stage='gadget-connect'
+    setup_started=time.monotonic()
     try:
         with guard:
             if cancelled():
@@ -181,6 +208,10 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
             runtime = validate_runtime(script.exports_sync.runtime())
             if runtime['arch'] != 'arm64' or runtime['platform'] != 'linux':
                 raise ReadStopped('unsupported-runtime')
+            stage='profile-history-upload'
+            if script.exports_sync.preparevisited(visited) is not True:
+                raise StateError('profile-history-not-prepared')
+            if cancelled():raise ReadStopped('cancelled')
             def watch():
                 while not done.wait(.1):
                     if cancelled():
@@ -218,8 +249,11 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
         # This exact host path has not loaded a script, started any RPC or
         # authorization thread. A remote script possibly allocated by a failed
         # create_script call is still NOT loaded and cannot execute the cycle.
-        error._dvk_profile_not_executed = (stage=='script-create' and script is None
+        error._dvk_profile_not_executed = ((stage=='script-create' and script is None or stage=='profile-history-upload')
             and not threads and not state)
+        error._dvk_profile_source_bytes=len(source.encode('utf-8'))
+        error._dvk_profile_history_count=len(visited)
+        error._dvk_profile_setup_ms=min(1000000,max(0,int((time.monotonic()-setup_started)*1000)))
         record(error,stage)
         raise
     finally:

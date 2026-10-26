@@ -96,7 +96,7 @@ def change(store, cities, capture):
     return value,allowed
 
 
-def recover_pending(store,cities,reader,*,cancelled=lambda:False,wait=None,progress=lambda _:None):
+def recover_pending(store,cities,reader,*,cancelled=lambda:False,wait=None,progress=lambda _:None,diagnostics=None):
     """Observe actual search state, then reconcile ONLY this port with a CAS.
 
     No DB transaction spans the read. Transient screen/connection failures wait
@@ -128,13 +128,28 @@ def recover_pending(store,cities,reader,*,cancelled=lambda:False,wait=None,progr
             value=validate(reader())
         except Exception as error:
             failure=safe_read_failure(error) if isinstance(error,ReadStopped) else None
-            if not (failure and failure.get('error') in retry or recoverable_adb(clean(getattr(error,'_dvk_failure',None)))):
+            preparation=clean(getattr(error,'_dvk_failure',None))
+            city_transport=(getattr(error,'_dvk_city_readonly_transport',False) is True and preparation
+                and preparation['stage'] in {'gadget-connect','gadget-process','gadget-attach','script-create','script-load','runtime-check','script-run'}
+                and preparation['error_type'] in {'TransportError','ServerNotRunningError','TimedOutError'})
+            if diagnostics is not None and preparation:
+                diagnostics['last_city_recovery']=dict(state_verified=False,last_preparation_failure=preparation)
+            if not (failure and failure.get('error') in retry or recoverable_adb(preparation) or city_transport):
                 raise
             value=None
         if value is not None:
             n=value['navigation']
+            from navigation_root_diagnostic import extract
+            if diagnostics is not None:
+                diagnostics['last_city_recovery']=dict(stage=n['stage'],error=n['error'],phase=n['phase'],
+                    state_samples=n['state_samples'],state_verified=n['state_verified'],
+                    frames=n['frames'],managed_calls=n['managed_calls'],root_probe=extract(value))
+            # An early root timeout/window-not-ready has no navigation error:
+            # it is NOT a new city transition and must not discard its claim.
+            root_wait=(n['stage']=='not-attempted' and n['error']=='none'
+                and value['stage'] in {'metadata-not-ready','runtime-not-ready','window-not-ready','callback-timeout'})
             if n['state_verified'] is not True:
-                if n['error'] not in retry:raise StateError('city-reservation-unresolved')
+                if n['error'] not in retry and not root_wait:raise StateError('city-reservation-unresolved')
             else:
                 if cancelled():raise StateError('cancelled')
                 name=n['observed_city'];city=search_city.normalize_city(name)

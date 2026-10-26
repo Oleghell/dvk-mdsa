@@ -81,5 +81,13 @@ def validate(value):
 
 def capture(executable,folder,cancelled=lambda:False):
     from one_chat_device import capture as read
-    return read(executable,folder,cancelled,inspector=lambda port,token,cancel,expected:
-        online.inspect(port,token,cancel,source_function=build(),validator=validate,timeout=20))
+    def observer(port,token,cancel,expected):
+        try:return online.inspect(port,token,cancel,source_function=build(),validator=validate,timeout=20)
+        except Exception as error:
+            from startup_failure import clean
+            failure=clean(getattr(error,'_dvk_failure',None))
+            error._dvk_city_readonly_transport=bool(failure and failure['stage'] in {
+                'gadget-connect','gadget-process','gadget-attach','script-create','script-load','runtime-check','script-run'}
+                and failure['error_type'] in {'TransportError','ServerNotRunningError','TimedOutError'})
+            raise
+    return read(executable,folder,cancelled,inspector=observer)

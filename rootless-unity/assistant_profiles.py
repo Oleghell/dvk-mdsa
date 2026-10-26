@@ -84,7 +84,7 @@ def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics
             boundary(stopped,restart=False)
             return stopped.wait(delay)
         recovered=recover_pending(store,cities,city_state_reader or (lambda:current_filter(settings.adb,settings.folder,stopped.is_set)),
-            cancelled=stopped.is_set,wait=wait,progress=progress)
+            cancelled=stopped.is_set,wait=wait,progress=progress,diagnostics=diagnostics)
         if recovered is not None:
             if diagnostics is not None:
                 diagnostics['last_city_resumed']=True
@@ -287,7 +287,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
         if failure:out['last_preparation_failure']=failure
         if cycle_pending and not (getattr(error,'_dvk_profile_not_executed',False) is True and not offered):
             out.update(send_attempts_unknown=True, greetings_sent=None)
-        known = {'profile-recovery-limit', 'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
+        known = {'profile-script-unavailable','profile-recovery-limit', 'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
                  'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'city-pool-exhausted', 'city-reservation-unresolved', 'search-cycle-limit', 'profile-scan-limit'}
         reason = 'cancelled' if stopped.is_set() else (
             str(error) if isinstance(error, StateError) and str(error) in known else 'device-or-journal-check-stopped')
