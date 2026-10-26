@@ -172,7 +172,7 @@ class CloudStartupFailures(unittest.TestCase):
             db=cloud.Connection(raw,{},{});db.execute('BEGIN IMMEDIATE');db.execute('ROLLBACK')
         self.assertTrue(any("lock_timeout='60000'" in sql for sql,_ in raw.queries))
         raw=FakeRaw();db=cloud.Connection(raw,{},{});db.execute('BEGIN IMMEDIATE')
-        self.assertTrue(any("lock_timeout='2000'" in sql for sql,_ in raw.queries))
+        self.assertTrue(any("lock_timeout='10000'" in sql for sql,_ in raw.queries))
         self.assertFalse(any("lock_timeout='60000'" in sql for sql,_ in raw.queries))
     def test_contact_backfill_is_set_based_and_preserves_existing_bans(self):
         from mumu_peer_policy import initialize,backfill_contacts

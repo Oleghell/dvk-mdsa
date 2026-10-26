@@ -149,22 +149,22 @@ class LockRecovery(unittest.TestCase):
                     self.remaining-=1;raise LockTimeout('PRIVATE SQL')
                 return result
         return Raw()
-    def test_two_lock_timeouts_only_retry_before_caller_body(self):
+    def test_fifo_lock_acquired_once_before_caller_body(self):
         import cloud_database as cloud
-        raw=self.raw(2);db=cloud.Connection(raw,{},{});db.execute('BEGIN IMMEDIATE')
+        raw=self.raw();db=cloud.Connection(raw,{},{});db.execute('BEGIN IMMEDIATE')
         db.execute('UPDATE x SET y=?',(1,));db.execute('COMMIT')
         sql=[q for q,_ in raw.queries]
-        self.assertEqual(sum('pg_advisory' in q for q in sql),3)
-        self.assertEqual(sql.count('ROLLBACK'),2)
+        self.assertEqual(sum('pg_advisory' in q for q in sql),1)
+        self.assertEqual(sql.count('ROLLBACK'),0)
         self.assertEqual(sum(q.startswith('UPDATE') for q in sql),1)
         self.assertEqual(sql.count('COMMIT'),1)
-        self.assertFalse(db.reusable)
+        self.assertTrue(any("lock_timeout='10000'" in q for q in sql))
     def test_lock_deadline_exhaustion_never_enters_transaction_body(self):
         import cloud_database as cloud
         raw=self.raw(9);db=cloud.Connection(raw,{},{} )
         with self.assertRaises(cloud.CloudDatabaseError) as caught:db.execute('BEGIN IMMEDIATE')
         self.assertEqual(cloud.diagnostic(caught.exception),dict(code='cloud-database-lock-timeout',operation='lock',automatic_retry=False))
-        self.assertEqual(sum('pg_advisory' in q for q,_ in raw.queries),3)
+        self.assertEqual(sum('pg_advisory' in q for q,_ in raw.queries),1)
         self.assertFalse(db.in_transaction)
     def test_write_and_commit_failure_never_replayed(self):
         import cloud_database as cloud

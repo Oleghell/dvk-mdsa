@@ -49,14 +49,13 @@ class Responder:
     @property
     def calls(self):return sum(self.provider_calls.values())
     def __call__(self,kind,snapshot):
-        from assistant_ai_budget import generation
         from assistant_runtime import phase
-        with phase('ai'),generation():return self.generate(kind,snapshot)
+        # Restore pre-1.3.60 failover: every configured eligible key/provider
+        # remains available. Per-request timeouts and provider cooldowns remain.
+        with phase('ai'):return self.generate(kind,snapshot)
     def generate(self,kind,snapshot):
         self.errors=[];self.failure_summary=[]
         for provider in self.providers:
-            from assistant_ai_budget import exhausted
-            if exhausted():raise g.GroqError('groq-timeout')
             if self.cancelled():raise g.GroqError('groq-cancelled')
             if provider not in self.pools:
                 keys=self.collector(provider)

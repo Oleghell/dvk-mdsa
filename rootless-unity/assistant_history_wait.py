@@ -119,6 +119,9 @@ def defer(store, who, *, clock=time.time):
 
 def clear(store, who):
     who=identity(who)
+    with store.read_connection() as db:
+        row=db.execute('SELECT 1 FROM inbox_history_deferrals WHERE account=? AND peer=?',(who['account'],who['peer'])).fetchone()
+    if row is None:return
     with store.connection() as db:
         db.execute('DELETE FROM inbox_history_deferrals WHERE account=? AND peer=?',
                    (who['account'],who['peer']))

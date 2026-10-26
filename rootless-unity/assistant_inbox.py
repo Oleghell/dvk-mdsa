@@ -165,10 +165,14 @@ def inbox_targets(chain):
 def read_round(chain, active):
     """Fair read-chat fallback across bounded passes; no badge/history inference."""
     chain.store.ensure_tables('CREATE TABLE IF NOT EXISTS inbox_read_round(account TEXT,peer TEXT,PRIMARY KEY(account,peer))')
-    with chain.store.connection() as db:
+    with chain.store.read_connection() as db:
         seen=set(db.execute('SELECT account,peer FROM inbox_read_round'))
         remaining=[dict(who) for who in active if (who['account'],who['peer']) not in seen]
-        if active and not remaining:
+    if active and not remaining:
+        with chain.store.connection() as db:
+            seen=set(db.execute('SELECT account,peer FROM inbox_read_round'))
+            remaining=[dict(who) for who in active if (who['account'],who['peer']) not in seen]
+            if remaining:return remaining
             db.execute('DELETE FROM inbox_read_round')
             remaining=[dict(who) for who in active]
     return remaining
@@ -180,6 +184,8 @@ def record_checked(chain, who):
 
 
 def reset_read_round(chain):
+    with chain.store.read_connection() as db:
+        if db.execute('SELECT 1 FROM inbox_read_round LIMIT 1').fetchone() is None:return
     with chain.store.connection() as db:
         db.execute('DELETE FROM inbox_read_round')
 

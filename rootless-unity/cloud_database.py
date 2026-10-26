@@ -114,6 +114,14 @@ def save(value):
     with _mutex:_cache.clear()
 
 def raw_connect(cfg):
+    """Only connection/setup can retry, before a journal transaction exists."""
+    for attempt in range(2):
+        try:return _raw_connect_once(cfg)
+        except CloudDatabaseError as error:
+            if attempt or not getattr(error,'connect_retryable',False):raise
+            time.sleep(.15)
+
+def _raw_connect_once(cfg):
     db=None
     try:
         import psycopg
@@ -125,11 +133,17 @@ def raw_connect(cfg):
         # Supabase may default to 0: that rounds epoch/REAL values on SELECT.
         db.execute("SET extra_float_digits=3; SET statement_timeout='15000'; SET lock_timeout='10000'",prepare=False)
         return db
-    except Exception:
+    except Exception as error:
         if db is not None:
             try:db.close()
             except Exception:pass
-        value=CloudDatabaseError();value.operation='connect'
+        state=getattr(error,'sqlstate',None)
+        value=CloudDatabaseError('cloud-database-capacity' if state=='53300' else
+            'cloud-database-permission' if state in ('28P01','28000','42501') else 'cloud-database-unavailable')
+        value.operation='connect'
+        value.connect_retryable=(state=='53300' or isinstance(state,str) and state.startswith('08')
+            or state is None and (isinstance(error,(OSError,TimeoutError)) or
+                type(error).__name__ in ('OperationalError','InterfaceError')))
         raise value from None
 
 class Cursor:
@@ -177,20 +191,17 @@ class Connection:
             self._run(begin);self.in_transaction=True
             initializing=getattr(_local,"initializing",False)
             settings=("SET LOCAL statement_timeout='65000'; SET LOCAL lock_timeout='60000'; SET LOCAL synchronous_commit=on" if initializing else
-                      "SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='2000'; SET LOCAL synchronous_commit=on")
+                      "SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'; SET LOCAL synchronous_commit=on")
             self._run(settings)
             if not self.read_only:
-                # Retry ONLY advisory-lock acquisition before yielding a writer
-                # transaction to any caller. No read/write body, commit, native
-                # action or send is replayed. Failed BEGINs are rolled back.
-                for attempt in range(1 if initializing else 3):
-                    try:
-                        self._run('SELECT pg_advisory_xact_lock(%s)',(LOCK_ID,));break
-                    except CloudDatabaseError as error:
-                        if error.code!='cloud-database-lock-timeout' or error.operation!='lock':raise
+                # Keep the original FIFO waiter for up to 10s. Restarting every
+                # 2s in 1.3.60 lost queue position under multi-port contention.
+                # There is NO retry of this transaction or its caller's body.
+                try:self._run('SELECT pg_advisory_xact_lock(%s)',(LOCK_ID,))
+                except CloudDatabaseError as error:
+                    if error.code=='cloud-database-lock-timeout' and error.operation=='lock':
                         self._run('ROLLBACK');self.in_transaction=False
-                        if initializing or attempt==2:raise
-                        self._run(begin);self.in_transaction=True;self._run(settings)
+                    raise
             return Cursor()
         if upper in ('COMMIT','ROLLBACK'):
             self._run(upper);self.in_transaction=False
@@ -231,13 +242,20 @@ class Connection:
             if self.in_transaction:self.raw.execute('ROLLBACK');self.in_transaction=False;self.pending.clear()
             if not self.raw.closed:
                 pool=getattr(_local,'idle',[])
-                if self.reusable and len(pool)<2:pool.append((self.cfg,self.raw,self.schemas,time.monotonic()));_local.idle=pool;self.raw=None
+                if self.reusable and len(pool)<1:pool.append((self.cfg,self.raw,self.schemas,time.monotonic()));_local.idle=pool;self.raw=None
         except Exception:pass
         finally:
             if self.raw is not None:
                 try:self.raw.close()
                 except Exception:pass
             self.closed=True
+
+def close_idle_connections():
+    """Release only this thread's idle sockets, never an active transaction."""
+    pool=getattr(_local,'idle',[]);_local.idle=[]
+    for _,candidate,_,_ in pool:
+        try:candidate.close()
+        except Exception:pass
 
 def connect(path,*,timeout=5,isolation_level=None,uri=False):
     if not enabled(path):return sqlite3.connect(path,timeout=timeout,isolation_level=isolation_level,uri=uri)

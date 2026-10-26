@@ -60,8 +60,6 @@ class Responder:
         n=len(self.items);self.failures=[]
         start=self.state['cursor']
         for offset in range(n):
-            from assistant_ai_budget import exhausted
-            if exhausted():raise g.GroqError(self.provider+'-timeout')
             if self.cancelled():raise g.GroqError(self.provider+'-cancelled')
             i=(start+offset)%n
             if self.state['blocked'].get(i,0)>self.clock():

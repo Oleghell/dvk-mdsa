@@ -43,6 +43,11 @@ class Dispatcher:
                     from assistant_exit_queue import deliver
                     status=deliver(chain,who,kind,notifier,lambda:self.stopped.is_set() or cancelled())
             except Exception:status='unknown' # an attempted DB row is never reset
+            finally:
+                # Do not occupy a Supabase session while an auxiliary worker
+                # sleeps or exits; each MuMu port has its own worker process.
+                from cloud_database import close_idle_connections
+                close_idle_connections()
             with self.condition:
                 self.keys.discard(key)
                 if kind=='contact' and status in ('accepted','unknown','blocked'):self.results.append(status)

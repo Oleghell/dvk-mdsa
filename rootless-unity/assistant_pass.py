@@ -19,6 +19,14 @@ CYCLE_TIMEOUT_MS = 90000
 FINALIZE_RPC_SECONDS = 60
 
 
+def host_worker(target,args):
+    """Native callback threads must not leave idle database sessions behind."""
+    try:target(*args)
+    finally:
+        from cloud_database import close_idle_connections
+        close_idle_connections()
+
+
 def build(text, visited=()):
     text = check_text(text)
     from conversation_engine import identifier
@@ -269,7 +277,7 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
                             pass
                         return
             for target, args in ((watch, ()), (monitor, (script, store, text, approve, done, cancelled, state, failures))):
-                thread = threading.Thread(target=target, args=args, daemon=True)
+                thread = threading.Thread(target=host_worker, args=(target,args), daemon=True)
                 threads.append(thread)
                 thread.start()
             stage='script-run'

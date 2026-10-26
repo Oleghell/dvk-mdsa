@@ -51,6 +51,12 @@ def exclusion(db, who, now=None):
 
 def reason(store, who, *, clock=time.time):
     # clock retained for API compatibility, never used as message-time evidence.
+    with store.read_connection() as db:
+        if not active(db):return None
+        row=db.execute('SELECT reason FROM inbox_reply_exclusions WHERE account=? AND peer=?',(who['account'],who['peer'])).fetchone()
+        if not row or row[0] not in LEGACY_AGE_REASONS:return row[0] if row else None
+    # Only an actual obsolete age exclusion needs a writer. Re-read under lock
+    # so a newer new-start exclusion can never be cleared using stale evidence.
     with store.connection() as db:
         return exclusion(db,who) if active(db) else None
 
@@ -58,11 +64,15 @@ def reason(store, who, *, clock=time.time):
 def eligible_groups(store,*groups):
     """One fresh exclusion snapshot for the pass, not a transaction per group."""
     if not any(groups):return tuple([] for _ in groups)
-    with store.connection() as db:
+    with store.read_connection() as db:
         if not active(db):return tuple(list(rows) for rows in groups)
-        clear_legacy_age_exclusions(db)
-        blocked=set(db.execute('SELECT account,peer FROM inbox_reply_exclusions'))
-        return tuple([who for who in rows if (who['account'],who['peer']) not in blocked] for rows in groups)
+        obsolete=db.execute('SELECT 1 FROM inbox_reply_exclusions WHERE reason IN (?,?) LIMIT 1',LEGACY_AGE_REASONS).fetchone()
+        if not obsolete:blocked=set(db.execute('SELECT account,peer FROM inbox_reply_exclusions'))
+    if obsolete:
+        with store.connection() as db:
+            clear_legacy_age_exclusions(db)
+            blocked=set(db.execute('SELECT account,peer FROM inbox_reply_exclusions'))
+    return tuple([who for who in rows if (who['account'],who['peer']) not in blocked] for rows in groups)
 
 
 def eligible(store,rows):
