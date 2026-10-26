@@ -1,7 +1,7 @@
 """Reproduce low-FPS short-chat cost, on owned native fixtures only.
 
 Run with the compiled fixtures/one_chat_fixture.c library. Compares the former
-one-item policy and adaptive batches using the SAME current identity/stability
+four-item policy and eight-item adaptive batches using the SAME current identity/stability
 checks. Native invocation counts/frame counts are checked; wall time is printed,
 not asserted as a flaky deadline or a live-MuMu performance claim.
 """
@@ -20,10 +20,10 @@ def main(library):
     original_popen = subprocess.Popen
     who = dict(account='100', peer='200', chat='300')
 
-    def one_item(*args, **kwargs):
+    def four_items(*args, **kwargs):
         source = build(*args, **kwargs)
-        assert source.count('const chunkSize=4;') == 1
-        return source.replace('const chunkSize=4;', 'const chunkSize=first<=16?1:4;', 1)
+        assert source.count('const chunkSize=8;') == 1
+        return source.replace('const chunkSize=8;', 'const chunkSize=4;', 1)
 
     def low_fps_child(command, *args, **kwargs):
         command = list(command)
@@ -33,7 +33,7 @@ def main(library):
 
     rows = []
     with patch.object(smoke.subprocess, 'Popen', side_effect=low_fps_child):
-        for variant, builder in (('one-item', one_item), ('adaptive', build)):
+        for variant, builder in (('four-items', four_items), ('adaptive-eight', build)):
             with patch.object(probe, 'build', side_effect=builder):
                 for trial in range(3):
                     started = time.perf_counter()

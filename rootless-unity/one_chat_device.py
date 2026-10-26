@@ -3,6 +3,7 @@ from pathlib import Path
 import threading
 
 import one_chat_probe as probe
+from assistant_stage_timing import read_phase
 from diagnose_device import cleanup_frida, validate_runtime
 from target_only import TargetOnlyAdb, preflight, recheck
 from test_device import TARGET, PACKAGE, bundle_token
@@ -42,23 +43,25 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
         with guard:
             if cancelled():
                 raise ReadStopped('cancelled')
-            device = manager.add_remote_device(address, token=token)
-            stage='gadget-process'
-            processes = device.enumerate_processes()
-            if len(processes) != 1 or type(processes[0].pid) is not int or processes[0].pid <= 0:
-                raise ReadStopped('ambiguous-process')
-            if processes[0].name not in ('Gadget', PACKAGE):
-                raise ReadStopped('unexpected-process')
-            stage='gadget-attach'
-            session = device.attach(processes[0].pid)
-            stage='script-create'
-            script = session.create_script(source, name='dvk-one-chat-readonly-0.3.35')
-            stage='script-load'
-            script.load()
-            stage='runtime-check'
-            runtime = validate_runtime(script.exports_sync.runtime())
-            if runtime['arch'] != 'arm64' or runtime['platform'] != 'linux':
-                raise ReadStopped('unsupported-runtime')
+            with read_phase('read_connect'):
+                device = manager.add_remote_device(address, token=token)
+                stage='gadget-process'
+                processes = device.enumerate_processes()
+                if len(processes) != 1 or type(processes[0].pid) is not int or processes[0].pid <= 0:
+                    raise ReadStopped('ambiguous-process')
+                if processes[0].name not in ('Gadget', PACKAGE):
+                    raise ReadStopped('unexpected-process')
+                stage='gadget-attach'
+                session = device.attach(processes[0].pid)
+            with read_phase('read_script'):
+                stage='script-create'
+                script = session.create_script(source, name='dvk-one-chat-readonly-0.3.35')
+                stage='script-load'
+                script.load()
+                stage='runtime-check'
+                runtime = validate_runtime(script.exports_sync.runtime())
+                if runtime['arch'] != 'arm64' or runtime['platform'] != 'linux':
+                    raise ReadStopped('unsupported-runtime')
             def watch():
                 while not done.wait(.1):
                     if cancelled():
@@ -70,14 +73,15 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
             monitor = threading.Thread(target=watch, daemon=True)
             monitor.start()
             stage='script-run'
-            result = script.exports_sync.root()
-            stage='result-validation'
-            private = probe.private_snapshot(result, expected, read_name=read_name, read_latest=read_latest, read_input=read_input, read_name_optional=read_name_optional)
-            n = result['navigation']
-            if private is None:
-                # Only fixed stage names may leave the native result.
-                raise ReadStopped(n['error'] if n['error'] != 'none' else 'not-ready',
-                  dict({key: n[key] for key in ('stage','metadata_checkpoint','read_checkpoint','wait_reason','frames','managed_calls')}, **probe.diagnostic(n)))
+            with read_phase('read_snapshot'):
+                result = script.exports_sync.root()
+                stage='result-validation'
+                private = probe.private_snapshot(result, expected, read_name=read_name, read_latest=read_latest, read_input=read_input, read_name_optional=read_name_optional)
+                n = result['navigation']
+                if private is None:
+                    # Only fixed stage names may leave the native result.
+                    raise ReadStopped(n['error'] if n['error'] != 'none' else 'not-ready',
+                      dict({key: n[key] for key in ('stage','metadata_checkpoint','read_checkpoint','wait_reason','frames','managed_calls')}, **probe.diagnostic(n)))
             if cancelled():
                 raise ReadStopped('cancelled')
             return private
@@ -89,11 +93,12 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
         record(error,stage)
         raise
     finally:
-        done.set()
-        timer.cancel()
-        if monitor:
-            monitor.join(timeout=1)
-        cleanup_frida(f, manager, address, script, session, device)
+        with read_phase('read_cleanup'):
+            done.set()
+            timer.cancel()
+            if monitor:
+                monitor.join(timeout=1)
+            cleanup_frida(f, manager, address, script, session, device)
 
 
 def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect, read_name=False, read_latest=False, read_input=False, preexecution_retry=None, read_name_optional=False):
@@ -110,24 +115,26 @@ def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspe
     if preexecution_retry is not None and not callable(preexecution_retry):
         raise ValueError('Invalid pre-execution retry callback')
     from startup_failure import checkpoint
-    with checkpoint('bundle-check'):
-        folder = Path(folder).resolve(strict=True)
-        token = bundle_token(folder)  # Pins existing test APKs; no install/launch.
-    with checkpoint('adb-create'):
-        adb = TargetOnlyAdb(executable, folder)
-    with checkpoint('adb-preflight', adb=adb):
-        boot = preflight(adb)
-    with checkpoint('device-recheck', adb=adb):
-        recheck(adb, boot)
-    if cancelled():
-        raise ReadStopped('cancelled')
+    with read_phase('read_setup'):
+        with checkpoint('bundle-check'):
+            folder = Path(folder).resolve(strict=True)
+            token = bundle_token(folder)  # Pins existing test APKs; no install/launch.
+        with checkpoint('adb-create'):
+            adb = TargetOnlyAdb(executable, folder)
+        with checkpoint('adb-preflight', adb=adb):
+            boot = preflight(adb)
+        with checkpoint('device-recheck', adb=adb):
+            recheck(adb, boot)
+        if cancelled():
+            raise ReadStopped('cancelled')
     private = None
     try:
-        with checkpoint('forward-open', adb=adb):
-            port = adb.run(['-s', TARGET, 'forward', 'tcp:0', 'tcp:27042'])
-            if not port.isdecimal() or not 1024 <= int(port) <= 65535:
-                raise ReadStopped('invalid-forward')
-            adb.forward_port = int(port)
+        with read_phase('read_setup'):
+            with checkpoint('forward-open', adb=adb):
+                port = adb.run(['-s', TARGET, 'forward', 'tcp:0', 'tcp:27042'])
+                if not port.isdecimal() or not 1024 <= int(port) <= 65535:
+                    raise ReadStopped('invalid-forward')
+                adb.forward_port = int(port)
         from startup_failure import retryable_connection
         connection_attempt = 0
         setup_attempt = 0
@@ -196,15 +203,17 @@ def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspe
                 # Existing one-shot connection retry, never load/root replay.
                 with checkpoint('device-recheck', adb=adb):
                     recheck(adb, boot)
-        with checkpoint('device-recheck-after', adb=adb):
-            recheck(adb, boot)
+        with read_phase('read_cleanup'):
+            with checkpoint('device-recheck-after', adb=adb):
+                recheck(adb, boot)
         if cancelled():
             raise ReadStopped('cancelled')
     finally:
         if adb.forward_port is not None:
             # Cleanup failure still prevents consuming the result. Never retry UI actions.
-            with checkpoint('forward-close', adb=adb):
-                adb.run(['-s', TARGET, 'forward', '--remove', f'tcp:{adb.forward_port}'], timeout=10)
+            with read_phase('read_cleanup'):
+                with checkpoint('forward-close', adb=adb):
+                    adb.run(['-s', TARGET, 'forward', '--remove', f'tcp:{adb.forward_port}'], timeout=10)
     return private
 
 

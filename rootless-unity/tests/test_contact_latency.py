@@ -31,7 +31,7 @@ class OptionalName(unittest.TestCase):
         for latest,inputs in itertools.product((False,True),repeat=2):
             source=probe.build(WHO,read_name=True,read_name_optional=True,read_latest=latest,read_input=inputs,scoped_traversal=True)
             for text in ('sample_interval_ms:1000','JSON.stringify(state.sample)!==JSON.stringify(sample)',
-                         'peer_name:peerName','const chunkSize=4;','n.managed_calls>=60000','verifyWho();'):
+                         'peer_name:peerName','const chunkSize=8;','n.managed_calls>=60000','verifyWho();'):
                 self.assertIn(text,source)
             self.assertNotIn("catch(nameMetadataUnavailable){fail",source)
 

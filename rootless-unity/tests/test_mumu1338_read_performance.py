@@ -15,7 +15,7 @@ class Batches(unittest.TestCase):
         for name, latest, inputs in itertools.product((False,True),repeat=3):
             source=probe.build(guide.WHO,read_name=name,read_latest=latest,
                                read_input=inputs,scoped_traversal=True)
-            self.assertIn('const chunkSize=4;',source)
+            self.assertIn('const chunkSize=8;',source)
             self.assertNotIn('const chunkSize=first<=16?1:4;',source)
             self.assertIn('Math.max(1,cost||0)*2<=deadline-30',source)
             self.assertIn('if(!canContinue(i,start,chunk.headerCost))break;',source)

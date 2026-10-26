@@ -33,7 +33,7 @@ class GreetingFallback(unittest.TestCase):
   self.assertEqual(len(g.public_context(s)),66)
   source=probe.build(guide.WHO)
   self.assertIn('first>128',source);self.assertIn('n.managed_calls>=60000',source)
-  self.assertIn('const chunkSize=4;',source)
+  self.assertIn('const chunkSize=8;',source)
   self.assertIn('+chunkSize)',source)
 
 class Receipts(guide.WholeChain):

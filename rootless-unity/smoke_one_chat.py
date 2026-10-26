@@ -121,4 +121,6 @@ if __name__=='__main__':
     for mode in (579,580,581,582):one(lib,mode,who,read_latest=True)
     one(lib,579,who,read_latest=True,read_name=True)
     one(lib,500,dict(account='100',peer='201',chat='300'))
+    from smoke_one_chat_performance import main as check_read_performance
+    check_read_performance(lib)
     print('Synthetic read-only ABI passed; live Android has not been tested.')

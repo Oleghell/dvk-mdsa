@@ -140,9 +140,9 @@ COLLECT = r'''
    if(chunk.count!==first){state.historyChunk=null;invalidate('changing-count');return;}
    // Short chats previously paid full view/identity/readiness traversal for
    // EVERY single header and body. At low Unity FPS this dominated wall time.
-   // Batch up to four, but learn the current getter cost before another item;
+   // Batch up to eight, but learn the current getter cost before another item;
    // reserve 30ms plus twice that cost for the unchanged end-of-frame checks.
-   const chunkSize=4;
+   const chunkSize=8;
    const canContinue=(i,start,cost)=>i===start||Date.now()+Math.max(1,cost||0)*2<=deadline-30;
    const end=Math.min(first,(chunk.phase==='headers'?chunk.headers.length:chunk.messages.length)+chunkSize);
    if(chunk.phase==='headers'){

@@ -81,7 +81,7 @@ class NativeCI(unittest.TestCase):
             'dialog_browser','contact_profile','dialog_models'})
     def test_chunk_specialization_keeps_long_history_bounds_and_two_samples(self):
         source=one_chat_probe.build(WHO,scoped_traversal=True)
-        self.assertIn('const chunkSize=4;',source)
+        self.assertIn('const chunkSize=8;',source)
         self.assertIn('n.samples=2',source)
         self.assertIn('chunk.identity!==JSON.stringify(who)',source)
         self.assertIn("if(chunk.localOwn>0&&chunk.peerAnchors===0)fail('local-own-message-unanchored');",source)

@@ -17,7 +17,7 @@ from shared_contact import display_name
 from mumu_peer_policy import ensure_communication_allowed, PeerCommunicationBlocked
 
 from version import VERSION
-from assistant_stage_timing import timed
+from assistant_stage_timing import timed, collect_read_timings
 from assistant_authorization import flags
 from assistant_history_wait import (verified_loading, HistoryWaitExpired, WAIT_SECONDS,
                                     WAIT_INTERVAL, MAX_READ_ATTEMPTS, verified_read_budget,
@@ -409,7 +409,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         for attempt in range(MAX_READ_ATTEMPTS):
             try:
                 progress('Читаю историю • проверяю текущий чат.')
-                private = timed(out['diagnostics'], 'read', source, who)  # Fresh SAME-bound read, never cached.
+                with collect_read_timings(out['diagnostics'], progress):
+                    private = timed(out['diagnostics'], 'read', source, who)  # Fresh SAME-bound read, never cached.
                 break
             except ReadStopped as error:
                 failure = out['diagnostics']['last_read_failure'] = safe_read_failure(error)
@@ -679,6 +680,10 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 if reply_exclusion(chain.store,who):
                     out.update(status='chain-waiting',reason='reply-excluded')
                     return out
+                # Read-only metadata (e.g. optional peer_name) is not part of
+                # the native send contract. Validate/project BEFORE reservation;
+                # the strict sender still accepts only identity and full history.
+                submission_snapshot=checked({key:fresh[key] for key in ('identity','messages')})
                 host_checkpoint='chat-send'
                 send_authorization = chain.reserve_confirmed(who, action)
                 if stopped.is_set():
@@ -692,7 +697,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 input_disabled = False
                 try:
                     from assistant_send_safety import submit_checked
-                    result, deferred = timed(out['diagnostics'],'submit',submit_checked,chain,send_authorization,who,action,fresh,
+                    result, deferred = timed(out['diagnostics'],'submit',submit_checked,chain,send_authorization,who,action,submission_snapshot,
                         sender,stopped,progress,out['diagnostics'])
                     if deferred:
                         # A new incoming may arrive between the host read and
