@@ -1,0 +1,66 @@
+name: Build standalone APK installer
+on:
+  push:
+    branches: [mumu]
+    paths:
+      - rootless-unity/apk_installer.py
+      - rootless-unity/tests/test_apk_installer.py
+      - .github/workflows/apk-installer.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test installer without devices
+        run: python -m unittest discover -s rootless-unity/tests -p test_apk_installer.py -v
+        env:
+          PYTHONPATH: rootless-unity
+      - name: Install pinned packager
+        run: python -m pip install pyinstaller==6.16.0
+      - name: Build standalone window
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name DvkApkInstaller --distpath installer-out rootless-unity/apk_installer.py
+      - name: Packaged self-check without device activity
+        shell: powershell
+        run: |
+          $app = Start-Process installer-out/DvkApkInstaller.exe -ArgumentList '--self-check' -PassThru
+          if (-not $app.WaitForExit(60000)) { $app.Kill(); throw 'Installer self-check timed out' }
+          if ($app.ExitCode -ne 0) { throw 'Installer self-check failed' }
+          $gui = Start-Process installer-out/DvkApkInstaller.exe -ArgumentList '--gui-self-check' -PassThru
+          if (-not $gui.WaitForExit(60000)) { $gui.Kill(); throw 'Installer GUI self-check timed out' }
+          if ($gui.ExitCode -ne 0) { throw 'Installer GUI self-check failed' }
+          python -c "from pathlib import Path;import hashlib;p=Path('installer-out/DvkApkInstaller.exe');Path(str(p)+'.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n',encoding='ascii')"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DvkApkInstaller-windows-x64
+          path: installer-out/DvkApkInstaller.exe*
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    if: contains(github.event.head_commit.message, '[apk-installer-release]')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: DvkApkInstaller-windows-x64
+          path: installer-out
+      - name: Publish independent installer release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          (cd installer-out && sha256sum -c DvkApkInstaller.exe.sha256)
+          gh release create apk-installer-v1.0.0 installer-out/DvkApkInstaller.exe installer-out/DvkApkInstaller.exe.sha256 --target "$GITHUB_SHA" --title "Dvk APK Installer 1.0.0" --notes "Standalone Windows APK installer: choose adb.exe and APK folder, enter explicit MuMu ports. No Python installation required. No account, Supabase, root, uninstall or automatic app launch. Unsigned executable." --latest=false
