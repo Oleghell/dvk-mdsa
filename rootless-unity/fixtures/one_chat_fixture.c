@@ -148,7 +148,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
    mode==502||(in&&(mode==561||mode==651))?301:300;break;
  case 107:boolbox.value=!in;return &boolbox;
  case 108:body_reads++;return (Object *)(in?&text_b:&text_a);
- case 110:name_reads++;return (Object *)(mode==542&&name_reads%2==0?&changed_name:&display_name);
+ case 110:name_reads++;if(mode==543)return NULL;if(mode==544)display_name.length=0;if(mode==545)display_name.chars[0]=10;if(mode==546)return &manager_object;return (Object *)(mode==542&&name_reads%2==0?&changed_name:&display_name);
  case 109:items++;if(!args||!args[0]){*exc=&exception;return NULL;}if(mode==568)return *(int *)args[0]?&outgoing:&incoming;return *(int *)args[0]?&incoming:&outgoing;
  }
  return &long_object;

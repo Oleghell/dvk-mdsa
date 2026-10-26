@@ -646,7 +646,8 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
     with checkpoint('inbox-walk'):
         result = walk(settings, stopped, approve, progress, chain,
                     navigator=navigator,
-                    reader=partial(capture,read_latest=True,read_input=True) if reader is None else reader,
+                    reader=partial(capture,read_latest=True,read_input=True,
+                                   read_name=settings.contacts_enabled,read_name_optional=settings.contacts_enabled) if reader is None else reader,
                     sender=submit if sender is None else sender,
                     notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,exit_photo=exit_photo,exit_photo_sender=exit_photo_sender,
                     greetings=prepared_greetings)

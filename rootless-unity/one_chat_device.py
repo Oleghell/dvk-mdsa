@@ -14,14 +14,14 @@ class ReadStopped(Exception):
         self.diagnostic = diagnostic
 
 
-def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=False, read_latest=False, read_input=False):
+def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=False, read_latest=False, read_input=False, read_name_optional=False):
     if frida_api is None:
         import frida as frida_api
     f = frida_api
     if f.__version__ != '17.24.1':
         raise ReadStopped('client-version')
     # Build only fixed code with validated decimal IDs; no user code is accepted.
-    source = probe.build(expected, read_name=read_name, scoped_traversal=True, read_latest=read_latest, read_input=read_input) + '''
+    source = probe.build(expected, read_name=read_name, scoped_traversal=True, read_latest=read_latest, read_input=read_input, read_name_optional=read_name_optional) + '''
     rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
       root(){return probeUIKitRoot();},cancel(){cancelNavigation();}};
     '''
@@ -72,7 +72,7 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
             stage='script-run'
             result = script.exports_sync.root()
             stage='result-validation'
-            private = probe.private_snapshot(result, expected, read_name=read_name, read_latest=read_latest, read_input=read_input)
+            private = probe.private_snapshot(result, expected, read_name=read_name, read_latest=read_latest, read_input=read_input, read_name_optional=read_name_optional)
             n = result['navigation']
             if private is None:
                 # Only fixed stage names may leave the native result.
@@ -96,15 +96,17 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
         cleanup_frida(f, manager, address, script, session, device)
 
 
-def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect, read_name=False, read_latest=False, read_input=False, preexecution_retry=None):
+def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect, read_name=False, read_latest=False, read_input=False, preexecution_retry=None, read_name_optional=False):
     """Private data remains in memory; no JSON serialization in this layer."""
     from dialog_browser import PreparedNavigation
     navigation_operation=type(inspector) is PreparedNavigation
     readonly_operation=inspector is inspect
+    if type(read_name_optional) is not bool or read_name_optional and not read_name:
+        raise ValueError('Optional name requires name reading')
     if read_name or read_latest or read_input:
         if expected is None or inspector is not inspect:
             raise ValueError('Name requires the fixed bound reader')
-        inspector = lambda port, token, cancel, who: inspect(port, token, cancel, who, read_name=read_name, read_latest=read_latest, read_input=read_input)
+        inspector = lambda port, token, cancel, who: inspect(port, token, cancel, who, read_name=read_name, read_latest=read_latest, read_input=read_input, read_name_optional=read_name_optional)
     if preexecution_retry is not None and not callable(preexecution_retry):
         raise ValueError('Invalid pre-execution retry callback')
     from startup_failure import checkpoint

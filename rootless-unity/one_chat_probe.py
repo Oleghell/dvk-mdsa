@@ -186,7 +186,9 @@ COLLECT = r'''
 '''
 
 
-def build(expected=None, *, read_name=False, scoped_traversal=False, read_latest=False, read_input=False):
+def build(expected=None, *, read_name=False, scoped_traversal=False, read_latest=False, read_input=False, read_name_optional=False):
+    if type(read_name_optional) is not bool or read_name_optional and not read_name:
+        raise ValueError('Optional name requires name reading')
     if type(read_input) is not bool or read_input and expected is None:
         raise ValueError("Input state requires a bound dialog")
     if type(read_latest) is not bool or read_latest and expected is None:
@@ -210,6 +212,10 @@ def build(expected=None, *, read_name=False, scoped_traversal=False, read_latest
     if read_name:
         source = replace_once(source, "  if(!s.messageItem)throw new Error('signature');return s;",
             "  s.peerName=check(s.user,'get_Name',14);if(!f.classFromType(f.returnType(s.peerName.m)).equals(s.stringClass))throw new Error('signature');\n  if(!s.messageItem)throw new Error('signature');return s;")
+    if read_name_optional:
+        source = replace_once(source,
+            "  s.peerName=check(s.user,'get_Name',14);if(!f.classFromType(f.returnType(s.peerName.m)).equals(s.stringClass))throw new Error('signature');",
+            "  s.peerName=null;try{const name=check(s.user,'get_Name',14);if(f.classFromType(f.returnType(name.m)).equals(s.stringClass))s.peerName=name;}catch(nameMetadataUnavailable){}")
     source = replace_once(source, 'function probeUIKitRoot() {', 'function probeUIKitRoot() {\n const expectedIdentity=' + json.dumps(expected) + ';')
     # The index argument helper originally supported only the modal collection.
     source = replace_once(source, "if(!f.classFromType(f.returnType(m)).equals(s.vc))fail('signature-mismatch');", "if(!f.classFromType(f.returnType(m)).equals(entry.result||s.vc))fail('signature-mismatch');")
@@ -233,6 +239,24 @@ def build(expected=None, *, read_name=False, scoped_traversal=False, read_latest
    const peerName=displayChars.readUtf16String(displayLength);
    if(peerName===null||!peerName.trim()||/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(peerName))fail('message-invalid');
    releaseOne(displayHandle);verifyWho();
+"""
+        if read_name_optional:
+            # Missing/invalid optional display metadata never supplies a name.
+            # Only the name value is optional; all full snapshot checks remain.
+            name_read = r"""
+   const peerName=(()=>{
+    if(s.peerName===null)return null;
+    const display=call(s.peerName,user);if(display.isNull()||!f.objectClass(display).equals(s.stringClass))return null;
+    const displayHandle=own(display),displayLength=f.stringLength(display);
+    let value=null;
+    if(displayLength>=1&&displayLength<=128){
+     const displayChars=f.stringChars(display);
+     if(!displayChars.isNull())value=displayChars.readUtf16String(displayLength);
+    }
+    releaseOne(displayHandle);
+    if(value===null||!value.trim()||/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(value))return null;
+    return value;
+   })();verifyWho();
 """
         source = replace_once(source, "   n.read_checkpoint='recheck';", name_read + "   n.read_checkpoint='recheck';")
         source = replace_once(source, 'draft:n.model_draft,identity:who,messages,messageBindings};', 'draft:n.model_draft,identity:who,messages,peer_name:peerName};')
@@ -270,8 +294,10 @@ def build(expected=None, *, read_name=False, scoped_traversal=False, read_latest
     return source
 
 
-def private_snapshot(value, expected=None, *, read_name=False, read_latest=False, read_input=False):
+def private_snapshot(value, expected=None, *, read_name=False, read_latest=False, read_input=False, read_name_optional=False):
     """Validate private RPC data in memory; caller must never dump this object."""
+    if type(read_name_optional) is not bool or read_name_optional and not read_name:
+        raise ValueError('Optional name requires name reading')
     if type(read_input) is not bool or read_input and expected is None:
         raise ValueError("Input state requires a bound dialog")
     if type(read_latest) is not bool or read_latest and expected is None:
@@ -307,7 +333,7 @@ def private_snapshot(value, expected=None, *, read_name=False, read_latest=False
     if read_input and type(private['input_enabled']) is not bool:
         raise ValueError('Invalid input state')
     who = identity(private['identity'])
-    if read_name:
+    if read_name and not (read_name_optional and private['peer_name'] is None):
         from shared_contact import display_name
         display_name(private['peer_name'])
     if expected is not None and who != expected:
@@ -356,6 +382,8 @@ def private_snapshot(value, expected=None, *, read_name=False, read_latest=False
             raise ValueError('Latest message is not in verified history')
         if latest is not None and n['last_message_present'] is not True:
             raise ValueError('Latest marker does not match verified history')
+    if read_name_optional and private['peer_name'] is None:
+        private.pop('peer_name')
     return private
 
 

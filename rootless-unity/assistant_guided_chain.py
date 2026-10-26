@@ -199,23 +199,31 @@ class GuidedChain(Chain):
         from assistant_reply_audit import observe, recycle_followup
         observe(self,snapshot)
         who = snapshot['identity']
-        with self.store.connection() as db:
+        from shared_contact import self_shared,voluntary_batch
+        from assistant_contact_receipt import requested as receipt_requested
+        # One read-only snapshot for routing; consume independently revalidates
+        # every safety gate under its original writer transaction below.
+        with self.store.read_connection() as db:
             row=db.execute('SELECT stage FROM chain_dialogs WHERE chat=?',(who['chat'],)).fetchone()
             seen_before={r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?',(who['chat'],))}
-        from shared_contact import self_shared,voluntary_batch
-        new_peer=[m for m in snapshot['messages'] if m['sender']==who['peer'] and m['id'] not in seen_before]
-        from assistant_contact_receipt import requested as receipt_requested
-        with self.store.connection() as db:
             anchored_request=receipt_requested(db,who,snapshot['messages'])
+        new_peer=[m for m in snapshot['messages'] if m['sender']==who['peer'] and m['id'] not in seen_before]
         requested=anchored_request or bool(row and row[0]=='wait-contact') or voluntary_batch(new_peer)
+        if any(self_shared(m['text'],requested=requested) for m in new_peer):
+            # This is only routing, NOT contact acceptance or send authority.
+            # consume retains full-history hashes, refusals, third-party context,
+            # terminal states, unknown sends and atomic contact persistence.
+            # Do not fetch unrelated clarification/draft context first.
+            stage,action=self.consume(snapshot)
+            observe(self,snapshot,input_ids=[m['id'] for m in new_peer])
+            return stage,action
         from assistant_contact_clarify import max_selected,alternative_text,selected_alternative_text
         max_choice=max_selected([m for m in snapshot['messages'] if m['sender']==who['peer']])
         from assistant_contact_followup import refused,scoped_messages
-        with self.store.connection() as db:
+        with self.store.read_connection() as db:
             alt_text=selected_alternative_text(db,snapshot,[m['id'] for m in new_peer])
             refusal_inputs=scoped_messages(db,snapshot,[m['id'] for m in new_peer],requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')))
-        if (any(self_shared(m['text'],requested=requested) for m in new_peer)
-                or refused(refusal_inputs if row and row[0] in ('wait-contact','pending-clarify','pending-followup') else new_peer,
+        if (refused(refusal_inputs if row and row[0] in ('wait-contact','pending-clarify','pending-followup') else new_peer,
                            requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')),alternative_selected=max_choice or bool(alt_text))):
             # consume still checks complete history, hashes, identity, third-party
             # context and pending sends. Do not repair/reset a prior terminal state.
@@ -224,7 +232,7 @@ class GuidedChain(Chain):
             return stage,action
         from assistant_contact_policy import should_close
         from assistant_contact_clarify import indifferent_selected
-        with self.store.connection() as db:
+        with self.store.read_connection() as db:
             strict_closed=bool(row and should_close(db,snapshot,row[0],new_peer,
                 requested=anchored_request or row[0] in ('wait-contact','pending-clarify','pending-followup'),max_choice=max_choice,
                 number_choice=indifferent_selected(db,snapshot,[m['id'] for m in new_peer])))
@@ -236,7 +244,7 @@ class GuidedChain(Chain):
             synchronize(self,snapshot)
             return stage,action
         from assistant_contact_budget import can_close
-        with self.store.connection() as db:
+        with self.store.read_connection() as db:
             budget_closed=bool(row and can_close(db,who['chat'],row[0]))
         if budget_closed:
             # consume validates complete history and checks incoming contacts
@@ -247,17 +255,16 @@ class GuidedChain(Chain):
             return stage,action
         # A terminal preference must not recycle even an observed old reply.
         recycle_followup(self,snapshot)
-        with self.store.connection() as db:
+        with self.store.read_connection() as db:
             unapproved = {row[0] for row in db.execute(
                 "SELECT kind FROM chain_actions WHERE chat=? AND status='awaiting-approval'",
                 (who['chat'],))}
-        with self.store.connection() as db:
             seen = {r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?', (who['chat'],))}
         if unapproved:
             # Resume an unsent draft after a stop/API failure with newer peer
             # arrivals. Reserved/unknown attempts are deliberately excluded.
             for kind in unapproved.copy():
-                with self.store.connection() as db:
+                with self.store.read_connection() as db:
                     state = db.execute('SELECT stage FROM chain_dialogs WHERE chat=?', (who['chat'],)).fetchone()
                     if not state or state[0] != 'pending-' + kind:
                         continue
@@ -269,7 +276,7 @@ class GuidedChain(Chain):
                     previous = dict(snapshot, messages=[m for m in snapshot['messages'] if m['id'] in seen])
                     if self.refresh_unsubmitted(previous, snapshot, dict(kind=kind,text=text)):
                         unapproved.discard(kind)
-                        with self.store.connection() as db:
+                        with self.store.read_connection() as db:
                             seen = {r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?', (who['chat'],))}
         reply_ids = [m['id'] for m in snapshot['messages'] if m['sender'] == who['peer'] and m['id'] not in seen]
         stage, action = self.consume(snapshot)
@@ -496,7 +503,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             if deadline is not None and time.monotonic() >= deadline:
                 out.update(status='chain-paused', reason='wait-timeout')
                 return out
-            with chain.store.connection() as db:
+            with chain.store.read_connection() as db:
                 seen_ids={r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?',(who['chat'],))}
             from assistant_reply_audit import pending as pending_replies
             unanswered_ids=set(pending_replies(chain,who))
@@ -506,7 +513,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 # Deliver ONLY an already saved receipt; a global send ban must
                 # not strand its pending photo forever. Never run proposal/AI or
                 # authorize a new message through this receipt-only path.
-                with chain.store.connection() as db:
+                with chain.store.read_connection() as db:
                     saved_receipt=db.execute("""SELECT 1 FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat
                         WHERE c.account=? AND c.peer=? AND c.chat=? AND c.stage='done' AND o.status='pending'""",
                         (who['account'],who['peer'],who['chat'])).fetchone() is not None
@@ -548,7 +555,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 stage, action = timed(out['diagnostics'], 'proposal', chain.proposal, before)
             out['stage'] = stage
             out['stages']['greeting'] = True
-            with chain.store.connection() as db:
+            with chain.store.read_connection() as db:
                 observed = dict(db.execute('SELECT kind,status FROM chain_actions WHERE chat=?',
                                            (who['chat'],)))
             out['stages']['peer_greeting'] = 'question' in observed
@@ -567,9 +574,11 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 out.update(reason='send-outcome-unknown')
                 return out
             if stage == 'done':
+                progress('Контакт получен • сохранён в очереди.')
                 if chain.media_required and notifier is not None:
                     try:
                         host_checkpoint='chat-contact-photo'
+                        progress('Контакт получен • получаю проверенное фото профиля.')
                         timed(out['diagnostics'], 'media', chain.prepare_media, who, contact_photo)
                     except Exception as error:
                         from assistant_contact_photo import ProfilePhotoNotStarted, ProfileReturnUnverified
@@ -579,11 +588,12 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                         out.update(status='chain-waiting',reason='contact-photo-unavailable')
                         return out
                 host_checkpoint='chat-contact-notify'
+                progress('Контакт получен • отправляю уведомление.')
                 notification = timed(out['diagnostics'], 'notify', chain.notify, who, notifier, stopped.is_set)
                 if notification == 'cancelled':
                     break
                 if notification == 'nothing-pending':
-                    with chain.store.connection() as db:
+                    with chain.store.read_connection() as db:
                         previous = db.execute(
                             'SELECT status FROM chain_contact_outbox WHERE chat=?',
                             (who['chat'],)).fetchone()
