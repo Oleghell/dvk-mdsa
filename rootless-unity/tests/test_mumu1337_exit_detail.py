@@ -39,12 +39,12 @@ class Notices(unittest.TestCase):
         with self.store.connection() as db:record(db,WHO,'manual-block','telegram')
         sender=MagicMock(return_value=True)
         result=dict(reason='peer-contact-blocked')
-        self.assertEqual(notify_exit(self.chain,WHO,result,sender=sender)['notification'],'accepted')
-        text=sender.call_args.args[0]
+        self.assertEqual(notify_exit(self.chain,WHO,result,sender=sender)['notification'],'manual-block-suppressed')
+        text=blocked_explanation(self.store,WHO)
         self.assertIn('ручной запрет /num',text)
         self.assertNotIn('получен контакт',text);self.assertNotIn('явный отказ',text)
-        self.assertEqual(notify_exit(self.chain,WHO,result,sender=sender)['notification'],'already-attempted')
-        sender.assert_called_once()
+        self.assertEqual(notify_exit(self.chain,WHO,result,sender=sender)['notification'],'manual-block-suppressed')
+        sender.assert_not_called()
 
     def test_database_strings_are_never_exported_as_source_or_reason(self):
         with self.store.connection() as db:record(db,WHO,'contact-refused','PRIVATE_TOKEN_BODY')

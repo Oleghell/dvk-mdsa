@@ -117,6 +117,12 @@ def read_failure_explanation(diagnostics):
 
 
 def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, photo_status=None, photo_sender=None):
+    from mumu_peer_policy import manually_blocked
+    def suppressed():
+        ref=hmac.new(b'manual-block-exit-v1',who['chat'].encode(),hashlib.sha256).hexdigest()[:10]
+        return dict(chat_ref=ref,reason='peer-contact-blocked',review_cause=None,
+                    notification='manual-block-suppressed')
+    if manually_blocked(chain.store,who):return suppressed()
     reason = result.get('reason')
     if reason == 'reply-excluded':
         from assistant_reply_window import reason as excluded
@@ -196,6 +202,7 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
     text = ('Собеседник: «'+excerpt+'»\n' if excerpt else 'Текст сообщения не включён в уведомление.\n') + label + explanation
     if photo_status=='unavailable':text+='\nСнимок переписки получить не удалось.'
     text=text[:950]  # reserve room for the port label in the 1024-char caption
+    if manually_blocked(chain.store,who):return suppressed()
     try:
         accepted=photo_sender(text,photo) if photo is not None and photo_sender is not None else sender(text)
         status = 'accepted' if accepted is True else 'unknown'

@@ -12,6 +12,7 @@ def initialize(db):
     db.execute("""CREATE TABLE IF NOT EXISTS mumu_peer_blocks(
       peer TEXT PRIMARY KEY,reason TEXT NOT NULL,device TEXT NOT NULL,
       account TEXT NOT NULL,chat TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+    db.execute('CREATE TABLE IF NOT EXISTS mumu_manual_silences(peer TEXT PRIMARY KEY)')
 
 
 def record(db,who,reason,device):
@@ -123,6 +124,8 @@ def _manual_block(peer, path=None):
             db.execute('BEGIN IMMEDIATE')
             # The real shared schema must exist. Do not initialize a replacement.
             db.execute('SELECT peer,reason,device,account,chat FROM mumu_peer_blocks LIMIT 0')
+            db.execute('CREATE TABLE IF NOT EXISTS mumu_manual_silences(peer TEXT PRIMARY KEY)')
+            db.execute('INSERT OR IGNORE INTO mumu_manual_silences(peer) VALUES(?)',(peer,))
             exists = db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?', (peer,)).fetchone()
             inserted = False
             if exists is None:
@@ -135,3 +138,22 @@ def _manual_block(peer, path=None):
         return inserted
     finally:
         db.close()
+
+
+def without_manual_blocks(store,rows):
+    """Fresh deny-only queue filter; no cache, receipt, read flag or send permit."""
+    rows=list(rows)
+    if not rows or getattr(store,'mumu_shared_claims',False) is not True:return rows
+    from conversation_engine import identifier
+    peers=list(dict.fromkeys(identifier(who['peer']) for who in rows))
+    blocked=set()
+    with store.read_connection() as db:
+        for offset in range(0,len(peers),1000):
+            part=peers[offset:offset+1000]
+            query="SELECT b.peer FROM mumu_peer_blocks b LEFT JOIN mumu_manual_silences m ON m.peer=b.peer WHERE (b.reason=? OR m.peer IS NOT NULL) AND b.peer IN ("+','.join('?' for _ in part)+')'
+            blocked.update(row[0] for row in db.execute(query,('manual-block',*part)))
+    return [who for who in rows if who['peer'] not in blocked]
+
+
+def manually_blocked(store,who):
+    return not without_manual_blocks(store,[who])

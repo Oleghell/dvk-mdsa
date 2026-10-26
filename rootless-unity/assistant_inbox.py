@@ -110,6 +110,8 @@ class InboxChain(GuidedChain):
 
 def inbox_targets(chain):
     """Return (attention, unread) target lists. Terminal chats are excluded."""
+    manual_filter=(" WHERE NOT EXISTS(SELECT 1 FROM mumu_peer_blocks b LEFT JOIN mumu_manual_silences ms ON ms.peer=b.peer WHERE b.peer=s.peer AND (b.reason='manual-block' OR ms.peer IS NOT NULL))"
+                   if getattr(chain.store,'mumu_shared_claims',False) is True else '')
     with chain.store.read_connection() as db:
         # The primary journal deliberately admits SELECT, not arbitrary WITH
         # statements, in read-only mode. Keep this query a SELECT with the same
@@ -127,7 +129,7 @@ def inbox_targets(chain):
             WHERE m.status!='not-invoked' AND NOT EXISTS (
               SELECT 1 FROM guided_bindings g WHERE g.account=m.account AND g.peer=m.peer)
           ) s LEFT JOIN chain_dialogs c ON c.account=s.account AND c.peer=s.peer
-          ORDER BY s.account,s.peer''').fetchall()
+          '''+manual_filter+' ORDER BY s.account,s.peer').fetchall()
     attention, unread = [], []
     from assistant_contact_receipt import candidates as contact_candidates
     receipt_reviews=contact_candidates(chain.store)
@@ -244,6 +246,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 out.update(status='inbox-cancelled',reason='cancelled')
                 return out
             who=dict(account=account,peer=peer,chat=chat)
+            from mumu_peer_policy import manually_blocked
+            if manually_blocked(chain.store,who):continue
             from mumu_namespace import owns_account
             if not owns_account(chain.store,who):continue
             status=chain.notify(who,notifier,stopped.is_set)
@@ -332,6 +336,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             out['recent_window_limit']=50
             out['recent_window_direction']='bottom-up'
         processed=set()
+        def leave_manual(who):
+            nonlocal host_checkpoint,phase
+            phase='navigation';host_checkpoint='inbox-back'
+            call('back',expected=who)
+            out['dialogs_processed']+=1
+            processed.add((who['account'],who['peer']))
+            for group in groups:
+                group[0][:]=[x for x in group[0] if x['peer']!=who['peer']]
         def page_groups():
             attention,unread=inbox_targets(chain)
             attention,unread,_=history_wait.eligible(chain.store,attention,unread,clock=clock)
@@ -355,6 +367,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 groups=page_groups()
                 continue
             allowed, unread_only, group_kind = groups[0]
+            from mumu_peer_policy import without_manual_blocks,manually_blocked
+            allowed[:]=without_manual_blocks(chain.store,allowed)
             if not allowed:
                 groups.pop(0)
                 continue
@@ -374,6 +388,11 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 continue
             who = identity(selected['identity'])
             out['dialogs_opened'] += 1
+            if manually_blocked(chain.store,who):
+                # /num may commit during native open. Do not read, draft,
+                # screenshot, notify or mutate the chain; only verified Back.
+                leave_manual(who)
+                continue
             progress(f'Читаю открытый диалог • {out["dialogs_opened"]}')
             if group_kind == 'read':
                 out['read_dialogs_checked'] += 1
@@ -421,6 +440,10 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                          'Контакт получен • результат передачи в Telegram требует проверки')
             if result['telegram_used']:
                 out['personal_data_exported'] = True
+            if (result['status']=='chain-waiting' and result['reason']=='peer-contact-blocked'
+                    and manually_blocked(chain.store,who)):
+                leave_manual(who)
+                continue
             deferred = result['reason'] in ('history-loading-timeout','history-read-budget-timeout','history-snapshot-too-large','send-preflight-deferred')
             ai_deferred=result['reason']=='ai-temporarily-unavailable'
             answer_deferred=result['reason']=='incoming-answer-pending'
@@ -457,7 +480,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             from assistant_reply_audit import pending as pending_replies
             unanswered=pending_replies(chain,who)
             result['unanswered_messages']=len(unanswered)
-            notice_needed=(not result['notifications']['accepted']
+            notice_needed=(not manually_blocked(chain.store,who) and not result['notifications']['accepted']
                     and (bool(unanswered) or not result['outgoing_observed_this_run'] or result['stages']['peer_contact']))
             exit_image=None;exit_image_status=None
             capture_needed=notice_needed and exit_notifier is not None and exit_photo is not None
@@ -466,7 +489,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 # A read-only preview avoids taking another expensive screenshot
                 # for a Telegram state already attempted (including unknown).
                 preview=notify_exit(chain,who,dict(result,_exit_messages=exit_messages),enabled=False)
-                capture_needed=preview['notification']!='already-attempted'
+                capture_needed=preview['notification'] not in ('already-attempted','manual-block-suppressed')
             if capture_needed:
                 progress('Снимок чата для уведомления • чтение завершено.')
                 try:

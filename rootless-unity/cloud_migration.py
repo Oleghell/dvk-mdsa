@@ -52,7 +52,7 @@ def require_latest_journals(raw,source,infos):
     """
     names={x['name'] for x in infos}
     for name,ddl in raw.execute('SELECT name,sqlite_sql FROM _dvk_schema').fetchall():
-        if name not in {'mumu_peer_blocks','mumu_installation_scopes','mumu_account_owners'} and not re.fullmatch(r'(?:(?:i[a-f0-9]{20}_)?m[0-9]{4,5}__)?(?:manual_actions|chain_send_attempts|chain_send_authorizations)',name):continue
+        if name not in {'mumu_peer_blocks','mumu_manual_silences','mumu_installation_scopes','mumu_account_owners'} and not re.fullmatch(r'(?:(?:i[a-f0-9]{20}_)?m[0-9]{4,5}__)?(?:manual_actions|chain_send_attempts|chain_send_authorizations)',name):continue
         if name not in names:raise CloudDatabaseError('cloud-local-journal-older-than-upload')
         info=schema_info(ddl)
         columns=[x[1] for x in info['columns'] if x[1] not in {'status','outcome','error'}]

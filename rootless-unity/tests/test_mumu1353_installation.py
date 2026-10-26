@@ -170,7 +170,7 @@ class Namespaces(unittest.TestCase):
         for name in ('i'+'a'*20+'_m5567__manual_actions',
                      'i'+'a'*20+'_m5567__chain_send_attempts',
                      'i'+'a'*20+'_m5567__chain_send_authorizations',
-                     'mumu_account_owners','mumu_installation_scopes'):
+                     'mumu_account_owners','mumu_installation_scopes','mumu_manual_silences'):
             raw=MagicMock();raw.execute.return_value.fetchall.return_value=[(name,'unused')]
             with self.assertRaisesRegex(CloudDatabaseError,'older-than-upload'):
                 migration.require_latest_journals(raw,MagicMock(),[])

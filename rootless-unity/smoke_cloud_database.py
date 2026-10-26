@@ -162,6 +162,35 @@ def run(config_path):
             assert mumu_cities.owns(scoped_a,allowed_a[0]) and not mumu_cities.owns(scoped_b,allowed_a[0])
             reopened=SharedStore(Path(folder)/'assistant.sqlite3',device_port=5559,installation_id='a'*32)
             assert reopened.summary()['reserved']==2
+            # /num is a global, quiet exclusion, not a changed send receipt.
+            from mumu_peer_policy import manually_blocked,without_manual_blocks
+            scope_chain=InboxChain(scoped_a)
+            before_targets=inbox_targets(scope_chain)
+            assert any(item['peer']=='9200' for group in before_targets for item in group)
+            with scoped_b.connection() as db:
+                db.execute("INSERT INTO mumu_peer_blocks(peer,reason,device,account,chat) VALUES('9200','manual-block','telegram','','')")
+            with scoped_a.read_connection() as db:
+                original_unknowns=db.execute('SELECT id,status FROM manual_actions').fetchall()
+            assert manually_blocked(scoped_a,who_scope)
+            assert without_manual_blocks(scoped_b,[who_scope])==[]
+            after_targets=inbox_targets(scope_chain)
+            assert all(item['peer']!='9200' for group in after_targets for item in group)
+            queries.clear()
+            with patch.object(cloud.Connection,'_run',traced):
+                assert without_manual_blocks(scoped_a,[who_scope])==[]
+            # Scope this check to the NEW deny-only lookup. inbox_targets also
+            # invokes the pre-existing reply-exclusion writer transaction.
+            assert any('READ ONLY' in q for q in queries)
+            assert not any('pg_advisory_xact_lock' in q or q.lstrip().startswith(('INSERT','UPDATE','DELETE','CREATE')) for q in queries)
+            # An existing verified refusal keeps its original provenance when
+            # /num also requests silence: the separate marker is deny-only.
+            with scoped_a.connection() as db:
+                db.execute("INSERT INTO mumu_peer_blocks(peer,reason,device,account,chat) VALUES('9201','contact-refused','other','111','9301')")
+                db.execute("INSERT INTO mumu_manual_silences(peer) VALUES('9201')")
+            assert manually_blocked(scoped_b,dict(who_scope,peer='9201'))
+            with scoped_a.read_connection() as db:
+                assert db.execute('SELECT id,status FROM manual_actions').fetchall()==original_unknowns
+                assert db.execute("SELECT reason FROM mumu_peer_blocks WHERE peer='9201'").fetchone()==('contact-refused',)
             # A tiny synthetic SQLite source tests binary/float/NULL migration,
             # latest-local cutover, and refusal to overwrite an active cloud DB.
             source=Path(folder)/'source.sqlite3'
