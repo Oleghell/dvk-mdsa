@@ -12,10 +12,20 @@ from mumu_common import MumuError, port, serial, root_directory, device_director
 
 TELEGRAM_DEVICE_NUMBERS={5563:1,5557:2,5559:3,5561:4,5565:5}
 
+def installation_tag():
+    from mumu_installation import checked
+    try:return checked(os.environ.get('DVK_INSTALLATION_ID'))
+    except MumuError:return None
+
 def telegram_device_label(value):
     n=port(value)
     number=TELEGRAM_DEVICE_NUMBERS.get(n)
-    return 'MuMu ADB '+str(n)+(f' ({number})' if number is not None else '')
+    label='MuMu ADB '+str(n)+(f' ({number})' if number is not None else '')
+    installation=os.environ.get('DVK_INSTALLATION_ID')
+    if installation:
+        from mumu_installation import checked
+        label+=' · ПК '+checked(installation)[:8]
+    return label
 
 def configure(value):
     n=port(value)
@@ -29,6 +39,8 @@ def configure(value):
     test_device.TARGET=serial(n)
     from mumu_bundle import VerifiedBundle
     test_device.bundle_token=VerifiedBundle(test_device.bundle_token)
+    from mumu_installation import load
+    os.environ['DVK_INSTALLATION_ID']=load()
     import assistant_store
     original=assistant_store.Store
     from mumu_store import SharedStore
@@ -59,7 +71,7 @@ def check_recovery_device(executable,folder,endpoint,boot):
 def run(spec,stopped,progress=lambda _:None,*,runner=None):
     n=port(spec['port'])
     stage='worker-bootstrap'
-    atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,
+    atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,installation_id=installation_tag(),
         status='starting',stage=stage,automatic_retry=False))
     try:
         configure(n)
@@ -81,7 +93,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
             scopes.enter_context(operation_lock(device_directory(n)/'worker.lock'))
             metrics=scopes.enter_context(transport(serial(n),stopped.is_set))
             scopes.callback(lambda:atomic(device_directory(n)/'last-performance.json',
-                dict(metrics.snapshot(),tool_version=VERSION,device_port=n)))
+                dict(metrics.snapshot(),tool_version=VERSION,device_port=n,installation_id=installation_tag())))
             stage='adb-preflight'
             adb=TargetOnlyAdb(current.adb,folder)
             boot=preflight(adb)
@@ -96,7 +108,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                 stage='profile-id-read'
                 from mumu_profile_id import run as read_profile_id
                 out=read_profile_id(current,stopped.is_set,progress)
-                atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,status='finished',stage=stage,automatic_retry=False))
+                atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,installation_id=installation_tag(),status='finished',stage=stage,automatic_retry=False))
                 return out  # ID is returned through the local pipe, never a report.
             stage='journal-initialization'
             from assistant_reply_window import enable
@@ -110,7 +122,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
             from assistant_monitor import REPORT
             from mumu_recovery import run as monitor
             stage='monitor'
-            atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,status='running',stage=stage,automatic_retry=False))
+            atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,installation_id=installation_tag(),status='running',stage=stage,automatic_retry=False))
             progress('Соединение проверено. Подготавливаю первый проход по диалогам и анкетам.')
             def write(value):
                 def scope(v):
@@ -126,9 +138,9 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                         for child in v:scope(child)
                 scope(value)
                 from mumu_version import ENGINE_VERSION
-                value.update(tool_version=VERSION,engine_version=ENGINE_VERSION,platform='MuMu',device_port=n,
+                value.update(tool_version=VERSION,engine_version=ENGINE_VERSION,platform='MuMu',device_port=n,installation_id=installation_tag(),
                     device_scope=serial(n),shared_database=True)
-                atomic(device_directory(n)/'last-performance.json',dict(metrics.snapshot(),tool_version=VERSION,device_port=n))
+                atomic(device_directory(n)/'last-performance.json',dict(metrics.snapshot(),tool_version=VERSION,device_port=n,installation_id=installation_tag()))
                 atomic(device_directory(n)/REPORT,value)
                 return REPORT
             def recovery_recheck():
@@ -139,7 +151,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
             out=(runner or monitor)(current,stopped,RunAuthorization(stopped,immediate_greeting=True,progress=progress,words_per_minute=current.typing_words_per_minute),progress,
                   mode=spec['mode'],fresh_session=spec['fresh'],write=write,continuous=True,**extra)
             write(out)
-            atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,status='finished',stage='monitor',automatic_retry=False))
+            atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,installation_id=installation_tag(),status='finished',stage='monitor',automatic_retry=False))
             return out
     except Exception as error:
         # Closed enums only. Never raw exception messages, ADB output or secrets.
@@ -147,7 +159,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
         name=type(error).__name__
         types={'MumuError','StateError','TestError','ReadStopped','ConfigError','ValueError',
                'FileNotFoundError','PermissionError','OSError','ModuleNotFoundError','ImportError','RuntimeError','OperationalError','IntegrityError','CloudDatabaseError'}
-        report=dict(tool_version=VERSION,platform='MuMu',device_port=n,status='stopped',
+        report=dict(tool_version=VERSION,platform='MuMu',device_port=n,installation_id=installation_tag(),status='stopped',
             stage=stage,error_type=name if name in types else 'OtherError',
             reason='cancelled' if stopped.is_set() else 'startup-failed',
             evidence=clean(getattr(error,'_dvk_failure',None)),automatic_retry=False)

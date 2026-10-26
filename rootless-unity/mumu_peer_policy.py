@@ -78,6 +78,8 @@ def ensure_communication_allowed(store,who,*,db=None):
     if db is None:
         with store.connection() as connection:
             return ensure_communication_allowed(store,who,db=connection)
+    from mumu_namespace import ensure_account
+    ensure_account(store,who,db)
     if db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?',(who['peer'],)).fetchone() is not None:
         raise PeerCommunicationBlocked()
 

@@ -319,7 +319,9 @@ def summary(result):
     reason=next((c for c in codes if c in GROQ_ERRORS),result['reason'])
     from startup_failure import message as failure_message
     from navigation_root_diagnostic import message as root_message
-    detail = run_preparation.message(result) or root_message(result.get('last_navigation')) or failure_message(result.get('last_navigation_failure'))
+    owner_detail=('Этот аккаунт закреплён за другой установкой или портом. Автоматический перенос журналов запрещён.'
+                  if 'account-owned-by-other-scope' in codes else None)
+    detail = owner_detail or run_preparation.message(result) or root_message(result.get('last_navigation')) or failure_message(result.get('last_navigation_failure'))
     text=('Пауза' if status=='paused' else 'Ошибка')+' • '+reason
     if detail:
         text += '\n' + detail

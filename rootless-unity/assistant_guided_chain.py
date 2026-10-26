@@ -461,6 +461,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             if not private['input_enabled']:
                 out['diagnostics']['input_disabled_verified']=True
                 raise StateError('chat-input-disabled')
+        from mumu_namespace import ensure_account
+        ensure_account(chain.store,value['identity'])
         if snapshot_capture is not None:
             snapshot_capture(checked({key:value[key] for key in ('identity','messages')}))
         if 'peer_name' in private:
@@ -806,7 +808,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         native=evidence(error)
         if native:out['diagnostics']['last_navigation_failure']=native
         # Only fixed, authored categories; no arbitrary native exception text.
-        allowed = {'start-before-peer-reply', 'guided-binding-changed',
+        allowed = {'account-owned-by-other-scope','start-before-peer-reply', 'guided-binding-changed',
                    'guided-history-not-verified', 'guided-consent-required'}
         allowed |= {'guided-contact-history-changed', 'contact-name-required',
                     'contact-protection-failed', 'contact-payload-invalid',

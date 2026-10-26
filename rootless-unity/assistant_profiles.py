@@ -64,7 +64,7 @@ def clear_history(store):
                 if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
                     db.execute(f'DELETE FROM {table}')
             if getattr(store,'mumu_shared_claims',False):
-                db.execute('DELETE FROM mumu_city_claims WHERE device=?',(str(store.device_port),))
+                db.execute('DELETE FROM mumu_city_claims WHERE device=?',(getattr(store,'device_owner',str(store.device_port)),))
     return True
 
 

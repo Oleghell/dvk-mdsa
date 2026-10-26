@@ -270,10 +270,27 @@ def verified_early_wrong_screen(value):
         and all(type(value.get(key)) is int and 0<value[key]<=1000000 for key in ('frames','managed_calls')))
 
 
+def verified_sample_wrong_screen(value):
+    """Report 237: visibility lost between complete read samples, not identity proof.
+
+    Permit only one fresh SAME-bound read. No partial messages are consumed;
+    successful retries still require both full samples and the expected IDs.
+    Identity/signature failures never enter this path.
+    """
+    if not isinstance(value,dict):return False
+    expected=dict(error='wrong-screen',stage='navigation-stopped',metadata_checkpoint='ready',
+        read_checkpoint='sample',wait_reason='none',identity_checkpoint='recheck',
+        scalar_checkpoint='chat-id',scalar_state='positive',message_kind='text')
+    return (all(value.get(key)==item for key,item in expected.items())
+        and value.get('message_direction') in ('own','not-own')
+        and type(value.get('message_slot')) is int and 0<=value['message_slot']<probe.MAX_MESSAGES
+        and all(type(value.get(key)) is int and 0<value[key]<=1000000 for key in ('frames','managed_calls')))
+
+
 def transient_read_failure(error):
     """Only bounded read-only retries for loading/changing history, not changed identity."""
     value = safe_read_failure(error)
-    return (verified_early_wrong_screen(value) or value['error'] in {'history-not-ready', 'frame-limit', 'frame-budget'}
+    return (verified_early_wrong_screen(value) or verified_sample_wrong_screen(value) or value['error'] in {'history-not-ready', 'frame-limit', 'frame-budget'}
             and value.get('wait_reason') in {'history-loading', 'history-not-loaded',
                 'null-history-manager', 'null-loaded-flag', 'changing-count',
                 'changing-last-message', 'view-not-ready'})

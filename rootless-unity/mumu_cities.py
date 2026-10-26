@@ -32,13 +32,13 @@ def initialize(db):
 def owns(store, city):
     if not city:return False
     with store.read_connection() as db:
-        rows=db.execute('SELECT city,state FROM mumu_city_claims WHERE device=?',(str(store.device_port),)).fetchall()
+        rows=db.execute('SELECT city,state FROM mumu_city_claims WHERE device=?',(getattr(store,'device_owner',str(store.device_port)),)).fetchall()
     return rows==[(search_city.normalize_city(city),'active')]
 
 
 def reserve(store, cities):
     allowed={search_city.normalize_city(c):c for c in search_city.check_cities(list(cities))}
-    device=str(store.device_port);token=secrets.token_hex(16)
+    device=getattr(store,'device_owner',str(store.device_port));token=secrets.token_hex(16)
     with store.connection() as db:
         rows=db.execute('SELECT city,device,state FROM mumu_city_claims').fetchall()
         if any(d==device and state=='pending' for _,d,state in rows):
@@ -74,7 +74,7 @@ def complete(store, token, cities, value):
     n=value['navigation']
     if n['stage']!='navigation-ready' or n['city_verified'] is not True or n['online_verified'] is not True:
         raise StateError('city-not-verified')
-    city=search_city.normalize_city(n['city_selected_name']);device=str(store.device_port)
+    city=search_city.normalize_city(n['city_selected_name']);device=getattr(store,'device_owner',str(store.device_port))
     with store.connection() as db:
         row=db.execute('SELECT device,state,token FROM mumu_city_claims WHERE city=?',(city,)).fetchone()
         pending=db.execute("SELECT 1 FROM mumu_city_claims WHERE device=? AND token=? AND state='pending'",(device,token)).fetchone()
@@ -134,7 +134,7 @@ def recover_pending(store,cities,reader,*,cancelled=lambda:False,wait=None,progr
         return True
     wait=wait or cancellable_wait
     allowed={search_city.normalize_city(c) for c in search_city.check_cities(list(cities))}
-    device=str(store.device_port);attempt=0
+    device=getattr(store,'device_owner',str(store.device_port));attempt=0
     retry={'wrong-screen','unexpected-screen','screen-not-ready','frame-limit','frame-budget',
            'call-limit','transition-timeout','observer-stopped'}
     while not cancelled():

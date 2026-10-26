@@ -244,6 +244,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 out.update(status='inbox-cancelled',reason='cancelled')
                 return out
             who=dict(account=account,peer=peer,chat=chat)
+            from mumu_namespace import owns_account
+            if not owns_account(chain.store,who):continue
             status=chain.notify(who,notifier,stopped.is_set)
             if status in out['contact_notifications']:out['contact_notifications'][status]+=1
             if status=='accepted':out['contacts_forwarded']+=1

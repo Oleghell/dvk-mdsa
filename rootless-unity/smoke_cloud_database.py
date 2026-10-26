@@ -117,6 +117,41 @@ def run(config_path):
                 with cloud.memory_snapshot(Path(folder)/'assistant.sqlite3',1024*1024) as ram:
                     ram.execute('DELETE FROM manual_actions')
                 with store2.connection() as db:assert db.execute('SELECT COUNT(*) FROM manual_actions').fetchone()[0]==2
+            # Two independent Windows installations with the SAME port. Only
+            # TEMP PostgreSQL tables are used; production records stay untouched.
+            from mumu_namespace import ensure_account,owns_account
+            scoped_a=SharedStore(Path(folder)/'assistant.sqlite3',device_port=5559,installation_id='a'*32)
+            scoped_b=SharedStore(Path(folder)/'assistant.sqlite3',device_port=5559,installation_id='b'*32)
+            assert scoped_a.prefix!=scoped_b.prefix
+            with scoped_a.read_connection() as db:
+                copied=db.execute('SELECT id,status FROM manual_actions').fetchall()
+                assert copied==[(1,'reserved-unknown')]
+            fresh=dict(attempt=1,account='111',peer='9200',chat='-1',variant=0)
+            next_id=scoped_a.reserve(fresh,'Synthetic scope',approved=True)
+            assert next_id==2  # Preserved IDs must advance the PG identity sequence.
+            with scoped_b.read_connection() as db:
+                assert db.execute('SELECT id,status FROM manual_actions').fetchall()==copied
+            try:scoped_b.reserve(dict(fresh,account='112'),'Synthetic scope',approved=True)
+            except SharedPeerClaimed:pass
+            else:raise AssertionError('Cross-installation greeting dedup lost')
+            who_scope=dict(account='111',peer='9200',chat='9300')
+            assert owns_account(scoped_a,who_scope) and not owns_account(scoped_b,who_scope)
+            try:ensure_account(scoped_b,who_scope)
+            except Exception as error:
+                from assistant_store import StateError
+                assert type(error) is StateError
+            else:raise AssertionError('Stale second-machine journal was authorized')
+            # Only this scope's city reservation can be finalized or released.
+            city_names=['Scope city '+chr(65+i) for i in range(20)]
+            token_a,allowed_a,used_a=mumu_cities.reserve(scoped_a,city_names)
+            token_b,allowed_b,used_b=mumu_cities.reserve(scoped_b,city_names)
+            assert not set(allowed_a)&set(allowed_b)
+            city_value=ready_city()
+            city_value['navigation'].update(city_selected_name=allowed_a[0],city_previous_name=None,city_round_reset=False)
+            mumu_cities.complete(scoped_a,token_a,allowed_a,city_value)
+            assert mumu_cities.owns(scoped_a,allowed_a[0]) and not mumu_cities.owns(scoped_b,allowed_a[0])
+            reopened=SharedStore(Path(folder)/'assistant.sqlite3',device_port=5559,installation_id='a'*32)
+            assert reopened.summary()['reserved']==2
             # A tiny synthetic SQLite source tests binary/float/NULL migration,
             # latest-local cutover, and refusal to overwrite an active cloud DB.
             source=Path(folder)/'source.sqlite3'
@@ -146,7 +181,7 @@ def run(config_path):
                 else:raise AssertionError('Active dataset overwritten')
                 assert raw.execute('SELECT COUNT(*) FROM mumu_peer_blocks').fetchone()[0]==2
                 assert raw.execute('SELECT payload,stamp,optional FROM chain_actions').fetchone()==(b'\x00\xffopaque',value,None)
-        print('PASS: Postgres temporary-only namespace, chain, float precision, RAM preview, verified COPY, latest-local cutover, active overwrite guard')
+        print('PASS: Postgres temporary-only two-installation migration/identity/ownership, chain, float precision, RAM preview, verified COPY, latest-local cutover, active overwrite guard')
     finally:raw.close() # All test tables disappear with this session.
 
 if __name__=='__main__':

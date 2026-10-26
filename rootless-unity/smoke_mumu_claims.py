@@ -23,8 +23,8 @@ def one(library,case):
     session=script=thread=None;done=threading.Event();state={};approvals=[]
     with tempfile.TemporaryDirectory() as t:
         path=Path(t)/'assistant.sqlite3';legacy=Path(t)/'old'
-        store=SharedStore(path,legacy,device_port=5557)
-        other=SharedStore(path,legacy,device_port=5559)
+        store=SharedStore(path,legacy,device_port=5557,installation_id='a'*32)
+        other=SharedStore(path,legacy,device_port=5557,installation_id='b'*32)
         try:
             assert child.stdout.readline().strip()=='ready'
             session=frida.get_local_device().attach(child.pid)
@@ -36,7 +36,7 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
 ''')
             script.load()
             def claim(pending):
-                # Same global peer, another account and another device.
+                # Same global peer, another account and another installation, SAME port.
                 p=dict(pending,account=str(int(pending['account'])+1))
                 other.reserve(p,'Other greeting',approved=True)
                 if case!='greeting-only':

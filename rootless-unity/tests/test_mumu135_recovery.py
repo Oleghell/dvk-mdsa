@@ -134,7 +134,9 @@ print('ok')
 '''
   root=Path(__file__).resolve().parents[1]
   import os
-  env=dict(os.environ,PYTHONPATH=str(root)+os.pathsep+str(root/'tests'))
+  import tempfile
+  folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
+  env=dict(os.environ,LOCALAPPDATA=folder.name,PYTHONPATH=str(root)+os.pathsep+str(root/'tests'))
   for port in (5563,5557,5559,5561,5565):
    out=subprocess.run([sys.executable,'-c',code,str(port)],capture_output=True,text=True,env=env,timeout=20)
    self.assertEqual(out.returncode,0,out.stderr[-1000:]);self.assertEqual(out.stdout.strip(),'ok')

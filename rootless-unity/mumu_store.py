@@ -63,9 +63,20 @@ class Connection:
 class SharedStore(BaseStore):
     mumu_shared_claims=True
     @journal_initialization()
-    def __init__(self,path=None,legacy_directory=None,*,device_port=None):
+    def __init__(self,path=None,legacy_directory=None,*,device_port=None,installation_id=None):
         self.device_port=port(device_port if device_port is not None else os.environ.get('DVK_MUMU_PORT','5563'))
-        self.prefix='' if self.device_port==5563 else 'm'+str(self.device_port)+'__'
+        legacy_prefix='' if self.device_port==5563 else 'm'+str(self.device_port)+'__'
+        from mumu_installation import checked,load
+        # Explicit offline paths retain the legacy API. Every normal GUI/worker
+        # store has a machine-bound installation ID; exported DB config has none.
+        if installation_id is None and path is None:installation_id=load()
+        if installation_id is None and os.environ.get('DVK_MUMU_MULTI')=='1':
+            installation_id=checked(os.environ.get('DVK_INSTALLATION_ID'))
+        self.installation_id=None if installation_id is None else checked(installation_id)
+        self.device_owner=(self.installation_id+':'+str(self.device_port)
+                           if self.installation_id else str(self.device_port))
+        self.prefix=('i'+self.installation_id[:20]+'_m'+str(self.device_port)+'__'
+                     if self.installation_id else legacy_prefix)
         path=Path(path) if path is not None else root_directory()/'assistant.sqlite3'
         path.parent.mkdir(parents=True,exist_ok=True)
         self.path=path
@@ -89,6 +100,9 @@ class SharedStore(BaseStore):
                 import mumu_greetings, mumu_cities
                 mumu_greetings.initialize(db)
                 mumu_cities.initialize(db)
+                if self.installation_id:
+                    from mumu_namespace import initialize as initialize_namespace
+                    initialize_namespace(db,self.device_owner,self.prefix,legacy_prefix,TABLES)
                 # Old releases accidentally shared receipt keys across devices.
                 # Copy ONLY receipts whose salted fingerprint matches this
                 # phone's persisted observation; never guess the owner by ChatId.
@@ -156,19 +170,21 @@ class SharedStore(BaseStore):
         from one_chat_probe import identity
         from mumu_peer_policy import record
         who=identity(who)
-        record(db,who,reason,str(self.device_port))
+        record(db,who,reason,self.device_owner)
 
     def reserve(self,pending,text,*,approved=False):
         pending=LegacyStore.check(pending);check_text(text)
         if approved is not True:raise StateError('Нужно разрешение запуска.')
         self.check_legacy(pending['account'],pending['peer'])
         with self.connection() as db:
+            from mumu_namespace import ensure_account
+            ensure_account(self,{k:pending[k] for k in ('account','peer','chat')},db)
             # Outcome and reservation serialize in the SAME SQLite transaction.
             # Claim and local journal commit atomically; replies use terminal bans only.
             if self.blocked(db,pending['peer']):
                 raise SharedPeerClaimed('Приветствие уже зарезервировано или контакт/отказ получен на одном из MuMu.')
             db.execute('INSERT INTO mumu_greeting_claims(peer,device,account) VALUES(?,?,?)',
-                       (pending['peer'],str(self.device_port),pending['account']))
+                       (pending['peer'],self.device_owner,pending['account']))
             cur=db.execute("""INSERT INTO manual_actions
               (account,peer,initial_chat,text_hash,confirmed,status) VALUES(?,?,?,?,1,'reserved-unknown')""",
               (pending['account'],pending['peer'],pending['chat'],hashlib.sha256(text.encode()).hexdigest()))
