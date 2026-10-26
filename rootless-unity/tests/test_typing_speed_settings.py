@@ -21,7 +21,7 @@ class Settings(unittest.TestCase):
                 cfg.save(value, folder)
                 self.assertEqual(cfg.load(folder), value)
                 saved = json.loads(Path(folder, 'workflow-settings.json').read_text())
-                self.assertEqual(saved['settings_version'], 8)
+                self.assertEqual(saved['settings_version'], 9)
                 self.assertEqual(saved['typing_words_per_minute'], speed)
 
     def test_old_schemas_default_to_35_without_losing_provider(self):
@@ -99,6 +99,8 @@ class SpeedUI(unittest.TestCase):
         for call in self.ttk.Checkbutton.call_args_list:
             if call.kwargs.get('text', '').startswith('Telegram:'):
                 call.kwargs['variable'].set(False)
+        for call in self.ttk.Checkbutton.call_args_list:
+            if call.kwargs.get('text','').startswith('Имитировать задержку'):call.kwargs['variable'].set(True)
         self.speed().set('70')
         self.command('Сохранить')()
         self.assertEqual(self.save.call_args.args[0].typing_words_per_minute, 70)

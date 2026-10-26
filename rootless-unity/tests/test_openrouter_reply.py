@@ -120,7 +120,7 @@ class ConnectionAndSettings(unittest.TestCase):
             self.assertEqual(cfg.load(temp).ai_model,'fixture/custom:free')
             path=Path(temp)/'workflow-settings.json'
             body=json.loads(path.read_text());body.update(settings_version=3,groq_model='llama-3.3-70b-versatile')
-            body.pop('typing_words_per_minute');body.pop('zai_model');body.pop('gemini_model');body.pop('profile_interval');body.pop('ai_provider');body.pop('openrouter_model');path.write_text(json.dumps(body))
+            body.pop('typing_words_per_minute');body.pop('typing_delay_enabled');body.pop('zai_model');body.pop('gemini_model');body.pop('profile_interval');body.pop('ai_provider');body.pop('openrouter_model');path.write_text(json.dumps(body))
             migrated=cfg.load(temp)
             self.assertEqual(migrated.groq_model,g.MODEL);self.assertEqual(migrated.ai_provider,'groq')
             self.assertTrue(migrated.groq_enabled)

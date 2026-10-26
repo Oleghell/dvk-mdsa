@@ -258,7 +258,7 @@ def build():
     if(n.friends_status==='not-read'){
      const result={friends_status:'unavailable',friends_count:null,friends_eligible:null};
      if(s.friendCount!==null){
-      const waitForModel=()=>{state.nextActionAt=Date.now()+1000;};
+      const waitForModel=()=>{state.nextActionAt=Date.now()+100;};
       const content=target(state.content),model=call(s.contentProfile,content);
       if(model.isNull()){waitForModel();return;}own(model);
       if(!f.objectClass(model).equals(s.profileModel))fail('unexpected-object');

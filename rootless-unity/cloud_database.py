@@ -117,7 +117,9 @@ def raw_connect(cfg):
     db=None
     try:
         import psycopg
-        db=psycopg.connect(host=cfg['host'],port=cfg['port'],dbname=cfg['database'],user=cfg['user'],
+        from assistant_runtime import phase
+        with phase('db_connect'):
+            db=psycopg.connect(host=cfg['host'],port=cfg['port'],dbname=cfg['database'],user=cfg['user'],
             password=cfg['password'],sslmode='verify-full',sslrootcert=str(Path(__file__).with_name('supabase-ca.crt')),connect_timeout=8,
             autocommit=True,prepare_threshold=None,application_name='DvkAssistant')
         # Supabase may default to 0: that rounds epoch/REAL values on SELECT.
@@ -146,7 +148,11 @@ class Connection:
     def __exit__(self,kind,error,tb):
         if self.in_transaction:self.execute('ROLLBACK' if kind else 'COMMIT')
     def _run(self,sql,params=()):
-        try:return self.raw.execute(sql,params or None,prepare=False)
+        try:
+            from assistant_runtime import phase
+            kind=operation(sql)
+            stage='db_lock' if kind=='lock' else 'db_read' if kind in ('read','catalog') else 'db_commit' if kind=='commit' else 'db_write'
+            with phase(stage):return self.raw.execute(sql,params or None,prepare=False)
         except Exception as error:
             self.reusable=False # Never pool a session after an unknown SQL/commit outcome.
             state=getattr(error,'sqlstate',None)
@@ -169,11 +175,22 @@ class Connection:
             if self.in_transaction:raise CloudDatabaseError('cloud-transaction-invalid')
             begin='BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' if self.read_only else 'BEGIN'
             self._run(begin);self.in_transaction=True
-            if getattr(_local,"initializing",False):
-                self._run("SET LOCAL statement_timeout='65000'; SET LOCAL lock_timeout='60000'; SET LOCAL synchronous_commit=on")
-            else:
-                self._run("SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'; SET LOCAL synchronous_commit=on")
-            if not self.read_only:self._run('SELECT pg_advisory_xact_lock(%s)',(LOCK_ID,))
+            initializing=getattr(_local,"initializing",False)
+            settings=("SET LOCAL statement_timeout='65000'; SET LOCAL lock_timeout='60000'; SET LOCAL synchronous_commit=on" if initializing else
+                      "SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='2000'; SET LOCAL synchronous_commit=on")
+            self._run(settings)
+            if not self.read_only:
+                # Retry ONLY advisory-lock acquisition before yielding a writer
+                # transaction to any caller. No read/write body, commit, native
+                # action or send is replayed. Failed BEGINs are rolled back.
+                for attempt in range(1 if initializing else 3):
+                    try:
+                        self._run('SELECT pg_advisory_xact_lock(%s)',(LOCK_ID,));break
+                    except CloudDatabaseError as error:
+                        if error.code!='cloud-database-lock-timeout' or error.operation!='lock':raise
+                        self._run('ROLLBACK');self.in_transaction=False
+                        if initializing or attempt==2:raise
+                        self._run(begin);self.in_transaction=True;self._run(settings)
             return Cursor()
         if upper in ('COMMIT','ROLLBACK'):
             self._run(upper);self.in_transaction=False

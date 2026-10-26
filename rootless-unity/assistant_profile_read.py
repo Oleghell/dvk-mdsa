@@ -85,7 +85,7 @@ def specialize(source):
    n.phase='close-chat';state.nextActionAt=Date.now()+1000;return;
    }
    if(n.phase==='prepare-greeting'){
-''' + CONTEXT.replace("    if(!n.chat_identity_verified", INPUT_GATE + "\n    if(!n.chat_identity_verified") + cohort_pass.RESERVE + r'''
+''' + CONTEXT.replace("    if(!n.chat_identity_verified", INPUT_GATE + "\n    if(!n.chat_identity_verified") + cohort_pass.RESERVE.replace("state.nextActionAt=Date.now()+1000;return;","state.nextActionAt=Date.now()+100;return;") + r'''
     n.phase='submit-greeting';state.nextActionAt=Date.now();return;
    }
    if(n.phase==='submit-greeting'){

@@ -61,6 +61,9 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
     if new_start:mode='full'
     if mode not in ('full', 'inbox'):
         raise ValueError('Invalid monitor mode')
+    from assistant_polling import Schedule
+    polling=Schedule(clock)
+    adaptive=continuous and getattr(approve,'fast_runtime',False) is True
     out = report(mode)
     out.update(continuous_work=continuous, early_profile_batches=0)
     out.update(flags(approve))
@@ -219,6 +222,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 out.update(dialogs_verified=False, ui_may_remain_open=True)
                 current = inbox(settings, stopped, approve, progress,
                                 entry='dialogs', return_to='dialogs')
+                if adaptive:polling.record(current)
                 out['last_pass'] = current
                 add_counters(current)
                 check_stop()
@@ -284,6 +288,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 publish()  # A failed report always stops further device work.
                 phase = 'monitor-check-stopped'
                 delay = min(settings.reply_interval, max(0.01, next_profiles-clock())) if mode == 'full' and not active else settings.reply_interval
+                if adaptive:delay=min(delay,polling.delay(settings.reply_interval))
                 progress(summary(out) + f' Следующая проверка через {delay:g} сек.')
                 immediate_passes = 0
                 if wait(delay):

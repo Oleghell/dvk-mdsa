@@ -115,7 +115,8 @@ class ProfileSchema(unittest.TestCase):
         self.assertEqual(p.ACTION_DELAY_MS,1000)
         self.assertIn('navState.nextActionAt=Date.now()+1000',p.FUNCTION)
         self.assertIn('if(Date.now()<navState.nextActionAt)return;',p.FUNCTION)
-        self.assertEqual(p.FUNCTION.count('state.nextActionAt=Date.now()+1000'),3)
+        self.assertEqual(p.FUNCTION.count('state.nextActionAt=Date.now()+1000'),2)
+        self.assertIn('const waitForModel=()=>{state.nextActionAt=Date.now()+100;};',p.FUNCTION)
         self.assertNotIn('Thread.Sleep',p.FUNCTION)
         self.assertNotIn('while(Date.now()',p.FUNCTION)
         for delay in (True,999,1000.0,None):

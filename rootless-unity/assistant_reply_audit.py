@@ -16,44 +16,60 @@ def initialize(db):
 
 
 def observe(chain,snapshot,input_ids=None):
-    who=snapshot['identity'];chat=who['chat']
-    chain.authorized(who)
-    with chain.store.connection() as db:
-        initialize(db)
+    who=snapshot['identity'];chat=who['chat'];chain.authorized(who)
+    chain.store.ensure_tables(DDL)
+    with chain.store.read_connection() as db:
         row=db.execute('SELECT stage,salt FROM chain_dialogs WHERE chat=?',(chat,)).fetchone()
         if row is None or row[0] in ('done','declined','manual-review'):return
         seen={r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?',(chat,))}
-        for m in snapshot['messages']:
-            if m['sender']==who['peer'] and (m['id'] not in seen or m['id'] in (input_ids or ())):
-                db.execute("INSERT OR IGNORE INTO chain_reply_receipts VALUES(?,?,?,'pending',NULL)",
-                           (chat,m['id'],fingerprint(m,row[1])))
+        existing={r[0] for r in db.execute('SELECT message FROM chain_reply_receipts WHERE chat=?',(chat,))}
+    incoming=[m for m in snapshot['messages'] if m['sender']==who['peer'] and m['id'] not in existing
+              and (m['id'] not in seen or m['id'] in (input_ids or ()))]
+    if incoming:
+        with chain.store.connection() as db:
+            current=db.execute('SELECT stage,salt FROM chain_dialogs WHERE chat=?',(chat,)).fetchone()
+            if current==row:
+                for m in incoming:
+                    db.execute("INSERT OR IGNORE INTO chain_reply_receipts VALUES(?,?,?,'pending',NULL)",
+                               (chat,m['id'],fingerprint(m,row[1])))
     synchronize(chain,snapshot)
 
 
 def synchronize(chain,snapshot):
-    who=snapshot['identity'];chat=who['chat']
-    with chain.store.connection() as db:
-        initialize(db)
+    who=snapshot['identity'];chat=who['chat'];chain.store.ensure_tables(DDL)
+    # Nothing pending means nothing to synchronize, NOT delivery proof. Avoid a
+    # global cloud writer lock on every already-handled read/proposal/exit.
+    with chain.store.read_connection() as db:
+        pending_rows=dict(db.execute("SELECT message,fingerprint FROM chain_reply_receipts WHERE chat=? AND status='pending'",(chat,)))
+        if not pending_rows:return
         state=db.execute('SELECT stage,salt FROM chain_dialogs WHERE chat=?',(chat,)).fetchone()
         if not state:return
-        if state[0] in ('done','declined'):
-            db.execute("UPDATE chain_reply_receipts SET status=? WHERE chat=? AND status='pending'",
-                       ('contact-received' if state[0]=='done' else 'declined',chat))
-            return
-        actions=db.execute("SELECT kind,text_hash FROM chain_actions WHERE chat=? AND status='outgoing-observed'",(chat,)).fetchall()
-        for kind,digest in actions:
-            outgoing=[m for m in snapshot['messages'] if m['sender']==who['account'] and isinstance(m['text'],str) and text_hash(m['text'])==digest]
-            if len(outgoing)!=1:continue
-            inputs={r[0] for r in db.execute('SELECT message FROM ai_draft_inputs WHERE chat=? AND kind=?',(chat,kind))}
-            for m in snapshot['messages']:
-                if m['sender']==who['peer'] and m['id'] in inputs:
-                    db.execute("UPDATE chain_reply_receipts SET status='answered',reply_message=? WHERE chat=? AND message=? AND fingerprint=? AND status='pending'",
-                               (outgoing[0]['id'],chat,m['id'],fingerprint(m,state[1])))
+        terminal=state[0] in ('done','declined')
+        changes=[]
+        if not terminal:
+            actions=db.execute("SELECT a.kind,a.text_hash,i.message FROM chain_actions a JOIN ai_draft_inputs i ON i.chat=a.chat AND i.kind=a.kind WHERE a.chat=? AND a.status='outgoing-observed'",(chat,)).fetchall()
+            for kind,digest,message in actions:
+                if message not in pending_rows:continue
+                outgoing=[m for m in snapshot['messages'] if m['sender']==who['account'] and isinstance(m['text'],str) and text_hash(m['text'])==digest]
+                incoming=[m for m in snapshot['messages'] if m['id']==message and m['sender']==who['peer']]
+                if len(outgoing)==len(incoming)==1 and fingerprint(incoming[0],state[1])==pending_rows[message]:
+                    changes.append((kind,digest,message,outgoing[0]['id'],pending_rows[message]))
+    if not terminal and not changes:return
+    with chain.store.connection() as db:
+        if db.execute('SELECT stage,salt FROM chain_dialogs WHERE chat=?',(chat,)).fetchone()!=state:return
+        if terminal:
+            db.execute("UPDATE chain_reply_receipts SET status=? WHERE chat=? AND status='pending'",('contact-received' if state[0]=='done' else 'declined',chat));return
+        for kind,digest,message,outgoing,digest_input in changes:
+            db.execute("""UPDATE chain_reply_receipts SET status='answered',reply_message=?
+              WHERE chat=? AND message=? AND fingerprint=? AND status='pending'
+              AND EXISTS(SELECT 1 FROM chain_actions a JOIN ai_draft_inputs i ON i.chat=a.chat AND i.kind=a.kind
+                WHERE a.chat=? AND a.kind=? AND a.text_hash=? AND a.status='outgoing-observed' AND i.message=?)""",
+                (outgoing,chat,message,digest_input,chat,kind,digest,message))
 
 
 def pending(chain,who):
-    with chain.store.connection() as db:
-        initialize(db)
+    chain.store.ensure_tables(DDL)
+    with chain.store.read_connection() as db:
         return [r[0] for r in db.execute("SELECT message FROM chain_reply_receipts WHERE chat=? AND status='pending' ORDER BY message",(who['chat'],))]
 
 
@@ -62,6 +78,13 @@ def recycle_followup(chain,snapshot):
     if chain.responder is None:return
     who=snapshot['identity'];chat=who['chat']
     synchronize(chain,snapshot)
+    with chain.store.read_connection() as db:
+        state=db.execute('SELECT stage FROM chain_dialogs WHERE chat=?',(chat,)).fetchone()
+        if not state or state[0]!='wait-contact':return
+        seen={r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?',(chat,))}
+        if not any(m['sender']==who['peer'] and m['id'] not in seen and isinstance(m['text'],str) and m['text'].strip() for m in snapshot['messages']):return
+        row=db.execute("SELECT status FROM chain_actions WHERE chat=? AND kind='followup'",(chat,)).fetchone()
+        if row!=('outgoing-observed',):return
     with chain.store.connection() as db:
         state=db.execute('SELECT stage FROM chain_dialogs WHERE chat=?',(chat,)).fetchone()
         if not state or state[0]!='wait-contact':return

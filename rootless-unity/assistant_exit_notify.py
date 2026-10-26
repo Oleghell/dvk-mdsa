@@ -217,6 +217,16 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
     if photo_status=='unavailable':text+='\nСнимок переписки получить не удалось.'
     text=text[:950]  # reserve room for the port label in the 1024-char caption
     if manually_blocked(chain.store,who):return suppressed()
+    from assistant_exit_queue import enqueue
+    try:queued=enqueue(chain,who,signature,text,photo,sender,photo_sender,lambda:False)
+    except Exception:
+        # No plaintext/synchronous fallback after failed durable protection.
+        # Preserve any concurrently completed status with a conditional update.
+        with chain.store.connection() as db:
+            db.execute("UPDATE chain_exit_notices SET status='blocked' WHERE chat=? AND signature=? AND status='attempted-unknown'",(who['chat'],signature))
+        return dict(chat_ref=ref,reason=reason,review_cause=cause,notification='blocked',photo='not-requested')
+    if queued:
+        return dict(chat_ref=ref,reason=reason,review_cause=cause,notification='queued',photo='attached' if photo is not None and photo_sender is not None else 'not-requested')
     try:
         accepted=photo_sender(text,photo) if photo is not None and photo_sender is not None else sender(text)
         status = 'accepted' if accepted is True else 'unknown'

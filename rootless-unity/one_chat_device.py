@@ -33,7 +33,8 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
     address = '127.0.0.1:' + str(port)
     device = session = script = None
     guard = f.Cancellable()
-    timer = threading.Timer(25, guard.cancel)
+    from assistant_read_budget import remaining
+    timer = threading.Timer(remaining(), guard.cancel)
     timer.daemon = True
     done = threading.Event()
     monitor = None

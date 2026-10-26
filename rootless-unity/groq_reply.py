@@ -344,8 +344,10 @@ class Responder:
             if self.cancelled():
                 raise GroqError('groq-cancelled')
             self.calls += 1
-            with client.open(request, timeout=self.timeout) as response:
-                raw = response.read(32769)
+            from assistant_ai_budget import request as bounded_request
+            from assistant_runtime import phase
+            with phase('ai_http'):
+                raw = bounded_request(client,request,self.timeout,self.cancelled)
             if len(raw) > 32768:
                 raise GroqError('groq-invalid-response')
             result = continuation(self.decode_response(raw), kind, snapshot=snapshot)

@@ -317,12 +317,24 @@ class Chain:
             db.execute('INSERT OR IGNORE INTO chain_contact_media VALUES(?,?)',(who['chat'],protected))
 
     def notify(self, who, notifier, cancelled=lambda: False):
+        dispatcher=getattr(self,'notification_dispatcher',None)
+        if dispatcher is None or notifier is None or not self.contact_notifications:
+            return self._notify(who,notifier,cancelled)
+        self.authorized(who)
+        with self.store.read_connection() as db:
+            row=db.execute("SELECT 1 FROM chain_contact_outbox WHERE chat=? AND status='pending'",(who['chat'],)).fetchone()
+        if row is None:return 'nothing-pending'
+        return dispatcher.enqueue(self,who,notifier,cancelled)
+
+    def _notify(self, who, notifier, cancelled=lambda: False):
         # Never consume the former generic new-message outbox. It is obsolete.
         if notifier is None or not self.contact_notifications:
             return 'disabled'
         if cancelled():
             return 'cancelled'
         self.authorized(who)
+        from mumu_peer_policy import manually_blocked
+        if manually_blocked(self.store,who):return 'blocked'
         with self.store.connection() as db:
             row = db.execute("SELECT payload FROM chain_contact_outbox WHERE chat=? AND status='pending'", (who['chat'],)).fetchone()
             if row is None:
@@ -344,6 +356,9 @@ class Chain:
                     png_size(data['photo'])
                 except Exception:return 'blocked'
             db.execute("UPDATE chain_contact_outbox SET status='attempted-unknown' WHERE chat=?", (who['chat'],))
+        if manually_blocked(self.store,who):
+            with self.store.connection() as db:db.execute("UPDATE chain_contact_outbox SET status='blocked' WHERE chat=? AND status='attempted-unknown'",(who['chat'],))
+            return 'blocked'
         if cancelled():
             return 'cancelled'  # Reserved attempt remains consumed; no resend.
         try:

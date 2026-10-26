@@ -24,6 +24,7 @@ class Settings:
     gemini_model: str = 'gemini-3.1-flash-lite'
     zai_model: str = 'glm-4.5-flash'
     typing_words_per_minute: int = 35
+    typing_delay_enabled: bool = False
 
     def check(self):
         from assistant_authorization import check_words_per_minute
@@ -40,6 +41,7 @@ class Settings:
             raise StateError('Анкет за одну порцию: от 1 до 20.')
         if type(self.profile_interval) is not int or not 30 <= self.profile_interval <= 86400:
             raise StateError('Отдых перед новой порцией: от 30 до 86400 секунд.')
+        if type(self.typing_delay_enabled) is not bool:raise StateError('Проверь переключатель задержки печати.')
         import re
         if type(self.groq_enabled) is not bool or type(self.errors_enabled) is not bool:
             raise StateError('Проверь переключатели ИИ и уведомлений об ошибках.')
@@ -83,7 +85,7 @@ def load(directory=None):
                 raise ValueError()
             config = json.loads(options.read_text(encoding='utf-8'))
             schema = config.pop('settings_version', 1)
-            if type(schema) is not int or schema not in (1, 2, 3, 4, 5, 6, 7, 8):
+            if type(schema) is not int or schema not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
                 raise ValueError()
             legacy_interval = config.get('reply_interval')
             if type(legacy_interval) is not int or not 5 <= legacy_interval <= 3600:
@@ -96,6 +98,7 @@ def load(directory=None):
             required = {'contacts_enabled', 'reply_interval'}
             if schema >= 8:
                 required.add('typing_words_per_minute')
+            if schema>=9:required.add('typing_delay_enabled')
             allowed = required | {'profile_limit'} | ({'groq_enabled', 'groq_model', 'errors_enabled'} if schema >= 3 else set()) | ({'ai_provider', 'openrouter_model'} if schema >= 4 else set()) | ({'profile_interval'} if schema >= 6 else set()) | ({'gemini_model','zai_model'} if schema >= 7 else set())
             if schema < 4 and config.get('groq_model') == 'llama-3.3-70b-versatile':
                 config['groq_model'] = 'qwen/qwen3.8-27b'
@@ -118,7 +121,7 @@ def save(settings, directory=None):
     directory = data_directory() if directory is None else Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     values = {'settings.json': dict(adb=settings.adb, test_apks=settings.folder),
-              'workflow-settings.json': dict(settings_version=8, typing_words_per_minute=settings.typing_words_per_minute, profile_interval=settings.profile_interval, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
+              'workflow-settings.json': dict(settings_version=9, typing_delay_enabled=settings.typing_delay_enabled, typing_words_per_minute=settings.typing_words_per_minute, profile_interval=settings.profile_interval, contacts_enabled=settings.contacts_enabled, reply_interval=settings.reply_interval,
                                             profile_limit=settings.profile_limit, groq_enabled=settings.groq_enabled,
                                             groq_model=settings.groq_model, errors_enabled=settings.errors_enabled,
                                             ai_provider=settings.ai_provider, openrouter_model=settings.openrouter_model, gemini_model=settings.gemini_model, zai_model=settings.zai_model)}

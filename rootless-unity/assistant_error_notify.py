@@ -182,6 +182,10 @@ def diagnostic_json(report):
                 result[key] = entry
             elif key in numbers and (entry is None or type(entry) is int and 0 <= entry <= 1000000):
                 result[key] = entry
+            elif key=='database':
+                from cloud_database import clean_diagnostic
+                safe=clean_diagnostic(entry)
+                if safe:result[key]=safe
             elif key in flags and type(entry) is bool:
                 result[key] = entry
             elif key in labels and isinstance(entry, str) and entry in codes:

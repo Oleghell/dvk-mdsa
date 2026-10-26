@@ -263,7 +263,7 @@ print('isolated')
         # Static assertions supplement full engine authorization/monitor unit tests.
         text=(ROOT/'mumu_worker.py').read_text(encoding='utf-8')
         self.assertIn('profile_interval=120,reply_interval=5',text)
-        self.assertIn('RunAuthorization(stopped,immediate_greeting=True,progress=progress,words_per_minute=current.typing_words_per_minute)',text);self.assertIn('continuous=True',text)
+        self.assertIn('RunAuthorization(stopped,immediate_greeting=True,progress=progress,words_per_minute=current.typing_words_per_minute,typing_delay_enabled=current.typing_delay_enabled,fast_runtime=True)',text);self.assertIn('continuous=True',text)
         self.assertIn('preflight(adb)',text);self.assertIn('recheck(adb,boot)',text)
         self.assertNotIn('time.sleep',text)
         spec=(ROOT/'mumu.spec').read_text(encoding='utf-8');self.assertIn('console=True',spec);self.assertIn('console=False',spec)

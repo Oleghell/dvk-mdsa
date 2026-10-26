@@ -42,7 +42,7 @@ class ProviderSettings(unittest.TestCase):
         with tempfile.TemporaryDirectory() as p:
             cfg.save(cfg.Settings(ai_provider='openrouter',groq_enabled=True),p)
             f=Path(p)/'workflow-settings.json';s=json.loads(f.read_text())
-            s['settings_version']=6;s.pop('typing_words_per_minute');s.pop('gemini_model');s.pop('zai_model');f.write_text(json.dumps(s))
+            s['settings_version']=6;s.pop('typing_words_per_minute');s.pop('typing_delay_enabled');s.pop('gemini_model');s.pop('zai_model');f.write_text(json.dumps(s))
             loaded=cfg.load(p)
             self.assertEqual(loaded.ai_provider,'openrouter');self.assertEqual(loaded.gemini_model,gemini.MODEL)
     def test_models_cannot_inject_endpoint_or_enable_paid_zai(self):

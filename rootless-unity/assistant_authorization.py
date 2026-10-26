@@ -14,8 +14,10 @@ def check_words_per_minute(value):
 
 class RunAuthorization:
     automatic_send = True
-    def __init__(self, stopped, *, wait=None, immediate_greeting=False, progress=None, words_per_minute=WORDS_PER_MINUTE):
+    def __init__(self, stopped, *, wait=None, immediate_greeting=False, progress=None, words_per_minute=WORDS_PER_MINUTE, typing_delay_enabled=True, fast_runtime=False):
         if type(immediate_greeting) is not bool:raise ValueError("Invalid greeting pacing")
+        if type(typing_delay_enabled) is not bool or type(fast_runtime) is not bool:raise ValueError('Invalid runtime options')
+        self.typing_delay_enabled=typing_delay_enabled;self.fast_runtime=fast_runtime
         self.words_per_minute = check_words_per_minute(words_per_minute)
         self.progress = progress
         self.immediate_greeting = immediate_greeting
@@ -27,6 +29,9 @@ class RunAuthorization:
             return False
         if kind == 'greeting' and self.immediate_greeting:
             if self.progress is not None:self.progress('Первое приветствие • без задержки печати.')
+            return not self.stopped.is_set() and not cancelled()
+        if not self.typing_delay_enabled:
+            if self.progress is not None:self.progress('Ответ готов • без искусственной задержки печати.')
             return not self.stopped.is_set() and not cancelled()
         # Host-side delay, not a claimed native typing indicator. Never reserve a
         # send before waiting. The caller must then re-read identity/history.

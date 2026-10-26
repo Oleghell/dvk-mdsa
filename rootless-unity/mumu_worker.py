@@ -147,8 +147,12 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                 # Fresh evidence + reconnect, retaining the original locked boot.
                 check_recovery_device(current.adb,folder,serial(n),boot)
             extra={} if runner is not None else {'recheck':recovery_recheck}
+            from assistant_inbox import runtime_store
+            scopes.enter_context(runtime_store(journal))
+            from assistant_notification_queue import running as notification_queue
+            scopes.enter_context(notification_queue(stopped))
             if runner is None and hasattr(stopped,'restart_on_resume'):stopped.restart_on_resume=True
-            out=(runner or monitor)(current,stopped,RunAuthorization(stopped,immediate_greeting=True,progress=progress,words_per_minute=current.typing_words_per_minute),progress,
+            out=(runner or monitor)(current,stopped,RunAuthorization(stopped,immediate_greeting=True,progress=progress,words_per_minute=current.typing_words_per_minute,typing_delay_enabled=current.typing_delay_enabled,fast_runtime=True),progress,
                   mode=spec['mode'],fresh_session=spec['fresh'],write=write,continuous=True,**extra)
             write(out)
             atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,installation_id=installation_tag(),status='finished',stage='monitor',automatic_retry=False))

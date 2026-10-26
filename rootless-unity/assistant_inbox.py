@@ -16,6 +16,16 @@ import time
 from run_preparation import checkpoint
 import assistant_history_wait as history_wait
 
+from contextvars import ContextVar
+from contextlib import contextmanager
+_worker_store=ContextVar('mumu_worker_store',default=None)
+@contextmanager
+def runtime_store(store):
+    if getattr(store,'mumu_shared_claims',False) is not True:raise ValueError('MuMu store required')
+    token=_worker_store.set(store)
+    try:yield
+    finally:_worker_store.reset(token)
+
 LIMIT = None
 PAUSE_OUTCOMES = {'message-not-approved', 'manual-review'}
 # Chat-local uncertainty is isolated; only the explicit MuMu recovery policy can retry once.
@@ -264,6 +274,12 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     def pending_contacts():
         with chain.store.read_connection() as db:
             return db.execute("SELECT COUNT(*) FROM chain_contact_outbox WHERE status='pending'").fetchone()[0]
+    dispatcher=getattr(chain,'notification_dispatcher',None)
+    if dispatcher is not None:
+        for status in dispatcher.drain():
+            if status in out['contact_notifications']:out['contact_notifications'][status]+=1
+            if status=='accepted':out['contacts_forwarded']+=1
+            if status in ('accepted','unknown'):out['personal_data_exported']=True
     progress('Подготавливаю список диалогов из общей базы…')
     with checkpoint('inbox-targets'):
         out['contact_delivery_pending']=pending_contacts()
@@ -453,7 +469,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 out['contact_notifications'][status] += result['notifications'][status]
             out['contact_delivery_pending']=pending_contacts()
             if result['stages']['peer_contact']:
-                progress('Контакт получен • передан в Telegram' if result['notifications']['accepted'] else
+                progress('Контакт получен • уведомление в фоновой очереди' if result['reason']=='contact-notification-queued' else
+                         'Контакт получен • передан в Telegram' if result['notifications']['accepted'] else
                          'Контакт получен • сохранён в очереди; передача в Telegram выключена' if result['notifications']['disabled'] else
                          'Контакт получен • результат передачи в Telegram требует проверки')
             if result['telegram_used']:
@@ -498,7 +515,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             from assistant_reply_audit import pending as pending_replies
             unanswered=pending_replies(chain,who)
             result['unanswered_messages']=len(unanswered)
-            notice_needed=(not manually_blocked(chain.store,who) and not result['notifications']['accepted']
+            notice_needed=(result['reason']!='contact-notification-queued' and not manually_blocked(chain.store,who) and not result['notifications']['accepted']
                     and (bool(unanswered) or not result['outgoing_observed_this_run'] or result['stages']['peer_contact']))
             exit_image=None;exit_image_status=None
             capture_needed=notice_needed and exit_notifier is not None and exit_photo is not None
@@ -583,6 +600,9 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     except Exception as error:
         from assistant_failure import category,evidence
         out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
+        from cloud_database import diagnostic as database_diagnostic
+        database=database_diagnostic(error)
+        if database:out['database']=database
         failure=evidence(error)
         if failure:out['last_navigation_failure']=failure
         n = out['last_navigation']
@@ -619,7 +639,8 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         responder = make_responder(settings.ai_provider, settings.ai_model, stopped.is_set) if settings.groq_enabled else None
     progress('Подготавливаю базу первого прохода по входящим…')
     with checkpoint('inbox-database'):
-        prepared_store=Store() if store is None else store
+        prepared_store=(store if store is not None else _worker_store.get())
+        if prepared_store is None:prepared_store=Store()
     with checkpoint('inbox-chain'):
         chain = InboxChain(prepared_store,responder=responder)
     if getattr(prepared_store,'mumu_shared_claims',False) is True:
@@ -627,6 +648,9 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         enable_unknown_recovery(chain)
         from assistant_selection_recovery import enable as enable_selection_recovery
         enable_selection_recovery(chain)
+        chain.history_read_budget=12.0
+        from assistant_notification_queue import current as notification_dispatcher
+        chain.notification_dispatcher=notification_dispatcher()
     chain.media_required=settings.contacts_enabled
     with checkpoint('inbox-photo'):
         if contact_photo is None and settings.contacts_enabled:
@@ -642,6 +666,8 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
                 exit_photo=lambda who:capture_chat(settings.adb,settings.folder,who,stopped.is_set)
         except telegram_notify.TelegramError:
             pass
+    from assistant_exit_queue import resume as resume_exit_notifications
+    resume_exit_notifications(chain,exit_notifier,exit_photo_sender,stopped.is_set)
     with checkpoint('inbox-navigation-adapter'):
         if navigator is None:
             from dialog_models import perform as model_navigation

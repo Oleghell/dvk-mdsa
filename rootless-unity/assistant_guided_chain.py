@@ -97,6 +97,15 @@ class GuidedChain(Chain):
             raise StateError('guided-consent-required')
         snapshot = checked({key: snapshot[key] for key in ('identity', 'messages')})
         who, messages = snapshot['identity'], snapshot['messages']
+        # Existing consent is verified afresh, without taking the global writer
+        # lock just to read it. New bindings retain the original atomic writer.
+        with self.store.read_connection() as db:
+            bound=db.execute("""SELECT g.chat,c.chat FROM guided_bindings g LEFT JOIN chain_dialogs c
+              ON c.account=g.account AND c.peer=g.peer WHERE g.account=? AND g.peer=?""",(who['account'],who['peer'])).fetchone()
+        if bound:
+            if bound[0]!=who['chat']:raise StateError('guided-binding-changed')
+            if bound[1]!=who['chat']:raise StateError('guided-history-not-verified')
+            return
         with self.store.connection() as db:
             old = db.execute('SELECT chat FROM guided_bindings WHERE account=? AND peer=?',
                              (who['account'], who['peer'])).fetchone()
@@ -217,38 +226,25 @@ class GuidedChain(Chain):
             stage,action=self.consume(snapshot)
             observe(self,snapshot,input_ids=[m['id'] for m in new_peer])
             return stage,action
-        from assistant_contact_clarify import max_selected,alternative_text,selected_alternative_text
-        max_choice=max_selected([m for m in snapshot['messages'] if m['sender']==who['peer']])
+        from assistant_contact_clarify import max_selected,selected_alternative_text,indifferent_selected
         from assistant_contact_followup import refused,scoped_messages
-        with self.store.read_connection() as db:
-            alt_text=selected_alternative_text(db,snapshot,[m['id'] for m in new_peer])
-            refusal_inputs=scoped_messages(db,snapshot,[m['id'] for m in new_peer],requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')))
-        if (refused(refusal_inputs if row and row[0] in ('wait-contact','pending-clarify','pending-followup') else new_peer,
-                           requested=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup')),alternative_selected=max_choice or bool(alt_text))):
-            # consume still checks complete history, hashes, identity, third-party
-            # context and pending sends. Do not repair/reset a prior terminal state.
-            stage,action=self.consume(snapshot)
-            observe(self,snapshot,input_ids=[m['id'] for m in new_peer])
-            return stage,action
         from assistant_contact_policy import should_close
-        from assistant_contact_clarify import indifferent_selected
-        with self.store.read_connection() as db:
-            strict_closed=bool(row and should_close(db,snapshot,row[0],new_peer,
-                requested=anchored_request or row[0] in ('wait-contact','pending-clarify','pending-followup'),max_choice=max_choice,
-                number_choice=indifferent_selected(db,snapshot,[m['id'] for m in new_peer])))
-        if strict_closed:
-            # consume verifies all fingerprints and handles actual contacts first.
-            # No old draft restoration, API request or approval may precede it.
-            stage,action=self.consume(snapshot)
-            from assistant_reply_audit import synchronize
-            synchronize(self,snapshot)
-            return stage,action
         from assistant_contact_budget import can_close
+        max_choice=max_selected([m for m in snapshot['messages'] if m['sender']==who['peer']])
+        reply_ids=[m['id'] for m in new_peer]
+        contact_stage=bool(row and row[0] in ('wait-contact','pending-clarify','pending-followup'))
+        # One fresh read-only transaction, not four separate round trips through
+        # the cloud transaction setup. consume rechecks every gate under lock.
         with self.store.read_connection() as db:
+            alt_text=selected_alternative_text(db,snapshot,reply_ids)
+            refusal_inputs=scoped_messages(db,snapshot,reply_ids,requested=contact_stage)
+            strict_closed=bool(row and should_close(db,snapshot,row[0],new_peer,
+                requested=anchored_request or contact_stage,max_choice=max_choice,
+                number_choice=indifferent_selected(db,snapshot,reply_ids)))
             budget_closed=bool(row and can_close(db,who['chat'],row[0]))
-        if budget_closed:
-            # consume validates complete history and checks incoming contacts
-            # before closing. No AI, recycling, approval or send here.
+        refused_now=refused(refusal_inputs if contact_stage else new_peer,
+                            requested=contact_stage,alternative_selected=max_choice or bool(alt_text))
+        if refused_now or strict_closed or budget_closed:
             stage,action=self.consume(snapshot)
             from assistant_reply_audit import synchronize
             synchronize(self,snapshot)
@@ -285,7 +281,7 @@ class GuidedChain(Chain):
                 (stage == 'wait-contact' and 'contact' in unapproved)):
             self.mark_review(who)
             return 'manual-review', None
-        with self.store.connection() as db:
+        with (self.store.connection() if action is not None else self.store.read_connection()) as db:
             if action is not None:
                 db.execute("UPDATE chain_actions SET status='awaiting-approval' "
                            "WHERE chat=? AND kind=? AND status='reserved-unknown'",
@@ -407,15 +403,31 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             raise StateError('cancelled')
         from one_chat_device import ReadStopped, safe_read_failure, transient_read_failure
         started = read_clock()
+        read_deadline=started+getattr(chain,'history_read_budget',float('inf'))
+        def deadline_expired():
+            # Preserve the last fixed-reader evidence. A host timer alone is
+            # NOT identity proof and cannot authorize a local Back or a send.
+            if verified_loading(out['diagnostics'].get('last_read_failure')):
+                out['diagnostics']['history_wait_exhausted']=True
+                raise HistoryWaitExpired()
+            out['diagnostics']['history_budget_exhausted']=True
+            raise HistoryReadBudgetExpired()
         soft_retries = 0
         budget_failures = 0
         for attempt in range(MAX_READ_ATTEMPTS):
+            if read_clock()>=read_deadline:deadline_expired()
             try:
                 progress('Читаю историю • проверяю текущий чат.')
                 with collect_read_timings(out['diagnostics'], progress):
-                    private = timed(out['diagnostics'], 'read', source, who)  # Fresh SAME-bound read, never cached.
+                    from assistant_read_budget import limit
+                    with limit(min(25,read_deadline-read_clock())):
+                        private = timed(out['diagnostics'], 'read', source, who)  # Fresh SAME-bound read, never cached.
                 break
-            except ReadStopped as error:
+            except Exception as error:
+                if read_clock()>=read_deadline and type(error).__name__ in ('OperationCancelledError','CancelledError','TimedOutError'):
+                    deadline_expired()
+                if not isinstance(error,ReadStopped):raise
+
                 failure = out['diagnostics']['last_read_failure'] = safe_read_failure(error)
                 if stopped.is_set():
                     raise StateError('cancelled')
@@ -452,6 +464,8 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 progress('Экран чата ещё не подтверждён. Повторяю только чтение; отправки нет.' if verified_early_wrong_screen(failure) else
                          'Повторяю только чтение того же чата; отправки нет.' if verified_read_budget(failure) else
                          'История ещё загружается. Жду тот же чат; отправки нет.')
+                delay=min(delay,max(0,read_deadline-read_clock()))
+                if delay<=0:deadline_expired()
                 if pause(delay) or stopped.is_set():
                     raise StateError('cancelled')
                 if loading and read_clock()-started >= WAIT_SECONDS:
@@ -481,6 +495,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         if keep_latest and 'latest_message_id' in private:
             value['latest_message_id']=private['latest_message_id']
         return value
+    from assistant_runtime import collect as runtime_collect
+    runtime_scope=runtime_collect(out['diagnostics'],progress)
+    runtime_scope.__enter__()
     previous_ai_progress = chain.ai_progress
     chain.ai_progress = progress
     try:
@@ -489,7 +506,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         host_checkpoint='chat-bind'
         timed(out['diagnostics'], 'bind', chain.bind, before, greetings, approved=True)
         from assistant_contact_receipt import reviewable,reconcile
-        with chain.store.connection() as db:
+        with chain.store.read_connection() as db:
             contact_review=reviewable(db,who['chat'])
         if contact_review:
             fresh=read(contact_reader if contact_reader is not None else reader,keep_latest=True)
@@ -626,7 +643,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 attempted = notification in ('accepted', 'unknown')
                 out['telegram_used'] = attempted
                 out['personal_data_exported'] = attempted
-                if notification == 'accepted':
+                if notification == 'queued':
+                    out.update(status='chain-completed',reason='contact-notification-queued')
+                elif notification == 'accepted':
                     out.update(status='chain-completed', reason='contact-forwarded')
                 elif notification == 'nothing-pending':
                     out.update(status='chain-completed', reason='contact-already-handled')
@@ -834,6 +853,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             out.update(status='chain-needs-review',reason='chat-input-disabled')
             return out
         from assistant_failure import category,evidence
+        from cloud_database import diagnostic as database_diagnostic
+        database=database_diagnostic(error)
+        if database:out['diagnostics']['database']=database
         out['diagnostics']['host_failure']=category(error)
         out['diagnostics']['host_checkpoint']=host_checkpoint
         from startup_failure import TYPES
@@ -871,6 +893,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                    reason='cancelled' if stopped.is_set() else reason)
     finally:
         chain.ai_progress = previous_ai_progress
+        runtime_scope.__exit__(None,None,None)
     return out
 
 

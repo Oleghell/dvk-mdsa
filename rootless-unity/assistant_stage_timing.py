@@ -12,7 +12,7 @@ READ_PHASES = {
 }
 _read_context = ContextVar('dvk_read_timing_context', default=None)
 
-STAGES = frozenset({'read','bind','proposal','pacing','submit','notify','media','open','back','exit_photo'}) | frozenset(READ_PHASES)
+STAGES = frozenset({'read','bind','proposal','pacing','submit','notify','media','open','back','exit_photo','db_connect','db_read','db_write','db_lock','db_commit','ai','ai_http'}) | frozenset(READ_PHASES)
 FIELDS = frozenset(stage + suffix for stage in STAGES for suffix in ('_calls','_ms'))
 
 
