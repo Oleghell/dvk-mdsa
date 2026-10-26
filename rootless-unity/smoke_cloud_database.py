@@ -75,10 +75,15 @@ def run(config_path):
             # Hot constructors must not start a transaction after successful
             # per-Store schema setup. Read-only preparation never takes the
             # primary advisory writer lock; reservation above still does.
-            from assistant_inbox import InboxChain,with_seen_ids
+            from assistant_inbox import InboxChain,with_seen_ids,inbox_targets
             from assistant_profiles import Session
             from assistant_history_wait import initialize as history_tables
             hot=InboxChain(store2);Session(store2);history_tables(store2)
+            # Full real target builder, not only helper queries: this catches
+            # PostgreSQL read-only rejection before native navigation starts.
+            attention,unread=inbox_targets(hot)
+            assert any(item['peer']=='9001' for item in attention+unread)
+            assert all(item['peer']!='200' for item in attention+unread)
             with_seen_ids(hot,[who]);queries.clear()
             with patch.object(cloud.Connection,'_run',traced):
                 for _ in range(3):InboxChain(store2);Session(store2);history_tables(store2)

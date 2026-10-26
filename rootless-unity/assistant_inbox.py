@@ -111,19 +111,22 @@ class InboxChain(GuidedChain):
 def inbox_targets(chain):
     """Return (attention, unread) target lists. Terminal chats are excluded."""
     with chain.store.read_connection() as db:
+        # The primary journal deliberately admits SELECT, not arbitrary WITH
+        # statements, in read-only mode. Keep this query a SELECT with the same
+        # source precedence; do not loosen the guard or take a writer lock.
         rows = db.execute('''
-          WITH sources(account,peer,chat) AS (
-            SELECT account,peer,chat FROM guided_bindings
-            UNION ALL
-            SELECT m.account,m.peer,m.initial_chat FROM manual_actions m
-            WHERE m.status!='not-invoked' AND NOT EXISTS (
-              SELECT 1 FROM guided_bindings g WHERE g.account=m.account AND g.peer=m.peer))
           SELECT s.account,s.peer,COALESCE(c.chat,s.chat),c.stage,
             EXISTS(SELECT 1 FROM chain_contact_outbox o WHERE o.chat=c.chat AND o.status='pending'),
             EXISTS(SELECT 1 FROM chain_actions a WHERE a.chat=c.chat
                    AND a.status IN ('awaiting-approval','handler-returned-unconfirmed')),
             EXISTS(SELECT 1 FROM chain_contact_media media WHERE media.chat=c.chat)
-          FROM sources s LEFT JOIN chain_dialogs c ON c.account=s.account AND c.peer=s.peer
+          FROM (
+            SELECT account,peer,chat FROM guided_bindings
+            UNION ALL
+            SELECT m.account,m.peer,m.initial_chat FROM manual_actions m
+            WHERE m.status!='not-invoked' AND NOT EXISTS (
+              SELECT 1 FROM guided_bindings g WHERE g.account=m.account AND g.peer=m.peer)
+          ) s LEFT JOIN chain_dialogs c ON c.account=s.account AND c.peer=s.peer
           ORDER BY s.account,s.peer''').fetchall()
     attention, unread = [], []
     from assistant_contact_receipt import candidates as contact_candidates
