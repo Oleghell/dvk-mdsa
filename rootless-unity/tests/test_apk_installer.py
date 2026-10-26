@@ -8,7 +8,7 @@ import apk_installer as app
 class Installer(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
-        self.root=Path(self.tmp.name);self.adb=self.root/'adb.exe';self.adb.touch()
+        self.root=Path(self.tmp.name).resolve();self.adb=self.root/'adb.exe';self.adb.touch()
         for f in ('base.apk','split-001.apk','split-002.apk'):(self.root/f).touch()
         self.stop=threading.Event();self.calls=[]
     def plan(self,ports='5557 5567'):return app.make_plan(str(self.adb),str(self.root),ports)

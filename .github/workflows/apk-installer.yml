@@ -5,6 +5,7 @@ on:
     paths:
       - rootless-unity/apk_installer.py
       - rootless-unity/tests/test_apk_installer.py
+      - rootless-unity/check_apk_installer.py
       - .github/workflows/apk-installer.yml
   workflow_dispatch:
 permissions:
@@ -21,7 +22,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Test installer without devices
-        run: python -m unittest discover -s rootless-unity/tests -p test_apk_installer.py -v
+        run: python rootless-unity/check_apk_installer.py
         env:
           PYTHONPATH: rootless-unity
       - name: Install pinned packager
