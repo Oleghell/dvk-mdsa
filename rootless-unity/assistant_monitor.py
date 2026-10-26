@@ -4,7 +4,7 @@ Continuous full mode drains eligible incoming work before each profile batch;
 serially between tracked inbox passes. Reply-only mode never starts profiles.
 One device lock and durable journals survive all batches. Unknown sends are isolated.
 """
-from contextlib import nullcontext
+from contextlib import nullcontext, contextmanager
 import json
 import time
 import math
@@ -54,7 +54,7 @@ def report(mode):
 def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         fresh_session=False, initial=initial_pass, inbox=inbox_pass,
         navigator=perform, lock=operation_lock, write=write_report, wait=None,
-        clock=time.monotonic, repeat=initial_pass, alert=None, continuous=False, json_alert=None, terminal_notifications=True):
+        clock=time.monotonic, repeat=initial_pass, alert=None, continuous=False, json_alert=None, terminal_notifications=True, resource_factory=None):
     """No startup/resume actions without an explicit UI Start. Begin on search or dialogs; unknown screens are rejected."""
     if type(continuous) is not bool:raise ValueError('Invalid continuous mode')
     new_start=mode=='new'
@@ -76,6 +76,40 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                zai_context_export_enabled=settings.groq_enabled and settings.ai_provider == 'zai')
     wait = stopped.wait if wait is None else wait
     phase = 'settings-check-stopped'
+    resource = None
+    out['resource_watch'] = dict(status='not-started')
+
+    def resource_event(kind, value):
+        nonlocal resource
+        if resource is None:return
+        try:
+            outcome = (resource.inbox(value, enabled=settings.errors_enabled) if kind=='inbox'
+                       else resource.profiles(value))
+            out['resource_watch'] = dict(resource.state, status='active')
+            if outcome is not None and outcome != 'not-needed':
+                out['resource_notification'] = outcome
+        except Exception:
+            # Optional diagnostics cannot stop device work or bypass a send gate.
+            resource = None
+            out['resource_watch'] = dict(status='unavailable')
+
+
+    @contextmanager
+    def resource_scope():
+        nonlocal resource
+        try:
+            from assistant_resource_watch import Watch
+            resource = (resource_factory or Watch)()
+            out['resource_watch'] = dict(resource.state, status='active')
+        except Exception:
+            out['resource_watch'] = dict(status='unavailable')
+        try:
+            yield
+        except BaseException:
+            resource_event('inbox',{})
+            raise
+        else:
+            if out['status'] == 'paused':resource_event('inbox',{})
 
     def add_counters(value):
         out['send_failure_events']=(out.get('send_failure_events',[])+value.get('send_failure_events',[]))[-3:]
@@ -144,7 +178,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
         check_stop()
         settings.check()
         phase = 'device-busy-or-monitor-check-stopped'
-        with lock():
+        with lock(), resource_scope():
             from assistant_pause import boundary
             boundary(stopped)
             check_stop()
@@ -168,6 +202,9 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     raise StateError('initial-pass-stopped')
                 if first.get('report_name') is None:
                     raise StateError('report-write-failed')
+                if first.get('inbox'):
+                    resource_event('inbox',first['inbox'])
+                resource_event('profiles',first)
                 out['profile_batches_completed'] = 1
             next_profiles = clock() + settings.profile_interval
             entry = 'search' if mode == 'full' else 'either'
@@ -196,6 +233,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     out.update(status='paused', reason='message-not-approved' if
                                'message-not-approved' in review else 'dialog-needs-review')
                     break
+                resource_event('inbox',current)
                 # A peer can reply while we are in another chat. Rescan from
                 # the list with fresh journal targets BEFORE sleeping/profiles.
                 # Only productive passes drain again; stale handled headers are filtered before open.
@@ -233,6 +271,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                         raise StateError('profile-pass-stopped')
                     if batch.get('report_name') is None:
                         raise StateError('report-write-failed')
+                    resource_event('profiles',batch)
                     out['profile_batches_completed'] += 1
                     phase = 'dialog-list-not-verified'
                     navigate('list', 'search')

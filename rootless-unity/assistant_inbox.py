@@ -214,6 +214,7 @@ def with_seen_ids(chain, allowed):
 def report():
     return dict(tool_version=VERSION, mode='inbox-chain-pass', status='inbox-stopped',
                 reason='not-started', dialog_limit=LIMIT, dialogs_opened=0,
+                new_incoming_messages=0, incoming_scan_complete=False,
                 dialogs_processed=0, read_dialogs_checked=0, read_recovery_enabled=True, reply_filter_enabled=True, read_rows_skipped=0, waiting_rows_skipped=0, handled_rows_skipped=0, confirmations=0, automatic_authorizations=0,
                 submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0, contacts_detected=0, contact_delivery_pending=0,
                 contact_notifications=dict(accepted=0,unknown=0,disabled=0,blocked=0),
@@ -261,6 +262,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     with checkpoint('inbox-targets'):
         out['contact_delivery_pending']=pending_contacts()
         history_wait.initialize(chain.store)
+        from assistant_reply_audit import DDL as resource_receipts
+        chain.store.ensure_tables(resource_receipts)
         attention, unread = inbox_targets(chain)
         attention, unread, skipped = history_wait.eligible(chain.store, attention, unread, clock=clock)
         out['history_cooldown_skipped'] = skipped
@@ -270,7 +273,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             out['tracked_terminal']={stage:number for stage,number in db.execute('SELECT stage,COUNT(*) FROM chain_dialogs GROUP BY stage') if stage in TERMINAL}
     if not attention and not unread:
         out.update(status='inbox-empty', reason='history-cooldown' if skipped else 'no-chain-dialogs',
-                   dialogs_verified=entry=='dialogs')
+                   dialogs_verified=entry=='dialogs', incoming_scan_complete=not skipped)
         return out
 
     def call(operation, **kwargs):
@@ -403,8 +406,17 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             reserve_contact_probe(chain,who)
             exit_messages=[]
             private_snapshot=[]
+            # IDs only, before consume can mark new arrivals seen. No message bodies
+            # or IDs are added to the public pass report; repeat reads deduplicate.
+            with chain.store.read_connection() as db:
+                known_incoming={r[0] for r in db.execute(
+                    'SELECT message FROM chain_seen WHERE chat=? UNION SELECT message FROM chain_reply_receipts WHERE chat=?',
+                    (who['chat'],who['chat']))}
             def capture_snapshot(value):
                 private_snapshot[:]=[value]
+                fresh={m['id'] for m in value['messages'] if m['sender']==who['peer']} - known_incoming
+                out['new_incoming_messages']+=len(fresh)
+                known_incoming.update(fresh)
             host_checkpoint = 'inbox-read'
             result = walk_chat(
                 chain, who, stopped, approve,
@@ -560,7 +572,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             call('return')
         out.update(status='inbox-completed', reason=reason, return_verified=return_to == 'search',
                    dialogs_verified=return_to == 'dialogs',
-                   ui_may_remain_open=False)
+                   ui_may_remain_open=False, incoming_scan_complete=(reason=='visible-exhausted'
+                       and not any(out[k] for k in ('history_deferred','history_cooldown_skipped','isolated_dialogs','review_pending'))))
     except Exception as error:
         from assistant_failure import category,evidence
         out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
