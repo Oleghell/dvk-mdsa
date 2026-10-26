@@ -15,6 +15,11 @@ def empty():
             'global_export_api_available':True,'global_exports':{n:False for n in EXPORTS},'global_export_errors':0}
 
 
+# Include cold Node process startup on hosted Windows runners, not only JS execution.
+# This is a bounded test-only timeout; production Frida/ADB deadlines are unchanged.
+NODE_TEST_TIMEOUT_SECONDS = 60
+
+
 def javascript(lines, *, available=True, repeat=False, export=False):
     code=EVIDENCE_FUNCTION+'\n'+f'''
 const lines={json.dumps(lines)};
@@ -30,7 +35,7 @@ const result=moduleEvidence();
 if({str(available).lower()} && !closed) throw Error('file not closed');
 console.log(JSON.stringify(result));
 '''
-    result=subprocess.run([shutil.which('node'),'-e',code],capture_output=True,text=True,check=True,timeout=10)
+    result=subprocess.run([shutil.which('node'),'-e',code],capture_output=True,text=True,check=True,timeout=NODE_TEST_TIMEOUT_SECONDS)
     return validate_evidence(json.loads(result.stdout))
 
 
