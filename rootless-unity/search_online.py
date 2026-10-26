@@ -181,7 +181,7 @@ def validate(value, **navigation_options):
     return value
 
 
-def inspect(port, token, cancelled, expected=None, *, frida_api=None, source_function=FUNCTION, validator=validate, timeout=25):
+def inspect(port, token, cancelled, expected=None, *, frida_api=None, source_function=FUNCTION, validator=validate, timeout=25, navigation_targets=None):
     from startup_failure import checkpoint, record
     with checkpoint('gadget-import'):
         if frida_api is None:
@@ -197,6 +197,10 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, source_fun
 rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
  root(){return probeUIKitRoot();},cancel(){cancelNavigation();}};
 '''
+    if navigation_targets is not None:
+        from dialog_browser import targets
+        navigation_targets=targets(navigation_targets)
+        source += '\nrpc.exports.preparetargets=function(values){return prepareNavigationTargets(values);};\n'
     with checkpoint('gadget-manager'):
         manager = f.get_device_manager()
     address = '127.0.0.1:' + str(port)
@@ -228,6 +232,12 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
             runtime = validate_runtime(script.exports_sync.runtime())
             if runtime['arch'] != 'arm64' or runtime['platform'] != 'linux':
                 raise ReadStopped('unsupported-runtime')
+            if cancelled():raise ReadStopped('cancelled')
+            if navigation_targets is not None:
+                stage = 'navigation-targets-upload'
+                if script.exports_sync.preparetargets(navigation_targets) is not True:
+                    raise ReadStopped('navigation-targets-rejected')
+            if cancelled():raise ReadStopped('cancelled')
             def watch():
                 while not done.wait(.1):
                     if cancelled():
@@ -243,6 +253,10 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
             stage = 'result-validation'
             return validator(result)
     except Exception as error:
+        # Nothing is loaded at this point, even when compilation loses its reply.
+        # Never extend this proof to script-load, runtime, upload, root or validation.
+        error._dvk_navigation_not_loaded=(navigation_targets is not None and stage=='script-create'
+            and script is None and type(error).__name__ in {'TransportError','ServerNotRunningError','TimedOutError'})
         record(error, stage)
         raise
     finally:

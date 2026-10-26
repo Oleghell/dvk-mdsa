@@ -235,18 +235,19 @@ def perform(operation,executable,folder,cancelled=lambda:False,*,allowed=(),expe
  if expected is not None:raise ValueError('Unexpected model binding')
  from one_chat_device import capture
  from search_online import inspect
+ allowed=browser.targets(allowed)
  offset=0;skipped=0
  while True:
   if cancelled():raise StateError('cancelled')
   if progress is not None:progress(f'Проверяю последние {recent_limit} диалогов • снизу вверх • позиция {(start+offset)%recent_limit+1}' if recent_limit and reverse else f'Проверяю очередь диалогов • с позиции {offset+1}')
-  source=build(allowed=allowed,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start)
+  source=build(allowed=(),entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start)
   position=[]
   def validator(raw):
    value=validate(raw,allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start)
    resume=raw.get('navigation',{}).get('private_model_scan',{}).get('resume')
    if value[0]['state']=='opened' and resume is not None:position[:]=[resume]
    return value
-  result,nxt=capture(executable,folder,cancelled,inspector=lambda port,token,cancel,binding:inspect(port,token,cancel,source_function=source,validator=validator))
+  result,nxt=capture(executable,folder,cancelled,inspector=browser.PreparedNavigation(source,allowed,validator,progress))
   skipped+=result['diagnostic']['header_rows_skipped'];result['diagnostic']['header_rows_skipped']=skipped
   # capture has completed boot recheck/cleanup. This integer is only a search
   # priority, never a cached row, object pointer, identity or send permission.

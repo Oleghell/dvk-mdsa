@@ -454,12 +454,69 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     return dict(state=('exhausted' if n['exhausted'] else 'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready') if ready else 'stopped',identity=private,diagnostic=diagnostic)
 
 
+# Targets are private data, never compiled JS. A fresh script accepts one upload
+# and one root call; no persistent native session or identity cache is retained.
+TARGET_BOOTSTRAP = r"""
+let navigationTargets=null,navigationStarted=false;
+function prepareNavigationTargets(values){
+ if(navigationTargets!==null||navigationStarted)throw new Error('targets-already-prepared');
+ const positive=v=>typeof v==='string'&&/^[1-9][0-9]{0,18}$/.test(v)&&
+  (v.length<19||v<='9223372036854775807');
+ const chat=v=>v==='0'||positive(v)||(typeof v==='string'&&/^-[1-9][0-9]{0,18}$/.test(v)&&
+  (v.length<20||v.slice(1)<='9223372036854775808'));
+ if(!Array.isArray(values)||values.length>1000)throw new Error('invalid-targets');
+ const seen=new Set(),checked=[];
+ for(const x of values){
+  if(x===null||typeof x!=='object'||Array.isArray(x))throw new Error('invalid-target');
+  const keys=Object.keys(x).sort().join(',');
+  if(keys!=='account,chat,peer'&&keys!=='account,chat,peer,seen_ids')throw new Error('invalid-target');
+  if(!positive(x.account)||!positive(x.peer)||!chat(x.chat))throw new Error('invalid-target');
+  const key=x.account+':'+x.peer;if(seen.has(key))throw new Error('duplicate-target');seen.add(key);
+  const value={account:x.account,peer:x.peer,chat:x.chat};
+  if(Object.prototype.hasOwnProperty.call(x,'seen_ids')){
+   if(!Array.isArray(x.seen_ids)||x.seen_ids.length>128||x.seen_ids.some(v=>!positive(v))||
+      new Set(x.seen_ids).size!==x.seen_ids.length)throw new Error('invalid-seen-ids');
+   value.seen_ids=Object.freeze(x.seen_ids.slice());
+  }
+  checked.push(Object.freeze(value));
+ }
+ navigationTargets=Object.freeze(checked);return true;
+}
+"""
+
+
+def prepared_source(source):
+    source=replace_once(source,'allowedTargets=[]','allowedTargets=navigationTargets')
+    source=replace_once(source,'function probeUIKitRoot() {',"function probeUIKitRoot() {\n if(navigationTargets===null||navigationStarted)throw new Error('targets-not-ready');navigationStarted=true;")
+    return TARGET_BOOTSTRAP+source
+
+
+class PreparedNavigation:
+    """Authored adapter: only an unloaded-script transport error may reconnect."""
+    def __init__(self,source,allowed,validator,progress=None):
+        self.source=prepared_source(source)
+        self.allowed=targets(allowed)
+        self.validator=validator
+        self.progress=progress
+
+    def __call__(self,port,token,cancel,binding):
+        from search_online import inspect
+        return inspect(port,token,cancel,source_function=self.source,
+                       validator=self.validator,navigation_targets=self.allowed)
+
+    def reconnecting(self,attempt):
+        if self.progress is not None:
+            self.progress(f'Восстанавливаю связь перед переходом • попытка {attempt}/2 • скрипт ещё не загружен')
+
+
 def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),expected=None,entry='search',unread_only=False, needs_reply_only=False):
     from one_chat_device import capture
     from search_online import inspect
     from startup_failure import checkpoint
     with checkpoint('navigation-source'):
-        source=build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
+        allowed=targets(allowed)
+        if operation!='open' and allowed:raise ValueError('Invalid operation binding')
+        source=build(operation,allowed=(),expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
     def checked(result):
         try:
             return validate(result,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
@@ -479,6 +536,4 @@ def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),ex
             else:
                 error._dvk_navigation=public
             raise
-    def inspector(port,token,cancel,binding):
-        return inspect(port,token,cancel,source_function=source,validator=checked)
-    return capture(executable,folder,cancelled,inspector=inspector)
+    return capture(executable,folder,cancelled,inspector=PreparedNavigation(source,allowed,checked))

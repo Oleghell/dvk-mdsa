@@ -100,7 +100,7 @@ class Scan(unittest.TestCase):
   first=inf.nav('exhausted');first['diagnostic']['header_rows_skipped']=0
   final=inf.nav('opened',inf.WHO);final['diagnostic']['header_rows_skipped']=0
   progress=MagicMock()
-  with patch('one_chat_device.capture',side_effect=[(first,64),(final,None)]),patch.object(models,'build',return_value='SOURCE'):
+  with patch('one_chat_device.capture',side_effect=[(first,64),(final,None)]),patch.object(models,'build',return_value='function probeUIKitRoot() { const allowedTargets=[];}'):
    out=models.perform('open','adb','folder',allowed=[inf.WHO],progress=progress)
   self.assertEqual(out['state'],'opened');self.assertEqual(progress.call_count,2)
   self.assertIn('65',progress.call_args.args[0]);self.assertNotIn('Анна',str(progress.call_args_list))

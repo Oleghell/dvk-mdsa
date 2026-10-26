@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess,sys
 import frida
 import dialog_models as models
+from dialog_browser import prepared_source
 WHO=dict(account='100',peer='200',chat='300')
 OTHER=dict(account='100',peer='201',chat='301')
 def one(library,mode,slow=False,baseline=False,seen_ids=None,recent_limit=None,reverse=False,start=0):
@@ -14,11 +15,11 @@ def one(library,mode,slow=False,baseline=False,seen_ids=None,recent_limit=None,r
   allowed=[OTHER,WHO] if mode==872 else [WHO];offset=0;skipped=0;slices=0;total_frames=0
   if seen_ids is not None:allowed=[dict(WHO,seen_ids=seen_ids)]
   while True:
-   source=models.build(allowed=allowed,needs_reply_only=True,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start)
+   source=prepared_source(models.build(allowed=(),needs_reply_only=True,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start))
    if baseline:source=source.replace('batch<4&&','batch<1&&')
    script=session.create_script(source+'''
-rpc.exports={probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();return [r('fixture_handles'),r('fixture_bad_frees'),r('fixture_off_thread_calls'),r('fixture_model_visible_calls'),r('fixture_browser_clicks'),r('fixture_browser_backs'),r('fixture_route_bad'),r('fixture_model_clicks')];}};''')
-   script.load();raw=script.exports_sync.probe()
+rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();return [r('fixture_handles'),r('fixture_bad_frees'),r('fixture_off_thread_calls'),r('fixture_model_visible_calls'),r('fixture_browser_clicks'),r('fixture_browser_backs'),r('fixture_route_bad'),r('fixture_model_clicks')];}};''')
+   script.load();assert script.exports_sync.preparetargets(allowed) is True;raw=script.exports_sync.probe()
    result,nxt=models.validate(raw,allowed=allowed,needs_reply_only=True,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start)
    n=raw['navigation'];c=script.exports_sync.counts();slices+=1;total_frames+=n['frames']
    assert c[:7]==[0]*7,(mode,n,c)

@@ -2,7 +2,7 @@
 from pathlib import Path
 import queue,subprocess,sys,threading,time,shutil,tempfile
 import frida
-from dialog_browser import build,validate
+from dialog_browser import build,validate,prepared_source
 WHO=dict(account='100',peer='200',chat='300')
 TARGET=dict(WHO,chat='-1')
 
@@ -27,12 +27,13 @@ for _ in range(12000):
     try:
         q=queue.Queue();threading.Thread(target=lambda:q.put(child.stdout.readline()),daemon=True).start();assert q.get(timeout=10).strip()=='ready'
         session=frida.get_local_device().attach(child.pid)
-        script=session.create_script(build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)+'''
-rpc.exports={probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},counts(){
+        script=session.create_script(prepared_source(build(operation,allowed=(),expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only))+'''
+rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},counts(){
  const read=n=>new NativeFunction(findIl2cppExport(n),'int',[])();
  return {handles:read('fixture_handles'),bad:read('fixture_bad_frees'),off:read('fixture_off_thread_calls'),
  unread_reads:read('fixture_browser_unread_reads'),clicks:read('fixture_browser_clicks'),backs:read('fixture_browser_backs'),route_bad:read('fixture_route_bad'),routes:read('fixture_route_calls')};}};''')
         script.load()
+        assert script.exports_sync.preparetargets(allowed) is True
         if mode in (815,839):
             def stop():
                 until=time.monotonic()+5
@@ -126,13 +127,13 @@ for _ in range(12000):
             try:
                 if cached_models and operation=='open':
                     import dialog_models
-                    source=dialog_models.build(allowed=allowed,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
-                else:source=build(operation,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
-                script=session.create_script(source+'''
-rpc.exports={probe(){return probeUIKitRoot();},counts(){
+                    source=dialog_models.build(allowed=(),entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
+                else:source=build(operation,allowed=(),expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
+                script=session.create_script(prepared_source(source)+'''
+rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},probe(){return probeUIKitRoot();},counts(){
  const read=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
  return [read('fixture_handles'),read('fixture_bad_frees'),read('fixture_off_thread_calls'),read('fixture_route_bad')];}};''')
-                script.load();raw=script.exports_sync.probe()
+                script.load();assert script.exports_sync.preparetargets(allowed) is True;raw=script.exports_sync.probe()
                 if cached_models and operation=='open':
                     result,nxt=dialog_models.validate(raw,allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only)
                     assert nxt is None

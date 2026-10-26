@@ -98,6 +98,8 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
 
 def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect, read_name=False, read_latest=False, read_input=False, preexecution_retry=None):
     """Private data remains in memory; no JSON serialization in this layer."""
+    from dialog_browser import PreparedNavigation
+    navigation_operation=type(inspector) is PreparedNavigation
     readonly_operation=inspector is inspect
     if read_name or read_latest or read_input:
         if expected is None or inspector is not inspect:
@@ -128,6 +130,7 @@ def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspe
         connection_attempt = 0
         setup_attempt = 0
         read_attempt = 0
+        navigation_attempt = 0
         def refresh_forward():
             # Only before a profile script load OR after the authored read-only
             # inspector. Original explicit endpoint/boot is checked every time.
@@ -168,6 +171,18 @@ def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspe
                         setup_error._dvk_profile_not_executed=True
                         raise
                     continue
+                if navigation_operation and getattr(error,'_dvk_navigation_not_loaded',False) is True:
+                    from startup_failure import clean
+                    failure=clean(getattr(error,'_dvk_failure',None))
+                    verified=(failure is not None and failure['stage']=='script-create'
+                        and failure['error_type'] in {'TransportError','ServerNotRunningError','TimedOutError'})
+                    if verified:
+                        if navigation_attempt>=2 or cancelled():raise
+                        navigation_attempt+=1
+                        inspector.reconnecting(navigation_attempt)
+                        refresh_forward()
+                        if cancelled():raise ReadStopped('cancelled')
+                        continue
                 if readonly_operation and verified_readonly_transport(error):
                     if read_attempt>=2 or cancelled():raise
                     read_attempt+=1

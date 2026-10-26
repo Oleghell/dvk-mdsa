@@ -6,7 +6,7 @@ STAGES = {
  'device-recheck-after', 'forward-close', 'device-inspection', 'gadget-import',
  'gadget-manager', 'gadget-connect', 'gadget-process', 'gadget-attach',
  'profile-thread-drain','profile-selected-peer','profile-record-visit','profile-finish-journal','profile-authorization','profile-history-upload','script-create', 'script-load', 'runtime-check', 'script-run', 'result-validation',
- 'navigation-source', 'navigation-result', 'navigation-diagnostic', 'navigation-destination'}
+ 'navigation-targets-upload', 'navigation-source', 'navigation-result', 'navigation-diagnostic', 'navigation-destination'}
 TYPES = {'StateError','CloudDatabaseError','TransportError','ServerNotRunningError','ProcessNotFoundError','PermissionDeniedError',
  'OperationCancelledError','ProtocolError','InvalidArgumentError','TimedOutError','RPCException',
  'InvalidOperationError','NotSupportedError','TestError','ValueError','KeyError','TypeError',
@@ -94,6 +94,7 @@ LABELS = {
  'runtime-check':'Не удалось подтвердить совместимость приложения.',
  'script-run':'Ошибка выполнения проверки внутри приложения.',
  'result-validation':'Приложение вернуло неподтверждённый результат проверки.',
+ 'navigation-targets-upload':'Не удалось подготовить список чатов до начала перехода.',
  'navigation-source':'Не удалось подготовить переход в приложении.',
  'navigation-result':'Получен неверный формат результата перехода.',
  'navigation-diagnostic':'Получен неверный формат диагностики перехода.',
