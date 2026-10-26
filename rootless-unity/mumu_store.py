@@ -103,6 +103,7 @@ class SharedStore(BaseStore):
         super().__init__(path,self.legacy)
         with self.connection() as db:
             db.execute('CREATE TABLE IF NOT EXISTS profile_recovery_skips(peer TEXT PRIMARY KEY)')
+            db.execute('CREATE TABLE IF NOT EXISTS profile_visits(peer TEXT PRIMARY KEY,friends_count INTEGER,history_status TEXT NOT NULL,checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
 
     @contextmanager
     def connection(self):
@@ -166,9 +167,17 @@ class SharedStore(BaseStore):
 
     def visited_peers(self):
         from conversation_engine import identifier
-        with self.connection() as db:
-            db.execute("CREATE TABLE IF NOT EXISTS profile_visits(peer TEXT PRIMARY KEY,friends_count INTEGER,history_status TEXT NOT NULL,checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
-            values=[x[0] for x in db.execute('SELECT peer FROM profile_visits UNION SELECT peer FROM manual_actions UNION SELECT peer FROM profile_recovery_skips UNION SELECT peer FROM mumu_peer_blocks UNION SELECT peer FROM mumu_greeting_claims')]
+        # One consistent, read-only snapshot; no global writer/advisory lock.
+        # Tables were initialized at startup, not on every native compilation.
+        db=connect(self.path,timeout=30,isolation_level=None)
+        try:
+            db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
+            values=[x[0] for x in Connection(db,self.prefix).execute('SELECT peer FROM profile_visits UNION SELECT peer FROM manual_actions UNION SELECT peer FROM profile_recovery_skips UNION SELECT peer FROM mumu_peer_blocks UNION SELECT peer FROM mumu_greeting_claims')]
+            db.execute('COMMIT')
+        except BaseException:
+            if db.in_transaction:db.execute('ROLLBACK')
+            raise
+        finally:db.close()
         if len(values)>10000:raise StateError('История больше безопасного лимита снимка; журналы не удаляй.')
         return [identifier(x) for x in values]
 

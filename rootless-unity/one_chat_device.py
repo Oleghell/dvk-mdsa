@@ -25,7 +25,10 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
     rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
       root(){return probeUIKitRoot();},cancel(){cancelNavigation();}};
     '''
-    manager = f.get_device_manager()
+    from startup_failure import record
+    try:manager = f.get_device_manager()
+    except Exception as error:
+        record(error,'gadget-manager');raise
     address = '127.0.0.1:' + str(port)
     device = session = script = None
     guard = f.Cancellable()
@@ -34,19 +37,25 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
     done = threading.Event()
     monitor = None
     timer.start()
+    stage='gadget-connect'
     try:
         with guard:
             if cancelled():
                 raise ReadStopped('cancelled')
             device = manager.add_remote_device(address, token=token)
+            stage='gadget-process'
             processes = device.enumerate_processes()
             if len(processes) != 1 or type(processes[0].pid) is not int or processes[0].pid <= 0:
                 raise ReadStopped('ambiguous-process')
             if processes[0].name not in ('Gadget', PACKAGE):
                 raise ReadStopped('unexpected-process')
+            stage='gadget-attach'
             session = device.attach(processes[0].pid)
+            stage='script-create'
             script = session.create_script(source, name='dvk-one-chat-readonly-0.3.35')
+            stage='script-load'
             script.load()
+            stage='runtime-check'
             runtime = validate_runtime(script.exports_sync.runtime())
             if runtime['arch'] != 'arm64' or runtime['platform'] != 'linux':
                 raise ReadStopped('unsupported-runtime')
@@ -60,7 +69,9 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
                         return
             monitor = threading.Thread(target=watch, daemon=True)
             monitor.start()
+            stage='script-run'
             result = script.exports_sync.root()
+            stage='result-validation'
             private = probe.private_snapshot(result, expected, read_name=read_name, read_latest=read_latest, read_input=read_input)
             n = result['navigation']
             if private is None:
@@ -70,6 +81,13 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
             if cancelled():
                 raise ReadStopped('cancelled')
             return private
+    except Exception as error:
+        # Authored fixed read-only source: even a lost root result has no UI or
+        # send side effect. Never give this proof to a mutating inspector.
+        error._dvk_readonly_transport=(stage in {'gadget-connect','gadget-process','gadget-attach','script-create','script-load','runtime-check','script-run'}
+            and type(error).__name__ in {'TransportError','ServerNotRunningError','TimedOutError'})
+        record(error,stage)
+        raise
     finally:
         done.set()
         timer.cancel()
@@ -80,6 +98,7 @@ def inspect(port, token, cancelled, expected=None, *, frida_api=None, read_name=
 
 def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspector=inspect, read_name=False, read_latest=False, read_input=False, preexecution_retry=None):
     """Private data remains in memory; no JSON serialization in this layer."""
+    readonly_operation=inspector is inspect
     if read_name or read_latest or read_input:
         if expected is None or inspector is not inspect:
             raise ValueError('Name requires the fixed bound reader')
@@ -108,6 +127,19 @@ def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspe
         from startup_failure import retryable_connection
         connection_attempt = 0
         setup_attempt = 0
+        read_attempt = 0
+        def refresh_forward():
+            # Only before a profile script load OR after the authored read-only
+            # inspector. Original explicit endpoint/boot is checked every time.
+            with checkpoint('device-recheck',adb=adb):recheck(adb,boot)
+            with checkpoint('forward-close',adb=adb):
+                adb.run(['-s',TARGET,'forward','--remove',f'tcp:{adb.forward_port}'],timeout=10)
+                adb.forward_port=None
+            with checkpoint('forward-open',adb=adb):
+                fresh=adb.run(['-s',TARGET,'forward','tcp:0','tcp:27042'])
+                if not fresh.isdecimal() or not 1024<=int(fresh)<=65535:raise ReadStopped('invalid-forward')
+                adb.forward_port=int(fresh)
+            with checkpoint('device-recheck',adb=adb):recheck(adb,boot)
         while True:
             try:
                 with checkpoint('device-inspection'):
@@ -118,7 +150,8 @@ def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspe
                 if preexecution_retry is not None and retryable_profile_setup(error):
                     # inspect() has already joined threads/detached its session.
                     # No UI action or journal authorization happened in this try.
-                    # Hold the original explicit endpoint/boot and ADB forward.
+                    # Hold the original explicit endpoint/boot; replace only
+                    # its disposable local forward after inspector cleanup.
                     if cancelled():
                         error_cancelled=ReadStopped('cancelled')
                         error_cancelled._dvk_profile_not_executed=True
@@ -130,8 +163,16 @@ def capture(executable, folder, cancelled=lambda: False, expected=None, *, inspe
                         error_cancelled=ReadStopped('cancelled')
                         error_cancelled._dvk_profile_not_executed=True
                         raise error_cancelled from None
-                    with checkpoint('device-recheck', adb=adb):
-                        recheck(adb, boot)
+                    try:refresh_forward()
+                    except Exception as setup_error:
+                        setup_error._dvk_profile_not_executed=True
+                        raise
+                    continue
+                if readonly_operation and verified_readonly_transport(error):
+                    if read_attempt>=2 or cancelled():raise
+                    read_attempt+=1
+                    refresh_forward()
+                    if cancelled():raise ReadStopped('cancelled')
                     continue
                 if connection_attempt or cancelled() or not retryable_connection(error):raise
                 connection_attempt += 1
@@ -221,3 +262,11 @@ def transient_read_failure(error):
             and value.get('wait_reason') in {'history-loading', 'history-not-loaded',
                 'null-history-manager', 'null-loaded-flag', 'changing-count',
                 'changing-last-message', 'view-not-ready'})
+
+
+def verified_readonly_transport(error):
+    from startup_failure import clean
+    value=clean(getattr(error,'_dvk_failure',None))
+    return (getattr(error,'_dvk_readonly_transport',False) is True and value is not None
+        and value['stage'] in {'gadget-connect','gadget-process','gadget-attach','script-create','script-load','runtime-check','script-run'}
+        and value['error_type'] in {'TransportError','ServerNotRunningError','TimedOutError'})

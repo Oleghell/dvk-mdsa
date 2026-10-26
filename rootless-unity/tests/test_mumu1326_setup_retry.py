@@ -57,8 +57,8 @@ class Capture(ReadTransport):
         delays=[];retry=lambda e,n,d:delays.append(d) or False
         self.assertEqual(self.capture(read,retry),{'ok':True})
         self.assertEqual(delays,[1,2,4,8,16,30]);self.assertEqual(read.call_count,7)
-        self.assertEqual(len([x for x in self.calls if 'tcp:0' in x]),1)
-        self.assertEqual(len([x for x in self.calls if '--remove' in x]),1)
+        self.assertEqual(len([x for x in self.calls if 'tcp:0' in x]),7)
+        self.assertEqual(len([x for x in self.calls if '--remove' in x]),7)
         self.assertTrue(all(c.args[3]==WHO for c in read.call_args_list))
     def test_changed_boot_never_starts_second_script(self):
         self.identities=iter([BOOT,BOOT,OTHER_BOOT]);read=MagicMock(side_effect=setup_error())

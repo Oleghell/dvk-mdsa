@@ -134,7 +134,15 @@ def inspect(port, token, cancelled, text, store, approve, *, frida_api=None):
     f = frida_api
     if f.__version__ != '17.24.1':
         raise ReadStopped('client-version')
-    source = build(text, store.visited_peers()) + '''
+    # This database read precedes ANY script, RPC or authorization thread.
+    try:
+        from run_preparation import checkpoint
+        with checkpoint('profile-history'):
+            visited=store.visited_peers()
+    except Exception as error:
+        error._dvk_profile_not_executed=True
+        raise
+    source = build(text, visited) + '''
 rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
  root(){return probeBatchProfile();},cancel(){cancelNavigation();},
  selectedpeer(){return assistantSelectedPeer;},cohortpending(){return cohortReservation();},cohortack(value){return cohortAcknowledge(value);}};

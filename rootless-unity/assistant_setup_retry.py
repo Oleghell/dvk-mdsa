@@ -39,7 +39,7 @@ class SetupRetry:
         self.notify=notify;self.alerted=False;self.attempts=0;self.last_failure=None
 
     def report(self,status,delay=0):
-        from version import VERSION
+        from mumu_version import VERSION
         return dict(tool_version=VERSION,status=status,reason='profile-script-not-created',
             setup_retry_attempts=min(self.attempts,1000000),retry_in_seconds=delay,
             profile_script_executed=False,send_attempted=False,send_handler_returned=False,

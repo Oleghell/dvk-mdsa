@@ -62,6 +62,14 @@ def run(config_path):
             try:store.reserve(dict(person,account='101'),'Synthetic',approved=True)
             except SharedPeerClaimed:pass
             else:raise AssertionError('Cross-port duplicate greeting authorized')
+            queries=[];execute=cloud.Connection._run
+            def traced(connection,sql,params=()):
+                queries.append(sql);return execute(connection,sql,params)
+            with patch.object(cloud.Connection,'_run',traced):
+                assert '9001' in store.visited_peers()
+                assert '9001' in store2.visited_peers()
+            assert sum('READ ONLY' in q for q in queries)==2
+            assert not any('pg_advisory_xact_lock' in q for q in queries)
             import mumu_cities
             names=['Synthetic city '+chr(65+i) for i in range(20)]
             with store.connection() as db:

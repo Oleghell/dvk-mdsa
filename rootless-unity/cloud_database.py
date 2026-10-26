@@ -3,7 +3,7 @@
 The local path is an identity/backup path only when cloud mode is configured.
 No SQL/body/credentials are included in raised public exception messages.
 """
-import hashlib,json,os,re,sqlite3,threading
+import hashlib,json,os,re,sqlite3,threading,time
 from pathlib import Path
 from cloud_sql import ident,schema_info,create_sql,translate
 
@@ -141,13 +141,14 @@ class Cursor:
 
 class Connection:
     def __init__(self,raw,cfg,schemas):
-        self.raw=raw;self.cfg=cfg;self.schemas=dict(schemas);self.pending={};self.in_transaction=False;self.read_only=False;self.closed=False
+        self.raw=raw;self.cfg=cfg;self.schemas=dict(schemas);self.pending={};self.in_transaction=False;self.read_only=False;self.closed=False;self.reusable=True
     def __enter__(self):return self
     def __exit__(self,kind,error,tb):
         if self.in_transaction:self.execute('ROLLBACK' if kind else 'COMMIT')
     def _run(self,sql,params=()):
         try:return self.raw.execute(sql,params or None,prepare=False)
         except Exception as error:
+            self.reusable=False # Never pool a session after an unknown SQL/commit outcome.
             state=getattr(error,'sqlstate',None)
             if state=='23505':raise sqlite3.IntegrityError('cloud-journal-conflict') from None
             codes={'55P03':'cloud-database-lock-timeout','57014':'cloud-database-query-timeout',
@@ -213,7 +214,7 @@ class Connection:
             if self.in_transaction:self.raw.execute('ROLLBACK');self.in_transaction=False;self.pending.clear()
             if not self.raw.closed:
                 pool=getattr(_local,'idle',[])
-                if len(pool)<2:pool.append((self.cfg,self.raw,self.schemas));_local.idle=pool;self.raw=None
+                if self.reusable and len(pool)<2:pool.append((self.cfg,self.raw,self.schemas,time.monotonic()));_local.idle=pool;self.raw=None
         except Exception:pass
         finally:
             if self.raw is not None:
@@ -226,8 +227,19 @@ def connect(path,*,timeout=5,isolation_level=None,uri=False):
     cfg=load();raw=None;schemas=None
     pool=getattr(_local,'idle',[])
     while pool:
-        old,candidate,known=pool.pop()
-        if old==cfg and not candidate.closed:raw=candidate;schemas=known;break
+        old,candidate,known,returned_at=pool.pop()
+        if old==cfg and not candidate.closed:
+            # Probe ONLY idle sessions BEFORE handing one to a journal caller.
+            # Failure can discard the connection, never replay a transaction.
+            try:
+                if time.monotonic()-returned_at>=10:
+                    meta=candidate.execute('SELECT protocol,dataset,ready FROM _dvk_meta WHERE singleton=1',prepare=False).fetchone()
+                    if meta!=(PROTOCOL,cfg['dataset'],True):
+                        candidate.close();raise CloudDatabaseError('cloud-dataset-not-ready')
+            except CloudDatabaseError:raise
+            except Exception:
+                candidate.close();continue
+            raw=candidate;schemas=known;break
         candidate.close()
     if raw is None:
         raw=raw_connect(cfg)

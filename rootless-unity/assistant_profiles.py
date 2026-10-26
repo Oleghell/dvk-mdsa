@@ -282,7 +282,8 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
     except Exception as error:
         from assistant_failure import category,evidence
         out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
-        failure=evidence(error)
+        from run_preparation import clean as prepared
+        failure=prepared(getattr(error,'_dvk_preparation',None)) or evidence(error)
         if failure:out['last_preparation_failure']=failure
         if cycle_pending and not (getattr(error,'_dvk_profile_not_executed',False) is True and not offered):
             out.update(send_attempts_unknown=True, greetings_sent=None)
