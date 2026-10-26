@@ -14,17 +14,19 @@ PUNCTUATION = re.compile(r'^[\s:;,!.()—\-🙂😊👍]*$')
 
 
 def contact_items(text, *, allow_unformatted=False):
-    """Only a contextual direct contact response may retain bare digits as supplied.
+    """Only a contextual direct response may accept digits with phone separators.
 
-    Do not guess country codes or call such a candidate a validated phone number.
+    Strip separators only; never guess a country code or claim phone validation.
     Generic extraction/masking policy in conversation_engine remains unchanged.
     """
     found=contacts(text)
     if allow_unformatted:
         for m in PHONE.finditer(text):
             raw=m.group()
-            if re.fullmatch(r'[0-9]{10,15}',raw) and not contacts(raw) and raw not in found:
-                found.append(raw)
+            digits=re.sub(r'[ ()\-]', '', raw)
+            if (re.fullmatch(r'[0-9]{10,15}',digits) and not contacts(raw)
+                    and digits not in found):
+                found.append(digits)
     return found[:4]
 
 

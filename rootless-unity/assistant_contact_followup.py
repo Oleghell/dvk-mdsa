@@ -62,7 +62,7 @@ def refused(messages, *, requested=False, contact_shared=False, alternative_sele
 
 
 def scoped_messages(db, snapshot, new_ids, *, requested):
-    """Do not reinterpret an earlier bare 'here' as a later contact refusal.
+    """Do not reinterpret earlier contextual answers as later contact refusals.
 
     No chronology is inferred from native collection position or numeric IDs.
     Old bare preferences are eligible only when a durable contact-stage action
@@ -86,5 +86,12 @@ def scoped_messages(db, snapshot, new_ids, *, requested):
     for m in snapshot['messages']:
         if m['sender']!=who['peer']:continue
         text=normalized(' '.join(line for line in (m.get('text') or '').splitlines() if not line.lstrip().startswith('>')))
-        if not BARE_STAY.fullmatch(text) or m['id'] in eligible:result.append(m)
+        # A pre-proposal 'нет', 'тут' or unavailable-app answer is not a
+        # refusal to THIS request. Only current or durably recorded contact-stage
+        # inputs may supply that context. Unambiguous stop/privacy preferences
+        # remain eligible; existing terminal states and global bans never reset.
+        contextual = (BARE_STAY.fullmatch(text) or NO_APPS_CONTEXT.fullmatch(text)
+            or NO_APPS.fullmatch(text) or BOTH_UNAVAILABLE.fullmatch(text)
+            or re.fullmatch(r'(?:нет|нету|не хочу|не надо|ни\s*где|нигде)[.!?,)\s]*',text))
+        if not contextual or m['id'] in eligible:result.append(m)
     return result

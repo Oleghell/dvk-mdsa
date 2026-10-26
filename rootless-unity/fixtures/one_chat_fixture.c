@@ -138,9 +138,10 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 104:long_value=batch_index>=0?1001+batch_index:mode==520?0:mode==521?-1:in&&mode!=503?1002:1001;break;
  case 105:long_value=((mode==574&&batch_index==17)||(mode==587&&batch_index==15))?999:mode==522?0:mode==523?-1:in?(mode==501?999:200):100;break;
  case 106:
+  if(mode==588&&!in)slow(); /* interrupt after a permitted own local ChatId */
   if(!in)own_chat_reads++;
   long_value=mode==524||(!in&&mode==563)?0:mode==525||(in&&mode==562)?-1:
-   !in&&(mode==560||mode==561||mode==564||mode==568||mode==650||mode==651)?-1:
+   !in&&(mode==560||mode==561||mode==564||mode==568||mode==588||mode==650||mode==651)?-1:
    !in&&mode==565?(((own_chat_reads-1)/2)%2?-2:-1):
    !in&&mode==566?(own_chat_reads%2?-1:-2):
    !in&&mode==567?(-INT64_C(9223372036854775807)-1):

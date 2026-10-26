@@ -82,6 +82,12 @@ def one(library, mode, expected=None, *, read_latest=False, read_name=False, rea
             assert n['read_checkpoint']=='last-message' and verified_loading(n),(mode,out,counts)
             assert n['wait_reason']==('history-loading' if mode==577 else 'history-not-loaded'),(mode,out)
             assert private is None and counts['bodies']==counts['items']==counts['sends']==0,(mode,counts)
+        if mode==588:
+            from assistant_history_wait import verified_read_budget
+            n=out['navigation']
+            assert n['error']=='frame-budget' and n['scalar_state']=='negative', (mode,out,counts)
+            assert n['scalar_checkpoint']=='message-chat-id' and n['message_direction']=='own', (mode,out,counts)
+            assert counts['bodies']==0 and private is None and verified_read_budget(n), (mode,out,counts)
         if mode==576:
             from assistant_history_wait import verified_read_budget
             n=out['navigation']
@@ -111,7 +117,7 @@ if __name__=='__main__':
         for names in (False,True):
             one(lib,mode,dict(account='100',peer='200',chat='300'),read_input=True,read_latest=True,read_name=names)
     who=dict(account='100',peer='200',chat='300')
-    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575,576,577,578,583,584,585,586,587):one(lib,mode,who)
+    for mode in (500,501,502,503,504,506,507,509,520,521,522,523,524,525,526,527,528,529,530,531,550,551,560,561,562,563,564,565,566,567,568,570,571,572,573,574,575,576,577,578,583,584,585,586,587,588):one(lib,mode,who)
     for mode in (579,580,581,582):one(lib,mode,who,read_latest=True)
     one(lib,579,who,read_latest=True,read_name=True)
     one(lib,500,dict(account='100',peer='201',chat='300'))

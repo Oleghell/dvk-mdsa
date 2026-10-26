@@ -27,7 +27,7 @@ REASONS = {
  'wait-mood':'Жду ответ на уже отправленный вопрос.',
  'incoming-burst-pending':'Ещё приходят сообщения. Отвечу после следующей проверки.',
  'ai-temporarily-unavailable':'Сервис ИИ сейчас недоступен. Попробую позже.',
- 'declined':'Собеседник отказался от перехода или общения. Пропущено без нового ответа.',
+ 'declined':'Цепочка закрыта без нового ответа: отказ, ограничение контактного сценария или лимит уточнений. Сам по себе этот статус не доказывает отказ собеседника.',
  'telegram-disabled':'Контакт сохранён, но отправка контактов в Telegram выключена.',
  'telegram-outcome-unknown':'Контакт найден, но Telegram не подтвердил приём. Не повторяю, чтобы не было дубля.',
  'contact-payload-blocked':'Не удалось проверить данные контакта.',
@@ -179,6 +179,14 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
         'contact-batch-ambiguous':'Не удалось безопасно связать контакт с текущим этапом.',
     }
     explanation = review_text.get(cause,REASONS.get(reason,'Не удалось безопасно продолжить этот чат.'))
+    if reason == 'declined':
+        # The legacy stage also means policy/budget/AI closure. Only an explicit
+        # fresh do-not-contact excerpt justifies calling it the peer's refusal.
+        # This changes display text only, never journal state or send permission.
+        from conversation_engine import REFUSAL
+        from assistant_contact_intent import visible
+        if any(REFUSAL.search(visible(item)) for item in excerpts):
+            explanation = 'Собеседник отказался от перехода или общения. Пропущено без нового ответа.'
     if reason == 'peer-contact-blocked':
         explanation = blocked_explanation(chain.store, who) or explanation
     if reason == 'send-outcome-unknown':

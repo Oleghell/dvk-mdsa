@@ -52,11 +52,22 @@ def verified_read_budget(value):
     actual_ids=(value.get('identity_checkpoint')=='actual-server-chat'
         and phase=='identity' and scalar=='chat-id'
         and value.get('scalar_state')=='positive')
+    # Report 247: the fixed reader permits a negative *own-message* ChatId
+    # only with independent peer anchoring. A frame may expire before that
+    # anchoring/recheck completes. This is NO identity/content proof: discard
+    # the sample, then retry only the SAME-bound reader under existing limits.
+    local_own_interrupted=(phase in ('last-message','sample')
+        and scalar=='message-chat-id' and value.get('scalar_state')=='negative'
+        and value.get('identity_checkpoint')=='recheck'
+        and value.get('message_direction')=='own'
+        and value.get('message_kind') in ('text','non-text')
+        and type(value.get('message_slot')) is int
+        and 0 <= value['message_slot'] < MAX_MESSAGES)
     return (value.get("error") in ("frame-budget", "transition-timeout")
         and value.get("stage") == "navigation-stopped"
         and value.get("metadata_checkpoint") == "ready"
         and (initial_ids or actual_ids or phase_ok and value.get("identity_checkpoint") == "recheck")
-        and value.get("scalar_state") in ("positive", "not-read")
+        and (value.get("scalar_state") in ("positive", "not-read") or local_own_interrupted)
         and value.get("wait_reason") in ("none", "not-checked")
         and type(value.get("message_slot")) is int
         and -1 <= value["message_slot"] < MAX_MESSAGES)

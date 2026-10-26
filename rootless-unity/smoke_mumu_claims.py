@@ -28,7 +28,16 @@ def one(library,case):
         try:
             assert child.stdout.readline().strip()=='ready'
             session=frida.get_local_device().attach(child.pid)
-            script=session.create_script(manual.build(text,[])+'''
+            source=manual.build(text,[])
+            if case=='skip-cancel-before-observation':
+                source += '''
+const originalSkipAck=cohortAcknowledge;
+cohortAcknowledge=function(value){
+ if(value!==null&&value.skip===true)cancelNavigation();
+ return originalSkipAck(value);
+};
+'''
+            script=session.create_script(source+'''
 rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
  cohortpending(){return cohortReservation();},cohortack(value){return cohortAcknowledge(value);},
  counts(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();
@@ -42,7 +51,7 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
                 if case!='greeting-only':
                     with other.connection() as db:
                         other.record_peer_outcome(db,dict(account=p['account'],peer=p['peer'],chat='300'),'contact-refused')
-            if case in ('already-claimed','greeting-only'):
+            if case in ('already-claimed','greeting-only','skip-cancel-before-observation'):
                 original=store.peer_claimed
                 def check(pending):claim(pending);return original(pending)
                 store.peer_claimed=check
@@ -56,6 +65,14 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
             manual.validate(raw,shared_peer_skipped=state.get('shared_peer_skipped',False))
             n=raw['navigation'];counts=script.exports_sync.counts()
             assert state=={'shared_peer_skipped':True},state
+            if case=='skip-cancel-before-observation':
+                assert n['stage']=='navigation-stopped' and n['error']=='cancelled',n
+                assert n['shared_peer_skipped'] is False and n['return_verified'] is False,n
+                assert not n['send_attempted'] and not n['send_handler_returned'],n
+                assert all(v==0 for v in counts.values()),counts
+                assert not approvals and store.summary()['reserved']==0
+                print('MuMu shared skip: interrupted ACK remains a validated STOP, no send/return claim',flush=True)
+                return
             assert n['return_verified'] is True and n['shared_peer_skipped'] is True
             assert n['history_status']=='empty' and n['send_attempted'] is False and n['send_handler_returned'] is False
             assert all(v==0 for v in counts.values()),counts
@@ -78,4 +95,4 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
 
 if __name__=='__main__':
     library=Path(sys.argv[1]).resolve(strict=True)
-    for case in ('already-claimed','race-during-typing','greeting-only'):one(library,case)
+    for case in ('already-claimed','race-during-typing','greeting-only','skip-cancel-before-observation'):one(library,case)

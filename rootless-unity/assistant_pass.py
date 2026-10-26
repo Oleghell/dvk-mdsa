@@ -90,11 +90,23 @@ def validate(value, *, shared_peer_skipped=False):
     checked['navigation']['cycle_timeout_ms'] = chat_batch.CYCLE_TIMEOUT_MS
     import os
     native_skip = checked['navigation'].pop('shared_peer_skipped', False)
-    if type(native_skip) is not bool or type(shared_peer_skipped) is not bool or native_skip != shared_peer_skipped:
+    if type(native_skip) is not bool or type(shared_peer_skipped) is not bool:
         raise ValueError('Unverified shared peer skip')
-    if native_skip and os.environ.get('DVK_MUMU_MULTI') != '1':
+    n = checked['navigation']
+    # The host sets its deny-only latch BEFORE the ACK RPC. Cancellation or a
+    # budget stop may occur before native observes it, or during checked Back.
+    # Preserve a fully validated STOP, not a fictitious successful skip. Never
+    # use host state to rewrite send flags, history, identity or return evidence.
+    stopped_skip = (shared_peer_skipped and n.get('stage') == 'navigation-stopped'
+        and n.get('send_attempted') is False and n.get('send_handler_returned') is False)
+    if native_skip != shared_peer_skipped and not (stopped_skip and not native_skip):
+        raise ValueError('Unverified shared peer skip')
+    if (native_skip or shared_peer_skipped) and os.environ.get('DVK_MUMU_MULTI') != '1':
         raise ValueError('Shared skip outside MuMu worker')
-    chat_batch.validate(checked, skipped_empty=native_skip, skipped_unready=skipped_unready)
+    if native_skip and not (n.get('send_attempted') is False and n.get('send_handler_returned') is False):
+        raise ValueError('Shared skip with submission')
+    chat_batch.validate(checked, skipped_empty=native_skip and n.get('stage') == 'navigation-ready',
+                        skipped_unready=skipped_unready)
     return value
 
 
