@@ -1,4 +1,5 @@
 """Recovery ledgers are scoped by the existing device/installation adapter."""
+from contextlib import closing
 import sqlite3,tempfile,unittest
 from pathlib import Path
 from mumu_store import SharedStore
@@ -18,7 +19,7 @@ class Scope(unittest.TestCase):
             with b.read_connection() as db:
                 self.assertEqual(db.execute('SELECT chat FROM chain_unknown_reply_retries').fetchall(),[])
                 self.assertEqual(db.execute('SELECT chat FROM chain_selection_recovery').fetchall(),[])
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db:
                 names={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             self.assertIn('m5557__chain_unknown_reply_retries',names)
             self.assertNotIn('chain_unknown_reply_retries',names)

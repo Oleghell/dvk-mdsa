@@ -38,6 +38,13 @@ def main(argv=None):
         with (logs/(fixture+'-compile.log')).open('wb') as stream:
             subprocess.run(command,stdout=stream,stderr=subprocess.STDOUT,check=True,timeout=120)
         tasks.extend((suite,library) for suite in suites)
+    # Schedule long suites first to avoid leaving one long tail on the last
+    # worker. These are conservative local fixture weights, not time promises.
+    priority=('assistant_pass','search_city','assistant_preview','one_chat',
+              'dialog_browser','one_chat_name','one_chat_send','mumu_claims',
+              'dialog_models','dialog_navigation','search_city_state','contact_profile','search_online')
+    rank={name:index for index,name in enumerate(priority)}
+    tasks.sort(key=lambda task:rank[task[0]])
     def run(task):
         suite,library=task;started=time.monotonic();path=logs/(suite+'.log')
         try:

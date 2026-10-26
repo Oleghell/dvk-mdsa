@@ -12,7 +12,7 @@ def one(library,mode,operation='open',entry='search',unread_only=False,start_ove
 lib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_LOCAL if sys.argv[4]=='1' else ctypes.RTLD_GLOBAL)
 lib.fixture_init(int(sys.argv[2]));lib.fixture_browser_entry(int(sys.argv[3]))
 print('ready',flush=True)
-for _ in range(12000):
+for _ in range(100000):
  lib.fixture_tick();time.sleep(.003)
 '''
     allowed=[] if operation!='open' or mode==816 else [TARGET]
@@ -102,10 +102,12 @@ def integration(library,mode=800,ai=False,provider='groq',cached_models=False):
     from assistant_chain import Chain
     from assistant_settings import Settings
     from assistant_dialogs import walk
+    # The finally block terminates the child. Its fallback lifetime must not
+    # expire in the middle of a valid slower Windows/loaded-runner integration.
     code='''import ctypes,sys,time
 lib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL);lib.fixture_init(int(sys.argv[2]))
 print('ready',flush=True)
-for _ in range(12000):
+for _ in range(100000):
  lib.fixture_tick();time.sleep(.003)
 '''
     child=subprocess.Popen([sys.executable,'-u','-c',code,str(library),str(mode)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)

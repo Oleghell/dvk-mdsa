@@ -21,6 +21,48 @@ permissions:
   contents: read
 jobs:
   verify:
+    name: Unit tests (${{ matrix.os }}, ${{ matrix.shard_label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: ubuntu-24.04
+          shard_index: 0
+          shard_count: 1
+          shard_label: all
+        - os: windows-2022
+          shard_index: 0
+          shard_count: 3
+          shard_label: 1-of-3
+        - os: windows-2022
+          shard_index: 1
+          shard_count: 3
+          shard_label: 2-of-3
+        - os: windows-2022
+          shard_index: 2
+          shard_count: 3
+          shard_label: 3-of-3
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+    - name: Unit tests without accounts or Android
+      run: python rootless-unity/run_unit_tests.py --shard-index ${{ matrix.shard_index }} --shard-count ${{ matrix.shard_count }}
+    - name: Upload unit timing summary
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-timings-${{ matrix.os }}-${{ matrix.shard_index }}
+        path: unit-test-logs/
+        retention-days: 3
+        if-no-files-found: ignore
+  native:
+    name: Native tests (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -28,7 +70,7 @@ jobs:
         - ubuntu-24.04
         - windows-2022
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 25
     steps:
     - uses: actions/checkout@v4
       with:
@@ -38,8 +80,6 @@ jobs:
         python-version: '3.13'
         cache: pip
         cache-dependency-path: rootless-unity/mumu-ci-requirements.txt
-    - name: Unit tests without accounts or Android
-      run: python rootless-unity/run_unit_tests.py
     - name: Install pinned native test client
       run: python -m pip install frida==17.24.1
     - uses: ilammy/msvc-dev-cmd@v1
@@ -53,6 +93,7 @@ jobs:
         name: native-logs-${{ runner.os }}
         path: native-test-logs/
         retention-days: 3
+        if-no-files-found: ignore
   package:
     runs-on: windows-2022
     timeout-minutes: 12
@@ -140,6 +181,7 @@ jobs:
   release:
     needs:
     - verify
+    - native
     - package
     if: inputs.publish == true || contains(github.event.head_commit.message, '[release]')
     runs-on: ubuntu-24.04
