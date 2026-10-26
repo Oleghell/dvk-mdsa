@@ -47,6 +47,12 @@ def one(library, case):
                 inject="if("+cond+")fail('frame-budget');"
                 if case=='identity-after-budget':inject+="fail('identity-changed');"
                 source=source.replace("n.read_checkpoint='identity';",inject+"n.read_checkpoint='identity';")
+            if case in ('prepare-budget-once','submit-budget-once','submit-budget-always','submit-budget-identity'):
+                phase='prepare-greeting' if case=='prepare-budget-once' else 'submit-greeting'
+                cond='true' if case=='submit-budget-always' else 'n.profile_read_budget_retries===0'
+                inject="if("+cond+")fail('frame-budget');"
+                if case=='submit-budget-identity':inject+="fail('identity-changed');"
+                source=source.replace("if(n.phase==='"+phase+"'){","if(n.phase==='"+phase+"'){"+inject)
             if case in ('actual-late','actual-never','actual-identity-change','actual-back-identity','actual-back-unknown'):
                 guard='true' if case in ('actual-never','actual-back-identity','actual-back-unknown') else 'n.profile_ready_waits===0'
                 source=source.replace('n.model_actual=bool(s.actual,chat);',
@@ -119,7 +125,7 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
                 store.finish(state['action_id'], n)
             counts = script.exports_sync.counts()
             assert all(counts[k] == 0 for k in ('handles', 'off', 'pins', 'bad', 'timing')), (case, counts)
-            sends = 1 if case in ('approve', 'draft', 'handler-error', 'skip-visited', 'slow-profile','combined-frame','read-budget-once','send-return-budget','actual-late') else 0
+            sends = 1 if case in ('approve', 'draft', 'handler-error', 'skip-visited', 'slow-profile','combined-frame','read-budget-once','send-return-budget','actual-late','prepare-budget-once','submit-budget-once') else 0
             assert counts['sends'] == sends, (case, counts, n['error'])
             assert counts['opens'] == (0 if case == 'crowded-search' else 1), (case, counts)
             if case == 'crowded-search':
@@ -135,6 +141,11 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
                     else:
                         assert n['stage']=='navigation-stopped' and n['error']==('frame-budget' if case=='actual-back-unknown' else 'identity-changed'),(case,n)
                         assert counts['backs']==(1 if case=='actual-back-unknown' else 0),(case,counts)
+            if case in ('prepare-budget-once','submit-budget-once','submit-budget-always','submit-budget-identity'):
+                assert n['profile_read_budget_retries']==(4 if case=='submit-budget-always' else 1),(case,n)
+                if case in ('submit-budget-always','submit-budget-identity'):
+                    assert not n['send_attempted'] and not n['send_handler_returned'] and len(approvals)==1,(case,n)
+                    assert n['error']==('frame-budget' if case=='submit-budget-always' else 'identity-changed'),(case,n)
             if case=='slow-profile-baseline':
                 assert n['stage']=='navigation-stopped' and n['error'] in ('frame-limit','call-limit') and not approvals, n
             if case == 'slow-profile':
@@ -263,7 +274,7 @@ rpc.exports={preparevisited(values){return assistantPrepareVisited(values);},roo
 if __name__ == '__main__':
     library = Path(sys.argv[1]).resolve(strict=True)
     if len(sys.argv)==2:bootstrap_contract(library)
-    cases = sys.argv[2:] or ['approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure', 'crowded-search', 'slow-profile', 'slow-profile-baseline','combined-frame','combined-frame-baseline','read-budget-once','read-budget-always','identity-after-budget','history-after-approval','send-return-budget','actual-late','actual-never','actual-identity-change','actual-back-identity','actual-back-unknown','read-budget-pinned','history-loading-skip','history-not-loaded-skip','input-disabled','input-disabled-prepare','input-disabled-after-approval','input-disabled-back-identity','input-disabled-back-unknown']
+    cases = sys.argv[2:] or ['prepare-budget-once','submit-budget-once','submit-budget-always','submit-budget-identity','approve', 'reject', 'nonempty', 'friends-50', 'skip-visited', 'draft', 'identity-change', 'handler-error', 'disk-failure', 'crowded-search', 'slow-profile', 'slow-profile-baseline','combined-frame','combined-frame-baseline','read-budget-once','read-budget-always','identity-after-budget','history-after-approval','send-return-budget','actual-late','actual-never','actual-identity-change','actual-back-identity','actual-back-unknown','read-budget-pinned','history-loading-skip','history-not-loaded-skip','input-disabled','input-disabled-prepare','input-disabled-after-approval','input-disabled-back-identity','input-disabled-back-unknown']
     # Baseline construction patches a module function: keep it outside workers.
     if 'combined-frame-baseline' in cases:
         one(library,'combined-frame-baseline');cases.remove('combined-frame-baseline')

@@ -2,7 +2,7 @@
 
 Only chats with OUR greeting are eligible: an explicit guided binding or a
 greeting recorded in the send journal. Outgoing messages need run-scoped
-or per-message permission; unknown sends and notifications are never retried. Message
+or per-message permission; notifications are never retried; MuMu uncertain replies have one audited retry. Message
 bodies stay in RAM (optional bounded Groq export); reports contain counters only.
 """
 from assistant_chain import Chain, TERMINAL
@@ -18,7 +18,7 @@ import assistant_history_wait as history_wait
 
 LIMIT = None
 PAUSE_OUTCOMES = {'message-not-approved', 'manual-review'}
-# Chat-local uncertainty is isolated, never retried; navigation failures still stop.
+# Chat-local uncertainty is isolated; only the explicit MuMu recovery policy can retry once.
 ISOLATE = {'greeting-not-verified', 'send-outcome-unknown', 'outgoing-not-observed', 'manual-review',
            'history-changed-during-approval', 'local-own-message-unanchored', 'groq-draft-unavailable',
            'groq-repeat-greeting', 'openrouter-repeat-greeting', 'groq-unsafe-reply', 'openrouter-unsafe-reply',
@@ -133,6 +133,8 @@ def inbox_targets(chain):
     attention, unread = [], []
     from assistant_contact_receipt import candidates as contact_candidates
     receipt_reviews=contact_candidates(chain.store)
+    from assistant_selection_recovery import targets as selection_targets
+    receipt_reviews |= selection_targets(chain)
     from assistant_legacy_recovery import candidates
     recoverable=candidates(chain.store) if chain.responder is not None else set()
     for account, peer, chat, stage, outbox, pending, media in rows:
@@ -177,6 +179,10 @@ def with_seen_ids(chain, allowed):
     out=[]
     from assistant_contact_receipt import candidates as contact_candidates
     receipt_reviews=contact_candidates(chain.store)
+    from assistant_selection_recovery import targets as selection_targets
+    receipt_reviews |= selection_targets(chain)
+    from assistant_unknown_reply import targets as unknown_targets
+    receipt_reviews |= unknown_targets(chain)
     from assistant_reply_audit import DDL as receipt_ddl
     from assistant_skip_audit import DDL as skip_ddl
     chain.store.ensure_tables(receipt_ddl,skip_ddl)
@@ -616,6 +622,11 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         prepared_store=Store() if store is None else store
     with checkpoint('inbox-chain'):
         chain = InboxChain(prepared_store,responder=responder)
+    if getattr(prepared_store,'mumu_shared_claims',False) is True:
+        from assistant_unknown_reply import enable as enable_unknown_recovery
+        enable_unknown_recovery(chain)
+        from assistant_selection_recovery import enable as enable_selection_recovery
+        enable_selection_recovery(chain)
     chain.media_required=settings.contacts_enabled
     with checkpoint('inbox-photo'):
         if contact_photo is None and settings.contacts_enabled:

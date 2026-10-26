@@ -86,7 +86,7 @@ def blocked_explanation(store, who):
     return explanation + ' Новые сообщения запрещены на всех MuMu; запись автоматически не снимается.'
 
 
-def unknown_send_explanation(store, who):
+def unknown_send_explanation(store, who, *, retry=False):
     """Fixed journal labels only; neither absence nor return proves delivery."""
     kinds = {'question': 'вопрос', 'contact': 'предложение перейти',
              'clarify': 'уточнение контакта', 'followup': 'ответ по контексту'}
@@ -101,7 +101,7 @@ def unknown_send_explanation(store, who):
     if not details:
         return None
     return ('В журнале: ' + '; '.join(sorted(details)) +
-            '. Это не подтверждение доставки. Повторной отправки не будет.')
+            ('. Это не подтверждение доставки.' if retry else '. Это не подтверждение доставки. Повторной отправки не будет.'))
 
 
 def read_failure_explanation(diagnostics):
@@ -190,7 +190,13 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
     if reason == 'peer-contact-blocked':
         explanation = blocked_explanation(chain.store, who) or explanation
     if reason == 'send-outcome-unknown':
-        detail = unknown_send_explanation(chain.store, who)
+        retry_policy=getattr(chain,'retry_unknown_once',False) is True
+        if retry_policy:
+            from assistant_unknown_reply import targets
+            available=(who['account'],who['peer'],who['chat']) in targets(chain)
+            explanation=('Неясно, ушёл ли ответ. После двух свежих одинаковых чтений возможна одна повторная попытка, если ответ не найден; возможен дубль.' if available else
+                         'Неясно, ушёл ли ответ. Единственная повторная попытка уже использована либо восстановление недоступно; автоматического повтора не будет.')
+        detail = unknown_send_explanation(chain.store, who, retry=retry_policy)
         if detail:
             explanation += ' ' + detail
     if reason == 'greeting-not-verified':

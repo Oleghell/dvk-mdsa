@@ -110,7 +110,7 @@ def platform_signals(messages, app):
         positive |= bool(re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'(?:есть|работает|живой|жива|жив|живое|лучше|удобнее|удобно)\b',value)
             or re.search(r'\b(?:есть|пользуюсь|давай|можно|лучше)\s+(?:в\s+)?'+app+r'\b',value)
             or re.search(r'\bработает\s+'+AVAIL_FILL+app+r'\b',value)
-            or re.fullmatch(app,value))
+            or re.fullmatch(r'(?:в\s+)?'+app,value))
     return positive and not negative, negative
 
 

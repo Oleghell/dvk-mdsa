@@ -401,6 +401,14 @@ class Profiles(Base):
         self.assertNotIn('PRIVATE',json.dumps(out))
         self.approve.assert_not_called()
 
+    def test_read_only_search_frame_budget_rotates_without_any_open_or_send(self):
+        profiles.Session(self.store).set('city','Псков')
+        limited=self.budget_result();limited['navigation']['error']='frame-budget'
+        out=self.go([limited,cycle_result(send_attempted=True,send_handler_returned=True)],cities=[self.city_value('Орск')],limit=1)
+        self.assertEqual(out['status'],'profiles-completed')
+        self.assertEqual(out['search_budget_rotations'],1)
+        self.assertEqual(out['send_attempts'],1)
+
     def test_post_open_budget_and_cleanup_failure_never_rotate(self):
         profiles.Session(self.store).set('city','Псков')
         for changes in (dict(open_attempted=True), dict(open_completed=True),

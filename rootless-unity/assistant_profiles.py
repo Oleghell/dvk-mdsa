@@ -195,7 +195,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             # Recover ONLY before any profile/chat/send action or approval. The
             # new-city probe independently verifies search before changing it;
             # a failure there stops. Never retry a failed native/send operation.
-            scan_budget = (n['error'] == 'call-limit' and n['stage'] == 'navigation-stopped'
+            scan_budget = (n['error'] in ('call-limit','frame-budget') and n['stage'] == 'navigation-stopped'
                 and n.get('cleanup_failed') is False and n.get('phase') == 'search'
                 and n.get('search_verified') is True and n.get('open_attempted') is False
                 and n.get('open_completed') is False

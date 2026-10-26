@@ -369,6 +369,9 @@ class GuidedChain(Chain):
                              (who['chat'], action['kind'], text_hash(action['text'])))
             if cur.rowcount != 1:
                 raise StateError('guided-send-already-reserved')
+            if getattr(self,'retry_unknown_once',False) is True:
+                from assistant_unknown_reply import reserve as reserve_unknown_retry
+                reserve_unknown_retry(db,who,action)
             from assistant_send_safety import authorize
             return authorize(db,who,action)
 
@@ -494,6 +497,12 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             host_checkpoint='chat-contact-reconcile'
             out['diagnostics']['contact_review_reconciled']=reconcile(chain,before,fresh)
             before=fresh
+        from assistant_selection_recovery import reserve as reserve_selection,recover as recover_selection
+        if reserve_selection(chain,who):
+            progress('Проверяю старый статус • уточняю выбор мессенджера.')
+            fresh=read(keep_latest=True)
+            recover_selection(chain,before,fresh)
+            before=fresh
         before.pop('latest_message_id',None)
         out['diagnostics']['legacy_stage_recovered']=getattr(chain,'last_legacy_recovered',False) is True
         out['diagnostics']['legacy_recovery_reason']=getattr(chain,'legacy_recovery_reason','not-applicable')
@@ -523,6 +532,16 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     out['diagnostics']['saved_receipt_only']=True
                 else:
                     ensure_communication_allowed(chain.store,who)
+                    from assistant_unknown_reply import candidate as unknown_candidate,recover as recover_unknown
+                    if unknown_candidate(chain,who):
+                        progress('Проверяю неизвестный исход • заново читаю тот же чат.')
+                        fresh=read()
+                        recovery=recover_unknown(chain,before,fresh)
+                        if recovery=='prepared':
+                            progress('Ответ не найден • подготовлена одна повторная попытка; возможен дубль.')
+                        elif recovery=='observed':
+                            progress('Ответ найден в истории • повтор не нужен.')
+                        before=fresh
                     host_checkpoint='chat-proposal'
                     stage, action = timed(out['diagnostics'], 'proposal', chain.proposal, before)
             except StateError as error:

@@ -152,7 +152,7 @@ def diagnostic_json(report):
         'profile-open-call','profile-noop-check','profile-back-call','profile-after-back','profile-return-check','before-profile-open','reconnecting','reconnected','profile-script-not-created','groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
         'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
         'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',
-        'done','check-chat','close-chat','wait-chat-back','search','profile','wait-return','scan-city',
+        'done','check-chat','prepare-greeting','submit-greeting','close-chat','wait-chat-back','search','profile','wait-return','scan-city',
         'query-city','confirm-profile','wait-profile','wait-chat','wait-city','verify-search','select-city',
         'profile-limit','visible-exhausted','model','last-message','chat-not-actual','history-loading',
         'history-not-loaded','profile-recovery-limit','working','checking','cancelled','recovering','safe-recovery'}

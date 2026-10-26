@@ -94,9 +94,14 @@ def specialize(source):
    }
 ''' + source[b:]
     # Recovery is exclusively a fresh read inside the already pinned chat.
-    # Never retry after publishing pending authorization or after any send.
+    # Greeting checks can resume on a fresh frame, but never after any send.
     anchor = '} catch(e){state.scanCellBusy=false;'
     source = replace(source, anchor, anchor + r'''
+   if(e==='frame-budget'&&['prepare-greeting','submit-greeting'].includes(n.phase)&&
+    n.chat_open_completed&&n.chat_verified&&n.chat_identity_verified&&n.greeting_frame_splits===1&&
+    !n.send_attempted&&!n.send_handler_returned&&n.profile_read_budget_retries<4){
+    n.profile_read_budget_retries++;state.nextActionAt=Date.now();return;
+   }
    if(e==='frame-budget'&&n.phase==='check-chat'&&n.chat_open_completed&&n.chat_verified&&
     !n.send_attempted&&!n.send_handler_returned&&cohortPending===null&&cohortApproved===null&&
     n.profile_read_budget_retries<4){
