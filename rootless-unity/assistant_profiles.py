@@ -95,22 +95,13 @@ def change_city(settings, stopped, store, cities, *, city_next=None, diagnostics
     secrets.SystemRandom().shuffle(cities)
     if getattr(store,'mumu_shared_claims',False):
         from mumu_cities import change
-        value,cities=change(store,cities,lambda allowed,seen:city_next(settings.adb,settings.folder,allowed,seen,stopped.is_set))
+        value,cities=change(store,cities,lambda allowed,seen:city_next(settings.adb,settings.folder,allowed,seen,stopped.is_set),diagnostics=diagnostics)
     else:
         value = city_next(settings.adb, settings.folder, cities, used, stopped.is_set)
     search_city.validate_next(value, cities)
     n = value['navigation']
-    if diagnostics is not None:
-        diagnostics['last_city_navigation'] = {key: n[key] for key in (
-            'stage', 'error', 'phase', 'city_checkpoint', 'city_prepare',
-            'city_visible_rows', 'city_total_rows', 'city_scan_samples',
-            'city_matches', 'city_select_attempted', 'city_select_completed', 'city_verified',
-            'open_attempted', 'open_completed', 'city_open_attempted', 'city_open_completed',
-            'city_query_attempted', 'city_query_text_completed', 'city_query_completed', 'apply_attempted', 'apply_completed',
-            'settings_checkpoint', 'city_transition_overruns', 'city_read_budget_retries',
-            'city_queries_started', 'city_query_text_returns', 'city_query_returns', 'city_candidates_skipped', 'city_result_waits')}
-        if n['stage'] != 'navigation-ready':
-            diagnostics['last_error'] = n['error']
+    from mumu_cities import remember_navigation
+    remember_navigation(value,diagnostics)
     if n['stage'] != 'navigation-ready':
         raise StateError('city-no-alternative' if n['error'] == 'city-no-alternative' else 'city-not-verified')
     history.record(cities, value)
@@ -285,9 +276,13 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
         from run_preparation import clean as prepared
         failure=prepared(getattr(error,'_dvk_preparation',None)) or evidence(error)
         if failure:out['last_preparation_failure']=failure
-        if cycle_pending and not (getattr(error,'_dvk_profile_not_executed',False) is True and not offered):
+        closed=getattr(error,'_dvk_profile_diagnostics',None)
+        if isinstance(closed,dict):out['last_profile_diagnostics']=dict(closed)
+        no_send=getattr(error,'_dvk_profile_no_send_verified',False) is True
+        if no_send:out['profile_cycle_no_send_verified']=True
+        if cycle_pending and not no_send and not (getattr(error,'_dvk_profile_not_executed',False) is True and not offered):
             out.update(send_attempts_unknown=True, greetings_sent=None)
-        known = {'profile-script-unavailable','profile-recovery-limit', 'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
+        known = {'city-claim-changed','profile-authorization-pending','profile-authorization-missing','profile-authorization-failed','profile-script-unavailable','profile-recovery-limit', 'between-profile-inbox-stopped', 'cancelled', 'send-outcome-unknown', 'greeting-not-approved', 'profile-check-stopped',
                  'return-not-verified', 'legacy-reservation-present', 'city-no-alternative', 'city-not-verified', 'city-pool-exhausted', 'city-reservation-unresolved', 'search-cycle-limit', 'profile-scan-limit'}
         reason = 'cancelled' if stopped.is_set() else (
             str(error) if isinstance(error, StateError) and str(error) in known else 'device-or-journal-check-stopped')

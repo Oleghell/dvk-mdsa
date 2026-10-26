@@ -3,13 +3,14 @@ from contextlib import contextmanager
 import sqlite3
 from groq_reply import GroqError, ERRORS as AI_ERRORS
 
-STAGES = {
- 'profile-history','profiles-config','run-imports','run-lock','run-inbox','run-inbox-result','run-profiles','run-profiles-result','run-report',
+STAGES = {'profile-thread-drain','profile-selected-peer','profile-record-visit','profile-finish-journal','profile-authorization',
+ 'profile-pending-read','profile-peer-check','profile-skip-ack','profile-approval','profile-reserve','profile-terminal-check','profile-ack','profile-history','profiles-config','run-imports','run-lock','run-inbox','run-inbox-result','run-profiles','run-profiles-result','run-report',
  'inbox-imports','inbox-contacts','inbox-ai','inbox-database','inbox-chain','inbox-photo',
  'inbox-navigation-adapter','inbox-config','inbox-walk','inbox-outbox','inbox-targets','inbox-review'}
 ERRORS = {'prepare-'+s+'-failed' for s in STAGES} | AI_ERRORS | {'configuration-invalid'}
 TYPES = {'ValueError','TypeError','KeyError','AttributeError','FileNotFoundError','PermissionError',
  'ModuleNotFoundError','ImportError','OSError','RuntimeError','StateError','GroqError','ConfigError',
+ 'TransportError','ServerNotRunningError','TimedOutError','RPCException','OperationCancelledError','ProtocolError','ProcessNotFoundError','InvalidOperationError',
  'TelegramError','OperationalError','DatabaseError','IntegrityError','ProgrammingError','InterfaceError','OtherError','CloudDatabaseError'}
 DATABASE_CODES = {'SQLITE_ERROR','SQLITE_AUTH','SQLITE_BUSY','SQLITE_BUSY_SNAPSHOT',
  'SQLITE_BUSY_RECOVERY','SQLITE_LOCKED','SQLITE_LOCKED_SHAREDCACHE','SQLITE_READONLY',
@@ -76,6 +77,18 @@ def from_report(report):
     return None
 
 LABELS = {
+ 'profile-thread-drain':'Поток проверки разрешения ещё не завершился; повтор отправки запрещён.',
+ 'profile-selected-peer':'Не удалось прочитать выбранную анкету после native-цикла.',
+ 'profile-record-visit':'Не удалось сохранить результат просмотра анкеты в основной базе.',
+ 'profile-finish-journal':'Не удалось завершить запись результата в журнал отправки.',
+ 'profile-authorization':'Ошибка проверки разрешения на приветствие.',
+ 'profile-pending-read':'Не удалось прочитать запрос разрешения native-прохода.',
+ 'profile-peer-check':'Не удалось проверить общий запрет первого приветствия.',
+ 'profile-skip-ack':'Не удалось подтвердить пропуск уже обработанного собеседника.',
+ 'profile-approval':'Не удалось проверить разрешение на приветствие.',
+ 'profile-reserve':'Не удалось сохранить атомарный резерв приветствия в основной базе.',
+ 'profile-terminal-check':'Не удалось повторно проверить контакт/отказ перед native ACK.',
+ 'profile-ack':'Не удалось подтвердить native-разрешение после резервирования.',
  'profile-history':'Не удалось прочитать историю анкет из основной базы до запуска native-скрипта.',
  'profiles-config':'Не удалось прочитать настройки перед проходом по анкетам.',
  'run-imports':'Не удалось загрузить компоненты первого прохода.',

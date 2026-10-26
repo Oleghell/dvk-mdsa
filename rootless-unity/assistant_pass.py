@@ -16,6 +16,7 @@ from uikit_profile_navigation import replace_once
 
 APPROVAL_SECONDS = 60
 CYCLE_TIMEOUT_MS = 90000
+FINALIZE_RPC_SECONDS = 60
 
 
 def build(text, visited=()):
@@ -97,9 +98,30 @@ def validate(value, *, shared_peer_skipped=False):
     return value
 
 
-def monitor(script, store, text, approve, done, cancelled, state):
+PROFILE_DIAGNOSTIC_FIELDS=('stage','error','phase','frames','managed_calls','metadata_checkpoint',
+    'selection_check','read_checkpoint','wait_reason','search_verified','open_attempted','open_completed',
+    'chat_open_attempted','chat_open_completed','send_attempted','send_handler_returned','return_verified',
+    'profile_read_budget_retries','greeting_frame_splits','profile_ready_waits','profile_read_skipped',
+    'profile_read_skip_reason','profile_input_enabled','chat_back_attempted','chat_back_completed',
+    'chat_return_verified','chat_identity_verified','chat_return_route')
+
+
+def drain_threads(threads,done,*,timeout=30,clock=time.monotonic):
+    """Stop authorization before validating its final state. Never start a retry.
+
+    SQL may legitimately take longer than the old two-second join. One shared
+    deadline bounds drainage, not thirty seconds for every thread.
+    """
+    done.set();deadline=clock()+timeout
+    for thread in threads:thread.join(timeout=max(0,deadline-clock()))
+    if any(thread.is_alive() for thread in threads):
+        raise StateError('profile-authorization-pending')
+
+
+def monitor(script, store, text, approve, done, cancelled, state, failures=None):
     """A successful FULL SQLite commit MUST happen before native authorization."""
     while not done.wait(.05):
+        phase='profile-pending-read'
         try:
             pending = script.exports_sync.cohortpending()
             if pending is None:
@@ -109,17 +131,21 @@ def monitor(script, store, text, approve, done, cancelled, state):
                 return
             # A terminal global outcome or prior greeting on any port skips before
             # typing; reserve below rechecks atomically after approval.
+            phase='profile-peer-check'
             if getattr(store, 'mumu_shared_claims', False) is True and store.peer_claimed(pending):
                 from mumu_claims import skip
+                phase='profile-skip-ack'
                 skip(script, pending, state)
                 return
             # No reservation (and no send authorization) on No, Stop or timeout.
-            if approve(dict(pending), text, lambda: cancelled() or done.is_set()) is not True:
-                state['declined'] = True
+            phase='profile-approval'
+            approval=approve(dict(pending),text,lambda:cancelled() or done.is_set())
+            if cancelled() or done.is_set():return
+            if approval is not True:
+                state['declined']=True
                 script.exports_sync.cancel()
                 return
-            if cancelled() or done.is_set():
-                return
+            phase='profile-reserve'
             try:
                 state['action_id'] = store.reserve(pending, text, approved=True)
             except StateError as error:
@@ -127,21 +153,30 @@ def monitor(script, store, text, approve, done, cancelled, state):
                 if not isinstance(error, SharedPeerClaimed):
                     raise
                 from mumu_claims import skip
+                phase='profile-skip-ack'
                 skip(script, pending, state)
                 return
             if cancelled() or done.is_set():
                 return  # Durable unknown reservation is intentionally retained.
+            phase='profile-terminal-check'
             if (getattr(store,'mumu_shared_claims',False) is True
                     and store.peer_terminal(pending) is True):
                 # Refusal/contact arrived after reservation but before native ACK.
                 # Retain the local reserve; use the verified no-send Back path.
                 from mumu_claims import skip
+                phase='profile-skip-ack'
                 skip(script,pending,state)
                 return
+            phase='profile-ack'
             if not script.exports_sync.cohortack(pending):
                 raise StateError('Подтверждение устарело. Отправка остановлена.')
             return  # Exactly one authorization per host operation.
         except Exception as error:
+            from run_preparation import record as prepared
+            prepared(error,phase)
+            if failures is not None:failures.append(error)
+            state['authorization_failure']=getattr(error,'_dvk_preparation',None)
+            state['authorization_checkpoint']=phase
             state['error'] = str(error) if isinstance(error, StateError) else 'Не удалось сохранить или проверить разрешение отправки.'
             try:
                 script.exports_sync.cancel()
@@ -180,13 +215,14 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
     address = '127.0.0.1:' + str(port)
     device = session = script = None
     done = threading.Event()
-    state = {}
+    state = {};failures=[]
     threads = []
     guard = f.Cancellable()
     timer = threading.Timer(100, guard.cancel)
     timer.daemon = True
     timer.start()
     stage='gadget-connect'
+    value=None;threads_drained=False
     setup_started=time.monotonic()
     try:
         with guard:
@@ -220,30 +256,40 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
                         except Exception:
                             pass
                         return
-            for target, args in ((watch, ()), (monitor, (script, store, text, approve, done, cancelled, state))):
+            for target, args in ((watch, ()), (monitor, (script, store, text, approve, done, cancelled, state, failures))):
                 thread = threading.Thread(target=target, args=args, daemon=True)
                 threads.append(thread)
                 thread.start()
             stage='script-run'
             raw = script.exports_sync.root()
+            done.set();timer.cancel()
+            # Native root has its own deadline. Give host drainage/final read a
+            # separate bounded guard, never an unbounded post-root RPC.
+            timer=threading.Timer(FINALIZE_RPC_SECONDS,guard.cancel)
+            timer.daemon=True;timer.start()
+            stage='profile-thread-drain'
+            drain_threads(threads,done)
+            threads_drained=True
             stage='result-validation'
             value = validate(raw, shared_peer_skipped=state.get('shared_peer_skipped', False))
-            done.set()
-            for thread in threads:
-                thread.join(timeout=2)
-            if any(thread.is_alive() for thread in threads):
-                raise StateError('Подтверждение не завершилось. Проверь чат вручную.')
             n = value['navigation']
+            stage='profile-selected-peer'
             peer = script.exports_sync.selectedpeer()
             if peer is not None:
+                stage='profile-record-visit'
                 store.record_visit(peer, n)
+            stage='profile-finish-journal'
             action_id = state.get('action_id')
             if n['send_attempted'] and action_id is None:
-                raise StateError('Отправка без сохранённого разрешения.')
+                raise StateError('profile-authorization-missing')
             if action_id is not None:
                 store.finish(action_id, n)
+            if failures:
+                stage='profile-authorization'
+                raise failures[0]
             if state.get('error'):
-                raise StateError(state['error'])
+                stage='profile-authorization'
+                raise StateError('profile-authorization-failed')
             return dict(navigation=n, declined=state.get('declined', False))
     except Exception as error:
         # This exact host path has not loaded a script, started any RPC or
@@ -251,9 +297,18 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
         # create_script call is still NOT loaded and cannot execute the cycle.
         error._dvk_profile_not_executed = ((stage=='script-create' and script is None or stage=='profile-history-upload')
             and not threads and not state)
+        if value is not None and threads_drained:
+            n=value['navigation']
+            error._dvk_profile_diagnostics={k:n[k] for k in PROFILE_DIAGNOSTIC_FIELDS if k in n}
+            error._dvk_profile_no_send_verified=(n['send_attempted'] is False and n['send_handler_returned'] is False)
+        if state.get('authorization_checkpoint') is not None:
+            error._dvk_profile_authorization_checkpoint=state['authorization_checkpoint']
         error._dvk_profile_source_bytes=len(source.encode('utf-8'))
         error._dvk_profile_history_count=len(visited)
         error._dvk_profile_setup_ms=min(1000000,max(0,int((time.monotonic()-setup_started)*1000)))
+        if stage in {'profile-thread-drain','profile-selected-peer','profile-record-visit','profile-finish-journal','profile-authorization'}:
+            from run_preparation import record as prepared
+            prepared(error,stage)
         record(error,stage)
         raise
     finally:

@@ -68,7 +68,9 @@ def run(config_path):
             with patch.object(cloud.Connection,'_run',traced):
                 assert '9001' in store.visited_peers()
                 assert '9001' in store2.visited_peers()
-            assert sum('READ ONLY' in q for q in queries)==2
+                assert store.peer_claimed(dict(person,account='101'))
+                assert not store.peer_terminal(dict(person,account='101'))
+            assert sum('READ ONLY' in q for q in queries)==4
             assert not any('pg_advisory_xact_lock' in q for q in queries)
             import mumu_cities
             names=['Synthetic city '+chr(65+i) for i in range(20)]

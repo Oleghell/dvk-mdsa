@@ -5,9 +5,9 @@ STAGES = {
  'bundle-check', 'adb-create', 'adb-preflight', 'device-recheck', 'forward-open',
  'device-recheck-after', 'forward-close', 'device-inspection', 'gadget-import',
  'gadget-manager', 'gadget-connect', 'gadget-process', 'gadget-attach',
- 'profile-history-upload','script-create', 'script-load', 'runtime-check', 'script-run', 'result-validation',
+ 'profile-thread-drain','profile-selected-peer','profile-record-visit','profile-finish-journal','profile-authorization','profile-history-upload','script-create', 'script-load', 'runtime-check', 'script-run', 'result-validation',
  'navigation-source', 'navigation-result', 'navigation-diagnostic', 'navigation-destination'}
-TYPES = {'TransportError','ServerNotRunningError','ProcessNotFoundError','PermissionDeniedError',
+TYPES = {'StateError','CloudDatabaseError','TransportError','ServerNotRunningError','ProcessNotFoundError','PermissionDeniedError',
  'OperationCancelledError','ProtocolError','InvalidArgumentError','TimedOutError','RPCException',
  'InvalidOperationError','NotSupportedError','TestError','ValueError','KeyError','TypeError',
  'FileNotFoundError','PermissionError','ModuleNotFoundError','ImportError','OSError','RuntimeError'}
@@ -70,6 +70,11 @@ def checkpoint(stage, *, adb=None):
         raise
 
 LABELS = {
+ 'profile-thread-drain':'Не удалось дождаться завершения потока разрешения. Новый проход не запускается.',
+ 'profile-selected-peer':'Не удалось получить результат выбранной анкеты.',
+ 'profile-record-visit':'Не удалось сохранить проверенный просмотр анкеты.',
+ 'profile-finish-journal':'Не удалось завершить запись результата в журнале отправок.',
+ 'profile-authorization':'Ошибка потока разрешения текущего приветствия.',
  'profile-history-upload':'Не удалось подготовить список исключённых анкет до начала native-прохода.',
  'bundle-check':'Не удалось проверить комплект APK.',
  'adb-create':'Не удалось подготовить ADB.',

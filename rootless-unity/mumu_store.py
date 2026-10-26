@@ -118,6 +118,18 @@ class SharedStore(BaseStore):
             raise
         finally:db.close()
 
+    @contextmanager
+    def read_connection(self):
+        db=connect(self.path,timeout=30,isolation_level=None)
+        try:
+            db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
+            yield Connection(db,self.prefix)
+            db.execute('COMMIT')
+        except BaseException:
+            if db.in_transaction:db.execute('ROLLBACK')
+            raise
+        finally:db.close()
+
     def check_legacy(self,account,peer):
         # The anonymous legacy journal belonged to original MuMu port 5563.
         # Keep its same-phone replay protection, not a greeting-only global ban.
@@ -133,11 +145,11 @@ class SharedStore(BaseStore):
     def peer_claimed(self,pending):
         # This check only authorizes a NEW greeting, never an existing reply.
         pending=LegacyStore.check(pending)
-        with self.connection() as db:return self.blocked(db,pending['peer'])
+        with self.read_connection() as db:return self.blocked(db,pending['peer'])
 
     def peer_terminal(self,pending):
         pending=LegacyStore.check(pending)
-        with self.connection() as db:
+        with self.read_connection() as db:
             return db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?',(pending['peer'],)).fetchone() is not None
 
     def record_peer_outcome(self,db,who,reason):
@@ -169,15 +181,8 @@ class SharedStore(BaseStore):
         from conversation_engine import identifier
         # One consistent, read-only snapshot; no global writer/advisory lock.
         # Tables were initialized at startup, not on every native compilation.
-        db=connect(self.path,timeout=30,isolation_level=None)
-        try:
-            db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
-            values=[x[0] for x in Connection(db,self.prefix).execute('SELECT peer FROM profile_visits UNION SELECT peer FROM manual_actions UNION SELECT peer FROM profile_recovery_skips UNION SELECT peer FROM mumu_peer_blocks UNION SELECT peer FROM mumu_greeting_claims')]
-            db.execute('COMMIT')
-        except BaseException:
-            if db.in_transaction:db.execute('ROLLBACK')
-            raise
-        finally:db.close()
+        with self.read_connection() as db:
+            values=[x[0] for x in db.execute('SELECT peer FROM profile_visits UNION SELECT peer FROM manual_actions UNION SELECT peer FROM profile_recovery_skips UNION SELECT peer FROM mumu_peer_blocks UNION SELECT peer FROM mumu_greeting_claims')]
         if len(values)>10000:raise StateError('История больше безопасного лимита снимка; журналы не удаляй.')
         return [identifier(x) for x in values]
 

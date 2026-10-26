@@ -72,7 +72,7 @@ def after_exhaustion(executable, folder, result, store, cancelled, progress):
             return result
         if getattr(store,'mumu_shared_claims',False):
             from mumu_cities import change as shared_change
-            value,cities=shared_change(store,cities,lambda allowed,seen:search_city._capture_next(executable,folder,allowed,seen,cancelled))
+            value,cities=shared_change(store,cities,lambda allowed,seen:search_city._capture_next(executable,folder,allowed,seen,cancelled),diagnostics=result)
         else:
             value = search_city._capture_next(executable, folder, cities, used, cancelled)
         search_city.validate_next(value, cities)

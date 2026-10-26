@@ -79,7 +79,7 @@ def complete(store, token, cities, value):
         row=db.execute('SELECT device,state,token FROM mumu_city_claims WHERE city=?',(city,)).fetchone()
         pending=db.execute("SELECT 1 FROM mumu_city_claims WHERE device=? AND token=? AND state='pending'",(device,token)).fetchone()
         if not pending or not row or row[0]!=device or row[1] not in ('active','pending') or row[1]=='pending' and row[2]!=token:
-            raise StateError('city-not-verified')
+            raise StateError('city-claim-changed')
         db.execute('DELETE FROM mumu_city_claims WHERE device=?',(device,))
         db.execute('INSERT INTO mumu_city_claims VALUES(?,?,?,?)',(city,device,'active',token))
         db.execute('INSERT OR IGNORE INTO mumu_city_used VALUES(?)',(city,))
@@ -87,11 +87,29 @@ def complete(store, token, cities, value):
         db.execute('INSERT INTO search_session VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',('city',n['city_selected_name']))
 
 
-def change(store, cities, capture):
+def remember_navigation(value,diagnostics):
+    """Call only after strict validate_next; preserve evidence BEFORE DB CAS."""
+    if diagnostics is None:return
+    from navigation_root_diagnostic import extract
+    n=value['navigation']
+    fields=('stage','error','phase','frames','managed_calls','city_checkpoint','city_prepare',
+        'city_visible_rows','city_total_rows','city_scan_samples','city_matches','city_select_attempted',
+        'city_select_completed','city_verified','online_verified','return_verified',
+        'open_attempted','open_completed','city_open_attempted','city_open_completed',
+        'city_query_attempted','city_query_text_completed','city_query_completed','apply_attempted','apply_completed',
+        'settings_checkpoint','city_transition_overruns','city_read_budget_retries','city_queries_started',
+        'city_query_text_returns','city_query_returns','city_candidates_skipped','city_result_waits')
+    diagnostics['last_city_navigation']={k:n[k] for k in fields if k in n}
+    diagnostics['last_city_navigation']['root_probe']=extract(value)
+    if n['stage']!='navigation-ready':diagnostics['last_error']=n['error']
+
+
+def change(store, cities, capture, *, diagnostics=None):
     token,allowed,used=reserve(store,cities)
     # Exceptions deliberately leave pending claims held. No retry/TTL.
     value=capture(allowed,used)
     search_city.validate_next(value,allowed)
+    remember_navigation(value,diagnostics)
     if value['navigation']['stage']=='navigation-ready':complete(store,token,allowed,value)
     return value,allowed
 

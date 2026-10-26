@@ -9,7 +9,7 @@ RETRY_CODES={'frame-budget','call-limit','frame-limit','transition-timeout','cal
     'selection-unavailable','screen-not-ready','wrong-screen','unexpected-screen','read-stopped',
     'native-transport-error','native-operation-cancelled','native-script-error','native-state-error',
     'native-process-unavailable','transport-error','device-timeout','readonly-list-updated'}
-BLOCK_CODES={'profile-script-unavailable','unverified-host-failure','identity-changed','identity-not-bound','untracked-dialog','changed-dialog',
+BLOCK_CODES={'city-claim-changed','profile-authorization-pending','profile-authorization-missing','profile-authorization-failed','profile-script-unavailable','unverified-host-failure','identity-changed','identity-not-bound','untracked-dialog','changed-dialog',
     'report-write-failed','message-not-approved','greeting-not-approved','cancelled',
     'journal-busy','journal-locked','journal-readonly','journal-storage-full','journal-io-error',
     'journal-corrupt','journal-error','resource-missing','resource-access-denied'}

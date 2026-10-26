@@ -377,9 +377,10 @@ class Profiles(Base):
                                  cycle=self.cycle, city_next=self.city, config=Config(), **kwargs)
 
     def city_value(self, name='Псков'):
-        from search_city import DEFAULTS
-        return dict(navigation=dict(DEFAULTS, stage='navigation-ready', error='none', phase='done', city_selected_name=name,
-            open_attempted=True,open_completed=True,apply_attempted=True,apply_completed=True,settings_checkpoint='complete'))
+        from test_search_city import ready_city
+        value=ready_city()
+        value['navigation'].update(city_selected_name=name,city_previous_name=None,city_round_reset=False)
+        return value
 
     def budget_result(self, **changes):
         return cycle_result(stage='navigation-stopped', error='call-limit', phase='search',
@@ -479,7 +480,7 @@ class Profiles(Base):
     def test_city_failure_keeps_safe_diagnostics_and_does_not_open_profiles(self):
         value = self.city_value()
         value['navigation'].update(stage='navigation-stopped', error='city-results-incomplete',
-                                   phase='scan-city', city_checkpoint='results',
+                                   phase='scan-city', city_checkpoint='results',city_select_attempted=False,
                                    city_visible_rows=10, city_total_rows=30,
                                    private_geo_id='PRIVATE-ID', private_text='PRIVATE-TEXT')
         out = self.go([], [value], limit=1)
