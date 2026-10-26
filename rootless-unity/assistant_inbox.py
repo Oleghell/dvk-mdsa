@@ -76,7 +76,7 @@ class InboxChain(GuidedChain):
     """Guided chain that also accepts peers greeted through «Новые анкеты»."""
 
     def _guided(self, who):
-        with self.store.connection() as db:
+        with self.store.read_connection() as db:
             return db.execute('SELECT 1 FROM guided_bindings WHERE account=? AND peer=?',
                               (who['account'], who['peer'])).fetchone() is not None
 
@@ -110,7 +110,7 @@ class InboxChain(GuidedChain):
 
 def inbox_targets(chain):
     """Return (attention, unread) target lists. Terminal chats are excluded."""
-    with chain.store.connection() as db:
+    with chain.store.read_connection() as db:
         rows = db.execute('''
           WITH sources(account,peer,chat) AS (
             SELECT account,peer,chat FROM guided_bindings
@@ -140,15 +140,15 @@ def inbox_targets(chain):
             attention.append(item)  # unconfirmed draft or unobserved outgoing
         else:
             unread.append(item)
-    from assistant_reply_window import eligible
-    return eligible(chain.store,attention), eligible(chain.store,unread)
+    from assistant_reply_window import eligible_groups
+    return eligible_groups(chain.store,attention,unread)
 
 
 
 def read_round(chain, active):
     """Fair read-chat fallback across bounded passes; no badge/history inference."""
+    chain.store.ensure_tables('CREATE TABLE IF NOT EXISTS inbox_read_round(account TEXT,peer TEXT,PRIMARY KEY(account,peer))')
     with chain.store.connection() as db:
-        db.execute('CREATE TABLE IF NOT EXISTS inbox_read_round(account TEXT,peer TEXT,PRIMARY KEY(account,peer))')
         seen=set(db.execute('SELECT account,peer FROM inbox_read_round'))
         remaining=[dict(who) for who in active if (who['account'],who['peer']) not in seen]
         if active and not remaining:
@@ -172,15 +172,15 @@ def with_seen_ids(chain, allowed):
     out=[]
     from assistant_contact_receipt import candidates as contact_candidates
     receipt_reviews=contact_candidates(chain.store)
-    with chain.store.connection() as db:
+    from assistant_reply_audit import DDL as receipt_ddl
+    from assistant_skip_audit import DDL as skip_ddl
+    chain.store.ensure_tables(receipt_ddl,skip_ddl)
+    with chain.store.read_connection() as db:
         if chain.media_required:
             receipt_reviews |= set(db.execute("""SELECT c.account,c.peer,c.chat FROM chain_dialogs c
                 JOIN chain_contact_outbox o ON o.chat=c.chat
                 WHERE c.stage='done' AND o.status='pending'
                 AND NOT EXISTS(SELECT 1 FROM chain_contact_media m WHERE m.chat=c.chat)"""))
-        from assistant_reply_audit import initialize
-        from assistant_skip_audit import initialize as skips
-        initialize(db);skips(db)
         # At most 128 chats / 256 parameters and 129 rows per chat per query.
         # The 129th remains a hard overflow signal, never silent truncation.
         for offset in range(0,len(allowed),128):
@@ -232,7 +232,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     # Telegram outbox is independent of the device. Never reopen a completed
     # conversation just to deliver an already encrypted, verified contact.
     with checkpoint('inbox-outbox'):
-        with chain.store.connection() as db:
+        with chain.store.read_connection() as db:
             query="SELECT c.account,c.peer,c.chat FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat WHERE c.stage='done' AND o.status='pending'"
             if chain.media_required:query+=" AND EXISTS(SELECT 1 FROM chain_contact_media media WHERE media.chat=c.chat)"
             pending=db.execute(query).fetchall()
@@ -246,7 +246,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if status=='accepted':out['contacts_forwarded']+=1
             if status in ('accepted','unknown'):out['personal_data_exported']=True
     def pending_contacts():
-        with chain.store.connection() as db:
+        with chain.store.read_connection() as db:
             return db.execute("SELECT COUNT(*) FROM chain_contact_outbox WHERE status='pending'").fetchone()[0]
     progress('Подготавливаю список диалогов из общей базы…')
     with checkpoint('inbox-targets'):
@@ -257,7 +257,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         out['history_cooldown_skipped'] = skipped
         out['tracked_active']=len(unread)
         out['tracked_attention']=len(attention)
-        with chain.store.connection() as db:
+        with chain.store.read_connection() as db:
             out['tracked_terminal']={stage:number for stage,number in db.execute('SELECT stage,COUNT(*) FROM chain_dialogs GROUP BY stage') if stage in TERMINAL}
     if not attention and not unread:
         out.update(status='inbox-empty', reason='history-cooldown' if skipped else 'no-chain-dialogs',
@@ -611,7 +611,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
                     greetings=prepared_greetings)
 
     with checkpoint('inbox-review'):
-        with chain.store.connection() as db:
+        with chain.store.read_connection() as db:
             result['review_pending'] = db.execute(
                 "SELECT COUNT(*) FROM chain_dialogs WHERE stage='manual-review'").fetchone()[0]
     if settings.errors_enabled and result['isolated_dialogs'] and not any(e['notification'] in ('accepted','unknown','already-attempted') for e in result.get('exit_events',[])):

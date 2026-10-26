@@ -72,6 +72,21 @@ def run(config_path):
                 assert not store.peer_terminal(dict(person,account='101'))
             assert sum('READ ONLY' in q for q in queries)==4
             assert not any('pg_advisory_xact_lock' in q for q in queries)
+            # Hot constructors must not start a transaction after successful
+            # per-Store schema setup. Read-only preparation never takes the
+            # primary advisory writer lock; reservation above still does.
+            from assistant_inbox import InboxChain,with_seen_ids
+            from assistant_profiles import Session
+            from assistant_history_wait import initialize as history_tables
+            hot=InboxChain(store2);Session(store2);history_tables(store2)
+            with_seen_ids(hot,[who]);queries.clear()
+            with patch.object(cloud.Connection,'_run',traced):
+                for _ in range(3):InboxChain(store2);Session(store2);history_tables(store2)
+            assert queries==[]
+            with patch.object(cloud.Connection,'_run',traced):
+                hot.authorized(who);Session(store2).get('city');with_seen_ids(hot,[who])
+            assert any('READ ONLY' in q for q in queries)
+            assert not any('pg_advisory_xact_lock' in q or q.startswith('CREATE') for q in queries)
             import mumu_cities
             names=['Synthetic city '+chr(65+i) for i in range(20)]
             with store.connection() as db:

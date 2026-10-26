@@ -75,14 +75,13 @@ class GuidedChain(Chain):
         self.ai_progress = None
         from assistant_ai_drafts import initialize
         initialize(store)
-        with self.store.connection() as db:
-            db.execute('''CREATE TABLE IF NOT EXISTS guided_bindings(
+        self.store.ensure_tables('''CREATE TABLE IF NOT EXISTS guided_bindings(
                 account TEXT, peer TEXT, chat TEXT UNIQUE, greeting_hash TEXT,
                 PRIMARY KEY(account,peer))''')
 
     def authorized(self, who):
         who = identity(who)
-        with self.store.connection() as db:
+        with self.store.read_connection() as db:
             row = db.execute('SELECT chat,greeting_hash FROM guided_bindings '
                              'WHERE account=? AND peer=?',
                              (who['account'], who['peer'])).fetchone()
@@ -385,7 +384,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
     who = identity(who)
     progress('Проверяю журнал диалога.')
     def observed_actions():
-        with chain.store.connection() as db:
+        with chain.store.read_connection() as db:
             return {row[0] for row in db.execute(
                 "SELECT kind FROM chain_actions WHERE chat=? AND status='outgoing-observed'",
                 (who['chat'],))}

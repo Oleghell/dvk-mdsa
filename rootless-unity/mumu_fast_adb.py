@@ -1,7 +1,9 @@
 """Worker-local read-only ADB smart socket; no cache, sends, installs or retries.
 
-The existing exact TargetOnlyAdb allowlist runs before routing. Only four fixed
-read commands skip adb.exe startup. CLI connect/forward lifecycle is unchanged.
+The exact TargetOnlyAdb allowlist runs before routing. Four fixed reads use
+fresh sockets. Version text alone may be reused for an unchanged executable;
+a fresh exact-target get-state avoids a redundant CLI connect only if device.
+Forward lifecycle and every boot/package/read check remain uncached.
 Shell v2 preserves stdout/stderr separation and requires an explicit zero exit.
 """
 from contextlib import contextmanager
@@ -18,7 +20,7 @@ _installed=False
 class Timings:
     def __init__(self):
         self.lock=threading.Lock()
-        self.values={k:dict(calls=0,failures=0,total_ms=0,max_ms=0) for k in ('socket_read','cli')}
+        self.values={k:dict(calls=0,failures=0,total_ms=0,max_ms=0) for k in ('socket_read','cli','version_cache','connect_ready')}
     def record(self,kind,elapsed,failed):
         milliseconds=max(0,round(elapsed*1000))
         with self.lock:
@@ -115,15 +117,39 @@ def transport(serial,cancelled=lambda:False,*,socket_factory=None):
     if type(serial) is not str or serial != '127.0.0.1:'+str(port(serial.removeprefix('127.0.0.1:'))):
         raise MumuError('configuration')
     had_local='run' in TargetOnlyAdb.__dict__;original=TargetOnlyAdb.run
-    timings=Timings();_installed=True
+    timings=Timings();_installed=True;version_cache={}
     allowed={('get-state',),('shell','cat',BOOT_ID),('shell','getprop','sys.boot_completed'),
              ('shell','pm','list','packages',PACKAGE)}
     def run(adb,args,timeout=30):
         adb.validate(args)
         if cancelled():raise TestError('Операция остановлена.')
         fast=(args[:2]==['-s',serial] and tuple(args[2:]) in allowed)
+        kind='socket_read' if fast else 'cli'
         started=time.monotonic();failed=True
         try:
+            if args==['version']:
+                from pathlib import Path
+                path=Path(adb.executable);stat=path.stat()
+                key=(str(path.resolve()),stat.st_dev,stat.st_ino,stat.st_mtime_ns,stat.st_ctime_ns,stat.st_size)
+                if key in version_cache:
+                    kind='version_cache';result=version_cache[key]
+                    adb.observe_result(args,0,result);failed=False;return result
+                result=original(adb,args,timeout=timeout)
+                # Never remember an exception/timeout or an executable replaced
+                # while the CLI was running. No live device state is cached.
+                after=path.stat()
+                if (stat.st_dev,stat.st_ino,stat.st_mtime_ns,stat.st_ctime_ns,stat.st_size)==(after.st_dev,after.st_ino,after.st_mtime_ns,after.st_ctime_ns,after.st_size):
+                    version_cache.clear();version_cache[key]=result
+                failed=False;return result
+            if args==['connect',serial] and getattr(adb,'_dvk_preflight_connect_probe',False) is True:
+                try:
+                    ready=read(serial,['get-state'],cancelled,min(3,timeout),socket_factory=socket_factory)
+                except ReadFailure:
+                    ready=None # Original exact-target connect may repair setup.
+                if cancelled():raise TestError('Операция остановлена.')
+                if ready=='device':
+                    kind='connect_ready';result='already connected to '+serial
+                    adb.observe_result(args,0,result);failed=False;return result
             if not fast:
                 result=original(adb,args,timeout=timeout);failed=False;return result
             try:result=read(serial,args[2:],cancelled,timeout,socket_factory=socket_factory)
@@ -139,7 +165,7 @@ def transport(serial,cancelled=lambda:False,*,socket_factory=None):
                     adb.adb_events[-1]['reason']=reason
                 raise TestError('Не удалось выполнить проверку выбранного MuMu через ADB. Автоповтора нет.') from None
             adb.observe_result(args,0,result);failed=False;return result
-        finally:timings.record('socket_read' if fast else 'cli',time.monotonic()-started,failed)
+        finally:timings.record(kind,time.monotonic()-started,failed)
     TargetOnlyAdb.run=run
     try:yield timings
     finally:

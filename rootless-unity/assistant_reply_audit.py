@@ -7,10 +7,12 @@ badges, numeric ordering, elapsed time, or the success of a send API call.
 from assistant_chain import fingerprint,text_hash
 
 
-def initialize(db):
-    db.execute('''CREATE TABLE IF NOT EXISTS chain_reply_receipts(
+DDL = '''CREATE TABLE IF NOT EXISTS chain_reply_receipts(
       chat TEXT,message TEXT,fingerprint TEXT,status TEXT NOT NULL,
-      reply_message TEXT,PRIMARY KEY(chat,message))''')
+      reply_message TEXT,PRIMARY KEY(chat,message))'''
+
+def initialize(db):
+    db.execute(DDL)
 
 
 def observe(chain,snapshot,input_ids=None):

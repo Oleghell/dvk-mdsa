@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import threading
 
 from assistant_config import check_text
 from cohort_pass import Store as LegacyStore
@@ -27,6 +28,8 @@ def data_directory():
 
 class Store:
     def __init__(self, path=None, legacy_directory=None):
+        self._schema_lock=threading.RLock()
+        self._schema_ready=set()
         self.path = Path(path) if path is not None else data_directory() / 'assistant.sqlite3'
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.legacy = (Path(legacy_directory) if legacy_directory is not None
@@ -81,6 +84,35 @@ class Store:
             raise
         finally:
             db.close()
+
+    @contextmanager
+    def read_connection(self):
+        """Fresh read-only snapshot, never a cached permission or writer lock."""
+        from cloud_database import connect
+        db=connect(self.path,timeout=5,isolation_level=None)
+        try:
+            db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
+            yield db
+            db.execute('COMMIT')
+        except BaseException:
+            if db.in_transaction:db.execute('ROLLBACK')
+            raise
+        finally:db.close()
+
+    def ensure_tables(self,*statements):
+        """Only successful fixed CREATEs are memoized on this Store instance.
+
+        No rows, bans, receipts, authorization or device state are cached.
+        Failure/rollback is never remembered. New Store/namespace starts cold.
+        """
+        if not statements or any(not isinstance(sql,str) or not sql.lstrip().upper().startswith('CREATE TABLE IF NOT EXISTS ') for sql in statements):
+            raise ValueError('Invalid schema initializer')
+        key=(str(self.path.resolve()),getattr(self,'prefix',''),tuple(statements))
+        with self._schema_lock:
+            if key in self._schema_ready:return
+            with self.connection() as db:
+                for sql in statements:db.execute(sql)
+            self._schema_ready.add(key)
 
     def check_legacy(self, account, peer):
         # Never erase or migrate the old journals. Any unreadable existing journal
@@ -139,7 +171,7 @@ class Store:
         return status
 
     def summary(self):
-        with self.connection() as db:
+        with self.read_connection() as db:
             rows = db.execute('SELECT status,COUNT(*) FROM manual_actions GROUP BY status').fetchall()
         return dict(reserved=sum(n for _, n in rows), statuses=dict(rows), delivery_confirmed=False)
 

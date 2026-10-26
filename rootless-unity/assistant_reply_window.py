@@ -55,13 +55,15 @@ def reason(store, who, *, clock=time.time):
         return exclusion(db,who) if active(db) else None
 
 
-def eligible(store, rows):
-    if not rows:return []
+def eligible_groups(store,*groups):
+    """One fresh exclusion snapshot for the pass, not a transaction per group."""
+    if not any(groups):return tuple([] for _ in groups)
     with store.connection() as db:
-        if not active(db):return list(rows)
-        # Remove only obsolete age rules; terminal/manual/new-start exclusions
-        # remain authoritative. Read their keys once, not once per dialog while
-        # holding the shared PostgreSQL transaction lock.
+        if not active(db):return tuple(list(rows) for rows in groups)
         clear_legacy_age_exclusions(db)
         blocked=set(db.execute('SELECT account,peer FROM inbox_reply_exclusions'))
-        return [who for who in rows if (who['account'],who['peer']) not in blocked]
+        return tuple([who for who in rows if (who['account'],who['peer']) not in blocked] for rows in groups)
+
+
+def eligible(store,rows):
+    return eligible_groups(store,rows)[0]

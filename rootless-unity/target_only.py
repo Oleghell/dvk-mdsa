@@ -22,7 +22,11 @@ def preflight(adb):
     if type(adb) is not TargetOnlyAdb:
         raise TestError('Для режима одной копии нужен ограниченный тестовый ADB.')
     adb.run(['version'])
-    adb.run(['connect', TARGET])
+    # Only ordinary preflight may avoid reconnect when the exact endpoint is
+    # freshly device-ready. Explicit recovery connect must still run the CLI.
+    adb._dvk_preflight_connect_probe=True
+    try:adb.run(['connect',TARGET])
+    finally:adb._dvk_preflight_connect_probe=False
     if adb.run(['-s', TARGET, 'get-state']) != 'device':
         raise TestError('Запусти только тестовый MuMu #4 и разреши его обычный ADB.')
     identity = boot_id(adb, TARGET)

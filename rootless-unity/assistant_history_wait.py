@@ -75,8 +75,7 @@ def verified_loading(value):
 
 
 def initialize(store):
-    with store.connection() as db:
-        db.execute('''CREATE TABLE IF NOT EXISTS inbox_history_deferrals(
+    store.ensure_tables('''CREATE TABLE IF NOT EXISTS inbox_history_deferrals(
             account TEXT NOT NULL,peer TEXT NOT NULL,chat TEXT NOT NULL,
             retry_after REAL NOT NULL,PRIMARY KEY(account,peer))''')
 
@@ -90,7 +89,7 @@ def instant(clock):
 
 def eligible(store, attention, unread, *, clock=time.time):
     now=instant(clock)
-    with store.connection() as db:
+    with store.read_connection() as db:
         # Only journal-local identities/timestamps; no message bodies or keys.
         blocked=set(db.execute('SELECT account,peer FROM inbox_history_deferrals WHERE retry_after>?',(now,)))
     filtered=lambda items:[x for x in items if (x['account'],x['peer']) not in blocked]

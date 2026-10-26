@@ -56,9 +56,7 @@ class Chain:
         self.store, self.choose = store, choose
         self.contact_notifications = contact_notifications is True
         self.seal, self.unseal = seal, unseal
-        with store.connection() as db:
-            # Do not use executescript: it would commit the surrounding tx.
-            for sql in (
+        store.ensure_tables(
                 'CREATE TABLE IF NOT EXISTS chain_contact_media(chat TEXT PRIMARY KEY,payload BLOB NOT NULL)',
                 'CREATE TABLE IF NOT EXISTS chain_contact_outbox(chat TEXT PRIMARY KEY,message TEXT,payload BLOB NOT NULL,status TEXT NOT NULL)',
                 'CREATE TABLE IF NOT EXISTS chain_dialogs(account TEXT,peer TEXT,chat TEXT UNIQUE,greeting TEXT,stage TEXT,salt TEXT,PRIMARY KEY(account,peer))',
@@ -66,12 +64,11 @@ class Chain:
                 'CREATE TABLE IF NOT EXISTS chain_seen(chat TEXT,message TEXT,fingerprint TEXT,PRIMARY KEY(chat,message))',
                 'CREATE TABLE IF NOT EXISTS chain_actions(chat TEXT,kind TEXT,trigger TEXT,text_hash TEXT,status TEXT,PRIMARY KEY(chat,kind))',
                 'CREATE TABLE IF NOT EXISTS chain_notifications(chat TEXT,message TEXT,status TEXT,PRIMARY KEY(chat,message))',
-            ):
-                db.execute(sql)
+        )
 
     def authorized(self, who):
         who = identity(who)
-        with self.store.connection() as db:
+        with self.store.read_connection() as db:
             row = db.execute('SELECT initial_chat,text_hash,status FROM manual_actions WHERE account=? AND peer=?',
                              (who['account'], who['peer'])).fetchone()
             bound = db.execute('SELECT chat FROM chain_dialogs WHERE account=? AND peer=?',
@@ -282,7 +279,7 @@ class Chain:
     def review_reason(self, who):
         who=identity(who)
         self.authorized(who)
-        with self.store.connection() as db:
+        with self.store.read_connection() as db:
             row=db.execute('SELECT reason FROM chain_review_reasons WHERE chat=?', (who['chat'],)).fetchone()
         return row[0] if row and row[0] in REVIEW_CAUSES else 'review-cause-unavailable'
 
@@ -304,7 +301,7 @@ class Chain:
                        (status, who['chat'], action['kind']))
 
     def has_media(self,who):
-        with self.store.connection() as db:
+        with self.store.read_connection() as db:
             return db.execute('SELECT 1 FROM chain_contact_media WHERE chat=?',(who['chat'],)).fetchone() is not None
 
     def prepare_media(self,who,capture):

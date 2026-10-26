@@ -31,7 +31,7 @@ def initialize(db):
 
 def owns(store, city):
     if not city:return False
-    with store.connection() as db:
+    with store.read_connection() as db:
         rows=db.execute('SELECT city,state FROM mumu_city_claims WHERE device=?',(str(store.device_port),)).fetchall()
     return rows==[(search_city.normalize_city(city),'active')]
 
@@ -138,7 +138,7 @@ def recover_pending(store,cities,reader,*,cancelled=lambda:False,wait=None,progr
     retry={'wrong-screen','unexpected-screen','screen-not-ready','frame-limit','frame-budget',
            'call-limit','transition-timeout','observer-stopped'}
     while not cancelled():
-        with store.connection() as db:
+        with store.read_connection() as db:
             expected=sorted(db.execute('SELECT city,state,token FROM mumu_city_claims WHERE device=?',(device,)).fetchall())
         if not any(state=='pending' for _,state,_ in expected):return None
         progress('Резерв города • автоматически проверяю фактический экран MuMu. Отправки не выполняются.')

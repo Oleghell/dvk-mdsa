@@ -3,10 +3,12 @@ from assistant_chain import fingerprint
 from one_chat_probe import identity
 
 
-def initialize(db):
-    db.execute("""CREATE TABLE IF NOT EXISTS inbox_reported_inputs(
+DDL = """CREATE TABLE IF NOT EXISTS inbox_reported_inputs(
         chat TEXT,message TEXT,fingerprint TEXT NOT NULL,
-        PRIMARY KEY(chat,message))""")
+        PRIMARY KEY(chat,message))"""
+
+def initialize(db):
+    db.execute(DDL)
 
 
 def reported(chain,who,snapshot):

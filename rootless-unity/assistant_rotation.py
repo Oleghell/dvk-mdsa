@@ -12,8 +12,8 @@ class History:
 
     def used(self, cities):
         allowed = {search_city.normalize_city(city): city for city in search_city.check_cities(cities)}
-        with self.store.connection() as db:
-            db.execute('CREATE TABLE IF NOT EXISTS city_rotation_used(city TEXT PRIMARY KEY)')
+        self.store.ensure_tables('CREATE TABLE IF NOT EXISTS city_rotation_used(city TEXT PRIMARY KEY)')
+        with self.store.read_connection() as db:
             rows = db.execute('SELECT city FROM city_rotation_used').fetchall()
         if len(rows) > 10000:
             raise ValueError('City history is too large')

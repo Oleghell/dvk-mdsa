@@ -51,6 +51,13 @@ class MemoryStore:
         with self.db:
             yield self.db
 
+    # Both interfaces stay exclusively on the existing in-memory snapshot.
+    read_connection=connection
+
+    def ensure_tables(self,*statements):
+        with self.connection() as db:
+            for sql in statements:db.execute(sql)
+
 
 @contextmanager
 def preview_chain(path=None):

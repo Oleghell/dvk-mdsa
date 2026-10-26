@@ -37,11 +37,10 @@ class Session:
 
     def __init__(self, store):
         self.store = store
-        with store.connection() as db:
-            db.execute('CREATE TABLE IF NOT EXISTS search_session(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+        store.ensure_tables('CREATE TABLE IF NOT EXISTS search_session(key TEXT PRIMARY KEY, value TEXT NOT NULL)')
 
     def get(self, key):
-        with self.store.connection() as db:
+        with self.store.read_connection() as db:
             row = db.execute('SELECT value FROM search_session WHERE key=?', (key,)).fetchone()
         return None if row is None else row[0]
 

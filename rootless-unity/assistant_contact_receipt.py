@@ -63,8 +63,8 @@ def reviewable(db,chat):
 
 
 def candidates(store):
-    with store.connection() as db:
-        db.execute('CREATE TABLE IF NOT EXISTS chain_contact_review_probes(chat TEXT PRIMARY KEY,status TEXT NOT NULL)')
+    store.ensure_tables('CREATE TABLE IF NOT EXISTS chain_contact_review_probes(chat TEXT PRIMARY KEY,status TEXT NOT NULL)')
+    with store.read_connection() as db:
         # Same receipt-only predicates as reviewable(), evaluated in one query.
         return set(db.execute("""SELECT c.account,c.peer,c.chat FROM chain_dialogs c
           JOIN chain_review_reasons r ON r.chat=c.chat

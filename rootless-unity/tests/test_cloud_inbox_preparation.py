@@ -13,13 +13,15 @@ class CountedStore:
     def __init__(self,store):self.store=store;self.queries=[]
     def __getattr__(self,key):return getattr(self.store,key)
     @contextmanager
-    def connection(self):
-        with self.store.connection() as db:
+    def traced(self,method):
+        with method() as db:
             outer=self
             class Proxy:
                 def __getattr__(self,n):return getattr(db,n)
                 def execute(self,sql,params=()):outer.queries.append(sql);return db.execute(sql,params)
             yield Proxy()
+    def connection(self):return self.traced(self.store.connection)
+    def read_connection(self):return self.traced(self.store.read_connection)
 
 class InboxBatchQueries(unittest.TestCase):
     def setUp(self):

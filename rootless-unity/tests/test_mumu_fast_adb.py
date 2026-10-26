@@ -80,13 +80,13 @@ class WorkerRouting(unittest.TestCase):
   calls=[]
   def connect(*args,**kw):
    calls.append(1)
-   if len(calls)==5:return Sock(reply=packet(1,b'87654321-1234-1234-1234-123456789abc\n')+packet(3,b'\0'))
+   if len(calls)==6:return Sock(reply=packet(1,b'87654321-1234-1234-1234-123456789abc\n')+packet(3,b'\0'))
    return Sock()
   with patch.object(TargetOnlyAdb,'run',MagicMock(return_value='local-cli')):
    with fast.transport(TARGET,socket_factory=connect):
     boot=preflight(self.adb)
     with self.assertRaises(TestError):recheck(self.adb,boot)
-  self.assertEqual(len(calls),5)
+  self.assertEqual(len(calls),6)
  def test_cli_forward_lifecycle_not_intercepted(self):
   original=MagicMock(return_value='32123')
   with patch.object(TargetOnlyAdb,'run',original):

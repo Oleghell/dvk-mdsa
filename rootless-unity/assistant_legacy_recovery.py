@@ -18,7 +18,7 @@ def exists(db, name):
 
 def candidates(store):
     """Only unbound placeholders; existing real chains/reviews are not reopened."""
-    with store.connection() as db:
+    with store.read_connection() as db:
         if not exists(db,'chain_exit_notices'):return set()
         probe_filter=(' AND NOT EXISTS(SELECT 1 FROM chain_legacy_probes p WHERE p.chat=c.chat)'
                       if exists(db,'chain_legacy_probes') else '')

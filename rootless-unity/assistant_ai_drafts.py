@@ -6,13 +6,12 @@ from groq_reply import GroqError, decision, continuation, public_context, MOOD_Q
 
 
 def initialize(store):
-    with store.connection() as db:
-        db.execute('CREATE TABLE IF NOT EXISTS ai_drafts(chat TEXT,kind TEXT,payload BLOB,status TEXT NOT NULL,PRIMARY KEY(chat,kind))')
-        db.execute('CREATE TABLE IF NOT EXISTS ai_draft_inputs(chat TEXT,kind TEXT,message TEXT,PRIMARY KEY(chat,kind,message))')
+    store.ensure_tables('CREATE TABLE IF NOT EXISTS ai_drafts(chat TEXT,kind TEXT,payload BLOB,status TEXT NOT NULL,PRIMARY KEY(chat,kind))',
+        'CREATE TABLE IF NOT EXISTS ai_draft_inputs(chat TEXT,kind TEXT,message TEXT,PRIMARY KEY(chat,kind,message))')
 
 
 def restore(chain, chat, kind, expected_hash, connection=None, snapshot=None):
-    with (chain.store.connection() if connection is None else nullcontext(connection)) as db:
+    with (chain.store.read_connection() if connection is None else nullcontext(connection)) as db:
         row = db.execute('SELECT payload,status FROM ai_drafts WHERE chat=? AND kind=?', (chat, kind)).fetchone()
     if row is None or row[1] == 'needed':
         return None
