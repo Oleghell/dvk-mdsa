@@ -10,6 +10,7 @@ from mumu_version import VERSION, ENGINE_VERSION  # noqa: E402
 
 # Honest readiness: True only for what a real MuMu #4 run has confirmed.
 LIVE_VERIFIED = {
+    'whatsapp_spaced_choice_and_reverse_availability': False,
     'manual_ban_silent_queue_exclusion': False,
     'installation_city_and_journal_scopes': False, 'sample_wrong_screen_read_retry': False,
     'navigation_targets_data_bootstrap': False, 'navigation_unloaded_reconnect': False,
@@ -61,7 +62,7 @@ def main(folder):
         device_scope='explicit-local-MuMu-port-list', auto_start=False, explicit_run_confirmation=False, explicit_start_click=True,
         per_message_confirmation=False, automatic_send=True, config_sha256=config_hashes,
         start_flow=['inbox-chain-pass', 'new-profiles-pass'],
-        features=dict(manual_ban_queue_exclusion=True, manual_ban_exit_notifications=False, manual_ban_mid_open_verified_back=True, manual_ban_cached_permissions=False, manual_silence_preserves_terminal_provenance=True, installation_loader_imports_engine=False, sqlite_internal_index_name_parameterized=True, postgres_identifier_limit=63, installation_id_persistent=True, installation_id_machine_bound=True,
+        features=dict(whatsapp_spaced_choice=True, whatsapp_reverse_availability=True, contact_terminal_auto_reset=False, manual_ban_queue_exclusion=True, manual_ban_exit_notifications=False, manual_ban_mid_open_verified_back=True, manual_ban_cached_permissions=False, manual_silence_preserves_terminal_provenance=True, installation_loader_imports_engine=False, sqlite_internal_index_name_parameterized=True, postgres_identifier_limit=63, installation_id_persistent=True, installation_id_machine_bound=True,
                       installation_id_in_exported_cloud_config=False, city_owner_installation_and_port=True,
                       journals_installation_and_port=True, conservative_legacy_journal_copy=True,
                       copied_unknown_send_replayed=False, account_owner_persistent=True,

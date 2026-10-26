@@ -87,7 +87,9 @@ def unavailable(text):
 
 
 TG = r'(?:телеграм(?:м)?(?:а|е|ом|у)?|telegram|тг|телег[аеу])'
-WA = r'(?:ва(?:тс|тц|ц|с)апп?(?:а|е|ом)?|вотсап(?:а|е|ом)?|whats\s?app)'
+WA = r'(?:ва(?:тс|тц|ц|с)\s*апп?(?:а|е|ом)?|вотс\s*апп?(?:а|е|ом)?|whats\s?app)'
+# Finite adjacent fillers only: do not cross another app, question or negation.
+AVAIL_FILL = r'(?:(?:у меня|сейчас|пока|еще|все еще|вроде бы|вроде|только)\s+){0,3}'
 
 def platform_signals(messages, app):
     positive=negative=False
@@ -102,10 +104,12 @@ def platform_signals(messages, app):
         if '?' in text or '？' in text:continue
         value=words(text)
         if not re.search(r'\b'+app+r'\b',value):continue
-        negative |= bool(re.search(r'\b'+app+r'\s+(?:у меня\s+)?(?:не работает|нет|нету|не пользуюсь)\b',value)
-            or re.search(r'\b(?:нет|нету|не работает|не пользуюсь)\s+(?:у меня\s+)?'+app+r'\b',value))
-        positive |= bool(re.search(r'\b'+app+r'\s+(?:(?:у меня|сейчас|пока|еще|все еще)\s+){0,3}(?:есть|работает|живой|жива|жив|живое|лучше|удобнее|удобно)\b',value)
+        negative |= bool(re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'(?:не\s+(?:очень\s+)?работает|нет|нету|не пользуюсь)\b',value)
+            or re.search(r'\b(?:нет|нету|не\s+(?:очень\s+)?работает|не пользуюсь)\s+'+AVAIL_FILL+app+r'\b',value)
+            or re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'работает\s+не\s+очень\b',value))
+        positive |= bool(re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'(?:есть|работает|живой|жива|жив|живое|лучше|удобнее|удобно)\b',value)
             or re.search(r'\b(?:есть|пользуюсь|давай|можно|лучше)\s+(?:в\s+)?'+app+r'\b',value)
+            or re.search(r'\bработает\s+'+AVAIL_FILL+app+r'\b',value)
             or re.fullmatch(app,value))
     return positive and not negative, negative
 
