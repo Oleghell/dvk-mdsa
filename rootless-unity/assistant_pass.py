@@ -23,6 +23,31 @@ FINALIZE_RPC_SECONDS = 60
 # inbox payloads that reliably survive that transport.
 HISTORY_UPLOAD_CHUNK = 1000
 
+# Reports 449-454: a single failed pooler connect during a READ-ONLY
+# shared-registry check cancelled a live cycle and stopped the whole profile
+# pass on every 1.3.68 port. peer_claimed() and peer_terminal() run before
+# approval, reservation and ACK, and visited_peers() runs before any script
+# exists: nothing is sent or written for the peer yet, and the native cycle
+# waits on its own budget. Those three reads retry transient transport and
+# capacity failures with a short bounded budget; Stop and every other
+# failure keep the existing hard cancel path.
+SHARED_READ_RETRY_DELAYS = (1.0, 3.0)
+
+
+def shared_registry_read(action, stopped, *, delays=None, pause=None):
+    """Bounded retry for read-only pre-send shared-registry reads."""
+    from cloud_database import CloudDatabaseError, TRANSIENT_CODES
+    if delays is None: delays = SHARED_READ_RETRY_DELAYS
+    if pause is None: pause = time.sleep
+    for delay in (*delays, None):
+        try:
+            return action()
+        except CloudDatabaseError as error:
+            if delay is None or stopped() or error.code not in TRANSIENT_CODES:
+                raise
+            pause(delay)
+
+
 # Reports 433-447: the bootstrap wrapper still dropped the second RPC argument,
 # so every streamed piece finalized immediately and the SECOND piece was
 # rejected (assistantVisited already set) -> authored StateError on all 15
@@ -175,7 +200,8 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None)
             # A terminal global outcome or prior greeting on any port skips before
             # typing; reserve below rechecks atomically after approval.
             phase='profile-peer-check'
-            if getattr(store, 'mumu_shared_claims', False) is True and store.peer_claimed(pending):
+            if getattr(store, 'mumu_shared_claims', False) is True and shared_registry_read(
+                    lambda: store.peer_claimed(pending), lambda: cancelled() or done.is_set()):
                 from mumu_claims import skip
                 phase='profile-skip-ack'
                 skip(script, pending, state)
@@ -203,7 +229,8 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None)
                 return  # Durable unknown reservation is intentionally retained.
             phase='profile-terminal-check'
             if (getattr(store,'mumu_shared_claims',False) is True
-                    and store.peer_terminal(pending) is True):
+                    and shared_registry_read(lambda: store.peer_terminal(pending),
+                        lambda: cancelled() or done.is_set()) is True):
                 # Refusal/contact arrived after reservation but before native ACK.
                 # Retain the local reserve; use the verified no-send Back path.
                 from mumu_claims import skip
@@ -242,7 +269,7 @@ def inspect(port, token, cancelled, text, store, approve, *, frida_api=None):
     try:
         from run_preparation import checkpoint
         with checkpoint('profile-history'):
-            visited=store.visited_peers()
+            visited=shared_registry_read(lambda: store.visited_peers(), cancelled)
     except Exception as error:
         error._dvk_profile_not_executed=True
         raise

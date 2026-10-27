@@ -19,6 +19,12 @@ DATABASE_CODES={'cloud-database-unavailable','cloud-database-config-invalid','cl
     'cloud-database-permission','cloud-database-constraint','cloud-sql-syntax-error','cloud-schema-missing',
     'cloud-sql-unsupported','cloud-transaction-invalid','cloud-transaction-required','cloud-readonly-violation'}
 DATABASE_OPERATIONS={'connect','begin','commit','rollback','schema','catalog','read','write','lock','unknown'}
+# Reports 449-454: transport and capacity failures may recover within seconds.
+# Only read-only callers that prove no journal write, reservation or send
+# happened for the current peer may retry these; every other failure keeps its
+# hard stop. One project pool holds just ~45 application slots, so a short
+# bounded retry also rides out transient session-pooler pressure.
+TRANSIENT_CODES=frozenset({'cloud-database-unavailable','cloud-database-capacity'})
 SAFE_RELATIONS=frozenset('''_dvk_meta _dvk_schema manual_actions profile_visits search_session city_rotation_used
 chain_send_authorizations chain_send_attempts chain_contact_media chain_contact_outbox chain_dialogs chain_review_reasons chain_seen chain_actions chain_notifications ai_drafts ai_draft_inputs chain_unknown_reply_retries chain_selection_recovery profile_recovery_skips inbox_reply_policy inbox_reply_exclusions inbox_read_round inbox_history_deferrals inbox_reported_inputs chain_exit_notices chain_exit_payloads read_only_bindings guided_bindings guided_notices chain_reply_receipts chain_followup_archive chain_recovered_anchors chain_legacy_probes chain_contact_review_probes
 mumu_peer_claims mumu_profile_visits mumu_recovery_skips mumu_peer_blocks mumu_manual_silences mumu_installation_scopes mumu_account_owners mumu_greeting_claims mumu_city_claims
