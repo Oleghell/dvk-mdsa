@@ -34,6 +34,7 @@ def safe_relation_hint(schema_name, table_name):
     return name if name in SAFE_RELATIONS else 'other-application-table'
 
 MISSING_RELATION=re.compile(r'relation\s+"([^"]+)"\s+does\s+not\s+exist',re.I)
+PERMISSION_RELATION=re.compile(r'permission denied for (?:table|view|sequence) ([a-z0-9_."\\]+)',re.I)
 
 def relation_hint_from_error(error):
     """Real PostgreSQL omits diag schema/table fields for 42P01; the server
@@ -44,7 +45,14 @@ def relation_hint_from_error(error):
     message=getattr(diag,'message_primary',None)
     if not isinstance(message,str):message=str(error) if error is not None else ''
     match=MISSING_RELATION.search(message) if isinstance(message,str) else None
-    if not match:return None
+    if not match:
+        # 42501 messages name the denied relation when diag fields are absent.
+        denied=PERMISSION_RELATION.search(message) if isinstance(message,str) else None
+        if not denied:return None
+        name=denied.group(1)
+        if '.' not in name:return safe_relation_hint(SCHEMA,name)
+        schema,_,table=name.partition('.')
+        return safe_relation_hint(schema,table)
     name=match.group(1)
     # Unqualified names resolve through the session search_path, which every
     # session pins to our schema; a qualified foreign schema stays unexported.
@@ -58,7 +66,7 @@ def clean_diagnostic(value):
     if type(value['code']) is not str or value['code'] not in DATABASE_CODES:return None
     if type(value['operation']) is not str or value['operation'] not in DATABASE_OPERATIONS:return None
     if value['automatic_retry'] is not False:return None
-    if 'relation' in value and (value['code']!='cloud-schema-missing' or type(value['relation']) is not str or value['relation'] not in RELATION_HINTS):return None
+    if 'relation' in value and (value['code'] not in ('cloud-schema-missing','cloud-database-permission') or type(value['relation']) is not str or value['relation'] not in RELATION_HINTS):return None
     return dict(value)
 
 def diagnostic(error):
@@ -68,6 +76,7 @@ def diagnostic(error):
     result=dict(code=code,operation=operation if operation in DATABASE_OPERATIONS else 'unknown',automatic_retry=False)
     relation=getattr(error,'relation',None)
     if code=='cloud-schema-missing' and relation in RELATION_HINTS:result['relation']=relation
+    if code=='cloud-database-permission' and relation in RELATION_HINTS:result['relation']=relation
     return result
 
 def operation(sql):
@@ -214,7 +223,7 @@ class Connection:
                 '42601':'cloud-sql-syntax-error','42P01':'cloud-schema-missing'}
             value=CloudDatabaseError(codes.get(state,'cloud-database-unavailable'))
             value.operation=operation(sql)
-            if state=='42P01':value.relation=relation_hint_from_error(error)
+            if state in ('42P01','42501'):value.relation=relation_hint_from_error(error)
             raise value from None
     def execute(self,sql,params=()):
         if self.closed:raise CloudDatabaseError()
