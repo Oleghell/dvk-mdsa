@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import cloud_database as cloud
-from cloud_sql import create_sql,schema_info
+from cloud_sql import schema_info
 
 DDL='CREATE TABLE IF NOT EXISTS chain_seen(chat TEXT,message TEXT,fingerprint TEXT,PRIMARY KEY(chat,message))'
 
