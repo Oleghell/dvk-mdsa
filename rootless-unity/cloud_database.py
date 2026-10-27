@@ -166,12 +166,21 @@ def save(value):
     with _mutex:_cache.clear()
 
 def raw_connect(cfg):
-    """Only connection/setup can retry, before a journal transaction exists."""
-    for attempt in range(2):
+    """Only connection/setup can retry, before a journal transaction exists.
+
+    Reports 468-470 (v1.3.70, two laptops on one session pooler): a single
+    0.15s repeat cannot ride out even a short synchronized connect burst, and
+    both installations retried in the same instant. Connect-only backoff now
+    spans three attempts with jittered pauses so the two machines drift
+    apart; every failure still surfaces after the bounded budget, and nothing
+    that already started a transaction is ever retried here.
+    """
+    from random import uniform
+    for delay in (0.5, 1.5, None):
         try:return _raw_connect_once(cfg)
         except CloudDatabaseError as error:
-            if attempt or not getattr(error,'connect_retryable',False):raise
-            time.sleep(.15)
+            if delay is None or not getattr(error,'connect_retryable',False):raise
+            time.sleep(delay * (1.0 + uniform(0.0, 0.5)))
 
 def _raw_connect_once(cfg):
     db=None

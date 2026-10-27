@@ -115,15 +115,17 @@ class JournalStartRetry(unittest.TestCase):
 
 class SharedReadWiderWindow(unittest.TestCase):
     def test_production_window_widened_for_pooler_outages(self):
-        self.assertEqual(native.SHARED_READ_RETRY_DELAYS, (2.0, 5.0, 10.0))
+        # 1.3.71 (reports 468-470): a fifth 20s attempt extends the pre-send
+        # window to 37s of pause, still inside the 90s native cycle budget.
+        self.assertEqual(native.SHARED_READ_RETRY_DELAYS, (2.0, 5.0, 10.0, 20.0))
 
     def test_exhaustion_reraises_the_final_transport_error(self):
-        action = MagicMock(side_effect=[transient() for _ in range(4)])
+        action = MagicMock(side_effect=[transient() for _ in range(5)])
         pauses = []
         with self.assertRaises(CloudDatabaseError):
             native.shared_registry_read(action, lambda: False, pause=pauses.append)
-        self.assertEqual(action.call_count, 4)
-        self.assertEqual(pauses, [2.0, 5.0, 10.0])
+        self.assertEqual(action.call_count, 5)
+        self.assertEqual(pauses, [2.0, 5.0, 10.0, 20.0])
 
 
 class ValidationEvidence(unittest.TestCase):

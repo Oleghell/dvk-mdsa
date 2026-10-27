@@ -97,7 +97,9 @@ class SessionLifetime(unittest.TestCase):
         driver=types.SimpleNamespace(connect=Mock(side_effect=Capacity('PRIVATE SERVER')))
         with patch.dict('sys.modules',psycopg=driver),patch.object(cloud.time,'sleep'):
             with self.assertRaises(cloud.CloudDatabaseError) as caught:cloud.raw_connect(driver_tests.CloudDriverSettings().config())
-        self.assertEqual(driver.connect.call_count,2)
+        # 1.3.71 (reports 468-470): the connect-only budget is three attempts
+        # with jittered backoff; a persistent capacity refusal still surfaces.
+        self.assertEqual(driver.connect.call_count,3)
         self.assertEqual(cloud.diagnostic(caught.exception),dict(code='cloud-database-capacity',operation='connect',automatic_retry=False))
 
 class ReadOnlyPolicies(unittest.TestCase):

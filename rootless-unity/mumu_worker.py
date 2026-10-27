@@ -27,7 +27,13 @@ JOURNAL_START_RETRY_DELAYS = (3.0, 7.0, 15.0, 30.0)
 def open_shared_journal(new_only, stopped, progress=lambda _:None, *, pause=None):
     """Bounded retry of the shared-journal bootstrap for transient connects."""
     if pause is None:
-        from time import sleep as pause  # bounded DB backoff only, never message pacing
+        # Bounded DB backoff only, never message pacing. Reports 468-470: two
+        # laptops start their workers at the same moment and the fixed pauses
+        # keep both machines retrying as one wave; jitter spreads each retry
+        # inside its own slot so the shared pooler sees staggered connects.
+        from time import sleep
+        from random import uniform
+        def pause(seconds): sleep(seconds * uniform(1.0, 1.6))
     from cloud_database import journal_initialization, CloudDatabaseError, TRANSIENT_CODES
     from assistant_reply_window import enable
     from assistant_contact_policy import enable as contact_only

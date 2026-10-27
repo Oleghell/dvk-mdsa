@@ -63,13 +63,16 @@ class SharedRegistryRead(unittest.TestCase):
 
 
     def test_exhaustion_reraises_the_final_transport_error(self):
-        self.assertEqual(native.SHARED_READ_RETRY_DELAYS,(2.0,5.0,10.0))
-        action=MagicMock(side_effect=[transient() for _ in range(4)])
+        # 1.3.71 (reports 468-470): the window spans 5 attempts (2/5/10/20) for
+        # two-installation pooler pressure; exhaustion still re-raises the
+        # last transport error with the exact pause sequence.
+        self.assertEqual(native.SHARED_READ_RETRY_DELAYS,(2.0,5.0,10.0,20.0))
+        action=MagicMock(side_effect=[transient() for _ in range(5)])
         pauses=[]
         with self.assertRaises(CloudDatabaseError):
             native.shared_registry_read(action,lambda:False,pause=pauses.append)
-        self.assertEqual(action.call_count,4)
-        self.assertEqual(pauses,[2.0,5.0,10.0])
+        self.assertEqual(action.call_count,5)
+        self.assertEqual(pauses,[2.0,5.0,10.0,20.0])
 
 
 class TransientPeerChecks(unittest.TestCase):

@@ -314,10 +314,18 @@ def validate(value):
     if not isinstance(counts,dict) or set(counts)!=set(SELECTION_COUNTERS):raise ValueError('Unexpected selection counters')
     for key,limit in SELECTION_COUNTERS.items():
         if type(counts[key]) is not int or not 0<=counts[key]<=limit:raise ValueError('Invalid selection counter')
+    # Reports 468-470 (port 470, v1.3.70): the cooperative search scan counts a
+    # cell in `cells` only once per visit (scanCellCounted), but a
+    # selection-changed retry re-examines that SAME cell without advancing the
+    # scan and re-increments one per-cell skip counter and/or one avatar
+    # counter. selection_retries bounds those re-examinations, so the skip and
+    # avatar invariants need the same +retries allowance the rows bound already
+    # grants, or a legitimate retried selection is rejected as 'Inconsistent
+    # avatar counts' and stops the whole pass after a successful cycle.
     if counts['rows']>counts['passes']*24+retries or counts['cells']>counts['rows']*16:raise ValueError('Inconsistent selection counts')
     cell_skips=sum(counts[k] for k in ('cell_unready','entry_missing','promoted','user_missing','self_user','avatar_missing','avatar_unready'))
-    if cell_skips>counts['cells']:raise ValueError('Inconsistent selection skips')
-    if counts['avatar_hidden']>counts['cells'] or counts['avatar_noninteractive']>counts['cells']:raise ValueError('Inconsistent avatar counts')
+    if cell_skips>counts['cells']+retries:raise ValueError('Inconsistent selection skips')
+    if counts['avatar_hidden']>counts['cells']+retries or counts['avatar_noninteractive']>counts['cells']+retries:raise ValueError('Inconsistent avatar counts')
     if counts['table_missing']+counts['table_unready']>counts['passes']:raise ValueError('Inconsistent table counts')
     if counts['row_unready']+counts['binding_missing']>counts['rows']:raise ValueError('Inconsistent row counts')
     if n.get('open_attempted') and counts['passes']==0:raise ValueError('Selection action without scan')

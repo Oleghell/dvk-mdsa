@@ -36,14 +36,25 @@ HISTORY_UPLOAD_CHUNK = 1000
 # (profile-peer-check exhaustion). The pauses now span a wider window while
 # staying inside the native cycle budget: 4 attempts, 17s of total pause,
 # each attempt bounded by the existing connect timeout.
-SHARED_READ_RETRY_DELAYS = (2.0, 5.0, 10.0)
+# Reports 468-470 (v1.3.70, two laptops running the same ports): the 17s
+# window still exhausted while both installations retried in lockstep. The
+# fifth attempt adds one more 20s span (37s of pause in total, still inside
+# the 90s native cycle budget), and the DEFAULT pause is jittered so the two
+# machines stop retrying as one synchronized wave against the pooler.
+SHARED_READ_RETRY_DELAYS = (2.0, 5.0, 10.0, 20.0)
 
 
 def shared_registry_read(action, stopped, *, delays=None, pause=None):
     """Bounded retry for read-only pre-send shared-registry reads."""
     from cloud_database import CloudDatabaseError, TRANSIENT_CODES
     if delays is None: delays = SHARED_READ_RETRY_DELAYS
-    if pause is None: pause = time.sleep
+    if pause is None:
+        # Two installations share one session pooler; identical fixed pauses
+        # make every port on both laptops reconnect in the same instant. The
+        # jitter only spreads the retry inside its own slot (never beyond the
+        # window); injected test pauses keep receiving the exact delay.
+        from random import uniform
+        def pause(seconds): time.sleep(seconds * uniform(1.0, 1.6))
     for delay in (*delays, None):
         try:
             return action()
