@@ -121,5 +121,7 @@ def message(report):
     if 'config_field' in v:
         text+=' Файл: config/'+v['config_field']+'.json. Причина: '+v['config_reason']+'.'
     if 'database_code' in v:text+=' Код базы: '+v['database_code']+'.'
-    if 'database' in v:text+=' Код облачной базы: '+v['database']['code']+'. Операция: '+v['database']['operation']+'.'
+    if 'database' in v:
+        text+=' Код облачной базы: '+v['database']['code']+'. Операция: '+v['database']['operation']+'.'
+        if v['database'].get('relation'):text+=' Логическая таблица: '+v['database']['relation']+'.'
     return text+' ['+v['error']+'; '+v['error_type']+']'

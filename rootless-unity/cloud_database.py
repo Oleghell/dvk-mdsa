@@ -19,19 +19,37 @@ DATABASE_CODES={'cloud-database-unavailable','cloud-database-config-invalid','cl
     'cloud-database-permission','cloud-database-constraint','cloud-sql-syntax-error','cloud-schema-missing',
     'cloud-sql-unsupported','cloud-transaction-invalid','cloud-transaction-required','cloud-readonly-violation'}
 DATABASE_OPERATIONS={'connect','begin','commit','rollback','schema','catalog','read','write','lock','unknown'}
+SAFE_RELATIONS=frozenset('''_dvk_meta _dvk_schema manual_actions profile_visits search_session city_rotation_used
+chain_send_authorizations chain_send_attempts chain_contact_media chain_contact_outbox chain_dialogs chain_review_reasons chain_seen chain_actions chain_notifications ai_drafts ai_draft_inputs chain_unknown_reply_retries chain_selection_recovery profile_recovery_skips inbox_reply_policy inbox_reply_exclusions inbox_read_round inbox_history_deferrals inbox_reported_inputs chain_exit_notices chain_exit_payloads read_only_bindings guided_bindings guided_notices chain_reply_receipts chain_followup_archive chain_recovered_anchors chain_legacy_probes chain_contact_review_probes
+mumu_peer_claims mumu_profile_visits mumu_recovery_skips mumu_peer_blocks mumu_manual_silences mumu_installation_scopes mumu_account_owners mumu_greeting_claims mumu_city_claims
+global_greeting_statistics global_contact_statistics global_peer_city'''.split())
+RELATION_HINTS=SAFE_RELATIONS|{'other-application-table'}
+
+def safe_relation_hint(schema_name, table_name):
+    # Redact installation and device namespaces; expose only known logical names.
+    if schema_name!=SCHEMA or not isinstance(table_name,str):return None
+    match=re.fullmatch(r'(?:i[a-f0-9]{20}_m[0-9]{4,5}__|m[0-9]{4,5}__)?([a-z][a-z0-9_]*)',table_name)
+    if not match:return 'other-application-table'
+    name=match.group(1)
+    return name if name in SAFE_RELATIONS else 'other-application-table'
 
 def clean_diagnostic(value):
-    if not isinstance(value,dict) or set(value)!={'code','operation','automatic_retry'}:return None
+    base={'code','operation','automatic_retry'}
+    if not isinstance(value,dict) or set(value) not in (base,base|{'relation'}):return None
     if type(value['code']) is not str or value['code'] not in DATABASE_CODES:return None
     if type(value['operation']) is not str or value['operation'] not in DATABASE_OPERATIONS:return None
     if value['automatic_retry'] is not False:return None
+    if 'relation' in value and (value['code']!='cloud-schema-missing' or type(value['relation']) is not str or value['relation'] not in RELATION_HINTS):return None
     return dict(value)
 
 def diagnostic(error):
     if type(error) is not CloudDatabaseError:return None
     code=error.code if error.code in DATABASE_CODES else 'cloud-database-unavailable'
     operation=getattr(error,'operation','unknown')
-    return dict(code=code,operation=operation if operation in DATABASE_OPERATIONS else 'unknown',automatic_retry=False)
+    result=dict(code=code,operation=operation if operation in DATABASE_OPERATIONS else 'unknown',automatic_retry=False)
+    relation=getattr(error,'relation',None)
+    if code=='cloud-schema-missing' and relation in RELATION_HINTS:result['relation']=relation
+    return result
 
 def operation(sql):
     if 'pg_advisory_xact_lock' in sql:return 'lock'
@@ -177,6 +195,9 @@ class Connection:
                 '42601':'cloud-sql-syntax-error','42P01':'cloud-schema-missing'}
             value=CloudDatabaseError(codes.get(state,'cloud-database-unavailable'))
             value.operation=operation(sql)
+            if state=='42P01':
+                diag=getattr(error,'diag',None)
+                value.relation=safe_relation_hint(getattr(diag,'schema_name',None),getattr(diag,'table_name',None))
             raise value from None
     def execute(self,sql,params=()):
         if self.closed:raise CloudDatabaseError()
