@@ -1,4 +1,6 @@
 """Encrypted durable error/skip notifications. No native/device code in delivery."""
+NOTICES='''CREATE TABLE IF NOT EXISTS chain_exit_notices(
+ chat TEXT,signature TEXT,status TEXT NOT NULL,PRIMARY KEY(chat,signature))'''
 DDL='''CREATE TABLE IF NOT EXISTS chain_exit_payloads(
  chat TEXT,signature TEXT,account TEXT,peer TEXT,body BLOB NOT NULL,photo BLOB,
  PRIMARY KEY(chat,signature))'''
@@ -6,7 +8,9 @@ DDL='''CREATE TABLE IF NOT EXISTS chain_exit_payloads(
 def enqueue(chain,who,signature,text,photo,sender,photo_sender,cancelled):
     dispatcher=getattr(chain,'notification_dispatcher',None)
     if dispatcher is None:return False
-    chain.store.ensure_tables(DDL)
+    # The state table is read below; a fresh device scope must not depend on a
+    # previous notify_exit having created it (cloud 42P01 / SQLite no-such-table).
+    chain.store.ensure_tables(NOTICES,DDL)
     body=chain.seal(text.encode('utf-8'));image=chain.seal(photo) if photo is not None else None
     if not isinstance(body,bytes) or not body or image is not None and (not isinstance(image,bytes) or not image):raise ValueError('Notification protection failed')
     with chain.store.connection() as db:
@@ -20,7 +24,10 @@ def enqueue(chain,who,signature,text,photo,sender,photo_sender,cancelled):
 def resume(chain,sender,photo_sender,cancelled):
     dispatcher=getattr(chain,'notification_dispatcher',None)
     if dispatcher is None or sender is None:return
-    chain.store.ensure_tables(DDL)
+    # Both sides of the JOIN are required at startup. Payloads alone used to
+    # crash the whole inbox pass on scopes where no exit notice ever fired:
+    # the missing relation aborted run-inbox (cloud-schema-missing).
+    chain.store.ensure_tables(NOTICES,DDL)
     with chain.store.read_connection() as db:
         rows=db.execute("""SELECT p.account,p.peer,p.chat,p.signature FROM chain_exit_payloads p
           JOIN chain_exit_notices n ON n.chat=p.chat AND n.signature=p.signature
