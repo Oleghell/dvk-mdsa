@@ -227,6 +227,24 @@ def bootstrap_contract(library):
     try:
         assert child.stdout.readline().strip()=='ready'
         session=frida.get_local_device().attach(child.pid)
+        # 1.3.67 chunked-stream contract: bounded pieces with an explicit final
+        # flag finalize exactly like the original single call. Non-final pieces
+        # return True without freezing; only the final piece installs the
+        # visited set; after it every further call is rejected.
+        stream=session.create_script(manual.prepared_source('Synthetic hello')+'''
+rpc.exports={preparevisited(values,final){return assistantPrepareVisited(values,final);},cancel(){cancelNavigation();}};
+''')
+        stream.load()
+        for invalid in (None,['0'],['-1'],['9223372036854775808'],['1;evil()']):
+            assert stream.exports_sync.preparevisited(invalid,False) is False
+        streamed=[str(5000000000000000000+i) for i in range(9510)]
+        for position in range(0,len(streamed),1000):
+            piece=streamed[position:position+1000]
+            final=(position+1000)>=len(streamed)
+            assert stream.exports_sync.preparevisited(piece,final) is True
+        assert stream.exports_sync.preparevisited(['1']) is False
+        assert stream.exports_sync.preparevisited([],False) is False
+        stream.unload();stream=None
         script=session.create_script(manual.prepared_source('Synthetic hello')+'''
 rpc.exports={preparevisited(values){return assistantPrepareVisited(values);},root(){return assistantPreparedRoot();},cancel(){cancelNavigation();},pending(){return cohortReservation();},
  counts(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();return {opens:r('fixture_opens'),sends:r('fixture_auto_sends'),handles:r('fixture_handles'),bad:r('fixture_auto_bad'),off:r('fixture_off_thread_calls')};}};
@@ -260,8 +278,11 @@ rpc.exports={preparevisited(values){return assistantPrepareVisited(values);},roo
         except frida.RPCException:pass
         else:raise AssertionError('Second root escaped one-shot bootstrap')
         assert script.exports_sync.counts()==counts
-        print('PASS profile bootstrap: 10k peer IDs as data, no pre-init UI, duplicate init/root rejected, zero sends/handles/off-thread calls',flush=True)
+        print('PASS profile bootstrap: chunked history stream + 10k peer IDs as data, no pre-init UI, duplicate init/root rejected, zero sends/handles/off-thread calls',flush=True)
     finally:
+        if stream:
+            try:stream.unload()
+            except Exception:pass
         if script:
             try:script.exports_sync.cancel()
             except Exception:pass

@@ -29,7 +29,7 @@ class Bootstrap(unittest.TestCase):
     def test_compiled_source_no_history_literals_or_arbitrary_eval(self):
         source=native.prepared_source('Hi')
         self.assertIn('new Set(assistantVisited)',source)
-        self.assertIn('Object.freeze(checked)',source)
+        self.assertIn('Object.freeze(assistantVisitedParts)',source)
         self.assertIn('assistantRootStarted=true;return probeBatchProfile()',source)
         self.assertNotIn('eval(',source)
         old=native.build('Hi',list(map(str,range(100000,110000))))

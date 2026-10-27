@@ -193,12 +193,32 @@ class SharedStore(BaseStore):
             greeting_reserved(db,pending['account'],pending['peer'])
             return cur.lastrowid
 
+    # 1.3.67: shared greeting claims and peer blocks are rechecked against the
+    # FULL cloud registry by reserve()/peer_claimed() before any send, so the
+    # native pre-filter only needs their recent slice; a stale shared peer may
+    # cost one verified no-send skip, never a duplicate greeting. The port's own
+    # journal sources stay complete because only the native filter prevents
+    # reopening a previously visited profile. The recency slice keeps the
+    # uploaded snapshot bounded regardless of shared-registry growth.
+    VISITED_JOURNAL_SOURCES = (
+        'SELECT peer FROM profile_visits',
+        'SELECT peer FROM manual_actions',
+        'SELECT peer FROM profile_recovery_skips')
+    VISITED_SHARED_RECENT_SOURCES = (
+        'SELECT peer FROM mumu_greeting_claims ORDER BY created_at DESC LIMIT 2000',
+        'SELECT peer FROM mumu_peer_blocks ORDER BY created_at DESC LIMIT 600')
+
     def visited_peers(self):
         from conversation_engine import identifier
         # One consistent, read-only snapshot; no global writer/advisory lock.
         # Tables were initialized at startup, not on every native compilation.
+        values=[];seen=set()
         with self.read_connection() as db:
-            values=[x[0] for x in db.execute('SELECT peer FROM profile_visits UNION SELECT peer FROM manual_actions UNION SELECT peer FROM profile_recovery_skips UNION SELECT peer FROM mumu_peer_blocks UNION SELECT peer FROM mumu_greeting_claims')]
+            for sql in self.VISITED_JOURNAL_SOURCES+self.VISITED_SHARED_RECENT_SOURCES:
+                for row in db.execute(sql):
+                    peer=row[0]
+                    if peer in seen:continue
+                    seen.add(peer);values.append(peer)
         if len(values)>10000:raise StateError('История больше безопасного лимита снимка; журналы не удаляй.')
         return [identifier(x) for x in values]
 

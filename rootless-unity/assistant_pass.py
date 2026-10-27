@@ -17,6 +17,11 @@ from uikit_profile_navigation import replace_once
 APPROVAL_SECONDS = 60
 CYCLE_TIMEOUT_MS = 90000
 FINALIZE_RPC_SECONDS = 60
+# Reports 410-432: one ~120KB history RPC destroyed the MuMu gadget session on
+# every port and every retry, while small RPCs on the same session always pass.
+# The snapshot now streams in bounded pieces of the same magnitude as the
+# inbox payloads that reliably survive that transport.
+HISTORY_UPLOAD_CHUNK = 1000
 
 
 def host_worker(target,args):
@@ -66,18 +71,26 @@ def prepared_source(text):
 
     No eval, no code/text setter, and no native/UI work in initialization RPC.
     The existing durable reservation and per-peer native ACK remain mandatory.
+    Values may stream in several bounded chunks; the optional second argument
+    marks the final piece. Without it a single call finalizes exactly as before.
     """
     source=build(text,[])
     return r"""
-let assistantVisited=null,assistantRootStarted=false;
-function assistantPrepareVisited(values){
+let assistantVisited=null,assistantRootStarted=false,assistantVisitedParts=null;
+function assistantPrepareVisited(values,final){
  if(assistantVisited!==null||assistantRootStarted||!Array.isArray(values)||values.length>10000)return false;
  const checked=[];
  for(const value of values){
-  if(typeof value!=='string'||!/^[1-9][0-9]{0,18}$/.test(value)||value.length===19&&value>'9223372036854775807')return false;
+  if(typeof value!=='string'||!/^[1-9][0-9]{0,18}$/.test(value)||value.length===19&&value>'9223372036854775807'){assistantVisitedParts=null;return false;}
   checked.push(value);
  }
- assistantVisited=Object.freeze(checked);batchSeen=new Set(assistantVisited);return true;
+ if(assistantVisitedParts===null)assistantVisitedParts=[];
+ for(const value of checked)assistantVisitedParts.push(value);
+ if(assistantVisitedParts.length>10000){assistantVisitedParts=null;return false;}
+ if(final===undefined||final===null||final===true){
+  assistantVisited=Object.freeze(assistantVisitedParts);assistantVisitedParts=null;batchSeen=new Set(assistantVisited);
+ }
+ return true;
 }
 function assistantPreparedRoot(){
  if(assistantVisited===null||assistantRootStarted)throw new Error('profile-not-prepared');
@@ -265,8 +278,20 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
             if runtime['arch'] != 'arm64' or runtime['platform'] != 'linux':
                 raise ReadStopped('unsupported-runtime')
             stage='profile-history-upload'
-            if script.exports_sync.preparevisited(visited) is not True:
-                raise StateError('profile-history-not-prepared')
+            pieces=[visited[index:index+HISTORY_UPLOAD_CHUNK]
+                    for index in range(0,len(visited),HISTORY_UPLOAD_CHUNK)] or [[]]
+            last=len(pieces)-1
+            for position,piece in enumerate(pieces):
+                # A bounded history keeps the original one-argument call; larger
+                # snapshots stream as pieces of HISTORY_UPLOAD_CHUNK with an
+                # explicit final flag. Every piece keeps the same fixed stage,
+                # so a destroyed script stays the proven pre-execution retry.
+                if last==0:
+                    uploaded=script.exports_sync.preparevisited(piece)
+                else:
+                    uploaded=script.exports_sync.preparevisited(piece,position==last)
+                if uploaded is not True:
+                    raise StateError('profile-history-not-prepared')
             if cancelled():raise ReadStopped('cancelled')
             def watch():
                 while not done.wait(.1):
