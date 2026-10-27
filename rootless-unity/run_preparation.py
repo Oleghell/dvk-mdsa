@@ -21,10 +21,15 @@ CONFIG_REASONS = {'file-unavailable','invalid-json','invalid-structure','invalid
 
 def clean(value):
     required={'stage','error','error_type'}
-    if not isinstance(value,dict) or not required<=set(value) or set(value)-required-{'database_code','config_field','config_reason','database'}:return None
+    if not isinstance(value,dict) or not required<=set(value) or set(value)-required-{'database_code','config_field','config_reason','database','validation'}:return None
     for key,allowed in (('stage',STAGES),('error',ERRORS),('error_type',TYPES)):
         if type(value[key]) is not str or value[key] not in allowed:return None
     if 'database_code' in value and (type(value['database_code']) is not str or value['database_code'] not in DATABASE_CODES):return None
+    if 'validation' in value:
+        # Startup failures export the authored ValueError literal that named the
+        # broken invariant; the closed set lives in startup_failure.
+        from startup_failure import VALIDATION_CODES
+        if type(value['validation']) is not str or value['validation'] not in VALIDATION_CODES:return None
     if {'config_field','config_reason'} & set(value):
         if not {'config_field','config_reason'}<=set(value):return None
         if type(value['config_field']) is not str or value['config_field'] not in CONFIG_FIELDS:return None
@@ -51,6 +56,11 @@ def record(error,stage):
         field=getattr(error,'field',None);reason=getattr(error,'reason',None)
         if type(field) is str and field in CONFIG_FIELDS and type(reason) is str and reason in CONFIG_REASONS:
             value.update(config_field=field,config_reason=reason)
+    # Startup failures and run failures share the same authored ValueError
+    # literals; export the invariant only from the closed set, never str(error).
+    if type(error) is ValueError and len(error.args)==1 and type(error.args[0]) is str:
+        from startup_failure import VALIDATION_CODES
+        if error.args[0] in VALIDATION_CODES:value['validation']=error.args[0]
     from cloud_database import diagnostic
     database=diagnostic(error)
     if database is not None:value['database']=database
@@ -124,4 +134,5 @@ def message(report):
     if 'database' in v:
         text+=' Код облачной базы: '+v['database']['code']+'. Операция: '+v['database']['operation']+'.'
         if v['database'].get('relation'):text+=' Логическая таблица: '+v['database']['relation']+'.'
+    if v.get('validation'):text+=' Нарушенный инвариант: '+v['validation']+'.'
     return text+' ['+v['error']+'; '+v['error_type']+']'

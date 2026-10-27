@@ -23,24 +23,26 @@ def permission():return CloudDatabaseError('cloud-database-permission')
 
 
 class SharedRegistryRead(unittest.TestCase):
-    def read(self,action,stopped=lambda:False,delays=(1.0,3.0)):
+    def read(self,action,stopped=lambda:False,delays=None):
         pauses=[]
-        value=native.shared_registry_read(action,stopped,delays=delays,pause=pauses.append)
+        value=native.shared_registry_read(action,stopped,delays=native.SHARED_READ_RETRY_DELAYS if delays is None else delays,pause=pauses.append)
         return value,pauses
 
     def test_transient_failure_is_retried_until_success(self):
         action=MagicMock(side_effect=[transient(),'ok'])
         value,pauses=self.read(action)
-        self.assertEqual(value,'ok');self.assertEqual(action.call_count,2);self.assertEqual(pauses,[1.0])
+        self.assertEqual(value,'ok');self.assertEqual(action.call_count,2);self.assertEqual(pauses,[native.SHARED_READ_RETRY_DELAYS[0]])
     def test_capacity_failure_is_also_retried(self):
         action=MagicMock(side_effect=[capacity(),True])
         value,pauses=self.read(action)
-        self.assertIs(value,True);self.assertEqual(pauses,[1.0])
-    def test_exhaustion_reraises_after_three_attempts(self):
-        action=MagicMock(side_effect=[transient() for _ in range(3)])
+        self.assertIs(value,True);self.assertEqual(pauses,[native.SHARED_READ_RETRY_DELAYS[0]])
+    def test_exhaustion_reraises_after_the_full_budget(self):
+        # 1.3.70 (reports 458-461): the widened window is 4 attempts with
+        # pauses 2/5/10; exhaustion still re-raises the last transport error.
+        action=MagicMock(side_effect=[transient() for _ in range(len(native.SHARED_READ_RETRY_DELAYS)+1)])
         with self.assertRaises(CloudDatabaseError) as raised:
             self.read(action)
-        self.assertEqual(action.call_count,3)
+        self.assertEqual(action.call_count,len(native.SHARED_READ_RETRY_DELAYS)+1)
         self.assertEqual(raised.exception.code,'cloud-database-unavailable')
     def test_non_transient_code_is_not_retried(self):
         action=MagicMock(side_effect=permission())
@@ -58,6 +60,16 @@ class SharedRegistryRead(unittest.TestCase):
         with self.assertRaises(CloudDatabaseError):
             self.read(action,stopped=lambda:True)
         self.assertEqual(action.call_count,1)
+
+
+    def test_exhaustion_reraises_the_final_transport_error(self):
+        self.assertEqual(native.SHARED_READ_RETRY_DELAYS,(2.0,5.0,10.0))
+        action=MagicMock(side_effect=[transient() for _ in range(4)])
+        pauses=[]
+        with self.assertRaises(CloudDatabaseError):
+            native.shared_registry_read(action,lambda:False,pause=pauses.append)
+        self.assertEqual(action.call_count,4)
+        self.assertEqual(pauses,[2.0,5.0,10.0])
 
 
 class TransientPeerChecks(unittest.TestCase):

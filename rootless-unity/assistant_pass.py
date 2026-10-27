@@ -29,9 +29,14 @@ HISTORY_UPLOAD_CHUNK = 1000
 # approval, reservation and ACK, and visited_peers() runs before any script
 # exists: nothing is sent or written for the peer yet, and the native cycle
 # waits on its own budget. Those three reads retry transient transport and
-# capacity failures with a short bounded budget; Stop and every other
-# failure keep the existing hard cancel path.
-SHARED_READ_RETRY_DELAYS = (1.0, 3.0)
+# capacity failures with a bounded budget; Stop and every other failure keep
+# the existing hard cancel path.
+# Reports 458-461 (v1.3.69): with only two short pauses a pooler outage
+# outlasted the whole retry window and still cancelled a live batch
+# (profile-peer-check exhaustion). The pauses now span a wider window while
+# staying inside the native cycle budget: 4 attempts, 17s of total pause,
+# each attempt bounded by the existing connect timeout.
+SHARED_READ_RETRY_DELAYS = (2.0, 5.0, 10.0)
 
 
 def shared_registry_read(action, stopped, *, delays=None, pause=None):

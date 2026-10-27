@@ -15,23 +15,142 @@ READ_CODES = {'client-version','cancelled','ambiguous-process','unexpected-proce
  'unsupported-runtime','invalid-forward','not-ready'}
 ERRORS = {'startup-'+s+'-failed' for s in STAGES} | READ_CODES
 
+# Reports 458-461 (v1.3.69, port 5573): a profile cycle died at
+# startup-result-validation-failed (ValueError) and the closed report kept
+# only the stage, never WHICH authored invariant rejected the navigation.
+# The validators raise exactly these authored one-line messages; the exact
+# literal is exported as a closed enum so the next report pinpoints the
+# invariant. Source-pin tests keep this set in sync with the validators:
+# every single-quoted raise ValueError('...') literal in the five validator
+# files must be listed here. Nothing else may enter the report.
+VALIDATION_CODES = frozenset({
+    'Action without a selected visible result',
+    'Chat action out of order',
+    'Chat without eligible profile',
+    'Cleanup failure not propagated',
+    'Contradictory empty history',
+    'Empty cycle did not submit',
+    'Exactly ten bounded greeting choices are required',
+    'False submission state',
+    'Friends stage skipped',
+    'Friends without profile',
+    'Greeting split without complete empty history',
+    'Greeting submitted without split frame',
+    'Inconsistent avatar counts',
+    'Inconsistent invalid friends source',
+    'Inconsistent missing friends source',
+    'Inconsistent navigation cleanup',
+    'Inconsistent navigation success',
+    'Inconsistent row counts',
+    'Inconsistent selection counts',
+    'Inconsistent selection exhaustion',
+    'Inconsistent selection skips',
+    'Inconsistent table counts',
+    'Inconsistent temporary handle peak',
+    'Input skip without disabled model',
+    'Invalid action delay',
+    'Invalid chat action flag',
+    'Invalid chat checkpoint',
+    'Invalid chat count',
+    'Invalid chat return route',
+    'Invalid chat state flag',
+    'Invalid controller path',
+    'Invalid cooperative scan counters',
+    'Invalid cycle timeout',
+    'Invalid empty skip',
+    'Invalid friends count',
+    'Invalid greeting preparation',
+    'Invalid history samples',
+    'Invalid history state',
+    'Invalid manual-cycle deadline',
+    'Invalid metadata diagnostic',
+    'Invalid navigation count',
+    'Invalid navigation flag',
+    'Invalid navigation state',
+    'Invalid observer call count',
+    'Invalid parent depth',
+    'Invalid profile handle count',
+    'Invalid profile read counter',
+    'Invalid profile read skip',
+    'Invalid profile verification',
+    'Invalid readiness flags',
+    'Invalid readiness step',
+    'Invalid selection category',
+    'Invalid selection counter',
+    'Invalid selection retry count',
+    'Invalid temporary handle peak',
+    'Invalid verified input flag',
+    'Invalid visited profiles',
+    'Missing automatic navigation',
+    'Missing chat cycle fields',
+    'Missing navigation report',
+    'Missing profile navigation',
+    'Missing profile read evidence',
+    'Missing profile read skip reason',
+    'Missing profile step',
+    'Missing stop reason',
+    'Navigation without confirmed UI thread',
+    'Navigation without ready attached view',
+    'Out-of-order navigation',
+    'Profile skip before bounded reads',
+    'Profile skip without read failure',
+    'Readiness wait without verified chat',
+    'Selection action without scan',
+    'Send without stable empty history',
+    'Shared skip outside MuMu worker',
+    'Shared skip with submission',
+    'Skipped profile opened chat',
+    'Submission without invocation',
+    'Unexpected backend or screen data',
+    'Unexpected friends state',
+    'Unexpected metadata checkpoint',
+    'Unexpected navigation fields',
+    'Unexpected profile fields',
+    'Unexpected profile path',
+    'Unexpected profile phase',
+    'Unexpected selection checkpoint',
+    'Unexpected selection counters',
+    'Unexpected unattempted navigation',
+    'Unfinished chat cycle',
+    'Unfinished navigation',
+    'Unknown count must remain unknown',
+    'Unknown cycle error',
+    'Unknown friends must remain unknown',
+    'Unreported handle leak',
+    'Unverified direct search return',
+    'Unverified empty skip',
+    'Unverified history classification',
+    'Unverified profile identity',
+    'Unverified profile skip',
+    'Unverified send',
+    'Unverified shared peer skip',
+    'Unverified unready skip',
+})
+
 ADB_CHECKS = {'adb-version','test-connect','test-state','test-identity','test-boot-completed',
               'test-package-presence','test-forward-open','test-forward-close'}
 
 def clean(value):
     required = {'stage','error','error_type'}
-    if not isinstance(value, dict) or not required <= set(value) or set(value)-required-{'adb_check','adb_reason'}:
+    if not isinstance(value, dict) or not required <= set(value) or set(value)-required-{'adb_check','adb_reason','validation'}:
         return None
     if (type(value['stage']) is not str or value['stage'] not in STAGES
         or type(value['error']) is not str or value['error'] not in ERRORS
         or type(value['error_type']) is not str or value['error_type'] not in TYPES | {'OtherError'}):
         return None
+    if 'validation' in value and (type(value['validation']) is not str
+        or value['validation'] not in VALIDATION_CODES):
+        return None
     if set(value)-required:
         from adb_evidence import REASONS
-        if (set(value)-required != {'adb_check','adb_reason'} or type(value['adb_check']) is not str
-            or value['adb_check'] not in ADB_CHECKS or type(value['adb_reason']) is not str
-            or value['adb_reason'] not in REASONS-{'none'}):
+        extra = set(value)-required
+        if not extra <= {'adb_check','adb_reason','validation'}:
             return None
+        if 'adb_check' in extra or 'adb_reason' in extra:
+            if (not {'adb_check','adb_reason'} <= set(value) or type(value['adb_check']) is not str
+                or value['adb_check'] not in ADB_CHECKS or type(value['adb_reason']) is not str
+                or value['adb_reason'] not in REASONS-{'none'}):
+                return None
     return dict(value)
 
 def record(error, stage):
@@ -47,6 +166,11 @@ def record(error, stage):
     if type(error) is ReadStopped and len(error.args) == 1 and type(error.args[0]) is str and error.args[0] in READ_CODES:
         code = error.args[0]
     value = dict(stage=stage, error=code, error_type=name if name in TYPES else 'OtherError')
+    # Only a locally authored ValueError literal may name the broken invariant;
+    # never str(error) for anything outside the closed set above.
+    if type(error) is ValueError and len(error.args) == 1 and type(error.args[0]) is str \
+            and error.args[0] in VALIDATION_CODES:
+        value['validation'] = error.args[0]
     error._dvk_failure = value
     return dict(value)
 

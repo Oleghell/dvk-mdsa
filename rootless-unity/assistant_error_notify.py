@@ -186,6 +186,12 @@ def diagnostic_json(report):
                 from cloud_database import clean_diagnostic
                 safe=clean_diagnostic(entry)
                 if safe:result[key]=safe
+            elif key=='validation':
+                # Startup failures keep the authored ValueError invariant that
+                # rejected a navigation; the closed set lives in startup_failure.
+                if isinstance(entry,str):
+                    from startup_failure import VALIDATION_CODES
+                    if entry in VALIDATION_CODES:result[key]=entry
             elif key in flags and type(entry) is bool:
                 result[key] = entry
             elif key in labels and isinstance(entry, str) and entry in codes:

@@ -12,6 +12,44 @@ from mumu_common import MumuError, port, serial, root_directory, device_director
 
 TELEGRAM_DEVICE_NUMBERS={5563:1,5557:2,5559:3,5561:4,5565:5}
 
+# Reports 458-461 (v1.3.69): four ports died at startup-failed on a single
+# transient pooler-connect refusal at journal-initialization, while the raw
+# connect retry inside cloud_database is just one 0.15s repeat. Dozens of
+# workers from two installations open their shared journal at the same
+# moment, so the session pooler is busiest exactly when the first journal
+# open happens. Opening the journal writes nothing irreversibly (CREATE IF
+# NOT EXISTS, idempotent backfill, policy inserts): a transport/capacity
+# failure may safely re-run the whole block. Stop keeps the hard cancel;
+# every other cloud code (lock timeout, permission, schema) stays fatal.
+JOURNAL_START_RETRY_DELAYS = (3.0, 7.0, 15.0, 30.0)
+
+
+def open_shared_journal(new_only, stopped, progress=lambda _:None, *, pause=None):
+    """Bounded retry of the shared-journal bootstrap for transient connects."""
+    if pause is None:
+        from time import sleep as pause  # bounded DB backoff only, never message pacing
+    from cloud_database import journal_initialization, CloudDatabaseError, TRANSIENT_CODES
+    from assistant_reply_window import enable
+    from assistant_contact_policy import enable as contact_only
+    last = None
+    for attempt, delay in enumerate((None, *JOURNAL_START_RETRY_DELAYS)):
+        if delay is not None:
+            if stopped.is_set(): raise last
+            progress('Общая база была занята при старте. Повторяю подключение ('
+                     + str(attempt + 1) + ' из ' + str(len(JOURNAL_START_RETRY_DELAYS) + 1) + ').')
+            pause(delay)
+        try:
+            with journal_initialization():
+                from assistant_store import Store
+                journal = Store()
+                enable(journal, new_only=new_only)
+                contact_only(journal)
+            return journal
+        except CloudDatabaseError as error:
+            last = error
+            if error.code not in TRANSIENT_CODES: raise
+    raise last
+
 def installation_tag():
     from mumu_installation import checked
     try:return checked(os.environ.get('DVK_INSTALLATION_ID'))
@@ -111,14 +149,8 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                 atomic(device_directory(n)/'last-startup.json',dict(tool_version=VERSION,platform='MuMu',device_port=n,installation_id=installation_tag(),status='finished',stage=stage,automatic_retry=False))
                 return out  # ID is returned through the local pipe, never a report.
             stage='journal-initialization'
-            from assistant_reply_window import enable
-            from assistant_contact_policy import enable as contact_only
-            from cloud_database import journal_initialization
             progress('Открываю общий журнал базы. При параллельном старте ожидаю завершения инициализации другого MuMu.')
-            with journal_initialization():
-                journal=Store()
-                enable(journal,new_only=spec['mode']=='new')
-                contact_only(journal)
+            journal=open_shared_journal(spec['mode']=='new',stopped,progress)
             from assistant_monitor import REPORT
             from mumu_recovery import run as monitor
             stage='monitor'
