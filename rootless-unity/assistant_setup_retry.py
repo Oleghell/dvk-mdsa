@@ -14,10 +14,21 @@ MAX_SETUP_ATTEMPTS=6
 def retryable_profile_setup(error):
     from startup_failure import clean
     value=clean(getattr(error,'_dvk_failure',None))
-    return (getattr(error,'_dvk_profile_not_executed',False) is True
-        and value is not None and value['stage']=='script-create'
-        and value['error']=='startup-script-create-failed'
-        and value['error_type'] in {'TransportError','ServerNotRunningError','TimedOutError'})
+    if getattr(error,'_dvk_profile_not_executed',False) is not True or value is None:
+        return False
+    if value['stage']=='script-create':
+        return (value['error']=='startup-script-create-failed'
+            and value['error_type'] in {'TransportError','ServerNotRunningError','TimedOutError'})
+    if value['stage']=='profile-history-upload':
+        # Reports 365-373: the script loaded and passed the runtime check, but
+        # was destroyed during the history-upload RPC (Frida raises
+        # InvalidOperationError when the script is gone). root() was never
+        # called: no navigation, no UI action, no authorization thread, no
+        # journal write — the same provably pre-execution state as a failed
+        # create. Authored StateError (bad journal data) stays non-retryable.
+        return (value['error']=='startup-profile-history-upload-failed'
+            and value['error_type'] in {'TransportError','ServerNotRunningError','TimedOutError','InvalidOperationError'})
+    return False
 
 
 def write_report(value):

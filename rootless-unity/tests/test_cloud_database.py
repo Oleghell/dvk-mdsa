@@ -103,9 +103,12 @@ class FakeRaw:
 class CloudTransactions(unittest.TestCase):
     def test_write_lock_precedes_mutation_and_no_retry(self):
         raw=FakeRaw();db=cloud.Connection(raw,{},{});db.execute('BEGIN IMMEDIATE')
-        self.assertIn('pg_advisory_xact_lock',raw.queries[-1][0])
         db.execute('UPDATE x SET y=?',(1,));db.execute('COMMIT')
-        self.assertEqual(sum('UPDATE' in q for q,_ in raw.queries),1)
+        sql=[q for q,_ in raw.queries]
+        advisory=next(i for i,q in enumerate(sql) if 'pg_advisory_xact_lock' in q)
+        mutation=next(i for i,q in enumerate(sql) if q.startswith('UPDATE'))
+        self.assertLess(advisory,mutation)
+        self.assertEqual(sum('UPDATE' in q for q in sql),1)
     def test_readonly_has_no_write_lock(self):
         raw=FakeRaw();db=cloud.Connection(raw,{},{});db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
         self.assertIn('READ ONLY',raw.queries[0][0]);self.assertFalse(any('advisory' in q for q,_ in raw.queries))
@@ -173,6 +176,16 @@ class CloudStartupFailures(unittest.TestCase):
         self.assertTrue(any("lock_timeout='60000'" in sql for sql,_ in raw.queries))
         raw=FakeRaw();db=cloud.Connection(raw,{},{});db.execute('BEGIN IMMEDIATE')
         self.assertTrue(any("lock_timeout='10000'" in sql for sql,_ in raw.queries))
+        # The wider window wraps ONLY the advisory-lock statement; the effective
+        # timeouts for the caller's body are restored to the normal bounded set.
+        advisory=[i for i,(sql,_) in enumerate(raw.queries) if 'pg_advisory' in sql]
+        self.assertEqual(len(advisory),1)
+        self.assertIn("lock_timeout='60000'",raw.queries[advisory[0]-1][0])
+        self.assertEqual(raw.queries[advisory[0]+1][0],
+                         "SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'")
+        # A read-only BEGIN takes no advisory lock and never widens.
+        raw=FakeRaw();db=cloud.Connection(raw,{},{});db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
+        self.assertFalse(any('pg_advisory' in sql for sql,_ in raw.queries))
         self.assertFalse(any("lock_timeout='60000'" in sql for sql,_ in raw.queries))
     def test_contact_backfill_is_set_based_and_preserves_existing_bans(self):
         from mumu_peer_policy import initialize,backfill_contacts

@@ -241,14 +241,24 @@ class Connection:
                       "SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'; SET LOCAL synchronous_commit=on")
             self._run(settings)
             if not self.read_only:
-                # Keep the original FIFO waiter for up to 10s. Restarting every
-                # 2s in 1.3.60 lost queue position under multi-port contention.
+                # Keep the original FIFO waiter: restarting every 2s in 1.3.60
+                # lost queue position under multi-port contention. Reports
+                # 364/366: two installations (up to 18 ports) share one dataset,
+                # and a single holder (journal initialization, statistics
+                # backfill) can keep the lock far longer than 10s, so the FIFO
+                # waiter now uses the wider initialization budget ONLY for the
+                # advisory-lock statement itself; the normal bounded timeouts
+                # are restored immediately after acquisition for the body.
                 # There is NO retry of this transaction or its caller's body.
+                if not initializing:
+                    self._run("SET LOCAL statement_timeout='65000'; SET LOCAL lock_timeout='60000'")
                 try:self._run('SELECT pg_advisory_xact_lock(%s)',(LOCK_ID,))
                 except CloudDatabaseError as error:
                     if error.code=='cloud-database-lock-timeout' and error.operation=='lock':
                         self._run('ROLLBACK');self.in_transaction=False
                     raise
+                if not initializing:
+                    self._run("SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'")
             return Cursor()
         if upper in ('COMMIT','ROLLBACK'):
             self._run(upper);self.in_transaction=False
