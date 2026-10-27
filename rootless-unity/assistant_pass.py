@@ -23,6 +23,16 @@ FINALIZE_RPC_SECONDS = 60
 # inbox payloads that reliably survive that transport.
 HISTORY_UPLOAD_CHUNK = 1000
 
+# Reports 433-447: the bootstrap wrapper still dropped the second RPC argument,
+# so every streamed piece finalized immediately and the SECOND piece was
+# rejected (assistantVisited already set) -> authored StateError on all 15
+# ports. The wrapper must forward `final` exactly like the JS contract below;
+# smoke and unit tests exercise THIS string, never a hand-copied twin.
+BOOTSTRAP_EXPORTS = '''rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
+ root(){return assistantPreparedRoot();},preparevisited(values,final){return assistantPrepareVisited(values,final);},cancel(){cancelNavigation();},
+ selectedpeer(){return assistantSelectedPeer;},cohortpending(){return cohortReservation();},cohortack(value){return cohortAcknowledge(value);}};
+'''
+
 
 def host_worker(target,args):
     """Native callback threads must not leave idle database sessions behind."""
@@ -236,11 +246,7 @@ def inspect(port, token, cancelled, text, store, approve, *, frida_api=None):
     except Exception as error:
         error._dvk_profile_not_executed=True
         raise
-    source = prepared_source(text) + '''
-rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,platform:Process.platform};},
- root(){return assistantPreparedRoot();},preparevisited(values){return assistantPrepareVisited(values);},cancel(){cancelNavigation();},
- selectedpeer(){return assistantSelectedPeer;},cohortpending(){return cohortReservation();},cohortack(value){return cohortAcknowledge(value);}};
-'''
+    source = prepared_source(text) + BOOTSTRAP_EXPORTS
     try:
         manager = f.get_device_manager()
     except Exception as error:

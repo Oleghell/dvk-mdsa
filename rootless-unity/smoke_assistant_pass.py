@@ -227,13 +227,13 @@ def bootstrap_contract(library):
     try:
         assert child.stdout.readline().strip()=='ready'
         session=frida.get_local_device().attach(child.pid)
-        # 1.3.67 chunked-stream contract: bounded pieces with an explicit final
-        # flag finalize exactly like the original single call. Non-final pieces
-        # return True without freezing; only the final piece installs the
-        # visited set; after it every further call is rejected.
-        stream=session.create_script(manual.prepared_source('Synthetic hello')+'''
-rpc.exports={preparevisited(values,final){return assistantPrepareVisited(values,final);},cancel(){cancelNavigation();}};
-''')
+        # 1.3.68: exercise the REAL production bootstrap (manual.BOOTSTRAP_EXPORTS),
+        # never a hand-copied twin — 1.3.67 shipped a production wrapper that
+        # dropped the final flag while this smoke tested its own fixed copy.
+        # Bounded pieces with an explicit final flag finalize exactly like the
+        # original single call; non-final pieces return True without freezing;
+        # after the final piece every further call is rejected.
+        stream=session.create_script(manual.prepared_source('Synthetic hello')+manual.BOOTSTRAP_EXPORTS)
         stream.load()
         for invalid in (None,['0'],['-1'],['9223372036854775808'],['1;evil()']):
             assert stream.exports_sync.preparevisited(invalid,False) is False
@@ -245,9 +245,7 @@ rpc.exports={preparevisited(values,final){return assistantPrepareVisited(values,
         assert stream.exports_sync.preparevisited(['1']) is False
         assert stream.exports_sync.preparevisited([],False) is False
         stream.unload();stream=None
-        script=session.create_script(manual.prepared_source('Synthetic hello')+'''
-rpc.exports={preparevisited(values){return assistantPrepareVisited(values);},root(){return assistantPreparedRoot();},cancel(){cancelNavigation();},pending(){return cohortReservation();},
- counts(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();return {opens:r('fixture_opens'),sends:r('fixture_auto_sends'),handles:r('fixture_handles'),bad:r('fixture_auto_bad'),off:r('fixture_off_thread_calls')};}};
+        script=session.create_script(manual.prepared_source('Synthetic hello')+manual.BOOTSTRAP_EXPORTS+'''\nrpc.exports.counts=function(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();return {opens:r('fixture_opens'),sends:r('fixture_auto_sends'),handles:r('fixture_handles'),bad:r('fixture_auto_bad'),off:r('fixture_off_thread_calls')};};
 ''')
         script.load()
         try:script.exports_sync.root()
@@ -265,7 +263,7 @@ rpc.exports={preparevisited(values){return assistantPrepareVisited(values);},roo
         worker=threading.Thread(target=run_root,daemon=True);worker.start()
         until=time.monotonic()+10;pending=None
         while time.monotonic()<until and worker.is_alive():
-            pending=script.exports_sync.pending()
+            pending=script.exports_sync.cohortpending()
             if pending is not None:break
             time.sleep(.05)
         assert pending is not None and pending['peer']!='1',pending
