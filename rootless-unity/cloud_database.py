@@ -33,6 +33,25 @@ def safe_relation_hint(schema_name, table_name):
     name=match.group(1)
     return name if name in SAFE_RELATIONS else 'other-application-table'
 
+MISSING_RELATION=re.compile(r'relation\s+"([^"]+)"\s+does\s+not\s+exist',re.I)
+
+def relation_hint_from_error(error):
+    """Real PostgreSQL omits diag schema/table fields for 42P01; the server
+    message is then the only stable source of the missing relation name."""
+    diag=getattr(error,'diag',None)
+    hint=safe_relation_hint(getattr(diag,'schema_name',None),getattr(diag,'table_name',None))
+    if hint is not None:return hint
+    message=getattr(diag,'message_primary',None)
+    if not isinstance(message,str):message=str(error) if error is not None else ''
+    match=MISSING_RELATION.search(message) if isinstance(message,str) else None
+    if not match:return None
+    name=match.group(1)
+    # Unqualified names resolve through the session search_path, which every
+    # session pins to our schema; a qualified foreign schema stays unexported.
+    if '.' not in name:return safe_relation_hint(SCHEMA,name)
+    schema,_,table=name.partition('.')
+    return safe_relation_hint(schema,table)
+
 def clean_diagnostic(value):
     base={'code','operation','automatic_retry'}
     if not isinstance(value,dict) or set(value) not in (base,base|{'relation'}):return None
@@ -195,9 +214,7 @@ class Connection:
                 '42601':'cloud-sql-syntax-error','42P01':'cloud-schema-missing'}
             value=CloudDatabaseError(codes.get(state,'cloud-database-unavailable'))
             value.operation=operation(sql)
-            if state=='42P01':
-                diag=getattr(error,'diag',None)
-                value.relation=safe_relation_hint(getattr(diag,'schema_name',None),getattr(diag,'table_name',None))
+            if state=='42P01':value.relation=relation_hint_from_error(error)
             raise value from None
     def execute(self,sql,params=()):
         if self.closed:raise CloudDatabaseError()
@@ -304,6 +321,15 @@ def connect(path,*,timeout=5,isolation_level=None,uri=False):
             meta=raw.execute('SELECT protocol,dataset,ready FROM _dvk_meta WHERE singleton=1').fetchone()
             if meta!=(PROTOCOL,cfg['dataset'],True):raise CloudDatabaseError('cloud-dataset-not-ready')
             schemas={name:schema_info(sql) for name,sql in raw.execute('SELECT name,sqlite_sql FROM _dvk_schema').fetchall()}
+            # A restored snapshot or manual drop can keep the catalog while the
+            # real tables vanish. Trusting it would skip CREATE and fail every
+            # read with 42P01 forever, so registered names are verified once
+            # against the actual table list; phantoms are dropped from this
+            # session cache and the next CREATE IF NOT EXISTS re-creates them.
+            real={row[0] for row in raw.execute(
+                'SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace '
+                'WHERE n.nspname=%s AND c.relkind=%s',(SCHEMA,'r')).fetchall()}
+            schemas={name:info for name,info in schemas.items() if name in real}
         except CloudDatabaseError:raw.close();raise
         except Exception:raw.close();raise CloudDatabaseError() from None
     return Connection(raw,cfg,schemas)
