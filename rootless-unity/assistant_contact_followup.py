@@ -37,10 +37,14 @@ NO_APPS_CONTEXT = re.compile(
     r'|(?:у\s+меня\s+)?(?:ничего|ни\s+чего|не\s+чего)\s+из\s+этого\s+не\s+работает)'
     r'[.!…,)\s]*$', re.I)
 
-NO_APPS = re.compile(r'^(?:(?:нет|нету)(?:\s+у\s+меня)?\s+(?:ни\s+того\s*,?\s+ни\s+другого|ничего)|ни\s+того\s*,?\s+ни\s+другого(?:\s+(?:нет|нету))?|(?:у\s+меня\s+)?(?:нет|нету|не\s+пользуюсь)(?:\s+ни)?\s+(?:телеграм\w*|telegram|тг|ватсап\w*|вацап\w*|whatsapp)(?:\s*(?:,|и|ни|или)\s*(?:телеграм\w*|telegram|тг|ватсап\w*|вацап\w*|whatsapp))*)[.!?,)\s]*$',re.I)
+# Reports aPYyN7weMm (v1.3.78): the WhatsApp spelling family is shared with
+# assistant_contact_intent.WA so «вотсап»/«вотапп»-style unavailability and
+# absence lists behave the same as «ватсап» here.
+from assistant_contact_intent import WA as _WA_SPELLINGS
+NO_APPS = re.compile(r'^(?:(?:нет|нету)(?:\s+у\s+меня)?\s+(?:ни\s+того\s*,?\s+ни\s+другого|ничего)|ни\s+того\s*,?\s+ни\s+другого(?:\s+(?:нет|нету))?|(?:у\s+меня\s+)?(?:нет|нету|не\s+пользуюсь)(?:\s+ни)?\s+(?:телеграм\w*|telegram|тг|'+_WA_SPELLINGS+r'|whatsapp)(?:\s*(?:,|и|ни|или)\s*(?:телеграм\w*|telegram|тг|'+_WA_SPELLINGS+r'|whatsapp))*)[.!?,)\s]*$',re.I)
 
 # App-specific unavailability is not refusal of a DIFFERENT supplied contact.
-APP = r'(?:телеграм\w*|telegram|тг|ват\s?сап\w*|ватсап\w*|вацап\w*|whats\s?app)'
+APP = r'(?:телеграм\w*|telegram|тг|'+_WA_SPELLINGS+r'|whats\s?app)'
 APP_UNAVAILABLE = re.compile(r'^(?:(?:у\s+меня\s+)?(?:нет|нету|не\s+пользуюсь)\s+'+APP+r'|'+APP+r'\s+(?:нет|нету|не\s+пользуюсь))[.!?,)\s]*$',re.I)
 
 

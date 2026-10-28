@@ -62,8 +62,26 @@ class FrozenClassification(unittest.TestCase):
                         dict(error='wrong-screen'), dict(error='call-limit'),
                         dict(identity_checkpoint='saved-binding'), dict(scalar_state='zero'),
                         dict(metadata_checkpoint='base'), dict(wait_reason='history-loading'),
-                        dict(read_checkpoint='not-checked'), dict(read_checkpoint='sample')):
+                        dict(read_checkpoint='sample')):
             self.assertFalse(history.verified_read_budget(dict(good, **changes)), changes)
+
+    def test_report_516_pre_checkpoint_freeze_is_now_an_interrupted_read(self):
+        # Reports aPYyN7weMm (monitor 516, v1.3.78): the frame budget expired
+        # BEFORE the read checkpoint itself began (read_checkpoint not-checked,
+        # identity not-checked, scalar not-read) - emptier than report 494's
+        # identity-phase freeze. Nothing was observed at all, so the same
+        # bounded read-only retry/deferral applies instead of killing the
+        # worker with bound-chat-read-failed.
+        pre = dict(error='frame-budget', **frozen494(read_checkpoint='not-checked').diagnostic)
+        self.assertTrue(history.verified_read_budget(pre))
+        # Near-misses of the new shape stay rejected: any partial observation
+        # (an identity checkpoint, a scalar, a message slot) is evidence of a
+        # DIFFERENT, bounded phase and keeps its own classification.
+        for changes in (dict(identity_checkpoint='initial-ids'), dict(identity_checkpoint='recheck'),
+                        dict(scalar_checkpoint='chat-id'), dict(scalar_state='positive'),
+                        dict(wait_reason='history-loading')):
+            value = dict(pre, **changes)
+            self.assertFalse(history.verified_read_budget(value), changes)
 
 
 class FrozenScreen(Base):

@@ -23,6 +23,7 @@ def should_close(db, snapshot, stage, incoming, *, requested, max_choice=False, 
     from assistant_contact_clarify import chosen
     from assistant_contact_intent import visible,APP
     import re
+    from assistant_contact_intent import WA as _WA_SPELLINGS
     for message in incoming:
         text=visible(message.get('text'))
         for clause in re.split(r'[?？]',text)[:-1]:
@@ -35,7 +36,10 @@ def should_close(db, snapshot, stage, incoming, *, requested, max_choice=False, 
             # the packet's messenger choice then drives one clarification.
             echo=re.fullmatch(r'(?:а\s+)?(?:у\s+(?:тебя|вас)\s+)?(?:ты\s+|вы\s+)?есть'
                               r'(?:\s+(?:что-?нибудь|какие?[-\s]?нибудь\s+мессенджеры))?',clause.strip())
-            related=APP.search(clause) or re.search(r'телеграм|telegram|ватсап|ватцап|whatsapp|\bтг\b|номер|контакт|мессенджер',clause)
+            # Reports aPYyN7weMm (v1.3.78): the whole WhatsApp spelling family
+            # (вотсап/вотапп/…) keeps such clauses contact-related instead of
+            # letting an unrecognized spelling close the chain as off-topic.
+            related=APP.search(clause) or re.search(r'телеграм|telegram|'+_WA_SPELLINGS+r'|whatsapp|\bтг\b|номер|контакт|мессенджер',clause)
             if personal or not (related or echo):return True
     choice=chosen(incoming)
     if stage=='pending-clarify':return not choice

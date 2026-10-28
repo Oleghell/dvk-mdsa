@@ -239,16 +239,17 @@ def drain_threads(threads,done,*,timeout=30,clock=time.monotonic):
         raise StateError('profile-authorization-pending')
 
 
-def monitor(script, store, text, approve, done, cancelled, state, failures=None):
+def monitor(script, store, text, approve, done, cancelled, state, failures=None, preclaimed=frozenset()):
     """A successful FULL SQLite commit MUST happen before native authorization."""
     from cloud_database import CloudDatabaseError, TRANSIENT_CODES
     def defer(peer):
         # Reports 491-493 (v1.3.73): pooler pressure outlasted the whole
         # pre-send retry window and killed live batches on all reporting
-        # ports. Both checks below are read-only and happen before the native
-        # ACK: no send was authorized for this peer, so an exhausted transient
-        # window costs one verified no-send skip. The claim registry stays
-        # authoritative; the port keeps its pass alive instead of stopping.
+        # ports. The remaining live check below is read-only and happens
+        # before the native ACK: no send was authorized for this peer, so an
+        # exhausted transient window costs one verified no-send skip. The
+        # claim registry stays authoritative; the port keeps its pass alive
+        # instead of stopping.
         state['peer_check_deferred']=True
         from mumu_claims import skip
         skip(script, peer, state)
@@ -263,31 +264,22 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None)
                 return
             # A terminal global outcome or prior greeting on any port skips before
             # typing; reserve below rechecks atomically after approval.
+            # Reports aPYyN7weMm (v1.3.78, «заходит в чат и выходит без
+            # приветствия»): the live peer_claimed() read added one pooled
+            # cloud roundtrip to EVERY profile cycle, and under 12-port pooler
+            # saturation its transient window exhausted into defer() exactly
+            # when the chat was ALREADY OPEN - the cycle ended in a verified
+            # no-send Back and the peer was left un-greeted. The pass-start
+            # visited snapshot (loaded in inspect() and already fed to the
+            # native pre-filter) contains every shared claim/block and every
+            # own-journal peer, so membership answers the same question
+            # instantly with no database dependency. Claims added after the
+            # snapshot stay caught by reserve()'s live blocked() re-check,
+            # which remains the atomic cross-account dedup authority, and by
+            # the terminal outcome check below.
             phase='profile-peer-check'
             if getattr(store, 'mumu_shared_claims', False) is True:
-                try:
-                    claimed = shared_registry_read(
-                        lambda: store.peer_claimed(pending), lambda: cancelled() or done.is_set())
-                except CloudDatabaseError as error:
-                    if error.code not in TRANSIENT_CODES or cancelled():
-                        raise
-                    if done.is_set():
-                        # Reports 503/505 (v1.3.74): the transient window can
-                        # outlast the native cycle's own 90s deadline, so the
-                        # error surfaces AFTER root() returned and done was set.
-                        # Raising here killed the whole port with journal-error
-                        # although this check runs BEFORE approval: nothing was
-                        # sent, reserved or written for the peer. The native
-                        # report (its own budget stop) already drives the cycle
-                        # outcome; the claim registry stays the dedup authority
-                        # and the peer simply stays eligible for a later pass.
-                        # Mark the cycle deferred so a saturated pooler may also
-                        # lose the auxiliary visit row without stopping the port.
-                        state['peer_check_deferred']=True
-                        return
-                    defer(pending)
-                    return
-                if claimed:
+                if pending['peer'] in preclaimed:
                     from mumu_claims import skip
                     phase='profile-skip-ack'
                     skip(script, pending, state)
@@ -437,7 +429,13 @@ def inspect(port, token, cancelled, text, store, approve, *, frida_api=None):
                         except Exception:
                             pass
                         return
-            for target, args in ((watch, ()), (monitor, (script, store, text, approve, done, cancelled, state, failures))):
+            # Same snapshot set that was streamed to the native pre-filter:
+            # every shared claim/block plus the port's own journal peers. It
+            # answers the claimed-peer pre-check in monitor() without a pooled
+            # cloud roundtrip, so a saturated pooler can no longer waste an
+            # already-opened chat on a transient defer.
+            preclaimed = frozenset(visited)
+            for target, args in ((watch, ()), (monitor, (script, store, text, approve, done, cancelled, state, failures, preclaimed))):
                 thread = threading.Thread(target=host_worker, args=(target,args), daemon=True)
                 threads.append(thread)
                 thread.start()

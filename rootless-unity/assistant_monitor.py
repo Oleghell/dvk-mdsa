@@ -288,7 +288,12 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 publish()  # A failed report always stops further device work.
                 phase = 'monitor-check-stopped'
                 delay = min(settings.reply_interval, max(0.01, next_profiles-clock())) if mode == 'full' and not active else settings.reply_interval
-                if adaptive:delay=min(delay,polling.delay(settings.reply_interval))
+                if adaptive:
+                    # The adaptive schedule owns the whole wait: hot drains stay
+                    # at the fast 2s recheck, while the idle wait is jittered so
+                    # the MuMu worker fleet does not resynchronize its polling
+                    # into one wave against the shared pooler/AI backend.
+                    delay = polling.delay(delay)
                 progress(summary(out) + f' Следующая проверка через {delay:g} сек.')
                 immediate_passes = 0
                 if wait(delay):

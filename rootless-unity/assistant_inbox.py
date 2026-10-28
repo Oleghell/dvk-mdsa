@@ -28,6 +28,35 @@ def runtime_store(store):
 
 LIMIT = None
 PAUSE_OUTCOMES = {'message-not-approved', 'manual-review'}
+# MuMu multi-port latency adaptation (reports aPYyN7weMm, monitors 516/517,
+# v1.3.78): with 12 emulators on shared host resources a single bound chat
+# read takes 4-15s instead of the single-port ~1-3s, so the fixed 12s history
+# read budget expired MID-READ, the chat was deferred and - before the
+# deferral-classification fixes - the whole worker died at
+# chat-bound-chat-read-failed. The budget now starts with room for one slow
+# read plus a retry and adapts per chat to the observed read latency: it rises
+# immediately when reads are slow (up to the cap, which still bounds a stuck
+# device inside the pass) and relaxes slowly when the device speeds up.
+HISTORY_READ_BUDGET_INITIAL = 20.0
+HISTORY_READ_BUDGET_MAX = 48.0
+
+
+def adapted_read_budget(current, diagnostics):
+    """Per-chat MuMu read-budget adaptation from verified read timings only.
+
+    Rise is immediate (a slow chat proves the emulator needs the room); the
+    decay factor lets a quiet period walk the budget back to the floor without
+    ever dropping below the single-port initial value. Counters come from the
+    fixed read-timing collector; nothing else influences the budget.
+    """
+    calls = diagnostics.get('read_calls'); total = diagnostics.get('read_ms')
+    if type(calls) is not int or calls <= 0 or type(total) not in (int, float) or total <= 0:
+        return current
+    needed = (total / calls) * 3.0  # the bounded retry ladder needs ~3 attempts
+    target = max(HISTORY_READ_BUDGET_INITIAL, min(HISTORY_READ_BUDGET_MAX, needed))
+    if target > current:
+        return target
+    return max(HISTORY_READ_BUDGET_INITIAL, current * 0.9)
 # Chat-local uncertainty is isolated; only the explicit MuMu recovery policy can retry once.
 ISOLATE = {'greeting-not-verified', 'send-outcome-unknown', 'outgoing-not-observed', 'manual-review',
            'history-changed-during-approval', 'local-own-message-unanchored', 'groq-draft-unavailable',
@@ -457,6 +486,9 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                                                        stopped.is_set, expected, read_name=True))
             result['diagnostics'].update(open_timing)
             out['last_chat_diagnostics'] = result['diagnostics']
+            if getattr(chain, 'history_read_budget', None) is not None:
+                chain.history_read_budget = adapted_read_budget(chain.history_read_budget, result['diagnostics'])
+                out['history_read_budget'] = chain.history_read_budget
             if result.get('submission_calls',0)>0 and result['reason'] in ('send-outcome-unknown','send-preflight-deferred','send-native-check-failed',
                     'send-device-check-failed','send-validation-failed','outgoing-not-observed'):
                 # Retain earlier send failures even if later chats succeed. No
@@ -495,7 +527,16 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                     and history_wait.verified_loading(evidence.get('last_read_failure')))
                 or (result['reason'] == 'history-read-budget-timeout'
                     and evidence.get('history_budget_exhausted') is True
-                    and history_wait.verified_read_budget(evidence.get('last_read_failure'))))
+                    # Reports aPYyN7weMm (monitor 517, v1.3.78): the wall-clock
+                    # budget can expire BETWEEN clean reads - the reads so far
+                    # all succeeded (AI proposal and submit consumed the cycle,
+                    # then the next read hit the deadline), so no
+                    # last_read_failure shape exists at all. Nothing was proven
+                    # wrong with the chat: defer it with the cooldown instead
+                    # of stopping the whole worker. A PRESENT but unverified
+                    # failure shape still stops (identity/schema evidence wins).
+                    and (evidence.get('last_read_failure') is None
+                         or history_wait.verified_read_budget(evidence.get('last_read_failure')))))
             deferred_valid = deferred_valid or (result['reason']=='history-snapshot-too-large'
                 and evidence.get('history_snapshot_oversized') is True
                 and history_wait.verified_oversized(evidence.get('last_read_failure')))
@@ -654,7 +695,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         enable_unknown_recovery(chain)
         from assistant_selection_recovery import enable as enable_selection_recovery
         enable_selection_recovery(chain)
-        chain.history_read_budget=12.0
+        chain.history_read_budget=HISTORY_READ_BUDGET_INITIAL
         from assistant_notification_queue import current as notification_dispatcher
         chain.notification_dispatcher=notification_dispatcher()
     chain.media_required=settings.contacts_enabled

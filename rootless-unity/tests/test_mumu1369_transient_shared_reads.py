@@ -76,62 +76,72 @@ class SharedRegistryRead(unittest.TestCase):
 
 
 class TransientPeerChecks(unittest.TestCase):
-    def run_monitor(self,peer_claimed,peer_terminal=None,cancelled=lambda:False):
+    def run_monitor(self,peer_terminal=None,cancelled=lambda:False,preclaimed=frozenset()):
         script=MagicMock();script.exports_sync.cohortpending.return_value=pending()
         script.exports_sync.cohortack.return_value=True
         done=MagicMock();done.wait.return_value=False;done.is_set.return_value=False
         store=MagicMock();store.mumu_shared_claims=True
-        store.peer_claimed=peer_claimed
+        store.peer_claimed=MagicMock()
         store.peer_terminal=peer_terminal if peer_terminal is not None else MagicMock(return_value=False)
         store.reserve=MagicMock(return_value=17)
         state={};failures=[]
         with patch.object(native,'SHARED_READ_RETRY_DELAYS',(0,0)):
-            native.monitor(script,store,'Hi',lambda *a:True,done,cancelled,state,failures)
+            native.monitor(script,store,'Hi',lambda *a:True,done,cancelled,state,failures,preclaimed)
         return script,store,state,failures
 
-    def test_peer_check_transient_failure_recovers_and_authorizes(self):
-        peer_claimed=MagicMock(side_effect=[transient(),False])
-        script,store,state,failures=self.run_monitor(peer_claimed)
-        self.assertEqual(peer_claimed.call_count,2)
+    def test_snapshot_precheck_skips_claimed_peer_without_any_database_read(self):
+        # Reports aPYyN7weMm (v1.3.78, «заходит в чат и выходит без
+        # приветствия»): the claimed-peer pre-check is answered by the
+        # pass-start visited snapshot, so a saturated pooler can no longer
+        # turn an already-opened chat into a transient no-send defer.
+        script,store,state,failures=self.run_monitor(preclaimed=frozenset({'200'}))
+        store.peer_claimed.assert_not_called();store.reserve.assert_not_called()
+        self.assertFalse(failures);self.assertTrue(state['shared_peer_skipped'])
+        script.exports_sync.cancel.assert_not_called()
+        script.exports_sync.cohortack.assert_called_once()
+        self.assertEqual(script.exports_sync.cohortack.call_args.args[0].get('skip'),True)
+    def test_snapshot_precheck_clean_peer_authorizes_without_peer_claimed_call(self):
+        script,store,state,failures=self.run_monitor()
+        store.peer_claimed.assert_not_called()
         self.assertFalse(failures);store.reserve.assert_called_once()
         script.exports_sync.cohortack.assert_called_once()
         script.exports_sync.cancel.assert_not_called()
         self.assertEqual(state['action_id'],17)
-    def test_peer_check_exhaustion_defers_to_verified_no_send_skip(self):
-        # Reports 491-493 (v1.3.73, y8zZxWkA): after the widened window the
-        # pooler still outlasted it and CANCELLED live batches. Exhaustion is
-        # now a deferred no-send skip: no reservation, no ACK of a send, no
-        # failure recorded, the native cycle closes the chat and the pass lives.
-        peer_claimed=MagicMock(side_effect=[transient() for _ in range(3)])
-        script,store,state,failures=self.run_monitor(peer_claimed)
-        self.assertEqual(peer_claimed.call_count,3)
-        self.assertFalse(failures)
-        self.assertTrue(state['peer_check_deferred'])
-        self.assertTrue(state['shared_peer_skipped'])
-        script.exports_sync.cancel.assert_not_called()
-        store.reserve.assert_not_called()
-        script.exports_sync.cohortack.assert_called_once()
-        self.assertEqual(script.exports_sync.cohortack.call_args.args[0].get('skip'),True)
     def test_terminal_check_transient_failure_recovers_to_ack(self):
         peer_terminal=MagicMock(side_effect=[transient(),False])
-        script,store,state,failures=self.run_monitor(MagicMock(return_value=False),peer_terminal)
+        script,store,state,failures=self.run_monitor(peer_terminal)
         self.assertEqual(peer_terminal.call_count,2)
         self.assertFalse(failures)
         script.exports_sync.cohortack.assert_called_once();script.exports_sync.cancel.assert_not_called()
-    def test_non_transient_peer_check_failure_does_not_retry(self):
-        peer_claimed=MagicMock(side_effect=permission())
-        script,store,state,failures=self.run_monitor(peer_claimed)
-        self.assertEqual(peer_claimed.call_count,1)
-        self.assertEqual(state['authorization_checkpoint'],'profile-peer-check')
-        script.exports_sync.cancel.assert_called_once();store.reserve.assert_not_called()
-    def test_stop_during_peer_check_retry_cancels(self):
+    def test_terminal_check_exhaustion_still_defers_to_verified_no_send_skip(self):
+        # The post-reserve terminal check stays live: a contact receipt can
+        # exist without a greeting claim (legacy backfill), so its transient
+        # exhaustion keeps the verified no-send skip with the durable
+        # reservation retained (unchanged safety shape).
+        peer_terminal=MagicMock(side_effect=[transient() for _ in range(3)])
+        script,store,state,failures=self.run_monitor(peer_terminal)
+        self.assertEqual(peer_terminal.call_count,3)
+        self.assertFalse(failures)
+        self.assertTrue(state['peer_check_deferred'])
+        self.assertTrue(state['shared_peer_skipped'])
+        store.reserve.assert_called_once()
+        script.exports_sync.cohortack.assert_called_once()
+        self.assertEqual(script.exports_sync.cohortack.call_args.args[0].get('skip'),True)
+    def test_non_transient_terminal_check_failure_does_not_retry(self):
+        peer_terminal=MagicMock(side_effect=permission())
+        script,store,state,failures=self.run_monitor(peer_terminal)
+        self.assertEqual(peer_terminal.call_count,1)
+        self.assertEqual(state['authorization_checkpoint'],'profile-terminal-check')
+        script.exports_sync.cancel.assert_called_once()
+    def test_stop_during_terminal_check_retry_cancels(self):
         flag={'stop':False}
         def fail_then_stop(*args,**kwargs):
             flag['stop']=True;raise transient()
-        script,store,state,failures=self.run_monitor(MagicMock(side_effect=fail_then_stop),
+        peer_terminal=MagicMock(side_effect=fail_then_stop)
+        script,store,state,failures=self.run_monitor(peer_terminal,
             cancelled=lambda:flag['stop'])
-        self.assertEqual(state['authorization_checkpoint'],'profile-peer-check')
-        script.exports_sync.cancel.assert_called_once();store.reserve.assert_not_called()
+        self.assertEqual(state['authorization_checkpoint'],'profile-terminal-check')
+        script.exports_sync.cancel.assert_called_once()
 
 
 class SnapshotRead(unittest.TestCase):
@@ -168,7 +178,8 @@ class SnapshotRead(unittest.TestCase):
     def test_reserve_and_other_writes_are_never_retried(self):
         source=(Path(__file__).resolve().parents[1]/'assistant_pass.py').read_text(encoding='utf-8')
         self.assertIn('shared_registry_read(lambda: store.visited_peers(), cancelled)',source)
-        self.assertIn('lambda: store.peer_claimed(pending)',source)
+        self.assertIn("pending['peer'] in preclaimed",source)
+        self.assertIn('preclaimed = frozenset(visited)',source)
         self.assertIn('lambda: store.peer_terminal(pending)',source)
         for write in ('shared_registry_read(lambda: store.reserve','shared_registry_read(lambda: store.finish'):
             self.assertNotIn(write,source)

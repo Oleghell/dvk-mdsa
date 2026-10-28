@@ -57,7 +57,14 @@ def verified_read_budget(value):
     # the emptiest possible interruption: nothing about the chat was observed,
     # so nothing is proven about it. The port must not die on this shape; it
     # gets the same bounded read-only retry/deferral as initial-ids expiry.
-    pre_identity=(phase=='identity' and value.get('identity_checkpoint')=='not-checked'
+    # Report aPYyN7weMm (monitor 516, v1.3.78): the budget can expire even
+    # EARLIER - before the read checkpoint itself began (read_checkpoint
+    # not-checked). Only frame observation happened; not a single getter,
+    # identity or message scalar was touched, so the same bounded read-only
+    # retry/deferral applies and the worker no longer stops with
+    # bound-chat-read-failed on this shape.
+    pre_identity=(phase in ('identity', 'not-checked')
+        and value.get('identity_checkpoint')=='not-checked'
         and scalar=='not-read' and value.get('scalar_state')=='not-read')
     # Report 247: the fixed reader permits a negative *own-message* ChatId
     # only with independent peer anchoring. A frame may expire before that

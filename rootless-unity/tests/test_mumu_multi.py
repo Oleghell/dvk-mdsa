@@ -159,7 +159,8 @@ class SharedSkip(unittest.TestCase):
         script,store,approve=MagicMock(),MagicMock(),MagicMock()
         store.mumu_shared_claims=True;store.peer_claimed.return_value=True
         script.exports_sync.cohortpending.return_value=pending();script.exports_sync.cohortack.return_value=True
-        state={};manual.monitor(script,store,'Hi',approve,self.done(),lambda:False,state)
+        state={};manual.monitor(script,store,'Hi',approve,self.done(),lambda:False,state,preclaimed=frozenset({'200'}))
+        store.peer_claimed.assert_not_called()
         approve.assert_not_called();store.reserve.assert_not_called()
         script.exports_sync.cohortack.assert_called_once_with(dict(pending(),skip=True))
         self.assertEqual(state,dict(shared_peer_skipped=True))
@@ -172,7 +173,7 @@ class SharedSkip(unittest.TestCase):
     def test_failed_skip_never_becomes_send_ack(self):
         script,store=MagicMock(),MagicMock();store.mumu_shared_claims=True;store.peer_claimed.return_value=True
         script.exports_sync.cohortpending.return_value=pending();script.exports_sync.cohortack.return_value=False
-        state={};manual.monitor(script,store,'Hi',lambda *a:True,self.done(),lambda:False,state)
+        state={};manual.monitor(script,store,'Hi',lambda *a:True,self.done(),lambda:False,state,preclaimed=frozenset({'200'}))
         self.assertIn('error',state);store.reserve.assert_not_called();script.exports_sync.cancel.assert_called_once()
     def test_source_has_verified_back_without_faking_send(self):
         source=manual.build('Hi')

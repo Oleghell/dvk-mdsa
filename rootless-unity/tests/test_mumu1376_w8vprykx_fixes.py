@@ -132,16 +132,31 @@ class PreSendWindowDeadline(unittest.TestCase):
 
 
 class DoneSetSwallow(unittest.TestCase):
-    """Reports 503/505: the transient error surfaced after root() returned."""
+    """Reports 503/505: the transient error surfaced after root() returned.
 
-    def test_peer_check_transient_after_done_is_swallowed(self):
-        script, store, state, failures = run_monitor(transient)
+    1.3.79 (aPYyN7weMm): the claimed-peer pre-check now reads the pass-start
+    snapshot instead of the shared registry, so this done-set race can only
+    surface on the remaining LIVE pre-send read - the post-reserve terminal
+    outcome check. Its swallow/deferral semantics are unchanged.
+    """
+
+    def test_peer_check_is_snapshot_based_and_immune_to_the_done_race(self):
+        # A flailing peer_claimed registry is never consulted: the snapshot
+        # pre-check answers before any database dependency, and the cycle
+        # proceeds to approval/reserve/ack without a defer or a failure.
+        calls = []
+
+        def flailing_registry(*args, **kwargs):
+            calls.append(1)
+            raise transient()
+
+        script, store, state, failures = run_monitor(flailing_registry)
+        self.assertFalse(calls)
         self.assertFalse(failures)
-        self.assertTrue(state['peer_check_deferred'])
-        self.assertFalse(state.get('shared_peer_skipped'))
-        script.exports_sync.cohortack.assert_not_called()
+        self.assertFalse(state.get('peer_check_deferred'))
+        store.reserve.assert_called_once()
+        script.exports_sync.cohortack.assert_called_once()
         script.exports_sync.cancel.assert_not_called()
-        store.reserve.assert_not_called()
 
     def test_terminal_check_transient_after_done_is_swallowed(self):
         script, store, state, failures = run_monitor(transient, phase='terminal')
@@ -154,9 +169,9 @@ class DoneSetSwallow(unittest.TestCase):
         script.exports_sync.cancel.assert_not_called()
 
     def test_non_transient_after_done_keeps_the_hard_gate(self):
-        script, store, state, failures = run_monitor(permission)
+        script, store, state, failures = run_monitor(permission, phase='terminal')
         self.assertTrue(failures)
-        self.assertEqual(state['authorization_checkpoint'], 'profile-peer-check')
+        self.assertEqual(state['authorization_checkpoint'], 'profile-terminal-check')
         script.exports_sync.cancel.assert_called_once()
 
     def test_cancelled_after_done_still_raises(self):
@@ -167,14 +182,14 @@ class DoneSetSwallow(unittest.TestCase):
             return transient()
 
         script, store, state, failures = run_monitor(
-            stop_during_read, cancelled=lambda: flag['stop'])
+            stop_during_read, phase='terminal', cancelled=lambda: flag['stop'])
         self.assertTrue(failures)
         self.assertFalse(state.get('peer_check_deferred'))
         script.exports_sync.cancel.assert_called_once()
 
     def test_alive_cycle_still_defers_with_a_verified_skip(self):
         script, store, state, failures = run_monitor(
-            lambda: transient(), done_set=False, flip_done=False)
+            lambda: transient(), phase='terminal', done_set=False, flip_done=False)
         self.assertFalse(failures)
         self.assertTrue(state['peer_check_deferred'])
         self.assertTrue(state['shared_peer_skipped'])

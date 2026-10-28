@@ -23,7 +23,7 @@ def words(text):
 
 def max_selected(messages):
     positive=False
-    other_available=any(re.search(r'\b(?:вацап|ватсап|ватцап|whatsapp|телеграм\w*|тг)\s+есть\b',words(visible(m.get('text')))) for m in messages)
+    other_available=any(re.search(r'\b(?:'+WA+r'|телеграм\w*|тг)\s+есть\b',words(visible(m.get('text')))) for m in messages)
     for m in messages:
         text=visible(m.get('text'))
         if not APP.search(text):continue
@@ -58,7 +58,7 @@ def stay_here(text):
     if '?' in text or '？' in text:return False
     if re.search(r'\bне\s+(?:хочу|удобно|удобнее|комфортно|буду|будем|общаюсь|общаться|пообщаемся|переписываюсь|нормально)|\bне\s+\w+\s+(?:здесь|тут)\b',value):return False
     # App contact instructions are not a wish to remain in the current app.
-    if re.search(r'\b(?:номер|ник|контакт|телеграм\w*|тг|ватсап\w*|whatsapp|'+MAX+r')\b',value):return False
+    if re.search(r'\b(?:номер|ник|контакт|телеграм\w*|тг|'+WA+r'|'+MAX+r')\b',value):return False
     local=r'(?:здесь|сдесь|тут)'
     comfort=r'(?:удобнее|удобно|комфортнее|комфортно|нормально|лучше)'
     if re.search(r'\b'+comfort+r'(?:\s+\w+){0,2}\s+'+local+r'\b|\b'+local+r'(?:\s+\w+){0,2}\s+'+comfort+r'\b',value):return True
@@ -87,7 +87,12 @@ def unavailable(text):
 
 
 TG = r'(?:телеграм(?:м)?(?:а|е|ом|у)?|telegram|тг|телег[аеу])'
-WA = r'(?:ва(?:тс|тц|ц|с)\s*апп?(?:а|е|ом)?|вотс\s*апп?(?:а|е|ом)?|whats\s?app)'
+# Reports aPYyN7weMm (v1.3.78): «вотсап»/«вотапп»/«ватапп» misspellings were
+# outside the old WA list, so the peer's chosen messenger was not recognized
+# in the contact stage either. One shared spelling family now covers
+# ватсап/вотсап/ватцап/вацап/воцап/вассап/вотапп/ватапп with case endings
+# and optional inner spacing, matching the detector in shared_contact.py.
+WA = r'(?:в[ао](?:тс|тц|ц|с|т|сс)?\s*апп?(?:а|е|ом)?|whats\s?app)'
 # Finite adjacent fillers only: do not cross another app, question or negation.
 AVAIL_FILL = r'(?:(?:у меня|сейчас|пока|еще|все еще|вроде бы|вроде|только)\s+){0,3}'
 

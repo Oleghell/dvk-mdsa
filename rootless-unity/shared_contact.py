@@ -13,7 +13,16 @@ OWNER = re.compile(r'\b(?:мой|моя|мо[её]|меня|пиши(?:те)?\s+
 # because the ownership remainder kept the preposition «у» of «у меня»;
 # the detected phone then fell through to a premature chain closure. «у» and
 # «есть» are pure filler words in this contact context and join the labels.
-LABELS = re.compile(r'\b(?:телеграм\w*|телег[аеу]|тг|telegram|whatsapp|ватсап\w*|ватцап\w*|вацап\w*|макс(?:е|ом)?|мак(?:е|ом)?|мах(?:е|ом)?|max|телефон|номер|контакт|вот|держи|это|в|на|да|ага|можно|у|есть)\b', re.I)
+# Reports aPYyN7weMm (v1.3.78): «89116863602 вотсап», «8999614 7273 Ватсапп
+# или Макс» and «Давай вотапп 89523991160» all left un-stripped remainder
+# (a WhatsApp misspelling outside the old ватсап/ватцап/вацап list, the «или»
+# conjunction joining two messenger names, and the «давай» consent filler)
+# and the peer's own phone number was refused, closing the chain. The whole
+# spelling family в[ао](тс|тц|ц|с|т|сс)ап* (вотсап, вотапп, ватапп, вассап,
+# воцап, plus case endings) joins the labels, and «давай(те)»/«или» are
+# stripped only AFTER a contact item was already found in the message.
+WHATSAPP_FAMILY = r'в[ао](?:тс|тц|ц|с|т|сс)?ап\w*'
+LABELS = re.compile(r'\b(?:телеграм\w*|телег[аеу]|тг|telegram|whatsapp|'+WHATSAPP_FAMILY+r'|макс(?:е|ом)?|мак(?:е|ом)?|мах(?:е|ом)?|max|телефон|номер|контакт|вот|держи|это|в|на|да|ага|можно|у|есть|давай(?:те)?|или)\b', re.I)
 PUNCTUATION = re.compile(r'^[\s:;,!.()—\-🙂😊👍]*$')
 
 
@@ -101,7 +110,7 @@ def self_shared(text, *, requested=False):
     if OWNER.search(n):
         own_remainder = OWNER.sub('', remainder)
         own_remainder = re.sub(r'\b(?:пиши(?:те)?|мне|найди|найти|для|связи|я|здесь|тут)\b', '', own_remainder)
-        explicit = re.search(r'\b(?:мой|моя|мо[её])\s+(?:номер|телефон|контакт|тг|телеграм\w*|ватсап\w*|ватцап\w*|whatsapp)\b', n)
+        explicit = re.search(r'\b(?:мой|моя|мо[её])\s+(?:номер|телефон|контакт|тг|телеграм\w*|'+WHATSAPP_FAMILY+r'|whatsapp)\b', n)
         return found if explicit or PUNCTUATION.fullmatch(own_remainder) else []
     return found if requested is True and PUNCTUATION.fullmatch(remainder) else []
 

@@ -63,7 +63,7 @@ class Inspector(unittest.TestCase):
             f.exports_sync.selectedpeer=lambda:'200';f.exports_sync.cohortpending=lambda:None
             return out
         f.create_script=created
-        def normal_monitor(script,s,text,approve,done,cancel,state,failures):
+        def normal_monitor(script,s,text,approve,done,cancel,state,failures,preclaimed=None):
             state['action_id']=1
         with patch.object(native,'monitor',side_effect=monitor or normal_monitor):
             with self.assertRaises(type(error)) as caught:
@@ -96,7 +96,7 @@ class Inspector(unittest.TestCase):
         self.assertFalse(hasattr(error,'_dvk_profile_diagnostics'))
     def test_original_monitor_exception_reaches_host_with_database_code(self):
         error=CloudDatabaseError('cloud-database-lock-timeout');error.operation='lock'
-        def monitor(script,store,text,approve,done,cancel,state,failures):
+        def monitor(script,store,text,approve,done,cancel,state,failures,preclaimed=None):
             from run_preparation import record
             record(error,'profile-reserve');failures.append(error)
             state['authorization_checkpoint']='profile-reserve'

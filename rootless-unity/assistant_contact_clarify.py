@@ -21,7 +21,11 @@ def chosen(messages):
     # Reports y8zZxWkA (v1.3.73): «Макс ватцап» names two apps without any verb;
     # the juxtaposition in EITHER order is a choice, so one clarification asks
     # for the number/nick instead of closing the chain.
-    apps=r'(?:тг|телеграм(?:м)?|телега|telegram|whats\s?app|ватсап|вацап|ватцап|вотсап)'
+    # Reports aPYyN7weMm (v1.3.78): the WhatsApp spelling family is shared with
+    # assistant_contact_intent.WA so «вотсап»/«вотапп»-style replies behave the
+    # same as «ватсап» here.
+    from assistant_contact_intent import WA as _WA
+    apps=r'(?:тг|телеграм(?:м)?|телега|telegram|whats\s?app|'+_WA+')'
     tail=(r'(?:[\s,/]+(?:или\s+)?(?:(?:макс|max)|'+apps+r'))*')
     short = (re.fullmatch(r'\s*'+apps+tail+r'[.!)]*\s*', value, re.I)
              or re.fullmatch(r'\s*(?:макс|max)'+tail+r'[.!)]*\s*', value, re.I))

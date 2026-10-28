@@ -71,9 +71,17 @@ class FastOptions(unittest.TestCase):
             p=Path(folder)/'workflow-settings.json';v=json.loads(p.read_text());v['settings_version']=8;v.pop('typing_delay_enabled');p.write_text(json.dumps(v))
             old=settings.load(folder);self.assertFalse(old.typing_delay_enabled);self.assertEqual(old.typing_words_per_minute,70)
     def test_active_polling_then_idle_backoff_never_changes_profile_timer(self):
-        now=[10];schedule=Schedule(lambda:now[0]);self.assertEqual(schedule.delay(5),5)
+        now=[10];schedule=Schedule(lambda:now[0],jitter=lambda seconds:seconds*1.6)
+        self.assertEqual(schedule.delay(5),8)  # idle wait is jittered upward only
         schedule.record(dict(new_incoming_messages=1));self.assertEqual(schedule.delay(5),2)
-        now[0]=41;self.assertEqual(schedule.delay(5),5)
+        now[0]=41;self.assertEqual(schedule.delay(5),8)
+    def test_idle_jitter_is_bounded_and_never_shortens_the_wait(self):
+        from assistant_polling import IDLE_JITTER_RANGE, idle_jitter
+        low,high=IDLE_JITTER_RANGE
+        for _ in range(200):
+            value=idle_jitter(5)
+            self.assertGreaterEqual(value,5*low);self.assertLessEqual(value,5*high)
+        self.assertLess(low,1.01);self.assertGreater(high,1.2)
     def test_runtime_fields_numeric_and_private_strings_never_exported(self):
         import assistant_runtime as runtime
         import assistant_error_notify as notify
