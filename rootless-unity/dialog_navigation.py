@@ -60,7 +60,7 @@ def build():
     s = replace_once(s, nav.BINDINGS, nav.BINDINGS + "\n Object.assign(f,{classType:bind('class_get_type','pointer',['pointer']),typeObject:bind('type_get_object','pointer',['pointer'])});")
     anchor = json.dumps(nav.APIS[-1]) + ']'
     s = replace_once(s, anchor, json.dumps(nav.APIS[-1]) + ',"il2cpp_class_get_type","il2cpp_type_get_object"]')
-    s = replace_once(s, "['Core.dll','DV.dll','DV.Search.dll','UIKit.Unity.dll','UnityEngine.CoreModule.dll'].includes(name)", "['Core.dll','DV.dll','DV.Search.dll','DV.Messages.dll','mscorlib.dll','UIKit.Unity.dll','UnityEngine.CoreModule.dll'].includes(name)")
+    s = replace_once(s, "['Core.dll','DV.dll','DV.Search.dll','UIKit.Unity.dll','UnityEngine.CoreModule.dll'].includes(name)", "['Core.dll','DV.dll','DV.Search.dll','DV.Messages.dll','DV.Profile.dll','mscorlib.dll','UIKit.Unity.dll','UnityEngine.CoreModule.dll'].includes(name)")
     s = replace_once(s, '   let m=entry.m;', "   if(entry.routeChecked&&!routeSignature(f,entry,entry.m))fail('signature-mismatch');\n   let m=entry.m;")
     s = replace_once(s, '   if(entry.arity===1)', "   if(entry.routeChecked&&!routeSignature(f,entry,m))fail('signature-mismatch');\n   if(entry.arity===1)")
     s = replace_once(s, "   if(klass.equals(s.search))return 'search';", "   if(klass.equals(s.messageTab))return 'messages-tab';\n   if(klass.equals(s.search))return 'search';")

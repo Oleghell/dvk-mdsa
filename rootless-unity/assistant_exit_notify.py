@@ -28,6 +28,7 @@ REASONS = {
  'incoming-burst-pending':'Ещё приходят сообщения. Отвечу после следующей проверки.',
  'ai-temporarily-unavailable':'Сервис ИИ сейчас недоступен. Попробую позже.',
  'declined':'Цепочка закрыта без нового ответа: отказ, ограничение контактного сценария или лимит уточнений. Сам по себе этот статус не доказывает отказ собеседника.',
+ 'done':'Контакт уже получен, цепочка завершена. Новые сообщения этого собеседника не требуют ответа и повторно не сообщаются.',
  'telegram-disabled':'Контакт сохранён, но отправка контактов в Telegram выключена.',
  'telegram-outcome-unknown':'Контакт найден, но Telegram не подтвердил приём. Не повторяю, чтобы не было дубля.',
  'contact-payload-blocked':'Не удалось проверить данные контакта.',
@@ -144,7 +145,15 @@ def notify_exit(chain, who, result, *, sender=None, enabled=True, photo=None, ph
         seen = db.execute('SELECT message,fingerprint FROM chain_seen WHERE chat=? ORDER BY message', (who['chat'],)).fetchall()
         # Distinct unread batches must not be hidden by an older notice.
         excerpts=result.get('_exit_messages',[])
-        batch=hashlib.sha256(json.dumps(excerpts if isinstance(excerpts,list) else [],ensure_ascii=True).encode()).hexdigest()
+        # Reports WHm3 (v1.3.71): a CLOSED chain is final. Selection-recovery
+        # probes and later peer arrivals (photos without text) re-read such a
+        # chat, and every new unread batch produced a fresh signature, so the
+        # same "chain closed without a new answer" notice repeated in Telegram
+        # for each new photo. A terminal closure is reported once per chat and
+        # reason; the unread batch stays in the signature for every non-terminal
+        # reason, where a genuinely new situation must still be reportable.
+        terminal_once = reason in ('declined', 'done')
+        batch=None if terminal_once else hashlib.sha256(json.dumps(excerpts if isinstance(excerpts,list) else [],ensure_ascii=True).encode()).hexdigest()
         signature = hashlib.sha256(json.dumps([reason,cause,seen,batch],ensure_ascii=True).encode()).hexdigest()
         db.execute('CREATE TABLE IF NOT EXISTS chain_exit_notices(chat TEXT,signature TEXT,status TEXT NOT NULL,PRIMARY KEY(chat,signature))')
         previous = db.execute('SELECT status FROM chain_exit_notices WHERE chat=? AND signature=?', (who['chat'],signature)).fetchone()

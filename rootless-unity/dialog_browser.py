@@ -22,11 +22,11 @@ SELECTION_ERRORS={'selection-screen-changed','selection-controller-changed','sel
                   'selection-list-changed','selection-count-changed','selection-cell-changed',
                   'selection-chat-changed','selection-detached','selection-unread-changed','selection-last-message-changed'}
 ERRORS=nav.ERRORS|SELECTION_ERRORS|{'identity-not-bound','selection-changed','collection-too-large','binding-unavailable','unread-count-invalid'}
-KINDS=route.KINDS|{'chat'}
+KINDS=route.KINDS|{'chat','profile'}
 PHASES={'entry','wait-list','scan','wait-chat','wait-back','wait-search','done'}
-CHECKPOINTS={'model-route-owner','model-route-parameters','model-route-enums','model-route-literals','model-route-signature','model-manager','model-collection','model-route','not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','unread-count','chat-controller','open-handler','back-handler','ready'}
+CHECKPOINTS={'model-route-owner','model-route-parameters','model-route-enums','model-route-literals','model-route-signature','model-manager','model-collection','model-route','not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','unread-count','chat-controller','open-handler','back-handler','profile-queue','profile-close','ready'}
 SELECTION={'model-list','model-stability','not-checked','table','visible','cell','binding','filter','unread','stability','open','verify-chat','back','search','exhausted'}
-FLAGS={'cleanup_failed','ui_text_read','entry_verified','list_verified','chat_verified','destination_verified','action_attempted','action_completed','selection_verified','exhausted','unread_filter_applied','unread_verified','reply_filter_applied','reply_needed_verified','entry_search_recovered'}
+FLAGS={'cleanup_failed','ui_text_read','entry_verified','list_verified','chat_verified','destination_verified','action_attempted','action_completed','selection_verified','exhausted','unread_filter_applied','unread_verified','reply_filter_applied','reply_needed_verified','entry_search_recovered','profile_closed'}
 EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped','back_budget_retries','observation_budget_retries','entry_read_budget_retries','entry_search_recovered','waiting_rows_skipped','handled_rows_skipped'}
 
 
@@ -111,6 +111,14 @@ PREPARE=r'''
   n.metadata_checkpoint='chat-controller';s.currentChat=checked(s.chatController,'get_Chat',18,s.chatModel);s.currentUser=checked(s.chatController,'get_User',18,s.user);
   n.metadata_checkpoint='open-handler';s.openCell=checked(s.filters,'OnCellDidClicked',1,null,[{kind:18,klass:s.chatCell},{kind:18,klass:s.chatModel}]);
   n.metadata_checkpoint='back-handler';s.closeChat=checked(s.chatController,'DV.Messages.BottomBarView.IDelegate.OnBackButton',1);
+  // The assistant opens chats ON TOP of a profile card, so closing a stuck
+  // chat legitimately lands on the profile screen. The profile queue and its
+  // verified close handler (the same OnCloseRequested the profile navigation
+  // itself uses) let the fixed list/back flows perform the bounded Esc press
+  // a human would: close the profile once, then continue to the list.
+  n.metadata_checkpoint='profile-queue';s.profileQueue=getClass('DV.Profile.dll','DV.Profiles','ProfilesQueueViewController');
+  if(s.profileQueue.isNull()||f.isValueType(s.profileQueue)||!f.assignable(s.vc,s.profileQueue))throw new Error('metadata');
+  n.metadata_checkpoint='profile-close';s.closeProfile=checked(s.profileQueue,'DV.Profiles.ProfileViewController.IDelegate.OnCloseRequested',1);
   n.metadata_checkpoint='ready';
  }
 '''
@@ -270,6 +278,13 @@ TICK=r'''
      state.startupReturnIdentity=bound.who;n.entry_verified=true;n.action_attempted=true;
      call(s.closeChat,current);n.action_completed=true;n.phase='wait-back';return;
     }
+    if(operation==='list'&&k==='profile'){
+     // A stuck profile card holds no unconsumed peer state: closing it once
+     // via the verified handler is the bounded Esc press. No identity binding
+     // is guessed here; the destination list is verified as usual afterwards.
+     n.entry_verified=true;n.profile_closed=true;n.action_attempted=true;
+     call(s.closeProfile,current);n.action_completed=true;n.phase='wait-back';return;
+    }
     if(operation==='open'&&entryScreen==='dialogs'&&k==='search'){
      if(!checkView(current)||!resolve(candidate).equals(current)||!scope(()=>resolve(root).equals(current)))fail('identity-changed');
      n.entry_verified=true;n.entry_search_recovered=true;n.action_attempted=true;
@@ -293,7 +308,7 @@ TICK=r'''
    }
    if(n.phase==='wait-list'){
     if(k==='search'){resetDestination();return;}if(k!=='dialogs')fail('unexpected-screen');if(!stableDestination(current))return;n.list_verified=true;
-    if(operation==='list'){finish();return;}resetDestination();n.phase='scan';return;
+    if(operation!=='open'){finish();return;}resetDestination();n.phase='scan';return;
    }
    if(n.phase==='scan'){
     if(k!=='dialogs')fail('unexpected-screen');scan(current,candidate);return;
@@ -307,6 +322,11 @@ TICK=r'''
    }
    if(n.phase==='wait-back'){
     if(k==='chat'){resetDestination();if(!same(currentIdentity(current).who,operation==='list'?state.startupReturnIdentity:expectedIdentity))fail('identity-changed');return;}
+    // The assistant's chats sit on top of a profile card: after the verified
+    // chat Back the next screen is the PROFILE, not the dialog list. Close it
+    // once (the second Esc press), then continue from the search screen.
+    if(k==='profile'&&!n.profile_closed){n.profile_closed=true;n.action_attempted=true;call(s.closeProfile,current);n.action_completed=true;return;}
+    if(k==='search'&&n.profile_closed&&operation!=='return'){n.action_attempted=true;switchTab(s.messageTab);n.action_completed=true;n.phase='wait-list';return;}
     if(k!=='dialogs')fail('unexpected-screen');if(!stableDestination(current))return;n.list_verified=true;finish();return;
    }
    if(n.phase==='wait-search'){
@@ -325,7 +345,7 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+',unreadOnly='+json.dumps(unread_only)+',needsReplyOnly='+json.dumps(needs_reply_only)+';')
     s=replace_once(s,' function prepareNavigation(',PREPARE+'\n function prepareNavigation(')
     s=replace_once(s,'prepareDialogRoute(f,setup.navigation,getClass);','prepareDialogRoute(f,setup.navigation,getClass);prepareDialogBrowser(f,setup.navigation,getClass);')
-    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,back_budget_retries:0,observation_budget_retries:0,entry_read_budget_retries:0,entry_search_recovered:false,unread_filter_applied:false,unread_verified:false,reply_filter_applied:false,reply_needed_verified:false,waiting_rows_skipped:0,handled_rows_skipped:0});
+    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,back_budget_retries:0,observation_budget_retries:0,entry_read_budget_retries:0,entry_search_recovered:false,unread_filter_applied:false,unread_verified:false,reply_filter_applied:false,reply_needed_verified:false,waiting_rows_skipped:0,handled_rows_skipped:0,profile_closed:false});
  for(const k of ['search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'])delete r.navigation[k];''')
     s=replace_once(s,'"il2cpp_type_get_object"]','"il2cpp_type_get_object","il2cpp_class_get_parent"]')
     s=replace_once(s,"Object.assign(f,{classType:","Object.assign(f,{classParent:bind('class_get_parent','pointer',['pointer']),classType:")
@@ -334,8 +354,8 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     # The baseline forbids ref returns. Only the exact typed CoreList indexer
     # opts into runtime_invoke's already-tested ref-to-reference normalization.
     s=replace_once(s,"||f.byref(f.returnType(m)))fail('signature-mismatch');", "||!!f.byref(f.returnType(m))!==!!entry.byref)fail('signature-mismatch');")
-    s=replace_once(s,"   if(klass.equals(s.messageTab))", "   if(klass.equals(s.chatController))return 'chat';\n   if(klass.equals(s.messageTab))")
-    s=replace_once(s,"if(k==='search'||k==='dialogs'){", "if(k==='search'||k==='dialogs'||k==='chat'){")
+    s=replace_once(s,"   if(klass.equals(s.messageTab))", "   if(klass.equals(s.chatController))return 'chat';\n   if(klass.equals(s.profileQueue))return 'profile';\n   if(klass.equals(s.messageTab))")
+    s=replace_once(s,"if(k==='search'||k==='dialogs'){", "if(k==='search'||k==='dialogs'||k==='chat'||k==='profile'){")
     s=s.replace("n.phase==='search'?'wrong-screen'", "n.phase==='entry'?'wrong-screen'")
     s=replace_once(s,'  try {\n   const root=call',UTILS+'  try {\n   const root=call')
     s=replace_once(s,'   resolve(root);',
@@ -355,7 +375,7 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
       !n.cleanup_failed&&n.entry_read_budget_retries<3){
     resetDestination();n.entry_read_budget_retries++;return;
    }
-   if(e==='frame-budget'&&['wait-list','wait-chat','wait-search'].includes(n.phase)&&
+   if(e==='frame-budget'&&(['wait-list','wait-chat','wait-search'].includes(n.phase)||(n.phase==='wait-back'&&n.profile_closed))&&
       n.entry_verified&&n.action_attempted&&n.action_completed&&state.stop===null&&
       !fixedCancellationRequested&&!n.cleanup_failed&&n.observation_budget_retries<3){
     resetDestination();n.observation_budget_retries++;return;
@@ -393,8 +413,17 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     if n['metadata_checkpoint'] not in CHECKPOINTS or n['selection_checkpoint'] not in SELECTION:raise ValueError('Invalid checkpoint')
     for k,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128),('waiting_rows_skipped',128),('handled_rows_skipped',128),('back_budget_retries',MAX_BACK_BUDGET_RETRIES),('observation_budget_retries',MAX_OBSERVATION_BUDGET_RETRIES),('entry_read_budget_retries',MAX_ENTRY_READ_BUDGET_RETRIES)]:
         if type(n[k]) is not int or not 0<=n[k]<=limit:raise ValueError('Invalid scan bounds')
-    if n['observation_budget_retries'] and (n['phase'] not in ('wait-list','wait-chat','wait-search','scan','done') or not n['entry_verified'] or not n['action_completed']):
+    if n['observation_budget_retries'] and (n['phase'] not in ('wait-list','wait-chat','wait-search','wait-back','scan','done')
+            or not n['entry_verified'] or not n['action_completed']
+            or (n['phase']=='wait-back' and not n['profile_closed'])):
         raise ValueError('Invalid observation recovery evidence')
+    # A stuck profile card may be closed once by the fixed list/back flows:
+    # the bounded Esc press after a chat Back or at list recovery. A completed
+    # action ladder is always required; a verified destination list is only
+    # reachable on the success paths, which already demand list_verified.
+    if n['profile_closed'] and (operation not in ('list','back') or not n['entry_verified']
+            or not n['action_attempted'] or not n['action_completed']):
+        raise ValueError('Invalid profile recovery evidence')
     if n['entry_search_recovered'] and (operation!='open' or not n['entry_verified'] or not n['action_attempted']):
         raise ValueError('Invalid search reentry evidence')
     if n['back_budget_retries']:
@@ -443,7 +472,7 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     for flag in ('search_verified','filters_verified','return_verified','open_attempted','open_completed','cancel_attempted','cancel_completed'):bn[flag]=ready
     def old(k):
         if k not in KINDS:raise ValueError('Invalid screen category')
-        return {'dialogs':'filters','chat':'filters','messages-tab':'dv-container'}.get(k,k)
+        return {'dialogs':'filters','chat':'filters','profile':'filters','messages-tab':'dv-container'}.get(k,k)
     for key in ('root_top_kind','last_presented_kind'):bn[key]=old(bn[key])
     if not isinstance(bn['controller_path'],list):raise ValueError('Invalid controller path')
     bn['controller_path']=[old(k) for k in bn['controller_path']]

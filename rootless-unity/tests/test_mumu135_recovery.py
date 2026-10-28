@@ -74,9 +74,11 @@ class InboxSample(Base):
 
 class NavigationRecovery(unittest.TestCase):
  def test_observation_never_replays_handlers(self):
-  source=browser.build('return');part=source.split("if(e==='frame-budget'&&['wait-list'")[1].split("if(e==='frame-budget'&&operation==='list'")[0]
+  source=browser.build('return');part=source.split("if(e==='frame-budget'&&(['wait-list'")[1].split("if(e==='frame-budget'&&operation==='list'")[0]
   self.assertIn('n.action_completed',part);self.assertIn('n.observation_budget_retries<3',part)
-  for text in ('switchTab(', 'call(s.closeChat','n.phase='):self.assertNotIn(text,part)
+  for text in ('switchTab(', 'call(s.closeChat',"'wait-back'"):self.assertNotIn(text,part.split("n.profile_closed))&&")[1])
+  # The wait-back extension is still pure observation after a closed profile.
+  self.assertIn("n.phase==='wait-back'&&n.profile_closed",part)
   self.assertIn('stableDestination(current)',source)
   self.assertIn("(!state.tabs||state.tabs.isNull()))scope(()=>resolve(root))",source)
  def test_search_reentry_does_not_allow_unknown_chat_or_screen(self):

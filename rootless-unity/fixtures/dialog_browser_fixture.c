@@ -87,7 +87,9 @@ static Type contact_content_type={18,&contact_content};
 static Object contact_queue_obj={&contact_queue,0},contact_content_obj={&contact_content,0};
 static Method contact_active={"get_CurrentProfileController",&contact_queue,0,&contact_content_type,900};
 static Method contact_user={"get_User",&contact_content,0,&bt[3],901};
-static int contact_user_reads;
+static Method profile_close={"DV.Profiles.ProfileViewController.IDelegate.OnCloseRequested",&contact_queue,0,&tvoid,902};
+static int contact_user_reads,browser_profile_closes;
+API int fixture_browser_profile_closes(void){return browser_profile_closes;}
 static Class model_cm_class={"DV.CMs","ChatsCM"},model_router_class={"DV.Routers.Messages","MessagesRouter"};
 static Class model_stat_class={"DV.Analytics","Stat"};
 static int model_context_field,model_method_field;
@@ -107,7 +109,7 @@ static int model_mode(void){return mode>=870&&mode<=889;}
 static Object *browser_selected;
 static int browser_back_checks,observation_checks;
 static Object browser_parents[31];
-static void browser_init(void){model_count_reads=model_field_reads=model_clicks=0;contact_user_reads=0;contact_user.type=mode==862?&tbool:&bt[3];int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=observation_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
+static void browser_init(void){model_count_reads=model_field_reads=model_clicks=0;contact_user_reads=0;browser_profile_closes=0;contact_user.type=mode==862?&tbool:&bt[3];int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=observation_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
 API int fixture_browser_clicks(void){return browser_clicks;}
 API int fixture_browser_backs(void){return browser_backs;}
 API void fixture_browser_entry(int entry){phase=entry;browser_start=entry;}
@@ -147,6 +149,7 @@ API Method *il2cpp_class_get_method_from_name(Class *k,const char *name,int arit
  for(int i=0;i<5;i++)if(k==model_methods[i].klass&&arity==(int)model_methods[i].arity&&!strcmp(name,model_methods[i].name))return &model_methods[i];
 
  if(arity==0&&k==&contact_queue&&!strcmp(name,contact_active.name))return &contact_active;
+ if(arity==0&&k==&contact_queue&&!strcmp(name,profile_close.name))return &profile_close;
  if(arity==0&&k==&contact_content&&!strcmp(name,contact_user.name))return &contact_user;
  if(k==&nc[8]&&arity==2&&!strcmp(name,route.name))return &route;
  for(int i=0;i<18;i++)if(arity==(int)bm[i].arity&&!strcmp(name,bm[i].name)&&(k==bm[i].klass||(i==4&&k==&bc[4]))){if(mode==801&&i==4)return NULL;
@@ -198,6 +201,11 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
 
  case 900:return &contact_content_obj;
  case 901:contact_user_reads++;return &browser_users[(mode==861||(mode==863&&contact_user_reads>=2))?0:1];
+ case 902:
+  browser_profile_closes++;if(obj!=&contact_queue_obj)route_bad++;
+  if(mode==959){*exc=&exception;return NULL;}
+  /* A closed profile card returns to the search screen it was opened from. */
+  phase=0;return NULL;
  case 800:return &browser_table;
  case 801:browser_visible_reads++;return (mode==819||mode==820||mode==821)&&browser_visible_reads>=2?&browser_list_alt:&browser_list;
  case 802:browser_count_reads++;modal_count=mode==818?129:mode==811&&browser_count_reads>=2?1:2;return &countbox;
@@ -218,7 +226,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   if(mode==807){*exc=&exception;return NULL;}browser_selected=args[1];browser_seen=1;phase=3;if(mode==815)slow();return NULL;
  case 816:
   browser_backs++;browser_back_checks=0;if(obj!=&browser_vc)route_bad++;
-  if(mode==808){*exc=&exception;return NULL;}phase=mode==838||mode==841?3:1;return NULL;
+  if(mode==808){*exc=&exception;return NULL;}phase=mode==838||mode==841?3:(mode==956||mode==958||mode==959)?4:1;return NULL;
  case 817:
   if(mode==882){browser_unread=0;return &browser_unread_box;}
   browser_unread_reads++;

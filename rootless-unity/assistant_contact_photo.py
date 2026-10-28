@@ -104,7 +104,7 @@ def profile_source(who):
 """
     s=replace_once(s,anchor,prepare+anchor)
     s=replace_once(s,"   if(klass.equals(s.chatController))return 'chat';", "   if(klass.equals(s.profileQueue)||klass.equals(s.profileContent))return 'contact-profile';\n   if(klass.equals(s.chatController))return 'chat';")
-    s=replace_once(s,"if(k==='search'||k==='dialogs'||k==='chat'){", "if(k==='search'||k==='dialogs'||k==='chat'||k==='contact-profile'){")
+    s=replace_once(s,"if(k==='search'||k==='dialogs'||k==='chat'||k==='profile'){", "if(k==='search'||k==='dialogs'||k==='chat'||k==='profile'||k==='contact-profile'){")
     start=s.index('   if(!scope(()=>checkView(current))){resetDestination();return;}');end=s.index('\n  } catch(e)',start)
     tick="""   if(k!=='contact-profile')fail('wrong-screen');
    if(!scope(()=>checkView(current)))return;

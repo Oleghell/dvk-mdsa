@@ -8,7 +8,7 @@ TARGET=dict(WHO,chat='-1')
 def raw_open():
     value=ready_route();n=value['navigation']
     for k in ('search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'):n.pop(k)
-    n.update(entry_verified=True,list_verified=True,chat_verified=True,destination_verified=True,action_attempted=True,action_completed=True,selection_verified=True,exhausted=False,private_identity=dict(WHO),metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,unread_filter_applied=False,unread_verified=False,read_rows_skipped=0,back_budget_retries=0,observation_budget_retries=0,entry_read_budget_retries=0,entry_search_recovered=False,reply_filter_applied=False,reply_needed_verified=False,waiting_rows_skipped=0,handled_rows_skipped=0)
+    n.update(entry_verified=True,list_verified=True,chat_verified=True,destination_verified=True,action_attempted=True,action_completed=True,selection_verified=True,exhausted=False,private_identity=dict(WHO),metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,unread_filter_applied=False,unread_verified=False,read_rows_skipped=0,back_budget_retries=0,observation_budget_retries=0,entry_read_budget_retries=0,entry_search_recovered=False,reply_filter_applied=False,reply_needed_verified=False,waiting_rows_skipped=0,handled_rows_skipped=0,profile_closed=False)
     n['controller_path']=['chat'];n['root_top_kind']='chat'
     return value
 
@@ -128,7 +128,11 @@ class BrowserSchema(unittest.TestCase):
         for entry in ('search', 'dialogs', 'either'):
             source = b.build('list', entry=entry)
             self.assertIn("if(operation==='list'&&k==='dialogs')", source)
-            self.assertIn("if(operation==='list'){finish();return;}", source)
+            self.assertIn("if(operation!=='open'){finish();return;}", source)
+            # The bounded Esc press: a stuck profile card is closed once via the
+            # verified handler, then the navigation continues to the list.
+            self.assertIn("if(operation==='list'&&k==='profile')", source)
+            self.assertIn("call(s.closeProfile,current)", source)
         with self.assertRaises(ValueError):
             b.build('open', allowed=[TARGET], entry='either')
         for options in ({'allowed': [TARGET]}, {'expected': WHO}, {'unread_only': True}):

@@ -14,6 +14,19 @@ BLOCK_CODES={'city-claim-changed','profile-authorization-pending','profile-autho
     'journal-busy','journal-locked','journal-readonly','journal-storage-full','journal-io-error',
     'journal-corrupt','journal-error','resource-missing','resource-access-denied'}
 
+# Reports WHm3 (v1.3.71): a screen no fixed operation could verify kept the
+# port in "recovering" forever - repair() returned False every round while
+# the user could have resolved it with one or two Esc presses (the assistant
+# opens chats ON TOP of a profile card, so a Back lands on the profile, which
+# the old fixed navigation could not close). The navigation now performs that
+# bounded Esc press itself, and supervision is bounded as well: after this many
+# verified-connection rounds the port stops with an explicit reason instead of
+# spinning silently, and the user can resume it manually from the window.
+MAX_RECOVERY_ROUNDS = 8
+# A transport failure usually means the emulator is restarting; it gets a far
+# more generous bound than screen-recovery rounds, but never an infinite one.
+MAX_TRANSPORT_FAILURES = 30
+
 
 def recoverable(report):
     if report.get('status')!='stopped':return False
@@ -177,7 +190,8 @@ def run(settings,stopped,approve,progress=lambda _:None,*,mode='full',fresh_sess
         state=dict(out,status='recovering',reason='safe-recovery',recovery_attempts=recoveries)
         if write(state)!=REPORT:raise OSError('Recovery report was not saved')
         progress('Восстановление • проблемный чат будет пропущен; неизвестные отправки не повторяются.')
-        failures=0
+        rounds=0
+        transport_failures=0
         while not stopped.is_set():
             boundary(stopped,restart=False)
             try:
@@ -197,10 +211,40 @@ def run(settings,stopped,approve,progress=lambda _:None,*,mode='full',fresh_sess
                         try:json_alert(out)
                         except Exception:pass
                     return out
-            failures+=1
+                # A transport/connection failure does not consume screen-recovery
+                # rounds: the emulator may be restarting. Identity and journal
+                # problems already returned above; the transport class still has
+                # its own generous bound so supervision never spins silently.
+                transport_failures+=1
+                if transport_failures>=MAX_TRANSPORT_FAILURES:
+                    out=dict(out,status='stopped',reason='recovery-unfinished',
+                        recovery_failure=dict(host_failure='native-transport-error',transport_failures=transport_failures))
+                    if write(out)!=REPORT:raise OSError('Recovery report was not saved')
+                    if settings.errors_enabled:
+                        try:json_alert(out)
+                        except Exception:pass
+                    progress('Восстановление не удалось • порт остановлен: нет связи с MuMu. '
+                             'Возобнови его кнопкой в окне программы.')
+                    return out
+                progress('Восстановление • нет связи с MuMu. Проверяю подключение; другие порты работают.')
+                if wait(min(30,2**min(transport_failures,5))):break
+                continue
+            rounds+=1
+            if rounds>=MAX_RECOVERY_ROUNDS:
+                # Bounded supervision: never spin silently. The port stops with
+                # an explicit reason; the user can resume it manually.
+                out=dict(out,status='stopped',reason='recovery-unfinished',
+                    recovery_failure=dict(host_failure='state-check-failed',recovery_rounds=rounds))
+                if write(out)!=REPORT:raise OSError('Recovery report was not saved')
+                if settings.errors_enabled:
+                    try:json_alert(out)
+                    except Exception:pass
+                progress('Восстановление не удалось • порт остановлен после '+str(rounds)+
+                         ' проверок экрана. Возобнови его кнопкой в окне программы.')
+                return out
             progress('Восстановление • экран ещё не подтверждён. Проверяю связь; другие порты работают.')
             # Error-only cancellable backoff, never a normal idle delay or API quota bypass.
-            if wait(min(30,2**min(failures,5))):break
+            if wait(min(30,2**min(rounds,5))):break
         if stopped.is_set():return dict(state,status='cancelled',reason='cancelled')
         progress('Возврат подтверждён • продолжаю с другими диалогами и анкетами.')
     return dict(status='cancelled',reason='cancelled')

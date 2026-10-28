@@ -67,6 +67,9 @@ def run_one(value,settings,mode,fresh,stopped,progress,*,popen=subprocess.Popen,
         return outcome[0]
     finally:
         ended.set()
+        # Single-port callers (manual port resume) rely on the same finished
+        # latch run_many sets; finishing twice is idempotent.
+        if control is not None:control.finish()
         process.stdin.close();process.stdout.close()
         if process.poll() is None:
             process.kill();process.wait(timeout=10)

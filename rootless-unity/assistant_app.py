@@ -26,7 +26,7 @@ import groq_reply
 import assistant_ai
 from mumu_version import VERSION
 from mumu_common import load_ports, save_ports, parse as parse_ports, MumuError, device_directory
-from mumu_controller import run_many
+from mumu_controller import run_many, run_one
 from mumu_pause import PortControl
 
 
@@ -56,6 +56,18 @@ def launch(self_check=False):
     first_profiles_run = True
     port_controls = {}
     id_check_stop = [None]
+    # Per-port manual resume: a port whose worker process ended (error or stop)
+    # can be restarted alone while the rest of the run keeps going. The main
+    # run's captured settings/mode are reused; fresh stays False (resume).
+    current_run = {}
+    restarts = set()
+    restart_lock = threading.Lock()
+    main_done = [False]
+    main_results = [None]
+
+    def all_done():
+        with restart_lock:
+            return main_done[0] and not restarts
 
     def refresh():
         start.configure(state='disabled' if busy else 'normal')
@@ -75,7 +87,6 @@ def launch(self_check=False):
         results=run_many(ports,current,mode,fresh,stopped,
             lambda n,text:events.put(('device-progress',(n,text))),controls=port_controls)
         events.put(('devices-finished',results))
-
     def begin(mode='full'):
         nonlocal busy, first_profiles_run
         if busy:
@@ -95,6 +106,8 @@ def launch(self_check=False):
         stopped.clear()
         port_controls.clear();port_controls.update({n:PortControl() for n in ports})
         busy = True
+        main_done[0]=False;main_results[0]=None
+        current_run.clear();current_run.update(settings=settings,mode=mode,ports=ports)
         refresh()
         device_table.delete(*device_table.get_children())
         for n in ports:device_table.insert('', 'end', iid=str(n), values=(n,'Запускаю'))
@@ -486,6 +499,7 @@ def launch(self_check=False):
         active=busy and not stopped.is_set() and state!='finished'
         pause_port.configure(state='normal' if active and state in ('running','resume-requested') else 'disabled')
         resume_port.configure(state='normal' if active and state in ('pause-requested','paused') else 'disabled')
+        restart_port.configure(state='normal' if busy and not stopped.is_set() and state=='finished' else 'disabled')
     def pause_selected(paused):
         control=chosen_control()
         if not busy or stopped.is_set() or control is None:return
@@ -493,9 +507,35 @@ def launch(self_check=False):
             selected=device_table.selection()[0]
             device_table.item(selected,values=(selected,'Пауза запрошена • завершаю текущую задачу' if paused else 'Возобновляю работу'))
         refresh_port_buttons()
+    def restart_selected():
+        """Resume one stopped/errored port: a fresh worker process, same run."""
+        control=chosen_control()
+        selected=device_table.selection()
+        if (not busy or stopped.is_set() or control is None or not selected
+                or control.state()!='finished' or not current_run
+                or int(selected[0]) not in current_run['ports']):return
+        n=int(selected[0])
+        port_controls[n]=PortControl()
+        device_table.item(str(n),values=(n,'Перезапускаю порт • отправки не повторяются'))
+        def rerun():
+            try:
+                run_one(n,current_run['settings'],current_run['mode'],False,stopped,
+                        lambda p,text:events.put(('device-progress',(p,text))),control=port_controls[n])
+            except Exception:
+                events.put(('device-progress',(n,'Ошибка запуска рабочего процесса. См. папку отчётов этого порта.')))
+            finally:
+                port_controls[n].finish()
+                with restart_lock:restarts.discard(threading.current_thread())
+                events.put(('restart-finished',n))
+        with restart_lock:
+            thread=threading.Thread(target=rerun,daemon=True)
+            restarts.add(thread)
+        thread.start()
+        refresh_port_buttons()
     pause_port=ttk.Button(device_actions,text='Пауза порта',command=lambda:pause_selected(True),state='disabled')
     resume_port=ttk.Button(device_actions,text='Продолжить порт',command=lambda:pause_selected(False),state='disabled')
-    pause_port.pack(side='left',padx=(8,4));resume_port.pack(side='left')
+    restart_port=ttk.Button(device_actions,text='Перезапустить порт',command=restart_selected,state='disabled')
+    pause_port.pack(side='left',padx=(8,4));resume_port.pack(side='left',padx=(4,4));restart_port.pack(side='left')
     device_table.bind('<<TreeviewSelect>>',lambda event:refresh_port_buttons())
 
     def poll():
@@ -520,9 +560,22 @@ def launch(self_check=False):
                 refresh_port_buttons()
                 continue
             if kind == 'devices-finished':
-                busy=False
-                status.set('Все выбранные процессы завершены. Причины — в таблице и отчётах каждого MuMu.')
-                refresh()
+                main_done[0]=True;main_results[0]=value
+                if all_done():
+                    busy=False
+                    status.set('Все выбранные процессы завершены. Причины — в таблице и отчётах каждого MuMu.')
+                    refresh()
+                else:
+                    status.set('Основные процессы завершены • ожидаю перезапущенные порты.')
+                    refresh_port_buttons()
+                continue
+            if kind == 'restart-finished':
+                if all_done() and busy:
+                    busy=False
+                    status.set('Все выбранные процессы завершены. Причины — в таблице и отчётах каждого MuMu.')
+                    refresh()
+                else:
+                    refresh_port_buttons()
                 continue
             if kind == 'progress':
                 if not stopped.is_set():
@@ -556,7 +609,7 @@ def launch(self_check=False):
         assert root.winfo_viewable() and all(b.winfo_viewable() for b in
                                              (start, stop, replies, options))
         # Packaged Windows check: all controls stay within the smaller client area.
-        for control in (start, stop, replies, options, ports_box, device_table, reports_button, pause_port, resume_port):
+        for control in (start, stop, replies, options, ports_box, device_table, reports_button, pause_port, resume_port, restart_port):
             assert control.winfo_viewable()
             x=control.winfo_rootx()-root.winfo_rootx();y=control.winfo_rooty()-root.winfo_rooty()
             assert 0 <= x and 0 <= y

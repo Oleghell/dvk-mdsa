@@ -31,7 +31,7 @@ for _ in range(100000):
 rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},probe(){return probeUIKitRoot();},cancel(){cancelNavigation();},counts(){
  const read=n=>new NativeFunction(findIl2cppExport(n),'int',[])();
  return {handles:read('fixture_handles'),bad:read('fixture_bad_frees'),off:read('fixture_off_thread_calls'),
- unread_reads:read('fixture_browser_unread_reads'),clicks:read('fixture_browser_clicks'),backs:read('fixture_browser_backs'),route_bad:read('fixture_route_bad'),routes:read('fixture_route_calls')};}};''')
+ unread_reads:read('fixture_browser_unread_reads'),clicks:read('fixture_browser_clicks'),backs:read('fixture_browser_backs'),profile_closes:read('fixture_browser_profile_closes'),route_bad:read('fixture_route_bad'),routes:read('fixture_route_calls')};}};''')
         script.load()
         assert script.exports_sync.preparetargets(allowed) is True
         if mode in (815,839):
@@ -44,12 +44,12 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
         raw=script.exports_sync.probe();result=validate(raw,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
         if monitor:monitor.join(timeout=6)
         c=script.exports_sync.counts();n=raw['navigation']
-        expected_status={938:'returned',939:'frame-budget',940:'wrong-screen',930:'search-ready',931:'frame-budget',932:'opened',933:'frame-budget',934:'wrong-screen',935:'managed-exception',936:'wrong-screen',937:'returned',800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'opened',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
+        expected_status={938:'returned',939:'frame-budget',940:'wrong-screen',930:'search-ready',931:'frame-budget',932:'opened',933:'frame-budget',934:'wrong-screen',935:'managed-exception',936:'wrong-screen',937:'returned',956:'returned',957:'dialogs-ready',958:'dialogs-ready',959:'managed-exception',800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'opened',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
         if mode in (800,846) and needs_reply_only and seen_ids is not None and '1002' in seen_ids:expected_status='exhausted'
         actual=result['state'] if result['state']!='stopped' else n['stage'] if n['stage']=='not-attempted' else n['error']
         assert actual==expected_status,(mode,operation,actual,n,c)
         assert c['handles']==c['bad']==c['off']==c['route_bad']==0,(mode,n,c)
-        assert c['clicks']<=1 and c['backs']<=1 and n['handles_acquired']==n['handles_released'],(mode,n,c)
+        assert c['clicks']<=1 and c['backs']<=1 and c['profile_closes']<=1 and n['handles_acquired']==n['handles_released'],(mode,n,c)
         if unread_only:
             if result['state']=='opened':assert n['unread_filter_applied'] and n['unread_verified'] and c['unread_reads']>=2,(mode,n,c)
             if result['state']=='exhausted':assert n['unread_filter_applied'] and not n['unread_verified'] and c['clicks']==0,(mode,n,c)
@@ -76,6 +76,11 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
         if operation=='back':assert c['clicks']==0 and c['backs']==(mode not in (809,842,939,940)),c
         if mode in (836,838,841):assert n['back_budget_retries']==1,(mode,n,c)
         if mode==837:assert n['back_budget_retries']==3,(mode,n,c)
+        # The bounded Esc press: a stuck profile card is closed exactly once
+        # through the verified handler, then the verified tab switch follows.
+        if mode in (956,957,958,959):
+            assert n['profile_closed'] and c['profile_closes']==1,(mode,n,c)
+            assert c['routes']==(0 if mode==959 else 1),(mode,n,c)
         if mode in (938,940):assert n['entry_read_budget_retries']==1,(mode,n,c)
         if mode in (842,939):assert n['entry_read_budget_retries']==3,(mode,n,c)
         if mode==940:assert c['clicks']==c['backs']==c['routes']==0,(mode,n,c)
@@ -286,6 +291,12 @@ if __name__=='__main__':
     one(lib,820,'list',entry='either',start_override=3)
     one(lib,838,'list',entry='either',start_override=3)
     one(lib,840,'list',entry='either',start_override=3)
+    # A stuck profile card (bare, or under the assistant's own chat) is closed
+    # once via the verified OnCloseRequested handler: the bounded Esc press.
+    one(lib,956,'back')
+    one(lib,957,'list',entry='dialogs',start_override=4)
+    one(lib,958,'list',entry='either',start_override=3)
+    one(lib,959,'back')
     # Named engine in a local loader namespace: no reliance on global exports.
     with tempfile.TemporaryDirectory() as temp:
         local=Path(temp)/'libil2cpp.so';shutil.copy2(lib,local)
