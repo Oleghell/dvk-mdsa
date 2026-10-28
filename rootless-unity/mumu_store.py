@@ -193,6 +193,37 @@ class SharedStore(BaseStore):
             greeting_reserved(db,pending['account'],pending['peer'])
             return cur.lastrowid
 
+    def release_reservation(self,pending):
+        """v1.3.81: return a committed-but-never-ACKed reservation to the pool.
+
+        Only THIS device's own claim row is deleted (device filter), so another
+        port's reservation is never touched and a retry after a lost COMMIT
+        re-runs the same idempotent delete. The journal row keeps its audit
+        trail with the pre-existing 'not-invoked' status, so deployed databases
+        need no schema migration. No send latch was ever opened for this
+        reservation (the release is only reached before any ACK), which is what
+        makes returning the peer to the eligible pool safe. The row is matched
+        by account+peer rather than by the insert's rowid: a lost COMMIT may
+        have landed BOTH rows on the server while the client never saw the id.
+        """
+        pending=LegacyStore.check(pending)
+        with self.connection() as db:
+            row=db.execute("SELECT id,account FROM manual_actions WHERE account=? AND peer=? AND status='reserved-unknown'"
+                           " ORDER BY id DESC LIMIT 1",(pending['account'],pending['peer'])).fetchone()
+            # The claim delete runs even when the journal row is already
+            # finished/released: a leftover claim of THIS device must never
+            # outlive the release, and an uncommitted reservation matches
+            # nothing at all.
+            db.execute('DELETE FROM mumu_greeting_claims WHERE peer=? AND device=?',
+                       (pending['peer'],self.device_owner))
+            if row is None:
+                return False
+            db.execute("UPDATE manual_actions SET status='not-invoked' WHERE id=? AND status='reserved-unknown'",
+                       (row[0],))
+            from assistant_statistics import greeting_finished
+            greeting_finished(db,row[1],pending['peer'],'not-invoked')
+            return True
+
     # 1.3.67: shared greeting claims and peer blocks are rechecked against the
     # FULL cloud registry by reserve()/peer_claimed() before any send, so the
     # native pre-filter only needs their recent slice; a stale shared peer may

@@ -107,41 +107,35 @@ class TransientPeerChecks(unittest.TestCase):
         script.exports_sync.cohortack.assert_called_once()
         script.exports_sync.cancel.assert_not_called()
         self.assertEqual(state['action_id'],17)
-    def test_terminal_check_transient_failure_recovers_to_ack(self):
-        peer_terminal=MagicMock(side_effect=[transient(),False])
-        script,store,state,failures=self.run_monitor(peer_terminal)
-        self.assertEqual(peer_terminal.call_count,2)
+    def test_post_reserve_terminal_read_is_gone(self):
+        # v1.3.81: the separate post-reserve terminal read no longer exists.
+        # The atomic blocked() re-check inside reserve() already covers
+        # mumu_peer_blocks (terminal) plus claims, manual actions and recovery
+        # skips, so terminal peers surface as SharedPeerClaimed into the
+        # verified skip and the cycle spends ONE pooled roundtrip less - the
+        # extra read fed the very bursts that deferred open chats with a
+        # retained claim.
+        script,store,state,failures=self.run_monitor()
+        store.peer_terminal.assert_not_called()
         self.assertFalse(failures)
-        script.exports_sync.cohortack.assert_called_once();script.exports_sync.cancel.assert_not_called()
-    def test_terminal_check_exhaustion_still_defers_to_verified_no_send_skip(self):
-        # The post-reserve terminal check stays live: a contact receipt can
-        # exist without a greeting claim (legacy backfill), so its transient
-        # exhaustion keeps the verified no-send skip with the durable
-        # reservation retained (unchanged safety shape).
-        peer_terminal=MagicMock(side_effect=[transient() for _ in range(3)])
-        script,store,state,failures=self.run_monitor(peer_terminal)
-        self.assertEqual(peer_terminal.call_count,3)
-        self.assertFalse(failures)
-        self.assertTrue(state['peer_check_deferred'])
-        self.assertTrue(state['shared_peer_skipped'])
-        store.reserve.assert_called_once()
         script.exports_sync.cohortack.assert_called_once()
-        self.assertEqual(script.exports_sync.cohortack.call_args.args[0].get('skip'),True)
-    def test_non_transient_terminal_check_failure_does_not_retry(self):
-        peer_terminal=MagicMock(side_effect=permission())
-        script,store,state,failures=self.run_monitor(peer_terminal)
-        self.assertEqual(peer_terminal.call_count,1)
-        self.assertEqual(state['authorization_checkpoint'],'profile-terminal-check')
-        script.exports_sync.cancel.assert_called_once()
-    def test_stop_during_terminal_check_retry_cancels(self):
-        flag={'stop':False}
-        def fail_then_stop(*args,**kwargs):
-            flag['stop']=True;raise transient()
-        peer_terminal=MagicMock(side_effect=fail_then_stop)
-        script,store,state,failures=self.run_monitor(peer_terminal,
-            cancelled=lambda:flag['stop'])
-        self.assertEqual(state['authorization_checkpoint'],'profile-terminal-check')
-        script.exports_sync.cancel.assert_called_once()
+        script.exports_sync.cancel.assert_not_called()
+    def test_terminal_peer_is_caught_by_the_reserve_recheck(self):
+        # A terminally blocked peer (refusal/contact receipt) raises
+        # SharedPeerClaimed from reserve()'s own transaction: the verified
+        # no-send skip, exactly like a claimed peer.
+        from mumu_store import SharedPeerClaimed
+        store=MagicMock();store.mumu_shared_claims=True
+        store.reserve=MagicMock(side_effect=SharedPeerClaimed('blocked'))
+        script=MagicMock();script.exports_sync.cohortpending.return_value=pending()
+        script.exports_sync.cohortack.return_value=True
+        done=MagicMock();done.wait.return_value=False;done.is_set.return_value=False
+        state={};failures=[]
+        native.monitor(script,store,'Hi',lambda *a:True,done,lambda:False,state,failures)
+        self.assertFalse(failures);self.assertTrue(state['shared_peer_skipped'])
+        store.release_reservation.assert_not_called()
+        script.exports_sync.cohortack.assert_called_once()
+        self.assertTrue(script.exports_sync.cohortack.call_args.args[0].get('skip'))
 
 
 class SnapshotRead(unittest.TestCase):
@@ -185,8 +179,13 @@ class SnapshotRead(unittest.TestCase):
         self.assertIn('shared_registry_read(lambda: store.visited_peers(), cancelled)',source)
         self.assertIn("pending['peer'] in preclaimed",source)
         self.assertIn('preclaimed = frozenset(visited)',source)
-        self.assertIn('lambda: store.peer_terminal(pending)',source)
+        # v1.3.81: the post-reserve terminal read is gone (reserve()'s atomic
+        # blocked() re-check is the terminal authority); the pre-ACK release
+        # of a committed-but-never-ACKed reservation replaces the old
+        # "intentionally retained" doctrine.
+        self.assertNotIn('lambda: store.peer_terminal(pending)',source)
         self.assertIn('lambda: store.reserve(pending, text, approved=True)',source)
+        self.assertIn('lambda: store.release_reservation(pending)',source)
         for write in ('shared_registry_read(lambda: store.finish',):
             self.assertNotIn(write,source)
 

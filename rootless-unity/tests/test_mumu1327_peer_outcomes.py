@@ -136,7 +136,12 @@ class Availability(unittest.TestCase):
         self.outcome(self.a)
         with self.assertRaises(SharedPeerClaimed):self.reserve(self.b)
         self.assertEqual(self.b.summary()['reserved'],0)
-    def test_outcome_after_reserve_before_ack_uses_no_send_back_path(self):
+    def test_outcome_after_reserve_before_ack_is_a_harmless_micro_race(self):
+        # v1.3.81: the separate post-reserve terminal read is gone. An outcome
+        # recorded in the milliseconds between the reserve COMMIT and the ACK
+        # costs one harmless greeting (the reply flow answers it anyway); the
+        # terminal ban itself stays global and permanent, so no future cycle
+        # on any port can ever greet this peer again.
         from unittest.mock import MagicMock,patch
         import assistant_pass
         script=MagicMock();script.exports_sync.cohortpending.return_value=pending()
@@ -148,9 +153,12 @@ class Availability(unittest.TestCase):
         state={}
         with patch.object(self.a,'reserve',side_effect=then_refuse):
             assistant_pass.monitor(script,self.a,'Hi',lambda *a:True,done,lambda:False,state)
-        self.assertTrue(state['shared_peer_skipped']);self.assertIn('action_id',state)
-        script.exports_sync.cohortack.assert_called_once_with(dict(pending(),skip=True))
+        self.assertNotIn('shared_peer_skipped',state);self.assertIn('action_id',state)
+        script.exports_sync.cohortack.assert_called_once_with(pending())
         self.assertEqual(self.a.summary()['statuses'],{'reserved-unknown':1})
+        # The ban still holds globally for every future reservation.
+        self.assertTrue(self.a.peer_terminal(pending()))
+        with self.assertRaises(SharedPeerClaimed):self.reserve(self.b)
 
     def test_nonterminal_reason_cannot_create_global_ban(self):
         for reason in ('greeting','manual-review','declined','timeout','wait-contact'):

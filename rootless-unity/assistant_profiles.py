@@ -25,6 +25,7 @@ def report(limit):
                 search_cycles=0, search_cycle_limit=MAX_SEARCH_CYCLES,
                 skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0, skipped_input_disabled=0,
                 read_recovery_limit=MAX_READ_RECOVERIES, consecutive_read_recoveries=0, recovery_events=[], greetings_offered=0, shared_peer_skips=0,
+                reservations_released=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
                 greetings_declined=0, city_changes=0, city_reservations_recovered=0, search_budget_rotations=0, last_profile_diagnostics=None,
                 current_city=None, online_verified=False, per_message_confirmation=True,
@@ -184,6 +185,12 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 # Claimed or pooler-deferred no-send skip: the pass continues on
                 # the next candidate, and the report shows why nothing was sent.
                 out['shared_peer_skips'] = out.get('shared_peer_skips', 0) + 1
+            if value.get('reservation_released'):
+                # v1.3.81: this cycle's reservation committed but no ACK ever
+                # followed, so the claim was returned to the eligible pool - the
+                # peer will be greeted by another port instead of staying
+                # claimed-but-never-greeted forever.
+                out['reservations_released'] = out.get('reservations_released', 0) + 1
             cycle_pending = False
             if n['send_attempted']:
                 out['send_attempts'] += 1

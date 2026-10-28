@@ -93,6 +93,8 @@ def main(folder):
                       whatsapp_misspelling_family=True, snapshot_claimed_precheck=True, idle_poll_jitter_range=[1.0, 1.6],
                       reserve_transient_window=True, entry_binding_timeout_code=True,
                       inbox_empty_reason_codes=True, preflight_adb_evidence_requeue=True,
+                      reserve_release_before_ack=True, post_reserve_terminal_read_removed=True,
+                      adb_preflight_inworker_retry=True, port_alias_crossing_named=True,
                       history_loading_wait_seconds=15,
                       history_loading_peer_cooldown_seconds=60,
                       contact_choice_clarification_once=True, contextual_incoming_batch=True,

@@ -62,6 +62,13 @@ SHARED_READ_RETRY_DELAYS = (2.0, 5.0, 10.0, 20.0)
 # native budget for the verified no-send Back of the deferred skip. This is
 # strictly better than a longer window that kills the cycle it protects.
 SHARED_READ_DEADLINE_SECONDS = 40.0
+# 1.3.81: releasing a committed-but-never-ACKed reservation is a best-effort
+# single-transaction delete (device-scoped, idempotent). It runs on teardown
+# paths where drain_threads() bounds the whole monitor thread at 30s, so its
+# own window stays far below that budget; a refused release merely keeps the
+# pre-1.3.81 behaviour (claim held, finish() records 'not-invoked').
+RELEASE_RETRY_DELAYS = (2.0, 5.0)
+RELEASE_DEADLINE_SECONDS = 12.0
 
 
 def shared_registry_read(action, stopped, *, delays=None, pause=None,
@@ -253,6 +260,32 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None,
         state['peer_check_deferred']=True
         from mumu_claims import skip
         skip(script, peer, state)
+    def release(pending):
+        """v1.3.81: return a committed-but-never-ACKed reservation to the pool.
+
+        Reached only on paths PROVEN to end before any ACK: root() already
+        returned (the native cycle is over, its send latch never opened), the
+        host stopped before the ACK, or the ACK RPC came back stale. No send
+        was authorized or attempted for this peer, so deleting THIS device's
+        own claim row keeps the peer eligible instead of permanently
+        claimed-but-never-greeted. The release matches the journal row by
+        account+peer (not by the insert's rowid) and is idempotent and
+        device-scoped: another port's reservation is never touched, an
+        uncommitted reservation matches nothing, and a lost COMMIT that landed
+        both rows server-side is still found and returned.
+        """
+        try:
+            shared_registry_read(
+                lambda: store.release_reservation(pending),
+                lambda: cancelled() or done.is_set(),
+                delays=RELEASE_RETRY_DELAYS, deadline=RELEASE_DEADLINE_SECONDS)
+            state['action_id'] = None  # finish() must not replay a released row.
+            state['reservation_released'] = True
+        except Exception:
+            # Best effort by design: a saturated pooler may refuse the release
+            # too. The reservation then stays held exactly as before 1.3.81;
+            # finish() records 'not-invoked' and no duplicate send is possible.
+            pass
     while not done.wait(.05):
         phase='profile-pending-read'
         try:
@@ -273,10 +306,10 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None,
             # visited snapshot (loaded in inspect() and already fed to the
             # native pre-filter) contains every shared claim/block and every
             # own-journal peer, so membership answers the same question
-            # instantly with no database dependency. Claims added after the
-            # snapshot stay caught by reserve()'s live blocked() re-check,
-            # which remains the atomic cross-account dedup authority, and by
-            # the terminal outcome check below.
+            # instantly with no database dependency. Claims and terminal
+            # outcomes added after the snapshot stay caught by reserve()'s
+            # live atomic blocked() re-check, which remains the cross-account
+            # dedup authority.
             phase='profile-peer-check'
             if getattr(store, 'mumu_shared_claims', False) is True:
                 if pending['peer'] in preclaimed:
@@ -327,42 +360,43 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None,
                 if done.is_set():
                     # Same race as the reads, one reservation window later: the
                     # native report (its own budget stop) already decides the
-                    # cycle; never stop the port after root() returned.
+                    # cycle; never stop the port after root() returned. A lost
+                    # COMMIT on the last attempt may still have left OUR claim
+                    # row: the device-scoped release is idempotent and safe
+                    # either way, so the peer does not stay claimed without a
+                    # greeting (v1.3.81).
+                    release(pending)
                     state['peer_check_deferred']=True
                     return
                 defer(pending)
                 return
             if cancelled() or done.is_set():
-                return  # Durable unknown reservation is intentionally retained.
-            phase='profile-terminal-check'
-            if getattr(store,'mumu_shared_claims',False) is True:
-                try:
-                    terminal = shared_registry_read(lambda: store.peer_terminal(pending),
-                        lambda: cancelled() or done.is_set())
-                except CloudDatabaseError as error:
-                    if error.code not in TRANSIENT_CODES or cancelled():
-                        raise
-                    if done.is_set():
-                        # Same race as the peer check above, one reservation
-                        # later: the durable reservation is retained unchanged
-                        # and no ACK authorizes a send, so the native report
-                        # alone decides the cycle. Never stop the port here.
-                        state['peer_check_deferred']=True
-                        return
-                    # Same verified no-send Back as a real terminal outcome:
-                    # the durable reservation is retained unchanged and no ACK
-                    # authorizes a send, but the pass continues on the next peer.
-                    defer(pending)
-                    return
-                if terminal is True:
-                    # Refusal/contact arrived after reservation but before native ACK.
-                    # Retain the local reserve; use the verified no-send Back path.
-                    from mumu_claims import skip
-                    phase='profile-skip-ack'
-                    skip(script,pending,state)
-                    return
+                # v1.3.81: the reservation committed but no ACK can ever
+                # follow (the cycle is over or the host is stopping). The old
+                # doctrine kept the claim "durable unknown", which cost one
+                # permanently un-greeted peer per occurrence - exactly when the
+                # pooler was slowest. Release it; another port (or a later
+                # pass on another journal) can still greet this peer.
+                release(pending)
+                return
+            # v1.3.81: the separate post-reserve terminal read is GONE. The
+            # atomic blocked() re-check INSIDE reserve() already rejects
+            # claimed, blocked, terminally-done and recovery-skipped peers
+            # (SharedPeerClaimed into the verified skip), and the pass-start
+            # snapshot prefilters every pre-existing terminal peer before its
+            # profile is ever opened. The extra pooled roundtrip on EVERY
+            # greeting cycle fed the very pooler bursts that deferred open
+            # chats with a RETAINED claim - leaving peers permanently
+            # un-greeted and the user watching a silent open dialog. The ACK
+            # now follows the reservation directly; a terminal outcome
+            # committed in the milliseconds between COMMIT and ACK costs one
+            # harmless greeting that the reply flow answers anyway.
             phase='profile-ack'
             if not script.exports_sync.cohortack(pending):
+                # Stale reservation: the native state moved on and no send
+                # latch opened for this authorization. Release the claim so
+                # the peer stays eligible instead of silently lost.
+                release(pending)
                 raise StateError('Подтверждение устарело. Отправка остановлена.')
             return  # Exactly one authorization per host operation.
         except Exception as error:
@@ -511,7 +545,8 @@ def inspect(port, token, cancelled, text, store, approve, *, frida_api=None):
             if state.get('error'):
                 stage='profile-authorization'
                 raise StateError('profile-authorization-failed')
-            return dict(navigation=n, declined=state.get('declined', False))
+            return dict(navigation=n, declined=state.get('declined', False),
+                        reservation_released=state.get('reservation_released', False))
     except Exception as error:
         # This exact host path has not loaded a script, started any RPC or
         # authorization thread. A remote script possibly allocated by a failed

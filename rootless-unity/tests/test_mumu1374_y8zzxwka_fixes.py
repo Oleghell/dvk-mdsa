@@ -214,23 +214,28 @@ class DeferredSkip(unittest.TestCase):
         script.exports_sync.cancel.assert_not_called()
 
     def test_terminal_check_exhaustion_skips_keeping_reservation(self):
+        # v1.3.81: the separate post-reserve terminal read no longer exists -
+        # reserve()'s atomic blocked() re-check is the terminal authority, so
+        # a terminally blocked peer raises SharedPeerClaimed straight into the
+        # verified no-send skip (no extra pooled roundtrip, no retained-claim
+        # defer path). Exhaustion of the RESERVE window on an alive cycle
+        # keeps the verified skip without any claim.
+        from mumu_store import SharedPeerClaimed
         script, store, state, failures = run_monitor(
-            MagicMock(return_value=False),
-            peer_terminal=MagicMock(side_effect=[transient() for _ in range(3)]))
-        self.assertTrue(state['peer_check_deferred'])
+            MagicMock(), reserve=MagicMock(side_effect=SharedPeerClaimed('blocked')))
         self.assertTrue(state['shared_peer_skipped'])
         self.assertFalse(failures)
-        store.reserve.assert_called_once()
-        self.assertEqual(state['action_id'], 17)
+        store.release_reservation.assert_not_called()
         script.exports_sync.cancel.assert_not_called()
         self.assertEqual(script.exports_sync.cohortack.call_args.args[0].get('skip'), True)
 
     def test_non_transient_terminal_exhaustion_keeps_the_hard_gate(self):
+        # The hard gate moved with the live read: a non-transient reserve
+        # failure still stops the cycle with the checkpoint named.
         script, store, state, failures = run_monitor(
-            MagicMock(return_value=False),
-            peer_terminal=MagicMock(side_effect=[permission() for _ in range(3)]))
+            MagicMock(), reserve=MagicMock(side_effect=permission()))
         self.assertTrue(failures)
-        self.assertEqual(state['authorization_checkpoint'], 'profile-terminal-check')
+        self.assertEqual(state['authorization_checkpoint'], 'profile-reserve')
         script.exports_sync.cancel.assert_called_once()
 
     def test_stop_during_the_window_never_defers(self):
@@ -241,8 +246,7 @@ class DeferredSkip(unittest.TestCase):
             raise transient()
 
         script, store, state, failures = run_monitor(
-            MagicMock(return_value=False),
-            peer_terminal=MagicMock(side_effect=fail_then_stop), cancelled=lambda: flag['stop'])
+            MagicMock(), reserve=MagicMock(side_effect=fail_then_stop), cancelled=lambda: flag['stop'])
         self.assertFalse(state.get('peer_check_deferred'))
         self.assertTrue(failures)
         script.exports_sync.cancel.assert_called_once()

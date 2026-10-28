@@ -302,7 +302,10 @@ class WorkerPreflightEvidence(unittest.TestCase):
     def test_preflight_runs_inside_the_checkpoint(self):
         source = (Path(__file__).resolve().parents[1] / 'mumu_worker.py').read_text(encoding='utf-8')
         self.assertIn("with checkpoint('adb-preflight', adb=adb):", source)
-        self.assertIn('boot=preflight(adb)', source)
+        # v1.3.81: the bounded in-worker preflight retry wraps the single-shot
+        # target_only.preflight call; the last evidenced failure still reaches
+        # the controller's requeue decision.
+        self.assertIn('boot=adb_preflight_retry(adb, stopped.is_set, progress)', source)
 
     def test_checkpoint_attaches_the_last_failed_adb_event(self):
         from startup_failure import checkpoint

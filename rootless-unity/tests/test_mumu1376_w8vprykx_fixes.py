@@ -69,10 +69,21 @@ def run_monitor(peer, *, phase='peer', cancelled=lambda: False, done_set=False, 
             flag['done'] = True
         raise peer() if callable(peer) else peer
     store.peer_claimed = peer_claimed if phase == 'peer' else MagicMock(return_value=False)
-    store.peer_terminal = peer_terminal if phase == 'terminal' else MagicMock(return_value=False)
-    store.reserve = MagicMock(return_value=17)
+    store.peer_terminal = MagicMock(return_value=False)
+    if phase == 'reserve':
+        # v1.3.81: the reservation is the only live pre-send database step
+        # left (the terminal read is gone), so the done-set race surfaces
+        # here; a flailing reserve may still have committed its claim row.
+        def flailing_reserve(*args, **kwargs):
+            if flip_done:
+                flag['done'] = True
+            raise peer() if callable(peer) else peer
+        store.reserve = flailing_reserve
+    else:
+        store.reserve = MagicMock(return_value=17)
     state = {}; failures = []
-    with patch.object(native, 'SHARED_READ_RETRY_DELAYS', (0, 0)):
+    with patch.object(native, 'SHARED_READ_RETRY_DELAYS', (0, 0)), \
+         patch.object(native, 'RELEASE_RETRY_DELAYS', (0, 0)):
         native.monitor(script, store, 'Hi', lambda *a: True, done, cancelled, state, failures)
     return script, store, state, failures
 
@@ -159,19 +170,21 @@ class DoneSetSwallow(unittest.TestCase):
         script.exports_sync.cancel.assert_not_called()
 
     def test_terminal_check_transient_after_done_is_swallowed(self):
-        script, store, state, failures = run_monitor(transient, phase='terminal')
+        # v1.3.81: the same race one step later - the reservation window
+        # raises after root() returned. The port survives, no ACK is sent,
+        # and the best-effort release returns a possibly-committed claim to
+        # the eligible pool instead of keeping it "durable unknown".
+        script, store, state, failures = run_monitor(transient, phase='reserve')
         self.assertFalse(failures)
         self.assertTrue(state['peer_check_deferred'])
-        # The durable reservation is retained unchanged and no ACK is sent.
-        store.reserve.assert_called_once()
-        self.assertEqual(state['action_id'], 17)
+        store.release_reservation.assert_called_once()
         script.exports_sync.cohortack.assert_not_called()
         script.exports_sync.cancel.assert_not_called()
 
     def test_non_transient_after_done_keeps_the_hard_gate(self):
-        script, store, state, failures = run_monitor(permission, phase='terminal')
+        script, store, state, failures = run_monitor(permission, phase='reserve')
         self.assertTrue(failures)
-        self.assertEqual(state['authorization_checkpoint'], 'profile-terminal-check')
+        self.assertEqual(state['authorization_checkpoint'], 'profile-reserve')
         script.exports_sync.cancel.assert_called_once()
 
     def test_cancelled_after_done_still_raises(self):
@@ -182,17 +195,18 @@ class DoneSetSwallow(unittest.TestCase):
             return transient()
 
         script, store, state, failures = run_monitor(
-            stop_during_read, phase='terminal', cancelled=lambda: flag['stop'])
+            stop_during_read, phase='reserve', cancelled=lambda: flag['stop'])
         self.assertTrue(failures)
         self.assertFalse(state.get('peer_check_deferred'))
         script.exports_sync.cancel.assert_called_once()
 
     def test_alive_cycle_still_defers_with_a_verified_skip(self):
         script, store, state, failures = run_monitor(
-            lambda: transient(), phase='terminal', done_set=False, flip_done=False)
+            lambda: transient(), phase='reserve', done_set=False, flip_done=False)
         self.assertFalse(failures)
         self.assertTrue(state['peer_check_deferred'])
         self.assertTrue(state['shared_peer_skipped'])
+        store.release_reservation.assert_not_called()
         self.assertEqual(script.exports_sync.cohortack.call_args.args[0].get('skip'), True)
 
 

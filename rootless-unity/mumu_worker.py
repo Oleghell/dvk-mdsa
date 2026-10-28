@@ -24,6 +24,57 @@ TELEGRAM_DEVICE_NUMBERS={5563:1,5557:2,5559:3,5561:4,5565:5}
 JOURNAL_START_RETRY_DELAYS = (3.0, 7.0, 15.0, 30.0)
 
 
+# Reports QZ2X7 (v1.3.80, port 5585): the last stagger-queue ports reach the
+# ADB preflight while their MuMu instance is still raising its ADB listener or
+# finishing Android boot; the death is provably pre-send, and the controller's
+# bounded requeue (a whole fresh worker process, 20/45s waits) was the only
+# line of defence. This is the INNER line: a bounded, jittered, Stop-aware
+# retry INSIDE the worker, so a slow-starting instance needs no process
+# restart at all. Only closed transport-shaped evidence or a not-yet-booted
+# Android retries; a missing package, an unauthorized device, a rejected
+# endpoint or an identity change keeps the immediate hard stop exactly as
+# before.
+ADB_PREFLIGHT_RETRY_DELAYS = (3.0, 7.0, 15.0)
+
+
+def adb_preflight_retry(adb, stopped, progress=lambda _ : None, *, delays=None, pause=None):
+    """Bounded in-worker retry of the MuMu endpoint preflight (v1.3.81).
+
+    Each attempt runs inside its own adb-preflight checkpoint, so the raised
+    error carries the closed ADB evidence needed to classify it; the last
+    error (already evidenced) propagates on exhaustion and the controller's
+    1.3.80 requeue remains the outer line of defence.
+    """
+    from startup_failure import checkpoint, clean, recoverable_adb
+    from test_device import TestError
+    from target_only import preflight
+    if delays is None: delays = ADB_PREFLIGHT_RETRY_DELAYS
+    if pause is None:
+        from random import uniform
+        from time import sleep
+        def pause(seconds): sleep(seconds * uniform(1.0, 1.6))
+    last = None
+    for attempt, delay in enumerate((None, *delays)):
+        if delay is not None:
+            if stopped():
+                raise last
+            progress('MuMu этого порта ещё поднимается или его ADB занят. Проверяю подключение повторно (попытка {} из {}).'.format(
+                attempt + 1, len(delays) + 1))
+            pause(delay)
+        try:
+            with checkpoint('adb-preflight', adb=adb):
+                return preflight(adb)
+        except TestError as error:
+            last = error
+            value = clean(getattr(error, '_dvk_failure', None))
+            boot_pending = (value is not None
+                and value.get('adb_check') == 'test-boot-completed'
+                and value.get('adb_reason') == 'unexpected-response')
+            if stopped() or not (recoverable_adb(value) or boot_pending):
+                raise
+    raise last
+
+
 def open_shared_journal(new_only, stopped, progress=lambda _:None, *, pause=None):
     """Bounded retry of the shared-journal bootstrap for transient connects."""
     if pause is None:
@@ -120,7 +171,7 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
     try:
         configure(n)
         from assistant_settings import Settings
-        from assistant_store import Store
+        from assistant_store import StateError, Store
         from assistant_authorization import RunAuthorization
         from assistant_lock import operation_lock
         from target_only import TargetOnlyAdb,preflight,recheck
@@ -147,14 +198,25 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
             # port stayed dead. The checkpoint attaches the closed ADB
             # check/reason evidence (last failed event of this adb) to the
             # raised error; nothing about the failure itself changes.
+            # v1.3.81: the bounded in-worker retry above rides out the
+            # slow-start window without a process restart; only the FINAL
+            # failure reaches the controller's requeue decision.
             from startup_failure import checkpoint
             with checkpoint('adb-preflight', adb=adb):
-                boot=preflight(adb)
+                boot=adb_preflight_retry(adb, stopped.is_set, progress)
             # Two supplied ports may be aliases of ONE Android instance. Its boot
             # lock also blocks duplicate workers launched by a second GUI.
             stage='device-identity-lock'
             boot_key=hashlib.sha256(boot.encode()).hexdigest()
-            scopes.enter_context(operation_lock(root_directory()/'locks'/(boot_key+'.lock')))
+            try:
+                scopes.enter_context(operation_lock(root_directory()/'locks'/(boot_key+'.lock')))
+            except StateError:
+                # The per-port endpoint lock already serializes same-port
+                # workers, so THIS lock can only be held by a DIFFERENT port
+                # resolving to the same Android instance: two entries of the
+                # port list point at one MuMu. Name the actual crossing instead
+                # of the generic "another copy is running" text (v1.3.81).
+                raise StateError('Два порта из списка подключаются к одному MuMu. Проверь ADB-порты инстансов MuMu: у каждого порта из списка должен быть свой эмулятор.') from None
             recheck(adb,boot)
             if spec['mode']=='profile-id':
                 # No Store(), reply policy, monitor, AI, Telegram or journal write.
