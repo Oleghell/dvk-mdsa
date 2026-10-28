@@ -24,7 +24,7 @@ def report(limit):
                 reason='not-started', profile_limit=limit, profiles_checked=0, qualified_profiles=0, scan_limit=MAX_SCANNED,
                 search_cycles=0, search_cycle_limit=MAX_SEARCH_CYCLES,
                 skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0, skipped_input_disabled=0,
-                read_recovery_limit=MAX_READ_RECOVERIES, consecutive_read_recoveries=0, recovery_events=[], greetings_offered=0,
+                read_recovery_limit=MAX_READ_RECOVERIES, consecutive_read_recoveries=0, recovery_events=[], greetings_offered=0, shared_peer_skips=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
                 greetings_declined=0, city_changes=0, city_reservations_recovered=0, search_budget_rotations=0, last_profile_diagnostics=None,
                 current_city=None, online_verified=False, per_message_confirmation=True,
@@ -179,7 +179,11 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 'send_attempted', 'send_handler_returned', 'return_verified',
                 'profile_read_budget_retries', 'greeting_frame_splits', 'profile_ready_waits',
                 'profile_read_skipped', 'profile_read_skip_reason', 'profile_input_enabled', 'chat_back_attempted', 'chat_back_completed',
-                'chat_return_verified', 'chat_identity_verified', 'chat_return_route') if key in n}
+                'chat_return_verified', 'chat_identity_verified', 'chat_return_route', 'shared_peer_skipped') if key in n}
+            if n.get('shared_peer_skipped'):
+                # Claimed or pooler-deferred no-send skip: the pass continues on
+                # the next candidate, and the report shows why nothing was sent.
+                out['shared_peer_skips'] = out.get('shared_peer_skips', 0) + 1
             cycle_pending = False
             if n['send_attempted']:
                 out['send_attempts'] += 1

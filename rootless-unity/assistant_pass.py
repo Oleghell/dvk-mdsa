@@ -187,7 +187,7 @@ PROFILE_DIAGNOSTIC_FIELDS=('stage','error','phase','frames','managed_calls','met
     'chat_open_attempted','chat_open_completed','send_attempted','send_handler_returned','return_verified',
     'profile_read_budget_retries','greeting_frame_splits','profile_ready_waits','profile_read_skipped',
     'profile_read_skip_reason','profile_input_enabled','chat_back_attempted','chat_back_completed',
-    'chat_return_verified','chat_identity_verified','chat_return_route')
+    'chat_return_verified','chat_identity_verified','chat_return_route','shared_peer_skipped')
 
 
 def drain_threads(threads,done,*,timeout=30,clock=time.monotonic):
@@ -204,6 +204,17 @@ def drain_threads(threads,done,*,timeout=30,clock=time.monotonic):
 
 def monitor(script, store, text, approve, done, cancelled, state, failures=None):
     """A successful FULL SQLite commit MUST happen before native authorization."""
+    from cloud_database import CloudDatabaseError, TRANSIENT_CODES
+    def defer(peer):
+        # Reports 491-493 (v1.3.73): pooler pressure outlasted the whole
+        # pre-send retry window and killed live batches on all reporting
+        # ports. Both checks below are read-only and happen before the native
+        # ACK: no send was authorized for this peer, so an exhausted transient
+        # window costs one verified no-send skip. The claim registry stays
+        # authoritative; the port keeps its pass alive instead of stopping.
+        state['peer_check_deferred']=True
+        from mumu_claims import skip
+        skip(script, peer, state)
     while not done.wait(.05):
         phase='profile-pending-read'
         try:
@@ -216,12 +227,20 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None)
             # A terminal global outcome or prior greeting on any port skips before
             # typing; reserve below rechecks atomically after approval.
             phase='profile-peer-check'
-            if getattr(store, 'mumu_shared_claims', False) is True and shared_registry_read(
-                    lambda: store.peer_claimed(pending), lambda: cancelled() or done.is_set()):
-                from mumu_claims import skip
-                phase='profile-skip-ack'
-                skip(script, pending, state)
-                return
+            if getattr(store, 'mumu_shared_claims', False) is True:
+                try:
+                    claimed = shared_registry_read(
+                        lambda: store.peer_claimed(pending), lambda: cancelled() or done.is_set())
+                except CloudDatabaseError as error:
+                    if error.code not in TRANSIENT_CODES or cancelled() or done.is_set():
+                        raise
+                    defer(pending)
+                    return
+                if claimed:
+                    from mumu_claims import skip
+                    phase='profile-skip-ack'
+                    skip(script, pending, state)
+                    return
             # No reservation (and no send authorization) on No, Stop or timeout.
             phase='profile-approval'
             approval=approve(dict(pending),text,lambda:cancelled() or done.is_set())
@@ -244,15 +263,25 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None)
             if cancelled() or done.is_set():
                 return  # Durable unknown reservation is intentionally retained.
             phase='profile-terminal-check'
-            if (getattr(store,'mumu_shared_claims',False) is True
-                    and shared_registry_read(lambda: store.peer_terminal(pending),
-                        lambda: cancelled() or done.is_set()) is True):
-                # Refusal/contact arrived after reservation but before native ACK.
-                # Retain the local reserve; use the verified no-send Back path.
-                from mumu_claims import skip
-                phase='profile-skip-ack'
-                skip(script,pending,state)
-                return
+            if getattr(store,'mumu_shared_claims',False) is True:
+                try:
+                    terminal = shared_registry_read(lambda: store.peer_terminal(pending),
+                        lambda: cancelled() or done.is_set())
+                except CloudDatabaseError as error:
+                    if error.code not in TRANSIENT_CODES or cancelled() or done.is_set():
+                        raise
+                    # Same verified no-send Back as a real terminal outcome:
+                    # the durable reservation is retained unchanged and no ACK
+                    # authorizes a send, but the pass continues on the next peer.
+                    defer(pending)
+                    return
+                if terminal is True:
+                    # Refusal/contact arrived after reservation but before native ACK.
+                    # Retain the local reserve; use the verified no-send Back path.
+                    from mumu_claims import skip
+                    phase='profile-skip-ack'
+                    skip(script,pending,state)
+                    return
             phase='profile-ack'
             if not script.exports_sync.cohortack(pending):
                 raise StateError('Подтверждение устарело. Отправка остановлена.')
@@ -371,7 +400,20 @@ def inspect(port, token, cancelled, text, store, approve, *, frida_api=None):
             peer = script.exports_sync.selectedpeer()
             if peer is not None:
                 stage='profile-record-visit'
-                store.record_visit(peer, n)
+                try:
+                    store.record_visit(peer, n)
+                except Exception as error:
+                    from cloud_database import CloudDatabaseError, TRANSIENT_CODES
+                    if (state.get('peer_check_deferred') is not True
+                            or not isinstance(error, CloudDatabaseError)
+                            or error.code not in TRANSIENT_CODES
+                            or n['send_attempted'] or n['send_handler_returned']):
+                        raise
+                    # A deferred no-send cycle may lose its auxiliary visit row
+                    # while the pooler is saturated. The claim registry remains
+                    # the authoritative dedup and this peer simply stays eligible
+                    # for a later verified re-check; the pass must not die here.
+                    state['deferred_visit_unrecorded']=True
             stage='profile-finish-journal'
             action_id = state.get('action_id')
             if n['send_attempted'] and action_id is None:

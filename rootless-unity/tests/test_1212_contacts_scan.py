@@ -15,8 +15,15 @@ class Parsing(unittest.TestCase):
  def test_label_is_not_ownership_without_request(self):
   self.assertEqual(contacts.self_shared('Love_1712 телега'),[])
  def test_no_guessing_arbitrary_names(self):
-  for s in ('Telegram','телега','тг','Макс.','Вацап есть. Макс.','Love_1712','12345 телега','ab телега','a'*33+' телега','телега мой друг Love_1712','«Love_1712 телега»','не мой Love_1712 телега','Love_1712 телега?'):
+  for s in ('Telegram','телега','тг','Макс.','Вацап есть. Макс.','12345 телега','ab телега','a'*33+' телега','телега мой друг Love_1712','«Love_1712 телега»','не мой Love_1712 телега','Love_1712 телега?','Love_1712 hello','Love_1712, спасибо'):
    with self.subTest(s=s):self.assertEqual(contacts.self_shared(s,requested=True),[])
+ def test_bare_latin_word_after_request_is_telegram(self):
+  # Reports y8zZxWkA (v1.3.73): «Ptaha3112» answered the contact request and
+  # must be saved; app names and ordinary English/romanized words stay excluded.
+  for s,want in (('Love_1712',['@Love_1712']),('Ptaha3112',['@Ptaha3112']),('.Ptaha3112',['@Ptaha3112']),('Ptaha3112.',['@Ptaha3112']),('hello',[]),('thanks',[]),('privet',[]),('whatsapp',[]),('Telegram',[]),('ab',[]),('12345',[])):
+   with self.subTest(s=s):
+    self.assertEqual(contacts.self_shared(s,requested=True),want)
+    self.assertEqual(contacts.self_shared(s,requested=False),[])
  def test_punctuated_handle_is_contact(self):
   self.assertEqual(contacts.self_shared('.@MER19820',requested=True),['@MER19820'])
  def test_messenger_spelling_availability(self):

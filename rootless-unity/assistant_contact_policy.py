@@ -29,8 +29,14 @@ def should_close(db, snapshot, stage, incoming, *, requested, max_choice=False, 
             # A personal/off-topic question is not messenger selection, even
             # when another message in this same packet names an available app.
             personal=re.search(r'женат|замужем|откуда|живешь|живёшь|работаешь|занимаешься|каком городе',clause)
+            # Reports y8zZxWkA (v1.3.73): «Есть? / Макс» closed the chain. The
+            # bare availability echo answers our own contact proposal («Ты
+            # есть в телеграме или ватцапе?»), so it stays contact-related;
+            # the packet's messenger choice then drives one clarification.
+            echo=re.fullmatch(r'(?:а\s+)?(?:у\s+(?:тебя|вас)\s+)?(?:ты\s+|вы\s+)?есть'
+                              r'(?:\s+(?:что-?нибудь|какие?[-\s]?нибудь\s+мессенджеры))?',clause.strip())
             related=APP.search(clause) or re.search(r'телеграм|telegram|ватсап|ватцап|whatsapp|\bтг\b|номер|контакт|мессенджер',clause)
-            if personal or not related:return True
+            if personal or not (related or echo):return True
     choice=chosen(incoming)
     if stage=='pending-clarify':return not choice
     if clarify:return True # current contacts are handled BEFORE this policy

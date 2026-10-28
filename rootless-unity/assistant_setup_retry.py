@@ -14,7 +14,9 @@ MAX_SETUP_ATTEMPTS=6
 def retryable_profile_setup(error):
     from startup_failure import clean
     value=clean(getattr(error,'_dvk_failure',None))
-    if getattr(error,'_dvk_profile_not_executed',False) is not True or value is None:
+    if getattr(error,'_dvk_profile_not_executed',False) is not True:
+        return False
+    if value is None:
         return False
     if value['stage']=='script-create':
         return (value['error']=='startup-script-create-failed'
@@ -28,6 +30,21 @@ def retryable_profile_setup(error):
         # create. Authored StateError (bad journal data) stays non-retryable.
         return (value['error']=='startup-profile-history-upload-failed'
             and value['error_type'] in {'TransportError','ServerNotRunningError','TimedOutError','InvalidOperationError'})
+    if value['stage']=='device-inspection':
+        # Reports 491-493 (v1.3.73): the pre-script visited snapshot read shares
+        # the transient pooler window. Its exhaustion happens BEFORE the gadget
+        # manager/script/RPC exist (run_preparation names the exact stage and
+        # cloud code), so the bounded setup retry rides out the pressure
+        # instead of stopping a live port. Any non-transient database failure
+        # keeps the normal hard gate.
+        from run_preparation import clean as preparation_clean
+        prepared=preparation_clean(getattr(error,'_dvk_preparation',None))
+        if (prepared is not None and prepared['stage']=='profile-history'
+                and prepared['error']=='prepare-profile-history-failed'
+                and prepared['error_type']=='CloudDatabaseError'):
+            from cloud_database import TRANSIENT_CODES
+            database=prepared.get('database')
+            return isinstance(database,dict) and database.get('code') in TRANSIENT_CODES
     return False
 
 

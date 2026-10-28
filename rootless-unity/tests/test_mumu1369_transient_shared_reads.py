@@ -97,14 +97,21 @@ class TransientPeerChecks(unittest.TestCase):
         script.exports_sync.cohortack.assert_called_once()
         script.exports_sync.cancel.assert_not_called()
         self.assertEqual(state['action_id'],17)
-    def test_peer_check_exhaustion_cancels_cleanly_without_send(self):
+    def test_peer_check_exhaustion_defers_to_verified_no_send_skip(self):
+        # Reports 491-493 (v1.3.73, y8zZxWkA): after the widened window the
+        # pooler still outlasted it and CANCELLED live batches. Exhaustion is
+        # now a deferred no-send skip: no reservation, no ACK of a send, no
+        # failure recorded, the native cycle closes the chat and the pass lives.
         peer_claimed=MagicMock(side_effect=[transient() for _ in range(3)])
         script,store,state,failures=self.run_monitor(peer_claimed)
         self.assertEqual(peer_claimed.call_count,3)
-        self.assertIsInstance(failures[0],CloudDatabaseError)
-        self.assertEqual(state['authorization_checkpoint'],'profile-peer-check')
-        script.exports_sync.cancel.assert_called_once()
-        store.reserve.assert_not_called();script.exports_sync.cohortack.assert_not_called()
+        self.assertFalse(failures)
+        self.assertTrue(state['peer_check_deferred'])
+        self.assertTrue(state['shared_peer_skipped'])
+        script.exports_sync.cancel.assert_not_called()
+        store.reserve.assert_not_called()
+        script.exports_sync.cohortack.assert_called_once()
+        self.assertEqual(script.exports_sync.cohortack.call_args.args[0].get('skip'),True)
     def test_terminal_check_transient_failure_recovers_to_ack(self):
         peer_terminal=MagicMock(side_effect=[transient(),False])
         script,store,state,failures=self.run_monitor(MagicMock(return_value=False),peer_terminal)

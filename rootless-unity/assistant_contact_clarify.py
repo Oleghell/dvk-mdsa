@@ -18,7 +18,13 @@ def chosen(messages):
     if indifferent(messages):return True
     # A terse list is an explicit choice in this already-requested-contact stage.
     # Do not treat questions/objections mentioning an app as agreement.
-    short = re.fullmatch(r'\s*(?:тг|телеграм(?:м)?|телега|telegram|whats\s?app|ватсап|вацап|ватцап|вотсап)(?:[\s,/]+(?:или\s+)?(?:макс|max|тг|телеграм|whatsapp|ватсап|вацап))*[.!)]*\s*', value, re.I)
+    # Reports y8zZxWkA (v1.3.73): «Макс ватцап» names two apps without any verb;
+    # the juxtaposition in EITHER order is a choice, so one clarification asks
+    # for the number/nick instead of closing the chain.
+    apps=r'(?:тг|телеграм(?:м)?|телега|telegram|whats\s?app|ватсап|вацап|ватцап|вотсап)'
+    tail=(r'(?:[\s,/]+(?:или\s+)?(?:(?:макс|max)|'+apps+r'))*')
+    short = (re.fullmatch(r'\s*'+apps+tail+r'[.!)]*\s*', value, re.I)
+             or re.fullmatch(r'\s*(?:макс|max)'+tail+r'[.!)]*\s*', value, re.I))
     return bool(PLATFORM.search(value) and (CHOICE.search(value) or short) and not NEGATIVE.search(value))
 
 MAX_TEXT = 'По какому номеру могу найти тебя в MAX, если тебе удобно?'
