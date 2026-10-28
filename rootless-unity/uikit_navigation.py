@@ -256,7 +256,11 @@ FUNCTION=FUNCTION.replace("if(timer!==null)clearTimeout(timer);", """if(timer!==
    if(f!==null)cleanupNavigation(f,r.navigation,navState);
    if(r.navigation.cleanup_failed)r.cleanup_failed=true;""")
 FUNCTION=FUNCTION.replace("active=false;r.observed_callback=true;", "active=false;r.navigation.frames++;r.observed_callback=true;")
-FUNCTION=FUNCTION.replace("     finish(stage);", """     if(fixedCancellationRequested){navState.stop='cancelled';r.navigation.stage='navigation-stopped';r.navigation.error='cancelled';}
+FUNCTION=FUNCTION.replace("     finish(stage);", """     if(fixedCancellationRequested){navState.stop='cancelled';
+      // Same truthfulness guard as the deferred-finish application above: a
+      // frame that completed the navigation keeps its verified state; only a
+      // still running navigation is stopped by the cancellation.
+      if(r.navigation.stage==='navigation-running'){r.navigation.stage='navigation-stopped';r.navigation.error='cancelled';}}
      if(stage==='root-ready'&&r.navigation.stage==='navigation-running'&&!r.cleanup_failed){
       if(r.navigation.frames>=180){r.navigation.stage='navigation-stopped';r.navigation.error='frame-limit';}
       else {active=true;return;}
@@ -324,4 +328,14 @@ FUNCTION+="\nfunction cancelNavigation(){fixedCancellationRequested=true;if(canc
 FUNCTION=FUNCTION.replace("let listener=null,timer=null,active=true,settled=false;", "let listener=null,timer=null,active=true,settled=false,frameBusy=false,pendingFinish=null;")
 FUNCTION=FUNCTION.replace("if(settled)return;settled=true;", "if(settled)return;if(frameBusy){pendingFinish=stage;return;}settled=true;")
 FUNCTION=FUNCTION.replace("active=false;r.navigation.frames++;", "active=false;frameBusy=true;r.navigation.frames++;")
-FUNCTION=FUNCTION.replace("     if(fixedCancellationRequested){", "     frameBusy=false;if(pendingFinish!==null){stage=pendingFinish;r.navigation.stage='navigation-stopped';r.navigation.error=navState.stop||'observer-stopped';}\n     if(fixedCancellationRequested){")
+FUNCTION=FUNCTION.replace("     if(fixedCancellationRequested){", """     frameBusy=false;if(pendingFinish!==null){stage=pendingFinish;
+      // Report 499 (v1.3.74): the absolute cycle timer can fire while the
+      // final frame is still running (a Frida native call cooperatively
+      // yields), so the deferred finish is applied after that frame. The
+      // unconditional rewrite used to corrupt a frame that had JUST completed
+      // the cycle - a verified search return became navigation-stopped and
+      // the whole port died at 'Unverified direct search return'. Only a
+      // still-running navigation may be stopped here; a completed (ready) or
+      // already-stopped navigation keeps its own truthful state.
+      if(r.navigation.stage==='navigation-running'){r.navigation.stage='navigation-stopped';r.navigation.error=navState.stop||'observer-stopped';}}
+     if(fixedCancellationRequested){""")

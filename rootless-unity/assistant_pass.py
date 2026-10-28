@@ -42,10 +42,29 @@ HISTORY_UPLOAD_CHUNK = 1000
 # the 90s native cycle budget), and the DEFAULT pause is jittered so the two
 # machines stop retrying as one synchronized wave against the pooler.
 SHARED_READ_RETRY_DELAYS = (2.0, 5.0, 10.0, 20.0)
+# Reports 498-507 (v1.3.74, dropmefiles W8VPRYkX): seven ports died at
+# prepare-greeting with transition-timeout and two more hard-stopped at
+# profile-peer-check. The pauses above are 37s nominal, but the jitter
+# multiplier (x1.6) stretches them to ~59s, and each attempt itself spends
+# seconds in connect retries - so a saturated pooler pushed the pre-send
+# window past the native cycle's ABSOLUTE 90s deadline. The script then died
+# waiting for its own approval (transition-timeout), the port entered blind
+# screen repair for ~two minutes and finally stopped with
+# recovery-unfinished. The window is now bounded by wall clock: exhaustion
+# surfaces as the same transient error by 40s, which leaves ~50s of the
+# native budget for the verified no-send Back of the deferred skip. This is
+# strictly better than a longer window that kills the cycle it protects.
+SHARED_READ_DEADLINE_SECONDS = 40.0
 
 
-def shared_registry_read(action, stopped, *, delays=None, pause=None):
-    """Bounded retry for read-only pre-send shared-registry reads."""
+def shared_registry_read(action, stopped, *, delays=None, pause=None,
+                          deadline=SHARED_READ_DEADLINE_SECONDS, clock=time.monotonic):
+    """Bounded retry for read-only pre-send shared-registry reads.
+
+    Bounded twice: by attempts (delays) and by wall clock (deadline). The
+    deadline includes the pauses and the attempts themselves, so exhaustion
+    can never outlast the native cycle budget that waits on this read.
+    """
     from cloud_database import CloudDatabaseError, TRANSIENT_CODES
     if delays is None: delays = SHARED_READ_RETRY_DELAYS
     if pause is None:
@@ -55,13 +74,24 @@ def shared_registry_read(action, stopped, *, delays=None, pause=None):
         # window); injected test pauses keep receiving the exact delay.
         from random import uniform
         def pause(seconds): time.sleep(seconds * uniform(1.0, 1.6))
+    started = clock()
     for delay in (*delays, None):
         try:
             return action()
         except CloudDatabaseError as error:
             if delay is None or stopped() or error.code not in TRANSIENT_CODES:
                 raise
+            # The default pause may sleep up to delay*1.6; account for the
+            # worst case so the deadline is a hard bound, not a hope.
+            if clock() - started + delay * 1.6 >= deadline:
+                raise
             pause(delay)
+            # A pause can outlive the native cycle that waits on this read
+            # (its own absolute deadline). Do not start another database
+            # attempt after the caller is already done: raise the same
+            # transient error and let the pre-send defer path decide.
+            if stopped():
+                raise
 
 
 # Reports 433-447: the bootstrap wrapper still dropped the second RPC argument,
@@ -232,8 +262,22 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None)
                     claimed = shared_registry_read(
                         lambda: store.peer_claimed(pending), lambda: cancelled() or done.is_set())
                 except CloudDatabaseError as error:
-                    if error.code not in TRANSIENT_CODES or cancelled() or done.is_set():
+                    if error.code not in TRANSIENT_CODES or cancelled():
                         raise
+                    if done.is_set():
+                        # Reports 503/505 (v1.3.74): the transient window can
+                        # outlast the native cycle's own 90s deadline, so the
+                        # error surfaces AFTER root() returned and done was set.
+                        # Raising here killed the whole port with journal-error
+                        # although this check runs BEFORE approval: nothing was
+                        # sent, reserved or written for the peer. The native
+                        # report (its own budget stop) already drives the cycle
+                        # outcome; the claim registry stays the dedup authority
+                        # and the peer simply stays eligible for a later pass.
+                        # Mark the cycle deferred so a saturated pooler may also
+                        # lose the auxiliary visit row without stopping the port.
+                        state['peer_check_deferred']=True
+                        return
                     defer(pending)
                     return
                 if claimed:
@@ -268,8 +312,15 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None)
                     terminal = shared_registry_read(lambda: store.peer_terminal(pending),
                         lambda: cancelled() or done.is_set())
                 except CloudDatabaseError as error:
-                    if error.code not in TRANSIENT_CODES or cancelled() or done.is_set():
+                    if error.code not in TRANSIENT_CODES or cancelled():
                         raise
+                    if done.is_set():
+                        # Same race as the peer check above, one reservation
+                        # later: the durable reservation is retained unchanged
+                        # and no ACK authorizes a send, so the native report
+                        # alone decides the cycle. Never stop the port here.
+                        state['peer_check_deferred']=True
+                        return
                     # Same verified no-send Back as a real terminal outcome:
                     # the durable reservation is retained unchanged and no ACK
                     # authorizes a send, but the pass continues on the next peer.
