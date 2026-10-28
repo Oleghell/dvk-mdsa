@@ -299,6 +299,28 @@ def verified_sample_wrong_screen(value):
         and all(type(value.get(key)) is int and 0<value[key]<=1000000 for key in ('frames','managed_calls')))
 
 
+def verified_identity_budget(value):
+    """Report 494: the frame budget expired before any identity state existed.
+
+    The identity getters never ran: identity checkpoint not-checked, scalar
+    not-read, no message slot. This is an interrupted read, never identity or
+    content proof. It only permits the same read-only recovery (fresh SAME-bound
+    read plus a verified Back) as the other interrupted-observation shapes;
+    identity/transport/schema failures never match.
+    """
+    if not isinstance(value,dict):return False
+    if value.get('error') not in ('frame-budget','transition-timeout'):return False
+    expected=dict(stage='navigation-stopped',metadata_checkpoint='ready',
+        read_checkpoint='identity',wait_reason='none',message_slot=-1,
+        message_kind='not-read',message_direction='not-read',scalar_state='not-read',
+        identity_checkpoint='not-checked',scalar_checkpoint='not-read')
+    # frames/managed_calls may both be zero: the very first tick of a frozen
+    # screen can expire its 100ms frame budget before completing anything.
+    # The ten label equalities above remain the authored-evidence boundary.
+    return (all(value.get(key)==item for key,item in expected.items())
+        and all(type(value.get(key)) is int and 0<=value[key]<=1000000 for key in ('frames','managed_calls')))
+
+
 def transient_read_failure(error):
     """Only bounded read-only retries for loading/changing history, not changed identity."""
     value = safe_read_failure(error)

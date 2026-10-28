@@ -52,6 +52,13 @@ def verified_read_budget(value):
     actual_ids=(value.get('identity_checkpoint')=='actual-server-chat'
         and phase=='identity' and scalar=='chat-id'
         and value.get('scalar_state')=='positive')
+    # Report 494 (v1.3.74): the frame budget expired before ANY identity
+    # getter ran (identity checkpoint not-checked, scalar not-read). This is
+    # the emptiest possible interruption: nothing about the chat was observed,
+    # so nothing is proven about it. The port must not die on this shape; it
+    # gets the same bounded read-only retry/deferral as initial-ids expiry.
+    pre_identity=(phase=='identity' and value.get('identity_checkpoint')=='not-checked'
+        and scalar=='not-read' and value.get('scalar_state')=='not-read')
     # Report 247: the fixed reader permits a negative *own-message* ChatId
     # only with independent peer anchoring. A frame may expire before that
     # anchoring/recheck completes. This is NO identity/content proof: discard
@@ -66,7 +73,7 @@ def verified_read_budget(value):
     return (value.get("error") in ("frame-budget", "transition-timeout")
         and value.get("stage") == "navigation-stopped"
         and value.get("metadata_checkpoint") == "ready"
-        and (initial_ids or actual_ids or phase_ok and value.get("identity_checkpoint") == "recheck")
+        and (initial_ids or actual_ids or pre_identity or phase_ok and value.get("identity_checkpoint") == "recheck")
         and (value.get("scalar_state") in ("positive", "not-read") or local_own_interrupted)
         and value.get("wait_reason") in ("none", "not-checked")
         and type(value.get("message_slot")) is int

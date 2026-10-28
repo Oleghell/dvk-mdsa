@@ -17,6 +17,7 @@ KNOWN = {'account-owned-by-other-scope','city-claim-changed','profile-authorizat
     'profile-pass-paused', 'profile-repeat-stopped', 'message-not-approved', 'dialog-needs-review',
     'manual-review', 'telegram-outcome-unknown', 'contact-payload-blocked', 'telegram-disabled',
     'chat-check-stopped','navigation-check-stopped','unrecognized-diagnostic-code','bound-chat-read-failed', 'snapshot-validation-failed', 'binding-or-history-check-stopped',
+    'recovery-unfinished',
     'send-outcome-unknown', 'outgoing-not-observed', 'return-not-verified', 'city-not-verified',
     'city-pool-exhausted', 'city-reservation-unresolved', 'city-no-alternative', 'search-cycle-limit', 'profile-scan-limit', 'profile-check-stopped',
     'device-or-journal-check-stopped', 'inbox-not-finished', 'profiles-not-finished',
@@ -127,7 +128,7 @@ def diagnostic_json(report):
     structures = {'send_failure_events','send_transport_failure','recovery_failure','initial_run','last_profile_run','last_pass','inbox','profiles',
         'last_city_recovery','root_probe','last_profile_diagnostics','last_city_navigation','last_navigation','last_navigation_failure',
         'last_preparation_failure','preparation_failure','last_chat_diagnostics','last_read_failure','photo_failure','diagnostic','recovery_events','ai_failures'}
-    numbers = {'profile_source_bytes','profile_history_count','profile_setup_ms','state_samples','city_visible_rows','city_total_rows','city_scan_samples','city_matches','city_read_budget_retries','city_transition_overruns','send_snapshot_refreshes','photo_read_retries','read_retries','send_preflight_retries','recovery_attempts','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
+    numbers = {'profile_source_bytes','profile_history_count','profile_setup_ms','state_samples','city_visible_rows','city_total_rows','city_scan_samples','city_matches','city_read_budget_retries','city_transition_overruns','send_snapshot_refreshes','photo_read_retries','read_retries','send_preflight_retries','recovery_attempts','recovery_rounds','transport_failures','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
         'setup_retry_attempts','profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
         'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
