@@ -131,7 +131,7 @@ def diagnostic_json(report):
         'setup_retry_attempts','profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
         'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
-        'entry_read_budget_retries','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs'}
+        'entry_read_budget_retries','entry_binding_waits','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs'}
     from assistant_stage_timing import FIELDS as TIMING_FIELDS
     numbers |= TIMING_FIELDS
     flags = {'profile_cycle_no_send_verified','state_verified','city_open_attempted','city_open_completed','city_query_attempted','city_query_text_completed','city_query_completed','city_result_verified','city_form_verified','city_verified','online_verified','saved_receipt_only','input_disabled_verified','history_wait_exhausted','history_budget_exhausted','history_snapshot_oversized','post_send_checked','send_no_invocation_verified','profile_script_executed','submission_attempted','submission_returned','contact_review_reconciled','send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',

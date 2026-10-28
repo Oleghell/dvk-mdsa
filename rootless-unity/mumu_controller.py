@@ -11,6 +11,19 @@ import time
 from mumu_common import port,parse,MumuError
 
 
+# Reports 484-489 (v1.3.72): twelve ports started from the GUI at the same
+# instant all opened their journal, ran the first list navigation and the
+# first profile batch in the same minutes. The shared session pooler then
+# refused connects longer than every retry window (cloud-database-unavailable
+# at profile-peer-check), and the native cycles burned their call budgets
+# waiting for host approval. One worker process per port means the STARTS can
+# be spaced: each port waits a jittered multiple of this spacing, so the
+# journal/inbox/profile bursts never land as one wave. A Stop during the wait
+# still aborts that port cleanly; single-port runs and manual restarts
+# (run_one) never wait.
+STARTUP_STAGGER_SECONDS = 27.0
+
+
 def command():
     if getattr(sys,'frozen',False):
         worker=Path(sys.executable).resolve().parent/'DvkMumuWorker.exe'
@@ -75,13 +88,25 @@ def run_one(value,settings,mode,fresh,stopped,progress,*,popen=subprocess.Popen,
             process.kill();process.wait(timeout=10)
 
 
-def run_many(values,settings,mode,fresh,stopped,progress,*,worker=run_one,controls=None):
+def run_many(values,settings,mode,fresh,stopped,progress,*,worker=run_one,controls=None,spacing=None,jitter=None):
     values=parse('\n'.join(str(port(x)) for x in values))
+    if spacing is None:spacing=STARTUP_STAGGER_SECONDS
+    if jitter is None:
+        from random import uniform
+        def jitter():return uniform(0.8,1.4)
     results={};guard=threading.Lock()
-    def run(n):
+    def run(n,index):
         try:
+            value=None
             if stopped.is_set():value='Остановлено до запуска.'
-            else:
+            elif index and spacing:
+                # Only the simultaneous multi-port start is spaced; the port
+                # list order is the visible GUI order. The wait observes Stop
+                # immediately, and the first port (index 0) never waits.
+                delay=spacing*index*jitter()
+                progress(n,'Ожидаю очередь запуска ~{} с: порты стартуют по одному, чтобы не перегружать общую базу одним мгновенным запуском.'.format(int(delay)))
+                if stopped.wait(delay):value='Остановлено до запуска.'
+            if value is None:
                 kwargs={} if controls is None else dict(control=controls[n])
                 value=worker(n,settings,mode,fresh,stopped,progress,**kwargs)
         except Exception:
@@ -90,7 +115,7 @@ def run_many(values,settings,mode,fresh,stopped,progress,*,worker=run_one,contro
         finally:
             if controls is not None:controls[n].finish()
         with guard:results[n]=value
-    threads=[threading.Thread(target=run,args=(n,),daemon=True) for n in values]
+    threads=[threading.Thread(target=run,args=(n,index),daemon=True) for index,n in enumerate(values)]
     for thread in threads:thread.start()
     for thread in threads:thread.join()
     return results

@@ -81,6 +81,8 @@ static int browser_unread,browser_unread_reads;
 static Object browser_unread_box={NULL,0};
 API int fixture_browser_unread_reads(void){return browser_unread_reads;}
 static int browser_clicks,browser_backs,browser_cell_reads,browser_count_reads,browser_visible_reads,browser_start;
+/* Modes 960/961: a cold-restoring chat screen whose model is not bound yet. */
+static int browser_current_chat_reads;
 static Image contact_profile_image={"DV.Profile.dll"};
 static Class contact_queue={"DV.Profiles","ProfilesQueueViewController"},contact_content={"DV.Profiles","ProfileViewController"};
 static Type contact_content_type={18,&contact_content};
@@ -109,7 +111,7 @@ static int model_mode(void){return mode>=870&&mode<=889;}
 static Object *browser_selected;
 static int browser_back_checks,observation_checks;
 static Object browser_parents[31];
-static void browser_init(void){model_count_reads=model_field_reads=model_clicks=0;contact_user_reads=0;browser_profile_closes=0;contact_user.type=mode==862?&tbool:&bt[3];int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=observation_checks=0;browser_start=0;browser_selected=&browser_chats[1];}
+static void browser_init(void){model_count_reads=model_field_reads=model_clicks=0;contact_user_reads=0;browser_profile_closes=0;contact_user.type=mode==862?&tbool:&bt[3];int i;for(i=0;i<31;i++){browser_parents[i].klass=&nc[0];browser_parents[i].value=i;}for(i=0;i<10;i++){bt[i].kind=18;bt[i].klass=&bc[i];}browser_clicks=browser_backs=browser_cell_reads=browser_count_reads=browser_visible_reads=0;browser_unread_reads=0;browser_last_reads=browser_message_id=browser_message_mine=browser_clear_unread=browser_seen=0;browser_back_checks=observation_checks=0;browser_start=0;browser_current_chat_reads=0;browser_selected=&browser_chats[1];}
 API int fixture_browser_clicks(void){return browser_clicks;}
 API int fixture_browser_backs(void){return browser_backs;}
 API void fixture_browser_entry(int entry){phase=entry;browser_start=entry;}
@@ -219,7 +221,7 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
  case 810:browser_long=mode==876?0:mode==805?101:100;return &browser_long_box;
  case 811:browser_long=mode==865?4470000001LL:mode==866?0:mode==867&&contact_user_reads>=2?201:((Object *)obj)->value==1?200:201;return &browser_long_box;
  case 812:browser_long=mode==875?0:((Object *)obj)->value==1?300:301;return &browser_long_box;
- case 813:return mode==803?&browser_chats[0]:browser_selected;
+ case 813:browser_current_chat_reads++;if(mode==961||(mode==960&&browser_current_chat_reads<3))return NULL;return mode==803?&browser_chats[0]:browser_selected;
  case 814:return mode==814?&browser_users[0]:&browser_users[browser_selected->value];
  case 815:
   browser_clicks++;if(obj!=&chats_obj||!args||args[0]!=&browser_cells[1]||args[1]!=&browser_chats[1])route_bad++;

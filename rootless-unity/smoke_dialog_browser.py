@@ -44,7 +44,7 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
         raw=script.exports_sync.probe();result=validate(raw,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
         if monitor:monitor.join(timeout=6)
         c=script.exports_sync.counts();n=raw['navigation']
-        expected_status={938:'returned',939:'frame-budget',940:'wrong-screen',930:'search-ready',931:'frame-budget',932:'opened',933:'frame-budget',934:'wrong-screen',935:'managed-exception',936:'wrong-screen',937:'returned',956:'returned',957:'dialogs-ready',958:'dialogs-ready',959:'managed-exception',800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'opened',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
+        expected_status={938:'returned',939:'frame-budget',940:'wrong-screen',930:'search-ready',931:'frame-budget',932:'opened',933:'frame-budget',934:'wrong-screen',935:'managed-exception',936:'wrong-screen',937:'returned',956:'returned',957:'dialogs-ready',958:'dialogs-ready',959:'managed-exception',960:'dialogs-ready',961:'identity-not-bound',800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'opened',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
         if mode in (800,846) and needs_reply_only and seen_ids is not None and '1002' in seen_ids:expected_status='exhausted'
         actual=result['state'] if result['state']!='stopped' else n['stage'] if n['stage']=='not-attempted' else n['error']
         assert actual==expected_status,(mode,operation,actual,n,c)
@@ -83,9 +83,14 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
             assert c['routes']==(0 if mode==959 else 1),(mode,n,c)
         if mode in (938,940):assert n['entry_read_budget_retries']==1,(mode,n,c)
         if mode in (842,939):assert n['entry_read_budget_retries']==3,(mode,n,c)
+        # A cold-restoring chat screen: the bounded binding wait recovers the
+        # list when the chat model arrives, and fails closed when it never does.
+        if mode==960:assert n['entry_binding_waits']==2 and n['profile_closed'] is False,(mode,n,c)
+        if mode==961:assert n['entry_binding_waits']==25 and not n['entry_verified'] and not n['action_attempted'],(mode,n,c)
+        if mode in (960,961):assert c['clicks']==0,(mode,n,c)
         if mode==940:assert c['clicks']==c['backs']==c['routes']==0,(mode,n,c)
         if mode in (840,842):assert n['back_budget_retries']==0,(mode,n,c)
-        if operation in ('return','list'):assert c['clicks']==0 and c['backs']==int(operation=='list' and entry=='either' and start==3),c
+        if operation in ('return','list'):assert c['clicks']==0 and c['backs']==int(operation=='list' and entry=='either' and start==3 and mode!=961),c
         print('Synthetic dialog browser',mode,operation,entry,actual,flush=True)
     finally:
         if script:
@@ -297,6 +302,10 @@ if __name__=='__main__':
     one(lib,957,'list',entry='dialogs',start_override=4)
     one(lib,958,'list',entry='either',start_override=3)
     one(lib,959,'back')
+    # A restoring chat whose model is still loading (reports 486/488): the
+    # startup list recovery waits for the binding instead of stopping the port.
+    one(lib,960,'list',entry='either',start_override=3)
+    one(lib,961,'list',entry='either',start_override=3)
     # Named engine in a local loader namespace: no reliance on global exports.
     with tempfile.TemporaryDirectory() as temp:
         local=Path(temp)/'libil2cpp.so';shutil.copy2(lib,local)

@@ -225,7 +225,7 @@ class ParallelController(unittest.TestCase):
             barrier.wait(timeout=3);seen.append(n)
             if n==5559:raise RuntimeError('PRIVATE')
             return 'ok'
-        progress=MagicMock();out=run_many([5557,5559,5563],Settings(),'inbox',False,threading.Event(),progress,worker=worker)
+        progress=MagicMock();out=run_many([5557,5559,5563],Settings(),'inbox',False,threading.Event(),progress,worker=worker,spacing=0)
         self.assertEqual(set(seen),{5557,5559,5563});self.assertEqual(out[5557],'ok');self.assertEqual(out[5563],'ok')
         self.assertNotIn('PRIVATE',json.dumps(out));self.assertNotIn('PRIVATE',str(progress.call_args_list))
     def test_stop_before_start_never_launches_workers(self):

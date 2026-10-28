@@ -21,6 +21,20 @@ SKIP = """n.profile_read_skipped=true;n.profile_read_skip_reason=reason;
     state.sample=null;n.samples=0;n.message_count=null;n.history_status='not-ready';
     n.phase='close-chat';state.nextActionAt=Date.now();return;"""
 
+# Reports 484/489 (v1.3.72, twelve ports started at once): while the host
+# authorization waits out shared-pooler retries, the fixed 100ms re-pend made
+# the native side re-run the full verified context about ten times a second,
+# burning the whole 6000-call budget in ~20s and stopping a healthy cycle at
+# call-limit in prepare-greeting. The waits now double up to 3200ms: the common
+# fast approval is still picked up at the first 100ms re-check, and a slow
+# approval costs a bounded number of fresh full re-verifications instead of the
+# whole budget. The submit gate still re-verifies identity/history on a fresh
+# frame after the durable ACK.
+PEND_BACKOFF = ("cohortPending=reservation;"
+    "state.cohortWaits=(state.cohortWaits||0)+1;"
+    "state.nextActionAt=Date.now()+100*Math.pow(2,Math.min(state.cohortWaits-1,5));"
+    "return;")
+
 CONTEXT = r'''
     if(k!=='chat'||!current.equals(target(state.chatController)))fail('identity-changed');
     const chat=target(state.chatModelPin),user=target(state.chatUserPin),cm=target(state.chatCMPin);
@@ -85,7 +99,7 @@ def specialize(source):
    n.phase='close-chat';state.nextActionAt=Date.now()+1000;return;
    }
    if(n.phase==='prepare-greeting'){
-''' + CONTEXT.replace("    if(!n.chat_identity_verified", INPUT_GATE + "\n    if(!n.chat_identity_verified") + cohort_pass.RESERVE.replace("state.nextActionAt=Date.now()+1000;return;","state.nextActionAt=Date.now()+100;return;") + r'''
+''' + CONTEXT.replace("    if(!n.chat_identity_verified", INPUT_GATE + "\n    if(!n.chat_identity_verified") + cohort_pass.RESERVE.replace("cohortPending=reservation;state.nextActionAt=Date.now()+1000;return;", PEND_BACKOFF) + r'''
     n.phase='submit-greeting';state.nextActionAt=Date.now();return;
    }
    if(n.phase==='submit-greeting'){

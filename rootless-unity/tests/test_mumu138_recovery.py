@@ -162,7 +162,7 @@ class Isolation(unittest.TestCase):
    else:
     first.wait(2);progress(port,'Продолжаю');second.set()
    return 'ok'
-  thread=threading.Thread(target=lambda:out.append(mumu_controller.run_many([5563,5557],None,'full',False,threading.Event(),progress,worker=worker)))
+  thread=threading.Thread(target=lambda:out.append(mumu_controller.run_many([5563,5557],None,'full',False,threading.Event(),progress,worker=worker,spacing=0)))
   thread.start()
   try:self.assertTrue(second.wait(2));self.assertTrue(thread.is_alive());progress.assert_called_once_with(5557,'Продолжаю')
   finally:release.set();thread.join(5)

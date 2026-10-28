@@ -11,7 +11,7 @@ import sqlite3
 from assistant_lock import operation_lock
 from assistant_store import data_directory, StateError
 from dialog_browser import (VERSION, MAX_TARGETS, ERRORS, PHASES, CHECKPOINTS,
-                            SELECTION, KINDS, MAX_BACK_BUDGET_RETRIES, MAX_OBSERVATION_BUDGET_RETRIES, MAX_ENTRY_READ_BUDGET_RETRIES, targets, perform)
+                            SELECTION, KINDS, MAX_BACK_BUDGET_RETRIES, MAX_OBSERVATION_BUDGET_RETRIES, MAX_ENTRY_READ_BUDGET_RETRIES, MAX_ENTRY_BINDING_WAITS, targets, perform)
 from one_chat_probe import identity
 
 
@@ -59,7 +59,7 @@ def safe_diagnostic(value):
     keys={'stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned',
           'scan_batches','action_attempted','action_completed','destination_verified',
           'unread_filter_applied','unread_verified','read_rows_skipped'}
-    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','header_rows_skipped','root_probe','observation_budget_retries','entry_read_budget_retries','entry_search_recovered','root_top_kind','last_presented_kind','controller_path'}:
+    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','header_rows_skipped','root_probe','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','root_top_kind','last_presented_kind','controller_path'}:
         raise ValueError('Invalid diagnostic')
     if (value['stage'] not in {'not-attempted','navigation-ready','navigation-stopped','cleanup-failed'}
             or value['error'] not in ERRORS or value['phase'] not in PHASES
@@ -82,6 +82,9 @@ def safe_diagnostic(value):
     entry_retries=value.get('entry_read_budget_retries',0)
     if type(entry_retries) is not int or not 0<=entry_retries<=MAX_ENTRY_READ_BUDGET_RETRIES:
         raise ValueError('Invalid entry read recovery counter')
+    binding_waits=value.get('entry_binding_waits',0)
+    if type(binding_waits) is not int or not 0<=binding_waits<=MAX_ENTRY_BINDING_WAITS:
+        raise ValueError('Invalid startup binding wait counter')
     retries=value.get('observation_budget_retries',0)
     if type(retries) is not int or not 0<=retries<=MAX_OBSERVATION_BUDGET_RETRIES:
         raise ValueError('Invalid observation recovery counter')

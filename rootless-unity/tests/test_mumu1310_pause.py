@@ -109,7 +109,7 @@ class WorkerPipes(unittest.TestCase):
             if n==5557 and text=='fixture-current-task':controls[n].request(True)
             if n==5557 and text=='На паузе':paused.set()
             if n==5559 and text=='fixture-finished':sibling_done.set()
-        result=[];thread=threading.Thread(target=lambda:result.append(run_many([5557,5559],Settings(),'full',False,stopped,progress,worker=worker,controls=controls)))
+        result=[];thread=threading.Thread(target=lambda:result.append(run_many([5557,5559],Settings(),'full',False,stopped,progress,worker=worker,controls=controls,spacing=0)))
         thread.start()
         try:
             self.assertTrue(paused.wait(12),events);self.assertTrue(sibling_done.wait(12),events)
