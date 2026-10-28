@@ -8,7 +8,8 @@ import subprocess
 import sys
 import threading
 import time
-from mumu_common import port,parse,MumuError
+from mumu_common import port,parse,MumuError,device_directory
+from mumu_pause import PortControl
 
 
 # Reports 484-489 (v1.3.72): twelve ports started from the GUI at the same
@@ -22,6 +23,66 @@ from mumu_common import port,parse,MumuError
 # still aborts that port cleanly; single-port runs and manual restarts
 # (run_one) never wait.
 STARTUP_STAGGER_SECONDS = 27.0
+
+
+# Reports 508-510 (v1.3.76, dropmefiles vYCRUyXNE): twelve ports started over
+# the 1.3.73 queue; the first nine came up, the LAST three died inside their
+# own stagger slots. 5577/5579 burned the worker's whole journal-start retry
+# ladder (5 attempts, ~1.5-4 minutes) on cloud-database-unavailable (connect):
+# by the time their slots arrived, the first nine ports were deep in their
+# first journal/inbox/profile storm against the same ~45-slot session pooler,
+# and the refusal outlasted every retry window. 5575 died silently right after
+# its initial report (status=starting, stage=worker-bootstrap, never advanced)
+# and stayed a dead row until a human pressed "Перезапустить порт". Both
+# shapes are PROVABLY PRE-SEND: the journal bootstrap block is idempotent
+# (CREATE IF NOT EXISTS, OR IGNORE backfill, policy inserts) and a report that
+# never advanced past worker-bootstrap means no ADB/journal action ran at all,
+# so a fresh worker process replays nothing. The controller therefore
+# re-queues such a port automatically - bounded, jittered, Stop-aware -
+# instead of leaving it dead for the whole run.
+STARTUP_REQUEUE_LIMIT = 2
+STARTUP_REQUEUE_DELAYS = (20.0, 45.0)
+# Pinned to cloud_database.TRANSIENT_CODES by test; duplicated so the GUI
+# controller itself never imports the engine's database layer.
+REQUEUE_DATABASE_CODES = frozenset({'cloud-database-unavailable', 'cloud-database-capacity'})
+
+
+def startup_requeue_reason(n, since):
+    """Closed evidence check on this port's own last-startup.json.
+
+    Returns a short reason line only when the report PROVES a pre-send,
+    requeueable startup death that was written after `since` (the failing
+    attempt's launch time): either a transient pooler-connect refusal at
+    journal bootstrap, or a worker that died silently at worker-bootstrap.
+    Everything else - reports from earlier runs, later stages, non-transient
+    database codes, user cancellations, missing or unreadable files -
+    returns None and keeps the hard stop untouched.
+    """
+    try:
+        path = device_directory(n) / 'last-startup.json'
+        if path.stat().st_mtime < since - 5.0:
+            return None  # A report left by an earlier run never requeues.
+        report = json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return None
+    if type(report) is not dict or report.get('device_port') != n:
+        return None
+    # The worker re-writes last-startup.json at every stage transition, so a
+    # report still at the INITIAL write after the process ended is a silent
+    # death before any stage completed (no ADB, no journal, no send).
+    if report.get('status') == 'starting' and report.get('stage') == 'worker-bootstrap':
+        return 'рабочий процесс молча завершился при подготовке порта'
+    database = report.get('database')
+    if (report.get('status') == 'stopped' and report.get('reason') == 'startup-failed'
+            and report.get('stage') == 'journal-initialization'
+            and report.get('error_type') == 'CloudDatabaseError'
+            and type(database) is dict
+            and set(database) == {'code', 'operation', 'automatic_retry'}
+            and database.get('operation') == 'connect'
+            and database.get('code') in REQUEUE_DATABASE_CODES
+            and database.get('automatic_retry') is False):
+        return 'общая база была занята при подключении'
+    return None
 
 
 def command():
@@ -108,7 +169,27 @@ def run_many(values,settings,mode,fresh,stopped,progress,*,worker=run_one,contro
                 if stopped.wait(delay):value='Остановлено до запуска.'
             if value is None:
                 kwargs={} if controls is None else dict(control=controls[n])
-                value=worker(n,settings,mode,fresh,stopped,progress,**kwargs)
+                attempt=0
+                while True:
+                    launched=time.time()
+                    value=worker(n,settings,mode,fresh,stopped,progress,**kwargs)
+                    # Reports 508-510: bounded automatic requeue of provably
+                    # pre-send startup deaths; see startup_requeue_reason.
+                    if stopped.is_set() or attempt>=STARTUP_REQUEUE_LIMIT:break
+                    reason=startup_requeue_reason(n,launched)
+                    if reason is None:break
+                    if controls is not None:
+                        # run_one already finished the previous control on its
+                        # own exit path; a live requeued attempt needs a fresh
+                        # one, exactly like the GUI's manual port resume, so
+                        # pause/resume stay usable and the restart button
+                        # never races the automatic retry.
+                        controls[n]=PortControl();kwargs=dict(control=controls[n])
+                    wait=STARTUP_REQUEUE_DELAYS[min(attempt,len(STARTUP_REQUEUE_DELAYS)-1)]*jitter()
+                    progress(n,'Автоповтор запуска (попытка {} из {}): {}; отправки не повторяются. Ожидаю ~{} с.'.format(
+                        attempt+2,STARTUP_REQUEUE_LIMIT+1,reason,int(wait)))
+                    if stopped.wait(wait):break  # Keep the real failure text.
+                    attempt+=1
         except Exception:
             value='Ошибка запуска рабочего процесса. См. папку отчётов этого порта.'
             progress(n,value)
