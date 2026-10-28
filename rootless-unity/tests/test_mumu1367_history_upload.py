@@ -101,14 +101,17 @@ class BoundedSharedSnapshot(unittest.TestCase):
             elif table=='profile_visits':db.execute('INSERT OR IGNORE INTO m'+str(self.port)+'__profile_visits(peer,friends_count,history_status,checked_at) VALUES(?,10,?,?)',(peer,'read',stamp))
             elif table=='manual_actions':db.execute('INSERT OR IGNORE INTO m'+str(self.port)+'__manual_actions(account,peer,initial_chat,text_hash,confirmed,status,created_at) VALUES(?,?,?,?,1,?,?)',('101',peer,'c','x'*64,'reserved-unknown',stamp))
 
-    def test_shared_claims_take_only_the_recent_slice(self):
+    def test_shared_claims_upload_completely_when_they_fit(self):
+        # 1.3.78: the whole registry (12,220 live claims, ~+1,000/day) uploads;
+        # a claim invisible to the pre-filter used to cost a full
+        # open-profile/open-chat cycle before the host peer-check skipped the
+        # peer as already greeted ("просмотрено 20, отправлено 0").
         store=self.store()
         db=self.raw();self.insert(db,'mumu_greeting_claims',[str(5000000000+i) for i in range(2500)])
         db.commit()
         visited=set(store.visited_peers())
-        self.assertEqual(len(visited),2000)
-        self.assertTrue(all(str(5000000000+i) in visited for i in range(500,2500)))
-        self.assertFalse(any(str(5000000000+i) in visited for i in range(500)))
+        self.assertEqual(len(visited),2500)
+        self.assertTrue(all(str(5000000000+i) in visited for i in range(2500)))
     def test_own_journals_stay_complete_regardless_of_age(self):
         store=self.store()
         db=self.raw()
@@ -118,7 +121,7 @@ class BoundedSharedSnapshot(unittest.TestCase):
         visited=set(store.visited_peers())
         self.assertTrue(all(str(6000000000+i) in visited for i in range(1300)))
         self.assertTrue(all(str(7000000000+i) in visited for i in range(900)))
-    def test_shared_blocks_slice_and_cross_source_dedup(self):
+    def test_shared_blocks_upload_completely_and_dedup(self):
         store=self.store()
         db=self.raw()
         self.insert(db,'mumu_peer_blocks',[str(8000000000+i) for i in range(700)])
@@ -126,8 +129,8 @@ class BoundedSharedSnapshot(unittest.TestCase):
         db.commit()
         visited=store.visited_peers();unique=set(visited)
         self.assertEqual(len(visited),len(unique))
-        self.assertTrue(all(str(8000000000+i) in unique for i in range(100,700)))
-        self.assertFalse(any(str(8000000000+i) in unique for i in range(100)))
+        self.assertTrue(all(str(8000000000+i) in unique for i in range(700)))
+        self.assertEqual(len(unique),700)
     def test_small_history_membership_unchanged(self):
         store=self.store()
         action=store.reserve(pending(),'Hi',approved=True)

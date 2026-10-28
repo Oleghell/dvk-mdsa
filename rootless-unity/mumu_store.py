@@ -198,28 +198,55 @@ class SharedStore(BaseStore):
     # native pre-filter only needs their recent slice; a stale shared peer may
     # cost one verified no-send skip, never a duplicate greeting. The port's own
     # journal sources stay complete because only the native filter prevents
-    # reopening a previously visited profile. The recency slice keeps the
-    # uploaded snapshot bounded regardless of shared-registry growth.
+    # reopening a previously visited profile.
+    # 1.3.78 (user report: «заходит в профиль, потом в личку и ничего не пишет,
+    # хотя 20 анкет просмотрел»): the live registry had grown to 12,220 claims
+    # (plus ~1,000/day across two installations), so the 2,000-row recency
+    # slice left ~84% of claimed peers INVISIBLE to the native pre-filter.
+    # Every such peer cost a full open-profile / open-chat / host peer-check /
+    # verified-Back cycle before being skipped as shared - the pass reported
+    # «просмотрено N» while zero greetings were sent, because the feed keeps
+    # re-serving peers some port had already greeted. The snapshot now uploads
+    # the FULL shared registries: the native selection-time check (batchSeen)
+    # skips an already-greeted peer WITHOUT opening its profile or chat, and
+    # cycles reach genuinely new peers. Only when the combined snapshot would
+    # exceed the safety limit do the shared sources degrade to the freshest
+    # rows that still fit; own journals always stay complete, and
+    # reserve()/peer_claimed() keep checking the full registry as the dedup
+    # authority, so a duplicate greeting remains impossible.
+    VISITED_SNAPSHOT_LIMIT = 100000
     VISITED_JOURNAL_SOURCES = (
         'SELECT peer FROM profile_visits',
         'SELECT peer FROM manual_actions',
         'SELECT peer FROM profile_recovery_skips')
-    VISITED_SHARED_RECENT_SOURCES = (
-        'SELECT peer FROM mumu_greeting_claims ORDER BY created_at DESC LIMIT 2000',
-        'SELECT peer FROM mumu_peer_blocks ORDER BY created_at DESC LIMIT 600')
+    VISITED_SHARED_SOURCES = (
+        'SELECT peer FROM mumu_greeting_claims ORDER BY created_at DESC',
+        'SELECT peer FROM mumu_peer_blocks ORDER BY created_at DESC')
 
     def visited_peers(self):
         from conversation_engine import identifier
         # One consistent, read-only snapshot; no global writer/advisory lock.
         # Tables were initialized at startup, not on every native compilation.
+        # Own journals upload COMPLETE (only the native filter prevents
+        # reopening the port's own visited profiles); shared registries take
+        # everything that still fits, freshest first, so the snapshot never
+        # exceeds the contract limit instead of ever stopping the port.
         values=[];seen=set()
         with self.read_connection() as db:
-            for sql in self.VISITED_JOURNAL_SOURCES+self.VISITED_SHARED_RECENT_SOURCES:
+            for sql in self.VISITED_JOURNAL_SOURCES:
                 for row in db.execute(sql):
                     peer=row[0]
                     if peer in seen:continue
                     seen.add(peer);values.append(peer)
-        if len(values)>10000:raise StateError('История больше безопасного лимита снимка; журналы не удаляй.')
+            if len(values)>self.VISITED_SNAPSHOT_LIMIT:
+                raise StateError('История больше безопасного лимита снимка; журналы не удаляй.')
+            for sql in self.VISITED_SHARED_SOURCES:
+                remaining=self.VISITED_SNAPSHOT_LIMIT-len(values)
+                if remaining<=0:break
+                for row in db.execute(sql+' LIMIT ?',(remaining,)):
+                    peer=row[0]
+                    if peer in seen:continue
+                    seen.add(peer);values.append(peer)
         return [identifier(x) for x in values]
 
     def record_visit(self,peer,navigation):

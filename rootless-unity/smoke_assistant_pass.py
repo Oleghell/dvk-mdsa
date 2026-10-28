@@ -233,11 +233,15 @@ def bootstrap_contract(library):
         # Bounded pieces with an explicit final flag finalize exactly like the
         # original single call; non-final pieces return True without freezing;
         # after the final piece every further call is rejected.
+        # 1.3.78: the stream now carries the FULL new cumulative ceiling
+        # (100,000 peers in 100 bounded pieces) — the live claims registry is
+        # 12,220 and growing, and the pre-filter must see all of it so
+        # already-greeted peers are skipped BEFORE their profile or chat opens.
         stream=session.create_script(manual.prepared_source('Synthetic hello')+manual.BOOTSTRAP_EXPORTS)
         stream.load()
         for invalid in (None,['0'],['-1'],['9223372036854775808'],['1;evil()']):
             assert stream.exports_sync.preparevisited(invalid,False) is False
-        streamed=[str(5000000000000000000+i) for i in range(9510)]
+        streamed=[str(5000000000000000000+i) for i in range(100000)]
         for position in range(0,len(streamed),1000):
             piece=streamed[position:position+1000]
             final=(position+1000)>=len(streamed)

@@ -22,6 +22,13 @@ FINALIZE_RPC_SECONDS = 60
 # The snapshot now streams in bounded pieces of the same magnitude as the
 # inbox payloads that reliably survive that transport.
 HISTORY_UPLOAD_CHUNK = 1000
+# 1.3.78: raised together with mumu_store.VISITED_SNAPSHOT_LIMIT (pinned equal
+# by test; duplicated so the JS contract never imports the store layer) so the
+# FULL shared claims registry fits in one uploaded snapshot - the native
+# selection-time pre-filter (batchSeen) then skips already-greeted peers
+# BEFORE their profile or chat is ever opened. Pieces stay at
+# HISTORY_UPLOAD_CHUNK; only the cumulative ceiling moved.
+SNAPSHOT_VISITED_LIMIT = 100000
 
 # Reports 449-454: a single failed pooler connect during a READ-ONLY
 # shared-registry check cancelled a live cycle and stopped the whole profile
@@ -116,7 +123,7 @@ def host_worker(target,args):
 def build(text, visited=()):
     text = check_text(text)
     from conversation_engine import identifier
-    if not isinstance(visited, (list, tuple)) or len(visited) > 10000:
+    if not isinstance(visited, (list, tuple)) or len(visited) > SNAPSHOT_VISITED_LIMIT:
         raise ValueError('Invalid visited profiles')
     visited = [identifier(peer) for peer in visited]
     source = cohort_pass.build([0] * 10)
@@ -167,7 +174,7 @@ function assistantPrepareVisited(values,final){
  }
  if(assistantVisitedParts===null)assistantVisitedParts=[];
  for(const value of checked)assistantVisitedParts.push(value);
- if(assistantVisitedParts.length>10000){assistantVisitedParts=null;return false;}
+ if(assistantVisitedParts.length>"""+str(SNAPSHOT_VISITED_LIMIT)+r"""){assistantVisitedParts=null;return false;}
  if(final===undefined||final===null||final===true){
   assistantVisited=Object.freeze(assistantVisitedParts);assistantVisitedParts=null;batchSeen=new Set(assistantVisited);
  }
