@@ -175,13 +175,19 @@ class SnapshotRead(unittest.TestCase):
         self.assertIs(error._dvk_profile_not_executed,True)
         self.assertEqual(error._dvk_preparation['stage'],'profile-history')
         self.assertFalse(hasattr(f,'script_source'))
-    def test_reserve_and_other_writes_are_never_retried(self):
+    def test_reserve_is_retried_but_post_send_writes_never_are(self):
+        # 1.3.80 (reports QZ2X7): the pre-ACK reservation now rides the same
+        # bounded transient window as the reads (a connect burst at reserve
+        # time killed eight ports as journal-error); everything AFTER the
+        # send - finish above all - stays unretried so an unknown write
+        # outcome is never replayed.
         source=(Path(__file__).resolve().parents[1]/'assistant_pass.py').read_text(encoding='utf-8')
         self.assertIn('shared_registry_read(lambda: store.visited_peers(), cancelled)',source)
         self.assertIn("pending['peer'] in preclaimed",source)
         self.assertIn('preclaimed = frozenset(visited)',source)
         self.assertIn('lambda: store.peer_terminal(pending)',source)
-        for write in ('shared_registry_read(lambda: store.reserve','shared_registry_read(lambda: store.finish'):
+        self.assertIn('lambda: store.reserve(pending, text, approved=True)',source)
+        for write in ('shared_registry_read(lambda: store.finish',):
             self.assertNotIn(write,source)
 
 

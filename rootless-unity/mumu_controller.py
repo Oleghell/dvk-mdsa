@@ -82,6 +82,24 @@ def startup_requeue_reason(n, since):
             and database.get('code') in REQUEUE_DATABASE_CODES
             and database.get('automatic_retry') is False):
         return 'общая база была занята при подключении'
+    # Reports QZ2X7 (v1.3.80, port 5585): the last stagger-queue ports can
+    # reach adb-preflight while their MuMu instance is still raising its ADB
+    # listener or finishing Android boot; the death is provably pre-send
+    # (preflight precedes journal, monitor and every send gate), and the
+    # worker now attaches the closed adb evidence to the failure. Only
+    # transport-shaped evidence requeues: a missing package, a rejected
+    # endpoint or an identity change keeps the hard stop, and the boot
+    # property check may only report the not-yet-booted value.
+    evidence = report.get('evidence')
+    if (report.get('status') == 'stopped' and report.get('reason') == 'startup-failed'
+            and report.get('stage') == 'adb-preflight' and report.get('error_type') == 'TestError'
+            and type(evidence) is dict and evidence.get('error') == 'startup-adb-preflight-failed'):
+        from startup_failure import recoverable_adb
+        if recoverable_adb(evidence):
+            return 'MuMu этого порта ещё поднимался при старте'
+        if (evidence.get('adb_check') == 'test-boot-completed'
+                and evidence.get('adb_reason') == 'unexpected-response'):
+            return 'Android этого порта ещё загружался при старте'
     return None
 
 

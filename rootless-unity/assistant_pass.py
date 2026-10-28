@@ -294,7 +294,25 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None,
                 return
             phase='profile-reserve'
             try:
-                state['action_id'] = store.reserve(pending, text, approved=True)
+                # Reports QZ2X7 (v1.3.79): eight of eleven reporting ports died
+                # stopped at prepare-profile-reserve-failed with
+                # cloud-database-unavailable/connect - the reservation is the
+                # LAST database step before the ACK, so its single attempt met
+                # the same synchronized pooler burst the reads survived since
+                # 1.3.69, killed the cycle as journal-error (a recovery BLOCK
+                # code) and the port never came back. The reservation writes
+                # nothing until its own COMMIT: a transport/capacity failure
+                # leaves no partial state, and the retry re-runs blocked()
+                # first, so a peer claimed by another port while we waited
+                # still raises SharedPeerClaimed into the verified skip. The
+                # same bounded jittered window as the reads applies; a lost
+                # COMMIT ack surfaces on retry as blocked() -> skip, never a
+                # duplicate greeting. Exhaustion defers into the verified
+                # no-send Back (no reservation, no ACK, peer stays eligible)
+                # instead of stopping the port.
+                state['action_id'] = shared_registry_read(
+                    lambda: store.reserve(pending, text, approved=True),
+                    lambda: cancelled() or done.is_set())
             except StateError as error:
                 from mumu_store import SharedPeerClaimed
                 if not isinstance(error, SharedPeerClaimed):
@@ -302,6 +320,17 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None,
                 from mumu_claims import skip
                 phase='profile-skip-ack'
                 skip(script, pending, state)
+                return
+            except CloudDatabaseError as error:
+                if error.code not in TRANSIENT_CODES or cancelled():
+                    raise
+                if done.is_set():
+                    # Same race as the reads, one reservation window later: the
+                    # native report (its own budget stop) already decides the
+                    # cycle; never stop the port after root() returned.
+                    state['peer_check_deferred']=True
+                    return
+                defer(pending)
                 return
             if cancelled() or done.is_set():
                 return  # Durable unknown reservation is intentionally retained.

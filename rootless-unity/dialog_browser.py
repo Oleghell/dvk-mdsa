@@ -21,8 +21,14 @@ MAX_ENTRY_READ_BUDGET_RETRIES=3
 # demanded a fully bound chat on the very first frame and stopped the port
 # with identity-not-bound. The binding there is read-only and precedes every
 # action, so a bounded frame wait replaces the instant fail; structural
-# identity failures stay fatal, and an exhausted wait still fails closed
-# with exactly the former identity-not-bound.
+# identity failures stay fatal, and an exhausted wait still fails closed -
+# but with its own closed code (v1.3.80, reports QZ2X7 ports 525/527: a
+# cold-restoring app left the chat model unbound past the whole wait on two
+# ports, the shared identity-not-bound label matched the recovery BLOCK set
+# and both ports stayed dead instead of recovering). entry-binding-timeout
+# is a readiness outcome: the recovery supervisor retries it like
+# wrong-screen, while every structural identity mismatch keeps the fatal
+# identity-not-bound code.
 MAX_ENTRY_BINDING_WAITS=25
 LIMIT=32
 MAX_TARGETS=1000
@@ -30,7 +36,7 @@ MAX_TARGETS=1000
 SELECTION_ERRORS={'selection-screen-changed','selection-controller-changed','selection-table-changed',
                   'selection-list-changed','selection-count-changed','selection-cell-changed',
                   'selection-chat-changed','selection-detached','selection-unread-changed','selection-last-message-changed'}
-ERRORS=nav.ERRORS|SELECTION_ERRORS|{'identity-not-bound','selection-changed','collection-too-large','binding-unavailable','unread-count-invalid'}
+ERRORS=nav.ERRORS|SELECTION_ERRORS|{'identity-not-bound','entry-binding-timeout','selection-changed','collection-too-large','binding-unavailable','unread-count-invalid'}
 KINDS=route.KINDS|{'chat','profile'}
 PHASES={'entry','wait-list','scan','wait-chat','wait-back','wait-search','done'}
 CHECKPOINTS={'model-route-owner','model-route-parameters','model-route-enums','model-route-literals','model-route-signature','model-manager','model-collection','model-route','not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','unread-count','chat-controller','open-handler','back-handler','profile-queue','profile-close','ready'}
@@ -287,7 +293,7 @@ TICK=r'''
      // probe); structural failures and an exhausted wait still fail closed.
      const pending=call(s.currentChat,current);
      if(pending.isNull()||modelIdentity(pending)===null){
-      if(n.entry_binding_waits>=25)fail('identity-not-bound');
+      if(n.entry_binding_waits>=25)fail('entry-binding-timeout');
       n.entry_binding_waits++;return;
      }
      const bound=currentIdentity(current);

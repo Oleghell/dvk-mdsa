@@ -24,6 +24,7 @@ KNOWN = {'account-owned-by-other-scope','city-claim-changed','profile-authorizat
     'guided-contact-history-changed', 'contact-protection-failed', 'contact-payload-invalid',
     'contact-limit-exceeded', 'guided-binding-not-authorized', 'guided-outgoing-not-verified',
     'reply-selection-not-verified', 'unread-selection-not-verified', 'untracked-dialog', 'changed-dialog', 'navigation-stopped',
+    'no-chain-dialogs', 'history-cooldown',
     'history-changed-during-approval', 'greeting-not-verified', 'submission-unknown',
     'start-before-peer-reply', 'guided-binding-changed', 'guided-history-not-verified',
     'guided-consent-required', 'legacy-reservation-present'}

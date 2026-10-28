@@ -8,7 +8,8 @@ RETRY_CODES={'frame-budget','call-limit','frame-limit','transition-timeout','cal
     'history-loading-timeout','history-read-budget-timeout','history-not-ready','profile-recovery-limit',
     'selection-unavailable','screen-not-ready','wrong-screen','unexpected-screen','read-stopped',
     'native-transport-error','native-operation-cancelled','native-script-error','native-state-error',
-    'native-process-unavailable','transport-error','device-timeout','readonly-list-updated'}
+    'native-process-unavailable','transport-error','device-timeout','readonly-list-updated',
+    'entry-binding-timeout'}
 BLOCK_CODES={'city-claim-changed','profile-authorization-pending','profile-authorization-missing','profile-authorization-failed','profile-script-unavailable','unverified-host-failure','identity-changed','identity-not-bound','untracked-dialog','changed-dialog',
     'report-write-failed','message-not-approved','greeting-not-approved','cancelled',
     'journal-busy','journal-locked','journal-readonly','journal-storage-full','journal-io-error',

@@ -140,7 +140,16 @@ def run(spec,stopped,progress=lambda _:None,*,runner=None):
                 dict(metrics.snapshot(),tool_version=VERSION,device_port=n,installation_id=installation_tag())))
             stage='adb-preflight'
             adb=TargetOnlyAdb(current.adb,folder)
-            boot=preflight(adb)
+            # Reports QZ2X7 (v1.3.80, port 5585): a stagger-queued port whose
+            # MuMu instance was still raising its ADB listener died at
+            # adb-preflight with evidence=null, so the controller's bounded
+            # pre-send requeue could not prove the death transient and the
+            # port stayed dead. The checkpoint attaches the closed ADB
+            # check/reason evidence (last failed event of this adb) to the
+            # raised error; nothing about the failure itself changes.
+            from startup_failure import checkpoint
+            with checkpoint('adb-preflight', adb=adb):
+                boot=preflight(adb)
             # Two supplied ports may be aliases of ONE Android instance. Its boot
             # lock also blocks duplicate workers launched by a second GUI.
             stage='device-identity-lock'

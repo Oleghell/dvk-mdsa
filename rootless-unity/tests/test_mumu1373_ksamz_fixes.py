@@ -113,7 +113,10 @@ class StartupChatBindingWait(unittest.TestCase):
         part=source.split("if(operation==='list'&&entryScreen==='either'&&k==='chat'){")[1].split("if(operation==='list'&&k==='profile'){")[0]
         self.assertIn('const pending=call(s.currentChat,current);',part)
         self.assertIn("if(pending.isNull()||modelIdentity(pending)===null){",part)
-        self.assertIn("if(n.entry_binding_waits>=25)fail('identity-not-bound');",part)
+        # 1.3.80 (reports QZ2X7): the exhausted wait keeps failing closed but
+        # with its own readiness code so supervision can recover it; the
+        # structural binding failures below keep identity-not-bound.
+        self.assertIn("if(n.entry_binding_waits>=25)fail('entry-binding-timeout');",part)
         self.assertIn('n.entry_binding_waits++;return;',part)
         self.assertEqual(part.count('currentIdentity(current)'),2)
         self.assertEqual(part.count('call(s.closeChat,current)'),1)

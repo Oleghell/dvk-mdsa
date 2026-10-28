@@ -91,6 +91,8 @@ def main(folder):
                       history_read_budget_initial_seconds=20.0, history_read_budget_max_seconds=48.0,
                       pre_checkpoint_read_budget_recovery=True, budget_deadline_between_clean_reads_deferral=True,
                       whatsapp_misspelling_family=True, snapshot_claimed_precheck=True, idle_poll_jitter_range=[1.0, 1.6],
+                      reserve_transient_window=True, entry_binding_timeout_code=True,
+                      inbox_empty_reason_codes=True, preflight_adb_evidence_requeue=True,
                       history_loading_wait_seconds=15,
                       history_loading_peer_cooldown_seconds=60,
                       contact_choice_clarification_once=True, contextual_incoming_batch=True,
