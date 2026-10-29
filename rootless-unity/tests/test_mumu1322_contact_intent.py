@@ -21,6 +21,16 @@ MAX_CASES=(
  'Пользуюсь приложением макс, пиши туда',
  'В Максе мне удобнее',
  'Мак можешь скачать нормальный мессенджер',
+ # Reports 70ce6153 port 5563 (v1.3.84): inverted verb/app order. The after-side
+ # verb list lacked these verbs, so the choice closed the chain as declined.
+ 'Я в Максе сижу',
+ 'В Максе сижу',
+ 'В Максе общаюсь',
+ 'Я в Максе переписываюсь',
+ 'В максе пока сижу',
+ 'В Максе сейчас сижу',
+ 'В Максе пользуюсь',
+ 'Макс сижу',
 )
 # A question merely suggesting an option is ambiguous, not a confirmed choice.
 MAX_CASES=tuple(x for x in MAX_CASES if x!='Можно в Мак?')

@@ -112,15 +112,39 @@ def isolation_reason(result):
 
 
 class InboxChain(GuidedChain):
-    """Guided chain that also accepts peers greeted through «Новые анкеты»."""
+    """Guided chain that also accepts peers greeted through «Новые анкеты»
+    and dialogs adopted after the operator started and led them himself."""
+
+    def __init__(self, store, *args, **kwargs):
+        super().__init__(store, *args, **kwargs)
+        from assistant_operator_adoption import ensure_tables
+        ensure_tables(store)
 
     def _guided(self, who):
         with self.store.read_connection() as db:
             return db.execute('SELECT 1 FROM guided_bindings WHERE account=? AND peer=?',
                               (who['account'], who['peer'])).fetchone() is not None
 
+    def _operator(self, who):
+        with self.store.read_connection() as db:
+            return db.execute('SELECT 1 FROM operator_bindings WHERE account=? AND peer=?',
+                              (who['account'], who['peer'])).fetchone() is not None
+
     def authorized(self, who):
         who = identity(who)
+        if self._operator(who):
+            # v1.3.84: an adopted operator-led dialog. The durable anchor hash
+            # plays the same role as a journal greeting hash; the chain itself
+            # was already anchored atomically at adoption time.
+            with self.store.read_connection() as db:
+                row = db.execute('SELECT chat,anchor_hash FROM operator_bindings WHERE account=? AND peer=?',
+                                 (who['account'], who['peer'])).fetchone()
+                bound = db.execute('SELECT chat FROM chain_dialogs WHERE account=? AND peer=?',
+                                   (who['account'], who['peer'])).fetchone()
+            if (row is None or row[0] != who['chat']
+                    or (bound is not None and bound[0] != who['chat'])):
+                raise StateError('operator-binding-not-authorized')
+            return row[1]
         if self._guided(who):
             return super().authorized(who)
         try:
@@ -134,6 +158,21 @@ class InboxChain(GuidedChain):
         if approved is not True:
             raise StateError('guided-consent-required')
         who = identity(snapshot['identity'])
+        if self._operator(who):
+            # v1.3.84: an adopted operator-led dialog. The durable anchor must
+            # still be present in the verified history; nothing is re-anchored,
+            # reset or replaced here.
+            with self.store.read_connection() as db:
+                bound = db.execute('SELECT g.chat,c.greeting,c.chat FROM operator_bindings g '
+                                   'LEFT JOIN chain_dialogs c ON c.account=g.account AND c.peer=g.peer '
+                                   'WHERE g.account=? AND g.peer=?',
+                                   (who['account'], who['peer'])).fetchone()
+            if (bound is None or bound[0] != who['chat'] or bound[2] != who['chat']
+                    or bound[1] is None):
+                raise StateError('operator-binding-not-authorized')
+            if not any(m['id'] == bound[1] for m in snapshot['messages']):
+                raise StateError('guided-history-not-verified')
+            return
         if self._guided(who):
             return super().bind(snapshot, greetings, approved=True)
         try:
@@ -155,6 +194,17 @@ def inbox_targets(chain):
         # The primary journal deliberately admits SELECT, not arbitrary WITH
         # statements, in read-only mode. Keep this query a SELECT with the same
         # source precedence; do not loosen the guard or take a writer lock.
+        # v1.3.84: operator adoptions are a THIRD source beside the journal and
+        # guided bindings. They can never coexist with either (adoption refuses
+        # both); the operator arm alone yields to any journal or guided row, so
+        # a stale mixed row can never duplicate or shadow a real target.
+        operator_source=''
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operator_bindings'").fetchone():
+            operator_source='''
+            UNION ALL
+            SELECT b.account,b.peer,b.chat FROM operator_bindings b
+            WHERE NOT EXISTS (SELECT 1 FROM guided_bindings g WHERE g.account=b.account AND g.peer=b.peer)
+              AND NOT EXISTS (SELECT 1 FROM manual_actions m WHERE m.account=b.account AND m.peer=m.peer)'''
         rows = db.execute('''
           SELECT s.account,s.peer,COALESCE(c.chat,s.chat),c.stage,
             EXISTS(SELECT 1 FROM chain_contact_outbox o WHERE o.chat=c.chat AND o.status='pending'),
@@ -167,8 +217,9 @@ def inbox_targets(chain):
             SELECT m.account,m.peer,m.initial_chat FROM manual_actions m
             WHERE m.status!='not-invoked' AND NOT EXISTS (
               SELECT 1 FROM guided_bindings g WHERE g.account=m.account AND g.peer=m.peer)
+          ''' + operator_source + '''
           ) s LEFT JOIN chain_dialogs c ON c.account=s.account AND c.peer=s.peer
-          '''+manual_filter+' ORDER BY s.account,s.peer').fetchall()
+          ''' + manual_filter + ' ORDER BY s.account,s.peer').fetchall()
     attention, unread = [], []
     from assistant_contact_receipt import candidates as contact_candidates
     receipt_reviews=contact_candidates(chain.store)
@@ -259,6 +310,17 @@ def with_seen_ids(chain, allowed):
                 review=(who['account'],who['peer'],who['chat']) in receipt_reviews
                 if len(rows)>128 and not review:raise StateError('observed-history-too-large')
                 out.append(dict(who,seen_ids=[] if review else rows))
+        # v1.3.84: rejected operator-dialog probes ride along as skip markers:
+        # the native scan bypasses such rows until their last message changes.
+        # They are never real targets and never duplicate a tracked peer.
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operator_rejects'").fetchone():
+            known={(x['account'],x['peer']) for x in out}
+            for account,peer,chat,last in db.execute(
+                    'SELECT account,peer,chat,last_message FROM operator_rejects'):
+                if (isinstance(last,str) and last and (account,peer) not in known
+                        and len(out)<1000):
+                    out.append(dict(account=account,peer=peer,chat=chat,seen_ids=[last]))
+                    known.add((account,peer))
     return targets(out)
 
 
@@ -270,6 +332,7 @@ def report():
                 submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0, contacts_detected=0, contact_delivery_pending=0,
                 contact_notifications=dict(accepted=0,unknown=0,disabled=0,blocked=0),
                 isolated_dialogs=0, isolated_reasons={}, review_causes={}, isolation_notification='not-needed', review_pending=0,
+                operator_probed=0, operator_adopted=0, operator_rejected=0,
                 groq_requests=0, openrouter_requests=0, gemini_requests=0, zai_requests=0, ai_requests=0, ai_provider='groq', ai_model=None,
                 groq_context_export_enabled=False, openrouter_context_export_enabled=False, gemini_context_export_enabled=False, zai_context_export_enabled=False, outcomes={}, per_message_confirmation=True, automatic_send=False,
                 return_verified=False, dialogs_verified=False, delivery_confirmed=False,
@@ -369,7 +432,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         who = identity(value['identity']) if value['identity'] is not None else None
         if (value['state'] in ('opened', 'returned')) != (who is not None):
             raise ValueError('Invalid navigation binding')
-        if operation == 'open' and who is not None and not any(
+        if operation == 'open' and who is not None and not kwargs.get('adopt_untracked') and not any(
                 x['account'] == who['account'] and x['peer'] == who['peer'] and
                 (int(x['chat']) <= 0 or x['chat'] == who['chat']) for x in kwargs['allowed']):
             raise StateError('untracked-dialog')
@@ -439,7 +502,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             from assistant_stage_timing import timed
             open_timing = {}
             selected = timed(open_timing, 'open', call, 'open', allowed=with_seen_ids(chain,allowed),
-                            entry=entry, unread_only=unread_only, needs_reply_only=True)
+                            entry=entry, unread_only=unread_only, needs_reply_only=True,
+                            adopt_untracked=True)
             entry = 'dialogs'
             if selected['state'] == 'exhausted':
                 if group_kind == 'read':
@@ -451,6 +515,35 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if manually_blocked(chain.store,who):
                 # /num may commit during native open. Do not read, draft,
                 # screenshot, notify or mutate the chain; only verified Back.
+                leave_manual(who)
+                continue
+            import assistant_operator_adoption as operator_adoption
+            if not operator_adoption.tracked(chain.store, who):
+                # v1.3.84: the operator starts and leads some dialogs himself,
+                # outside the send journal. The native row filter still proved
+                # THIS chat needs a reply; one read-only structure probe now
+                # either adopts it (the operator's own verified messages exist)
+                # or records a durable skip marker until its last message
+                # changes. An adopted chat then flows through the SAME reply,
+                # contact and refusal gates as every tracked dialog, so numbers
+                # sent by the peer are captured and notified; a stranger-initiated
+                # chat the operator never answered stays untouched.
+                progress('Чат без журнала • проверяю структуру диалога оператора.')
+                out['operator_probed'] += 1
+                outcome = operator_adoption.probe(
+                    chain, who,
+                    lambda expected: reader(settings.adb, settings.folder, stopped.is_set, expected),
+                    stopped.is_set, progress)
+                if outcome != 'adopted':
+                    if outcome == 'rejected':
+                        out['operator_rejected'] += 1
+                    leave_manual(who)
+                    continue
+                out['operator_adopted'] += 1
+            elif not any(x['account'] == who['account'] and x['peer'] == who['peer'
+                    ] for items, _group_unread, _group_kind in groups for x in items):
+                # The adoption filter must not bypass this round's deliberate
+                # exclusions (history cooldown or reply window): leave read-only.
                 leave_manual(who)
                 continue
             progress(f'Читаю открытый диалог • {out["dialogs_opened"]}')

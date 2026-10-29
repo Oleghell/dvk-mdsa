@@ -179,7 +179,7 @@ UTILS=r'''
    const who={account:id64(s.accountId,manager),peer:id64(s.peerId,user),chat:id64(s.chatId,chat)};
    if(who.account===who.peer)return null;return {who,user,manager};
   };
-  const permitted=who=>allowedTargets.some(x=>x.account===who.account&&x.peer===who.peer&&(new Int64(x.chat).compare(0)<=0||x.chat===who.chat));
+  const permitted=who=>adoptUntracked||allowedTargets.some(x=>x.account===who.account&&x.peer===who.peer&&(new Int64(x.chat).compare(0)<=0||x.chat===who.chat));
   const same=(a,b)=>a!==null&&b!==null&&a.account===b.account&&a.peer===b.peer&&a.chat===b.chat;
   const currentIdentity=current=>{
    const chat=call(s.currentChat,current);if(chat.isNull())fail('identity-not-bound');own(chat);
@@ -358,14 +358,15 @@ TICK=r'''
 '''
 
 
-def build(operation, *, allowed=(), expected=None, entry='search', unread_only=False, needs_reply_only=False):
+def build(operation, *, allowed=(), expected=None, entry='search', unread_only=False, needs_reply_only=False, adopt_untracked=False):
     if operation not in ('open','back','return','list') or entry not in ('search','dialogs','either') or (entry=='either' and operation!='list'):raise ValueError('Invalid fixed operation')
     if type(unread_only) is not bool or (unread_only and operation!='open'):raise ValueError('Invalid unread filter')
     if type(needs_reply_only) is not bool or (needs_reply_only and operation!='open'):raise ValueError('Invalid reply filter')
+    if type(adopt_untracked) is not bool or (adopt_untracked and operation!='open'):raise ValueError('Invalid adoption filter')
     allowed=targets(allowed);expected=identity(expected) if expected is not None else None
     if (operation=='back')!=(expected is not None) or (operation!='open' and allowed):raise ValueError('Invalid operation binding')
     s=route.FUNCTION
-    s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+',unreadOnly='+json.dumps(unread_only)+',needsReplyOnly='+json.dumps(needs_reply_only)+';')
+    s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+',unreadOnly='+json.dumps(unread_only)+',needsReplyOnly='+json.dumps(needs_reply_only)+',adoptUntracked='+json.dumps(adopt_untracked)+';')
     s=replace_once(s,' function prepareNavigation(',PREPARE+'\n function prepareNavigation(')
     s=replace_once(s,'prepareDialogRoute(f,setup.navigation,getClass);','prepareDialogRoute(f,setup.navigation,getClass);prepareDialogBrowser(f,setup.navigation,getClass);')
     s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,back_budget_retries:0,observation_budget_retries:0,entry_read_budget_retries:0,entry_binding_waits:0,entry_search_recovered:false,unread_filter_applied:false,unread_verified:false,reply_filter_applied:false,reply_needed_verified:false,waiting_rows_skipped:0,handled_rows_skipped:0,profile_closed:false});
@@ -423,10 +424,11 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     return s
 
 
-def validate(value,operation, *, allowed=(), expected=None, unread_only=False, needs_reply_only=False):
+def validate(value,operation, *, allowed=(), expected=None, unread_only=False, needs_reply_only=False, adopt_untracked=False):
     if operation not in ('open','back','return','list'):raise ValueError('Invalid fixed operation')
     if type(unread_only) is not bool or (unread_only and operation!='open'):raise ValueError('Invalid unread filter')
     if type(needs_reply_only) is not bool or (needs_reply_only and operation!='open'):raise ValueError('Invalid reply filter')
+    if type(adopt_untracked) is not bool or (adopt_untracked and operation!='open'):raise ValueError('Invalid adoption filter')
     allowed=targets(allowed);expected=identity(expected) if expected is not None else None
     if (operation=='back')!=(expected is not None) or (operation!='open' and allowed):raise ValueError('Invalid operation binding')
     if not isinstance(value,dict) or not isinstance(value.get('navigation'),dict):raise ValueError('Missing dialog evidence')
@@ -488,7 +490,12 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
         elif not n['action_completed'] or (operation=='back' and (not n['chat_verified'] or not n['list_verified'] or private!=expected)) or (operation=='return' and (not n['list_verified'] or private is not None)):
             raise ValueError('Missing return evidence')
     if private is not None:
-        if operation=='open' and not any(x['account']==private['account'] and x['peer']==private['peer'] and (int(x['chat'])<=0 or x['chat']==private['chat']) for x in allowed):raise ValueError('Untracked private binding')
+        # v1.3.84: an adoption-mode open intentionally selects a row OUTSIDE the
+        # uploaded journal targets (an operator-led dialog). The native scan
+        # still proves the row needs a reply; the host routes it to the
+        # read-only structure probe before anything is sent. Every other
+        # operation keeps the strict tracked-binding contract.
+        if operation=='open' and not adopt_untracked and not any(x['account']==private['account'] and x['peer']==private['peer'] and (int(x['chat'])<=0 or x['chat']==private['chat']) for x in allowed):raise ValueError('Untracked private binding')
         if operation=='back' and private!=expected:raise ValueError('Different back binding')
         if operation in ('return','list') or not n['chat_verified']:raise ValueError('Unexpected identity')
     # Reuse the verified thread/root/handle/modal/readiness validator without
@@ -566,17 +573,17 @@ class PreparedNavigation:
             self.progress(f'Восстанавливаю связь перед переходом • попытка {attempt}/2 • скрипт ещё не загружен')
 
 
-def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),expected=None,entry='search',unread_only=False, needs_reply_only=False):
+def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),expected=None,entry='search',unread_only=False, needs_reply_only=False, adopt_untracked=False):
     from one_chat_device import capture
     from search_online import inspect
     from startup_failure import checkpoint
     with checkpoint('navigation-source'):
         allowed=targets(allowed)
         if operation!='open' and allowed:raise ValueError('Invalid operation binding')
-        source=build(operation,allowed=(),expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
+        source=build(operation,allowed=(),expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only,adopt_untracked=adopt_untracked)
     def checked(result):
         try:
-            return validate(result,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
+            return validate(result,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only,adopt_untracked=adopt_untracked)
         except Exception as error:
             # A rejected result never becomes a usable result. Preserve ONLY the
             # independently validated public diagnostic; discard all raw RPC data.

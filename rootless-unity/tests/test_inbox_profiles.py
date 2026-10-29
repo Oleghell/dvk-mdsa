@@ -77,6 +77,9 @@ class Base(unittest.TestCase):
 
 class Inbox(Base):
     def test_empty_journal_touches_nothing(self):
+        # The empty-inbox zero-device-work contract is unchanged (v1.3.84 kept
+        # it): operator-led dialogs are adopted only inside passes that already
+        # have tracked targets, never by sweeping an empty inbox.
         out = self.walk([], [])
         self.assertEqual(out['status'], 'inbox-empty')
         self.nav.assert_not_called()
@@ -339,11 +342,54 @@ class Inbox(Base):
         inbox.record_checked(chain, active[0]); inbox.reset_read_round(chain)
         self.assertEqual(inbox.read_round(chain, active), active)
 
-    def test_foreign_chat_is_never_read(self):
+    def test_foreign_chat_is_probed_readonly_and_never_answered(self):
+        # v1.3.84: an untracked chat the operator never answered is probed
+        # read-only (structure check), rejected with a durable skip marker and
+        # left via verified Back; no reply, no draft, no notification. The old
+        # contract (never even read) hid operator-led dialogs and their contacts.
         self.journal()
-        out = self.walk([nav('opened', OTHER)], [])
-        self.assertEqual(out['reason'], 'untracked-dialog')
-        self.reader.assert_not_called()
+        stranger = dict(identity=dict(OTHER), messages=[msg(1002, 'Привет', who=OTHER)],
+                        latest_message_id='1002')
+        out = self.walk([nav('opened', OTHER), nav('returned', OTHER), nav('exhausted'),
+                         nav('exhausted'), nav('search-ready')], [stranger])
+        self.assertEqual(out['status'], 'inbox-completed')
+        self.assertEqual(out['operator_probed'], 1)
+        self.assertEqual(out['operator_rejected'], 1)
+        self.assertEqual(out['operator_adopted'], 0)
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.approve.call_count, 0)
+        self.assertEqual(self.reader.call_count, 1)  # the read-only probe only
+        with self.store.read_connection() as db:
+            self.assertEqual(db.execute('SELECT last_message,reason FROM operator_rejects').fetchall(),
+                             [('1002', 'no-own-messages')])
+            self.assertEqual(db.execute('SELECT 1 FROM operator_bindings').fetchall(), [])
+            self.assertEqual(db.execute("SELECT 1 FROM chain_dialogs WHERE peer=?", (OTHER['peer'],)).fetchall(), [])
+
+    def test_operator_led_dialog_is_adopted_and_answered_by_structure(self):
+        # v1.3.84: the operator started and led this chat himself; during a
+        # normal (non-empty) pass the native scan opens its row, the probe
+        # adopts it and the normal chain flow answers the peer's latest message
+        # with the standard question in the SAME cycle.
+        self.journal()
+        own = msg(1001, 'Привет, я Игорь, давай пообщаемся', True, OTHER)
+        peer = msg(1002, 'Привет, тоже рада', False, OTHER)
+        question = msg(1003, QUESTIONS[0], True, OTHER)
+        reads = [dict(identity=dict(OTHER), messages=[own, peer], latest_message_id='1002'),
+                 dict(identity=dict(OTHER), messages=[own, peer]),
+                 dict(identity=dict(OTHER), messages=[own, peer]),
+                 dict(identity=dict(OTHER), messages=[own, peer, question])]
+        out = self.walk([nav('opened', OTHER), nav('returned', OTHER), nav('exhausted'),
+                         nav('exhausted'), nav('search-ready')], reads)
+        self.assertEqual(out['status'], 'inbox-completed')
+        self.assertEqual(out['operator_adopted'], 1)
+        self.assertEqual(out['operator_rejected'], 0)
+        self.assertEqual(self.sent, [QUESTIONS[0]])
+        with self.store.read_connection() as db:
+            self.assertEqual(db.execute('SELECT anchor_hash FROM operator_bindings').fetchall() and True, True)
+            self.assertEqual(db.execute('SELECT stage FROM chain_dialogs WHERE peer=?', (OTHER['peer'],)).fetchall(),
+                             [('wait-mood',)])
+            self.assertEqual(db.execute('SELECT 1 FROM operator_rejects').fetchall(), [])
+        self.assertIn('chain-waiting:wait-mood', out['outcomes'])
 
     def test_unread_evidence_is_required(self):
         self.journal()

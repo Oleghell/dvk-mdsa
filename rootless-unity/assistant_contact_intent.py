@@ -42,7 +42,15 @@ def max_selected(messages):
             if deny:return False
             bare=re.fullmatch(r'(?:давай(?:те)?\s+)?(?:в\s+)?'+MAX,value)
             before=re.search(r'\b(?:есть|(?:тольк[оа]|тока)|пользуюсь|сижу|общаюсь|переписываюсь|работает|установлен\w*|давай(?:те)?|можно|лучше|удобнее|предпочитаю)\b(?:\s+\w+){0,4}\s+'+MAX+r'\b',value)
-            after=re.search(r'\b'+MAX+r'\s+(?:(?:у меня|мне|тоже|сейчас|пока|только|можешь)\s+){0,3}(?:есть|работает|установлен\w*|можно|удобнее|только|скача\w*)\b',value)
+            # Reports 70ce6153 port 5563 (v1.3.84): «Я в Максе сижу» inverted the
+            # verb/app order, and the after-side verb list lacked сижу/общаюсь/
+            # переписываюсь/пользуюсь/давай/лучше/предпочитаю. The choice was not
+            # recognized, so the contact-only policy closed the live chain as
+            # declined. The after list now mirrors the before list: the same
+            # verbs accept the app in EITHER position. Deny patterns above still
+            # run first, so «Макс не работает»-style refusals stay refusals.
+            after=re.search(r'\b'+MAX+r'\s+(?:(?:у меня|мне|тоже|сейчас|пока|тольк[оа]|тока|можешь)\s+){0,3}'
+                +r'(?:есть|работает|установлен\w*|можно|удобнее|лучше|предпочитаю|пользуюсь|сижу|общаюсь|переписываюсь|давай(?:те)?|тольк[оа]|тока|скача\w*)\b',value)
             owner=re.fullmatch(r'(?:ну\s+)?у меня\s+(?:есть\s+)?'+MAX,value)
             positive |= bool((bare and not other_available) or before or after or owner)
     return positive
