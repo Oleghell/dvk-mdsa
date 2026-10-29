@@ -9,7 +9,7 @@ in bounded 1000-entry pieces with an explicit final flag and (b) bounds the
 snapshot itself: the port's own journals stay complete, only the shared
 host-authoritative sources take a recency slice. Synthetic only."""
 import sqlite3,unittest
-from datetime import datetime,timedelta
+from datetime import datetime,timedelta,timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -23,6 +23,9 @@ from test_mumu1326_setup_retry import setup_error
 from test_search_online import OnlineFake
 
 BASE=datetime(2026,1,1)
+# v1.3.87: greeting claims live in a 24-hour cross-port window, so claim
+# fixtures must stamp INSIDE that window (blocks/own journals have no TTL).
+FRESH=datetime.now(timezone.utc).replace(microsecond=0)
 
 
 class ChunkedHistoryUpload(unittest.TestCase):
@@ -94,8 +97,9 @@ class BoundedSharedSnapshot(unittest.TestCase):
         return db
 
     def insert(self,db,table,peers,*,start=0,step=1,with_time=True):
+        base=FRESH if table=='mumu_greeting_claims' else BASE
         for offset,peer in enumerate(peers):
-            stamp=(BASE+timedelta(seconds=start+offset*step)).strftime('%Y-%m-%d %H:%M:%S')
+            stamp=(base+timedelta(seconds=start+offset*step)).strftime('%Y-%m-%d %H:%M:%S')
             if table=='mumu_greeting_claims':db.execute('INSERT OR IGNORE INTO mumu_greeting_claims(peer,device,account,created_at) VALUES(?,?,?,?)',(peer,'1:5557','101',stamp))
             elif table=='mumu_peer_blocks':db.execute('INSERT OR IGNORE INTO mumu_peer_blocks(peer,reason,device,account,chat,created_at) VALUES(?,?,?,?,?,?)',(peer,'contact-refused','1:5557','101','c'+peer,stamp))
             elif table=='profile_visits':db.execute('INSERT OR IGNORE INTO m'+str(self.port)+'__profile_visits(peer,friends_count,history_status,checked_at) VALUES(?,10,?,?)',(peer,'read',stamp))

@@ -3,7 +3,9 @@
 The unchanged engine has chat-only primary keys. A finite identifier adapter gives
 those internal tables a device namespace in the SAME database; chat IDs are never
 assumed unique across accounts/phones. Only authored SQL uses this adapter; bound
-message/key values are not rewritten. Initial greetings are globally deduplicated, independently of terminal bans.
+message/key values are not rewritten. Initial greetings are globally deduplicated
+with a 24-hour cross-port window (v1.3.87 «можно через сутки»), independently of
+the permanent terminal communication bans in mumu_peer_blocks.
 """
 from contextlib import contextmanager, closing
 import json
@@ -150,7 +152,7 @@ class SharedStore(BaseStore):
         if self.device_port==5563:super().check_legacy(account,peer)
 
     @staticmethod
-    def blocked(db,peer):
+    def blocked(db,peer,*,claim_cutoff=None):
         # v1.3.85: a guided or operator-adoption binding is live tracked work
         # exactly like a journal greeting; a peer with ANY existing binding must
         # not be greeted anew by the profile pass. Both tables are engine-
@@ -159,7 +161,16 @@ class SharedStore(BaseStore):
             if (db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone() is not None
                     and db.execute('SELECT 1 FROM '+table+' WHERE peer=?',(peer,)).fetchone() is not None):
                 return True
-        return (db.execute('SELECT 1 FROM mumu_greeting_claims WHERE peer=?',(peer,)).fetchone() is not None
+        # v1.3.87 (user rule «можно через сутки»): a greeting claim denies every
+        # OTHER port's new greeting for 24 hours only; after the window the peer
+        # is eligible for another анкета again. The claiming port keeps its
+        # permanent protection through its own namespaced journal below, and
+        # terminal contact outcomes (number received / explicit refusal /
+        # manual /num) never expire on any port.
+        from mumu_greetings import claim_cutoff as greeting_claim_cutoff
+        if claim_cutoff is None: claim_cutoff = greeting_claim_cutoff()
+        return (db.execute('SELECT 1 FROM mumu_greeting_claims WHERE peer=? AND created_at>=?',
+                           (peer,claim_cutoff)).fetchone() is not None
             or db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?',(peer,)).fetchone() is not None
             or db.execute('SELECT 1 FROM manual_actions WHERE peer=?',(peer,)).fetchone() is not None
             or db.execute('SELECT 1 FROM profile_recovery_skips WHERE peer=?',(peer,)).fetchone() is not None)
@@ -191,8 +202,14 @@ class SharedStore(BaseStore):
             # Claim and local journal commit atomically; replies use terminal bans only.
             if self.blocked(db,pending['peer']):
                 raise SharedPeerClaimed('Приветствие уже зарезервировано или контакт/отказ получен на одном из MuMu.')
-            db.execute('INSERT INTO mumu_greeting_claims(peer,device,account) VALUES(?,?,?)',
-                       (pending['peer'],self.device_owner,pending['account']))
+            # v1.3.87: greeting the same peer again after the 24-hour window
+            # (always from another анкета; this port's own journal denies its
+            # own repeat forever) REPLACES the stale claim row, so the shield
+            # window restarts from THIS port's greeting and every other port is
+            # denied again for the next 24 hours.
+            from mumu_greetings import claim_stamp
+            db.execute('INSERT OR REPLACE INTO mumu_greeting_claims(peer,device,account,created_at) VALUES(?,?,?,?)',
+                       (pending['peer'],self.device_owner,pending['account'],claim_stamp()))
             cur=db.execute("""INSERT INTO manual_actions
               (account,peer,initial_chat,text_hash,confirmed,status) VALUES(?,?,?,?,1,'reserved-unknown')""",
               (pending['account'],pending['peer'],pending['chat'],hashlib.sha256(text.encode()).hexdigest()))
@@ -253,6 +270,10 @@ class SharedStore(BaseStore):
     # rows that still fit; own journals always stay complete, and
     # reserve()/peer_claimed() keep checking the full registry as the dedup
     # authority, so a duplicate greeting remains impossible.
+    # 1.3.87: "already greeted" now means "greeted inside the last 24 hours"
+    # (shared_visited_sources applies the same claim cutoff as blocked());
+    # an older claim leaves the snapshot exactly when reserve() stops denying
+    # it, so the pre-filter never hides a peer another анкета may greet again.
     VISITED_SNAPSHOT_LIMIT = 100000
     VISITED_JOURNAL_SOURCES = (
         'SELECT peer FROM profile_visits',
@@ -260,12 +281,23 @@ class SharedStore(BaseStore):
         'SELECT peer FROM guided_bindings',
         'SELECT peer FROM operator_bindings',
         'SELECT peer FROM profile_recovery_skips')
-    VISITED_SHARED_SOURCES = (
-        'SELECT peer FROM mumu_greeting_claims ORDER BY created_at DESC',
-        'SELECT peer FROM mumu_peer_blocks ORDER BY created_at DESC')
 
-    def visited_peers(self):
+    def shared_visited_sources(self,claim_cutoff):
+        """v1.3.87: shared greeting claims enter the native pre-filter ONLY
+        inside their 24-hour cross-port window - an expired claim must not
+        hide an eligible peer from selection (the native batchSeen check and
+        reserve() agree through the same cutoff). Terminal contact outcomes
+        stay in the snapshot forever: «если анкета оставила номер или
+        отказалась его давать, то уже на других анкетах никогда ей не пишем».
+        """
+        return (('SELECT peer FROM mumu_greeting_claims WHERE created_at>=? ORDER BY created_at DESC',
+                 (claim_cutoff,)),
+                ('SELECT peer FROM mumu_peer_blocks ORDER BY created_at DESC', ()))
+
+    def visited_peers(self,*,claim_cutoff=None):
         from conversation_engine import identifier
+        from mumu_greetings import claim_cutoff as greeting_claim_cutoff
+        if claim_cutoff is None: claim_cutoff = greeting_claim_cutoff()
         # One consistent, read-only snapshot; no global writer/advisory lock.
         # Tables were initialized at startup, not on every native compilation.
         # Own journals upload COMPLETE (only the native filter prevents
@@ -286,10 +318,10 @@ class SharedStore(BaseStore):
                     seen.add(peer);values.append(peer)
             if len(values)>self.VISITED_SNAPSHOT_LIMIT:
                 raise StateError('История больше безопасного лимита снимка; журналы не удаляй.')
-            for sql in self.VISITED_SHARED_SOURCES:
+            for sql,params in self.shared_visited_sources(claim_cutoff):
                 remaining=self.VISITED_SNAPSHOT_LIMIT-len(values)
                 if remaining<=0:break
-                for row in db.execute(sql+' LIMIT ?',(remaining,)):
+                for row in db.execute(sql+' LIMIT ?',(*params,remaining)):
                     peer=row[0]
                     if peer in seen:continue
                     seen.add(peer);values.append(peer)

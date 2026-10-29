@@ -22,7 +22,7 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -31,6 +31,10 @@ from assistant_store import StateError
 from mumu_store import SharedStore
 
 BASE = datetime(2026, 10, 20, 12, 0, 0)
+# v1.3.87: a greeting claim shields the peer from other ports for 24 hours
+# only, so registry-size fixtures must stamp claims INSIDE that window while
+# keeping their relative age order (older first, freshest last).
+FRESH = datetime.now(timezone.utc).replace(microsecond=0)
 
 
 def peer_at(base, offset):
@@ -103,7 +107,7 @@ class Registry(unittest.TestCase):
 
     def insert_claims(self, db, peers, *, start=0, step=1):
         for offset, peer in enumerate(peers):
-            stamp = (BASE + timedelta(seconds=start + offset * step)).strftime('%Y-%m-%d %H:%M:%S')
+            stamp = (FRESH + timedelta(seconds=start + offset * step)).strftime('%Y-%m-%d %H:%M:%S')
             db.execute('INSERT OR IGNORE INTO mumu_greeting_claims(peer,device,account,created_at) '
                        'VALUES(?,?,?,?)', (peer, '9104:5563', '101', stamp))
 
