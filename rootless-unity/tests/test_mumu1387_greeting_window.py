@@ -244,27 +244,35 @@ class Refresh(unittest.TestCase):
         self.path = self.base / 'assistant.sqlite3'
         self.legacy = self.base / 'old'
 
+    def raw(self):
+        # sqlite3's ``with`` block only commits; the handle itself must be
+        # closed (addCleanup) or Windows keeps the file locked for the
+        # TemporaryDirectory cleanup (WinError 32).
+        db = sqlite3.connect(self.path)
+        self.addCleanup(db.close)
+        return db
+
     def test_expired_claim_release_still_deletes_only_own_device_rows(self):
         first = SharedStore(self.path, self.legacy, device_port=5557)
         first.reserve(pending(account='101'), 'Привет', approved=True)
-        with sqlite3.connect(self.path) as db:
+        with self.raw() as db:
             db.execute("UPDATE mumu_greeting_claims SET created_at=? WHERE peer='200'",
                        ((datetime.now(timezone.utc) - timedelta(hours=30)).strftime('%Y-%m-%d %H:%M:%S'),))
             db.commit()
         second = SharedStore(self.path, self.legacy, device_port=5559)
         second.reserve(pending(account='102'), 'Снова привет', approved=True)
-        with sqlite3.connect(self.path) as db:
+        with self.raw() as db:
             self.assertEqual(db.execute('SELECT device FROM mumu_greeting_claims WHERE peer=?',
                                         ('200',)).fetchall(), [('5559',)])
         # A device-scoped release of the NEW owner returns the peer to the pool.
         self.assertTrue(second.release_reservation(pending(account='102')))
-        with sqlite3.connect(self.path) as db:
+        with self.raw() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM mumu_greeting_claims WHERE peer=?',
                                         ('200',)).fetchone()[0], 0)
         # The previous owner's release never touches the other port's state:
         # its own journal row is finalized, and no NEW claim row appears.
         first.release_reservation(pending(account='101'))
-        with sqlite3.connect(self.path) as db:
+        with self.raw() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM mumu_greeting_claims WHERE peer=?',
                                         ('200',)).fetchone()[0], 0)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM m5557__manual_actions "
