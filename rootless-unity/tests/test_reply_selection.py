@@ -91,13 +91,37 @@ class ReplyFlow(Base):
         self.assertEqual(out['reason'],'reply-selection-not-verified')
         self.reader.assert_not_called();self.assertFalse(self.sent)
 
-    def test_manual_outgoing_review_has_safe_exact_cause(self):
+    def test_operator_outgoing_continues_chain_and_answers_incoming(self):
+        """v1.3.84: a manually typed outgoing no longer stops the chain.
+
+        The operator may lead a tracked dialog himself: while HIS text is the
+        newest arrival the bot stays quiet (the peer was already answered by
+        the human), and the peer's NEXT message is answered by the bot exactly
+        as in a program-led dialog.
+        """
         self.journal();chain=self.chain();chain.consume(snap())
+        incoming=msg(1002,'Входящее');manual=msg(1003,'Ручной ответ',True)
         out=self.walk([nav('opened',WHO),nav('returned',WHO),nav('search-ready')],
-                      [snap(msg(1002,'Входящее'),msg(1003,'Ручной ответ',True))],chain=chain)
-        self.assertEqual(out['review_causes'],{'unjournalled-outgoing':1})
-        self.assertEqual(chain.review_reason(WHO),'unjournalled-outgoing')
+                      [snap(incoming,manual)],chain=chain)
+        self.assertEqual(out['review_causes'],{})
+        self.assertEqual(out['submission_calls'],0)
         self.assertFalse(self.sent)
+        self.assertEqual(out['outcomes'],{'chain-waiting:incoming-answer-pending':1})
+        with chain.store.read_connection() as db:
+            self.assertEqual(db.execute('SELECT stage FROM chain_dialogs').fetchone(),('wait-reply',))
+            self.assertEqual({r[0] for r in db.execute('SELECT message FROM chain_seen')},{'1001','1002','1003'})
+            self.assertEqual(db.execute('SELECT reason FROM chain_review_reasons').fetchall(),[])
+        # The peer writes again AFTER the operator's manual answer: the bot answers.
+        import assistant_history_wait as history_wait
+        history_wait.clear(chain.store, WHO)  # end the first walk's answer-pending cooldown
+        fresh=msg(1004,'Новое сообщение');question=msg(1005,QUESTIONS[0],True)
+        out=self.walk([nav('opened',WHO),nav('returned',WHO),nav('search-ready')],
+                      [snap(incoming,manual,fresh),snap(incoming,manual,fresh),snap(incoming,manual,fresh,question)],chain=chain)
+        self.assertEqual(out['submission_calls'],1)
+        self.assertEqual(self.sent,[QUESTIONS[0]])
+        # The operator-answered arrival keeps its receipt pending (the program
+        # never claims the human's answer), so the chat stays queued for checks.
+        self.assertEqual(out['outcomes'],{'chain-waiting:incoming-answer-pending':1})
 
     def test_history_change_cause_is_persistent_without_storing_body(self):
         self.journal();chain=self.chain();chain.consume(snap())

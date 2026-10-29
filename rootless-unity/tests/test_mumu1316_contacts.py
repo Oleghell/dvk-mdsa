@@ -83,11 +83,29 @@ class OldReview(unittest.TestCase):
     chain=Seed.chain
     def old(self):
         c,store,h=self.chain()
+        c.responder=MagicMock(side_effect=AssertionError('No AI'))
+        # v1.3.84: consume no longer CREATES this review - a manually typed
+        # request beside the peer's number saves the contact directly (see the
+        # regression test below). A database written by an older version can
+        # still hold the terminal contact-batch-ambiguous review, and the
+        # receipt-only reconciliation keeps working for exactly those rows.
         sample=snapshot(*h,('По какому номеру найти в Максе?',True),(PHONE,False))
-        with patch('assistant_contact_receipt.requested',return_value=False):
-            self.assertEqual(c.proposal(sample),('manual-review',None))
+        with store.connection() as db:
+            db.execute("INSERT OR REPLACE INTO chain_review_reasons VALUES(?,'contact-batch-ambiguous')",(WHO['chat'],))
+            db.execute("UPDATE chain_dialogs SET stage='manual-review'")
+        self.assertEqual(c.proposal(sample),('manual-review',None))
         sample['latest_message_id']=sample['messages'][-1]['id']
         return c,store,sample
+    def test_operator_request_beside_number_now_saves_directly(self):
+        # v1.3.84 regression: the old ambiguity on a manual outgoing is gone.
+        c,store,h=self.chain()
+        c.responder=MagicMock(side_effect=AssertionError('No AI'))
+        sample=snapshot(*h,('По какому номеру найти в Максе?',True),(PHONE,False))
+        self.assertEqual(c.proposal(sample),('done',None))
+        with store.connection() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM chain_contact_outbox").fetchone()[0],1)
+            self.assertIsNone(db.execute("SELECT reason FROM chain_review_reasons WHERE reason='contact-batch-ambiguous'").fetchone())
+        c.responder.assert_not_called()
     def test_one_reconciliation_preserves_every_action_and_review_reason(self):
         c,store,s=self.old()
         with store.connection() as db:old=db.execute('SELECT * FROM chain_actions').fetchall()

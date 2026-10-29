@@ -12,14 +12,15 @@ def active(db):
 
 
 def should_close(db, snapshot, stage, incoming, *, requested, max_choice=False, number_choice=False):
+    # snapshot stays part of the fixed contract even though the v1.3.84 fix no
+    # longer reads the clarify journal row here; callers pass the verified
+    # binding and the signature must not drift per release.
     if stage not in ('wait-contact','pending-contact','pending-clarify','pending-followup'):return False
     if not requested or not active(db):return False
     # Prepared contextual drafts from older versions must not reach approval.
     # Their hashes/statuses are retained, including unknown attempts.
     if stage=='pending-followup':return True
     if not incoming:return False
-    chat=snapshot['identity']['chat']
-    clarify=db.execute("SELECT 1 FROM chain_actions WHERE chat=? AND kind='clarify'",(chat,)).fetchone()
     from assistant_contact_clarify import chosen
     from assistant_contact_intent import visible,APP
     import re
@@ -43,5 +44,11 @@ def should_close(db, snapshot, stage, incoming, *, requested, max_choice=False, 
             if personal or not (related or echo):return True
     choice=chosen(incoming)
     if stage=='pending-clarify':return not choice
-    if clarify:return True # current contacts are handled BEFORE this policy
+    # Reports MuMu-5563 (v1.3.84): «Я в Максе сижу» closed the chain as declined
+    # both before and after the one clarification. A RECOGNIZED fresh choice
+    # (messenger, MAX presence or number indifference) is not an off-topic
+    # arrival: the chain stays open so the app-specific number question can be
+    # asked instead of closing without a new answer. Unrecognized off-topic
+    # text still closes exactly as before, and current contacts are handled
+    # BEFORE this policy.
     return not (choice or max_choice or number_choice)

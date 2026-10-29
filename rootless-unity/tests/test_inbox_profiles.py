@@ -320,12 +320,15 @@ class Inbox(Base):
         self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
 
     def test_manually_answered_read_chat_is_not_answered_again(self):
+        # v1.3.85: the operator's manual answer no longer isolates the chat; the
+        # bot simply does not double-answer an arrival the human already answered.
         self.journal()
         hello, manual = msg(1002, 'Привет'), msg(1003, 'Это мой ручной ответ', True)
         chain=self.chain(); chain.consume(snap())
         out = self.walk([nav('exhausted'), nav('opened', WHO, unread=False),
                          nav('returned', WHO), nav('search-ready')], [snap(hello, manual)], chain=chain)
-        self.assertEqual(out['outcomes'], {'isolated:manual-review': 1})
+        self.assertEqual(out['outcomes'], {'chain-waiting:incoming-answer-pending': 1})
+        self.assertEqual(out['isolated_dialogs'], 0)
         self.assertEqual(out['submission_calls'], 0)
         self.assertFalse(self.sent)
 

@@ -151,6 +151,14 @@ class SharedStore(BaseStore):
 
     @staticmethod
     def blocked(db,peer):
+        # v1.3.85: a guided or operator-adoption binding is live tracked work
+        # exactly like a journal greeting; a peer with ANY existing binding must
+        # not be greeted anew by the profile pass. Both tables are engine-
+        # created, so their absence on a fresh store is simply "none yet".
+        for table in ('guided_bindings','operator_bindings'):
+            if (db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone() is not None
+                    and db.execute('SELECT 1 FROM '+table+' WHERE peer=?',(peer,)).fetchone() is not None):
+                return True
         return (db.execute('SELECT 1 FROM mumu_greeting_claims WHERE peer=?',(peer,)).fetchone() is not None
             or db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?',(peer,)).fetchone() is not None
             or db.execute('SELECT 1 FROM manual_actions WHERE peer=?',(peer,)).fetchone() is not None
@@ -249,6 +257,8 @@ class SharedStore(BaseStore):
     VISITED_JOURNAL_SOURCES = (
         'SELECT peer FROM profile_visits',
         'SELECT peer FROM manual_actions',
+        'SELECT peer FROM guided_bindings',
+        'SELECT peer FROM operator_bindings',
         'SELECT peer FROM profile_recovery_skips')
     VISITED_SHARED_SOURCES = (
         'SELECT peer FROM mumu_greeting_claims ORDER BY created_at DESC',
@@ -262,9 +272,14 @@ class SharedStore(BaseStore):
         # reopening the port's own visited profiles); shared registries take
         # everything that still fits, freshest first, so the snapshot never
         # exceeds the contract limit instead of ever stopping the port.
+        # v1.3.85: guided/operator bindings (manual adoption) join the visited
+        # sources; an engine-created table a fresh store has not built yet is
+        # simply absent from the snapshot, never a startup failure.
         values=[];seen=set()
         with self.read_connection() as db:
             for sql in self.VISITED_JOURNAL_SOURCES:
+                table=sql.split(' FROM ')[1].split(' ')[0]
+                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone() is None:continue
                 for row in db.execute(sql):
                     peer=row[0]
                     if peer in seen:continue

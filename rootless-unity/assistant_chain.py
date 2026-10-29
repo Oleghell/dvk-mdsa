@@ -46,6 +46,43 @@ def text_hash(text):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 
+def recycled_clarify(db, chat, trigger, text):
+    """v1.3.84: reserve the app-specific number question after a fresh choice.
+
+    The first clarification after a contact proposal is unchanged. When the
+    peer's recognized choice names a DIFFERENT app than an ALREADY-OBSERVED
+    clarification asked about («Я в Максе сижу» after the WhatsApp/Telegram
+    question), that observed row is archived exactly like an observed followup
+    and one new app-specific clarification is reserved. Unknown, awaiting or
+    unobserved reservations are never touched, and the same question is never
+    asked twice; the contact budget still bounds the total outgoing attempts.
+    """
+    digest=text_hash(text)
+    prior=db.execute("SELECT trigger,text_hash,status FROM chain_actions WHERE chat=? AND kind='clarify'",(chat,)).fetchone()
+    if prior is None:
+        db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
+                   (chat,'clarify',trigger,digest))
+        return True
+    if prior[2]!='outgoing-observed' or prior[1]==digest:
+        return False
+    import json
+    db.execute('''CREATE TABLE IF NOT EXISTS chain_followup_archive(
+          chat TEXT,trigger TEXT,text_hash TEXT,status TEXT,inputs TEXT,
+          PRIMARY KEY(chat,trigger))''')
+    inputs=[]
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_draft_inputs'").fetchone():
+        inputs=[r[0] for r in db.execute("SELECT message FROM ai_draft_inputs WHERE chat=? AND kind='clarify'",(chat,))]
+    db.execute('INSERT OR REPLACE INTO chain_followup_archive VALUES(?,?,?,?,?)',(chat,prior[0],prior[1],prior[2],json.dumps(inputs)))
+    db.execute("DELETE FROM chain_actions WHERE chat=? AND kind='clarify'",(chat,))
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_drafts'").fetchone():
+        db.execute("DELETE FROM ai_drafts WHERE chat=? AND kind='clarify'",(chat,))
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_draft_inputs'").fetchone():
+        db.execute("DELETE FROM ai_draft_inputs WHERE chat=? AND kind='clarify'",(chat,))
+    db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
+               (chat,'clarify',trigger,digest))
+    return True
+
+
 class Chain:
     # Only the explicitly selected, per-message-approved guided mode opts in.
     any_replies = False
@@ -119,16 +156,27 @@ class Chain:
             new = [m for m in messages if m['id'] not in old]
             incoming = [m for m in new if m['sender'] == who['peer']]
             outgoing = [m for m in new if m['sender'] == who['account']]
+            # v1.3.84: the operator may lead this dialog manually. When HIS text
+            # is the newest arrival, the peer's latest message was already
+            # answered by the human; the chain records everything as seen and
+            # waits instead of double-answering. A self-shared contact is still
+            # saved and forwarded: the shared branch above runs before this flag
+            # is ever consulted.
+            operator_leads = bool(outgoing) and new[-1]['sender'] == who['account']
             max_choice = max_selected([m for m in messages if m['sender']==who['peer']])
             number_choice = indifferent_selected(db,s,[m['id'] for m in incoming])
             alt_text=selected_alternative_text(db,s,[m['id'] for m in incoming])
             clarify_text = MAX_TEXT if max_choice else alt_text or (NUMBER_TEXT if number_choice else CLARIFY_TEXT)
             pending_contact_observed = False
             pending_contact_kind = stage.removeprefix('pending-')
-            if stage in ('pending-contact','pending-clarify','pending-followup') and len(outgoing) == 1:
+            if stage in ('pending-contact','pending-clarify','pending-followup'):
                 pending = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?', (chat,pending_contact_kind)).fetchone()
+                # v1.3.84: the operator may type beside the program's own
+                # pending message. Exactly ONE outgoing must still match the
+                # reservation; extra non-matching outgoings are the operator's
+                # own text and never double as this program's send proof.
                 pending_contact_observed = bool(pending and pending[1] == 'handler-returned-unconfirmed'
-                    and isinstance(outgoing[0]['text'], str) and text_hash(outgoing[0]['text']) == pending[0])
+                    and len([o for o in outgoing if isinstance(o['text'], str) and text_hash(o['text']) == pending[0]]) == 1)
             from assistant_contact_receipt import requested as receipt_requested,packet_blocked
             anchored_request = self.any_replies and receipt_requested(db,who,messages)
             independent_contact = self.any_replies and (voluntary_batch(incoming) or any(self_shared(m['text']) for m in incoming))
@@ -150,7 +198,12 @@ class Chain:
                         self.store.record_peer_outcome(db,who,'contact-refused')
             elif shared:
                 aggregate = self.any_replies and (stage == 'wait-contact' or pending_contact_observed or independent_contact or anchored_request)
-                if (outgoing and not pending_contact_observed and not independent_contact and not anchored_request) or (not aggregate and (len(shared) != 1 or len(incoming) != 1)):
+                # v1.3.84: an outgoing beside the contact no longer makes the
+                # batch ambiguous. Unjournalled outgoings are the operator's own
+                # manual text (the program's sends are always journaled first),
+                # and the request/voluntary ownership gates above are what
+                # actually decide whether the contact is safely attributable.
+                if not aggregate and (len(shared) != 1 or len(incoming) != 1):
                     stage, review_cause = 'manual-review', 'contact-batch-ambiguous'
                 else:
                     message, items = shared[0]
@@ -181,8 +234,8 @@ class Chain:
                 reserved = db.execute('SELECT text_hash,status FROM chain_actions WHERE chat=? AND kind=?', (chat, kind)).fetchone()
                 if not reserved:
                     raise StateError('Не найден резерв этапа. Отправка запрещена.')
-                verified_own = (len(outgoing) == 1 and isinstance(outgoing[0]['text'],str)
-                    and text_hash(outgoing[0]['text']) == reserved[0]
+                verified_own = (len([o for o in outgoing if isinstance(o['text'],str)
+                    and text_hash(o['text']) == reserved[0]]) == 1
                     and (reserved[1] == 'handler-returned-unconfirmed' or not self.any_replies))
                 if incoming and self.any_replies and not outgoing:
                     # Peer arrivals while awaiting visibility do not prove a send
@@ -200,10 +253,8 @@ class Chain:
                         stage='wait-contact'
                         if self.any_replies and contact_budget_exhausted(db, chat):
                             stage='declined'
-                        elif kind in ('contact','followup') and (chose_messenger(incoming) or max_choice or number_choice) and not db.execute(
-                                "SELECT 1 FROM chain_actions WHERE chat=? AND kind='clarify'",(chat,)).fetchone():
-                            db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
-                                       (chat,'clarify',incoming[0]['id'],text_hash(clarify_text)))
+                        elif kind in ('contact','followup') and not operator_leads and (chose_messenger(incoming) or max_choice or number_choice) and recycled_clarify(
+                                db, chat, incoming[0]['id'], clarify_text):
                             stage='pending-clarify';action=dict(kind='clarify',text=clarify_text)
                         elif not max_choice and not number_choice and followup_eligible(incoming) and not db.execute(
                                 "SELECT 1 FROM chain_actions WHERE chat=? AND kind='followup'",(chat,)).fetchone():
@@ -218,38 +269,47 @@ class Chain:
                     else:
                         stage = 'wait-mood' if kind == 'question' else 'wait-contact'
                         db.execute("UPDATE chain_actions SET status='outgoing-observed' WHERE chat=? AND kind=?", (chat, kind))
-            elif outgoing:
-                stage, review_cause = 'manual-review', 'unjournalled-outgoing'
             elif incoming and self.any_replies:
                 if stage == 'wait-contact':
                     # A messenger choice is consent to ONE clarification, not a
-                    # fabricated contact. Never reuse or reset an existing action.
-                    if (chose_messenger(incoming) or max_choice or number_choice) and not db.execute(
-                            "SELECT 1 FROM chain_actions WHERE chat=? AND kind='clarify'",(chat,)).fetchone():
-                        db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
-                                   (chat,'clarify',incoming[0]['id'],text_hash(clarify_text)))
+                    # fabricated contact. v1.3.84: a DIFFERENT recognized choice
+                    # after an already-observed clarification recycles that
+                    # question into the app-specific one instead of ignoring it.
+                    # When the operator's own newest text already answered this
+                    # arrival, no duplicate send is reserved at all.
+                    if not operator_leads and (chose_messenger(incoming) or max_choice or number_choice) and recycled_clarify(
+                            db, chat, incoming[0]['id'], clarify_text):
                         stage='pending-clarify';action=dict(kind='clarify',text=clarify_text)
-                    elif not max_choice and not number_choice and followup_eligible(incoming) and not db.execute(
+                    elif not operator_leads and not max_choice and not number_choice and followup_eligible(incoming) and not db.execute(
                             "SELECT 1 FROM chain_actions WHERE chat=? AND kind='followup'",(chat,)).fetchone():
                         db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
                                    (chat,'followup',incoming[0]['id'],text_hash(FOLLOWUP_TEXT)))
                         stage='pending-followup';action=dict(kind='followup',text=FOLLOWUP_TEXT)
                 else:
-                    # Any newly observed reply (including media or a burst of
-                    # messages) advances exactly one stage. Explicit refusal and
-                    # uncertain outgoing/history are handled above.
-                    kind = 'question' if stage == 'wait-reply' else 'contact'
-                    choice = self.choose() if kind == 'question' else 0
-                    if type(choice) is not int or choice not in (0, 1):
-                        raise StateError('Неверный вариант вопроса.')
-                    reply = QUESTIONS[choice] if kind == 'question' else CONTACT_TEXT
-                    # FULL commit finishes before the caller can send.
-                    db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
-                               (chat, kind, incoming[0]['id'], text_hash(reply)))
-                    stage = 'pending-' + kind
-                    action = dict(kind=kind, text=reply)
+                    if operator_leads:
+                        # The operator's own newest text answered this arrival;
+                        # nothing is reserved and the stage simply waits.
+                        pass
+                    else:
+                        # Any newly observed reply (including media or a burst of
+                        # messages) advances exactly one stage. Explicit refusal and
+                        # uncertain outgoing/history are handled above.
+                        kind = 'question' if stage == 'wait-reply' else 'contact'
+                        choice = self.choose() if kind == 'question' else 0
+                        if type(choice) is not int or choice not in (0, 1):
+                            raise StateError('Неверный вариант вопроса.')
+                        reply = QUESTIONS[choice] if kind == 'question' else CONTACT_TEXT
+                        # FULL commit finishes before the caller can send.
+                        db.execute("INSERT INTO chain_actions VALUES(?,?,?,?,'reserved-unknown')",
+                                   (chat, kind, incoming[0]['id'], text_hash(reply)))
+                        stage = 'pending-' + kind
+                        action = dict(kind=kind, text=reply)
             elif incoming:
-                if len(incoming) != 1 or not incoming[0]['text'] or NEGATIVE.search(normalized(incoming[0]['text'])):
+                if operator_leads:
+                    # v1.3.84: the legacy read-only chain also stays quiet when
+                    # the operator's own newest text already answered.
+                    pass
+                elif len(incoming) != 1 or not incoming[0]['text'] or NEGATIVE.search(normalized(incoming[0]['text'])):
                     stage, review_cause = 'manual-review', 'legacy-incoming-ambiguous'
                 elif stage == 'wait-contact':
                     stage, review_cause = 'manual-review', 'legacy-contact-not-shared'  # No claimed contact, no Telegram notification.

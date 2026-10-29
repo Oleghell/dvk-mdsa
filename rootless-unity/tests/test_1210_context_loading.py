@@ -59,17 +59,33 @@ class Context(guide.WholeChain):
         out=self.walk([contact]);self.assertEqual(out['submission_calls'],0)
 
     def test_no_second_clarification_on_new_choice_or_restart(self):
+        # v1.3.84: a DIFFERENT recognized choice after an already-observed
+        # clarification recycles that one question into the app-specific one
+        # (archived exactly like an observed followup) instead of falling back
+        # to a generic followup; the contact budget still bounds the total.
         h=self.seed_contact();h += [('Давай ватсап',False)]
         first=guide.snapshot(*h);seen=guide.snapshot(*h,(clarify.WHATSAPP_TEXT,True))
         out=self.walk([first,first,seen],until_waiting=True)
         self.assertEqual(self.sent,[clarify.WHATSAPP_TEXT]);self.assertEqual(out['reason'],'contact-clarification-sent')
         self.chain=guided.GuidedChain(self.store,choose=lambda:0,seal=lambda v:v,unseal=lambda v:v)
         new=guide.snapshot(*h,(clarify.WHATSAPP_TEXT,True),('Тг лучше',False))
-        follow=__import__('assistant_contact_followup').TEXT
-        observed=guide.snapshot(*h,(clarify.WHATSAPP_TEXT,True),('Тг лучше',False),(follow,True))
-        out=self.walk([new,new,observed],until_waiting=True)
-        self.assertEqual(out['submission_calls'],1);self.assertEqual(self.sent,[clarify.WHATSAPP_TEXT,follow])
+        recycled=guide.snapshot(*h,(clarify.WHATSAPP_TEXT,True),('Тг лучше',False),(clarify.TELEGRAM_TEXT,True))
+        out=self.walk([new,new,recycled],until_waiting=True)
+        self.assertEqual(out['submission_calls'],1)
+        self.assertEqual(self.sent,[clarify.WHATSAPP_TEXT,clarify.TELEGRAM_TEXT])
         self.assertEqual(self.sent.count(clarify.WHATSAPP_TEXT),1)
+        self.assertEqual(out['reason'],'contact-clarification-sent')
+        with self.store.connection() as db:
+            self.assertEqual(db.execute("SELECT text_hash FROM chain_actions WHERE chat='300' AND kind='clarify'").fetchone()[0],
+                             __import__('assistant_chain').text_hash(clarify.TELEGRAM_TEXT))
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM chain_followup_archive").fetchone()[0],1)
+            # An unknown or unobserved reservation is never recycled, and the
+            # same question is never re-asked after it was just observed.
+            db.execute("UPDATE chain_actions SET status='handler-returned-unconfirmed' WHERE kind='clarify'")
+        again=guide.snapshot(*h,(clarify.WHATSAPP_TEXT,True),('Тг лучше',False),(clarify.TELEGRAM_TEXT,True),('Макс тоже есть',False))
+        out=self.walk([again,again],until_waiting=True)
+        self.assertEqual(out['submission_calls'],0)
+        self.assertEqual(self.sent,[clarify.WHATSAPP_TEXT,clarify.TELEGRAM_TEXT])
 
     def test_refusal_and_unavailable_messenger_do_not_request_again(self):
         for text in ('Не хочу общаться','Тг не работает, давай потом','Не пиши мне, лучше тг'):
