@@ -9,6 +9,7 @@ import time
 
 HOUR = 3600  # Requested incoming-age limit; NOT active without verified sent_at.
 LEGACY_AGE_REASONS = ('reply-window-expired', 'reply-age-unverified')
+NEW_START_EXCLUDED = 'new-start-excluded'
 
 
 def tables(db):
@@ -22,15 +23,40 @@ def clear_legacy_age_exclusions(db):
     db.execute('DELETE FROM inbox_reply_exclusions WHERE reason IN (?,?)', LEGACY_AGE_REASONS)
 
 
+def clear_new_start_exclusions(db):
+    # v1.3.82: the «Новые анкеты» reply exclusion is a property of THAT RUN,
+    # not of the port's remaining life. A worker that starts in a reply-capable
+    # mode («Старт»/full or «Только ответы»/inbox) signals the user has returned
+    # to the documented Start contract - replies in unread chain chats FIRST,
+    # then new profiles - so the stale rows an earlier new-profiles run left
+    # behind must end exactly here. Until this fix they never ended: the rows
+    # survived every later full start (only legacy age reasons were cleared),
+    # eligible_groups() silently filtered EVERY tracked dialog out of every
+    # inbox pass and the run went straight to writing new profiles - the user
+    # watched «сначала не проходится по диалогам и не отвечает, а сразу идет
+    # писать новым» forever after ONE «Новые анкеты» press. The DELETE stays
+    # port-scoped exactly like the INSERT: it runs through the worker store's
+    # own connection, whose table rewriting names only this port's tables, so a
+    # concurrently running «Новые анкеты» port keeps its own run's exclusions.
+    # Terminal bans, send journals and receipts are different tables and are
+    # never touched by a reason-scoped DELETE on this one table.
+    db.execute("DELETE FROM inbox_reply_exclusions WHERE reason='" + NEW_START_EXCLUDED + "'")
+
+
 def enable(store, *, new_only=False):
     with store.connection() as db:
         tables(db)
         clear_legacy_age_exclusions(db)
+        if not new_only:
+            # v1.3.82: end the scope of any earlier «Новые анкеты» run. The
+            # insert side below re-establishes the exclusion set for THIS run
+            # only when this worker itself started in the new-profiles mode.
+            clear_new_start_exclusions(db)
         db.execute("INSERT OR REPLACE INTO inbox_reply_policy VALUES('enabled',1)")
         if new_only:
             for table in ('manual_actions','guided_bindings','chain_dialogs'):
                 if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
-                    db.execute('INSERT OR IGNORE INTO inbox_reply_exclusions SELECT account,peer,? FROM '+table,('new-start-excluded',))
+                    db.execute('INSERT OR IGNORE INTO inbox_reply_exclusions SELECT account,peer,? FROM '+table,(NEW_START_EXCLUDED,))
 
 
 def active(db):

@@ -30,13 +30,22 @@ class AgeMigration(unittest.TestCase):
                 self.assertEqual(db.execute('SELECT * FROM manual_actions').fetchall(),before)
                 self.assertEqual(db.execute('SELECT * FROM inbox_reply_exclusions').fetchall(),[])
 
-    def test_startup_migration_preserves_explicit_new_start(self):
+    def test_startup_migration_ends_the_new_start_scope(self):
+        # v1.3.82: the new-start exclusion belongs to the «Новые анкеты» RUN,
+        # not to the port's remaining life. The user report was exact: after a
+        # new-profiles run every later «Старт» skipped ALL dialogs ("сначала не
+        # проходится по диалогам и не отвечает, а сразу идет писать новым")
+        # because these rows silently outlived the run that wrote them. A
+        # reply-capable worker start (full/inbox) must end that scope; only a
+        # worker that itself starts new-only re-establishes the exclusions.
         with self.store.connection() as db:
             db.execute('INSERT INTO inbox_reply_exclusions VALUES(?,?,?)',(WHO['account'],WHO['peer'],'reply-window-expired'))
             db.execute("INSERT INTO inbox_reply_exclusions VALUES('100','201','new-start-excluded')")
         window.enable(self.store)
         self.assertIsNone(window.reason(self.store,WHO))
-        self.assertEqual(window.reason(self.store,dict(WHO,peer='201')),'new-start-excluded')
+        self.assertIsNone(window.reason(self.store,dict(WHO,peer='201')))
+        with self.store.read_connection() as db:
+            self.assertEqual(db.execute('SELECT * FROM inbox_reply_exclusions').fetchall(),[])
 
     def test_clock_or_missing_greeting_time_never_invents_peer_message_age(self):
         with self.store.connection() as db:
