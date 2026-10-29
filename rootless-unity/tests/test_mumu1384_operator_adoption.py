@@ -146,11 +146,14 @@ class ProbeAndRejects(Base):
         merged = with_seen_ids(chain, [dict(account='100', peer='200', chat='300')])
         self.assertIn(dict(account='100', peer='200', chat='300', seen_ids=[]), merged)
         self.assertIn(dict(account='100', peer='201', chat='301', seen_ids=['21']), merged)
-        # A peer that later becomes tracked never duplicates its reject marker.
+        # v1.3.86: a peer that later becomes tracked never duplicates its marker
+        # into a second entry; the marker id joins the target's own seen_ids so
+        # the native row filter still skips that row until its last message
+        # changes (one entry per peer, no ambiguity for the native scan).
         self.journal(OTHER)
         merged = with_seen_ids(chain, [dict(account='100', peer='201', chat='-1')])
         self.assertEqual([x for x in merged if x['peer'] == '201'],
-                         [dict(account='100', peer='201', chat='-1', seen_ids=[])])
+                         [dict(account='100', peer='201', chat='-1', seen_ids=['21'])])
 
 
 class Eligibility(Base):

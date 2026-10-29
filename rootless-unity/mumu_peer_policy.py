@@ -66,6 +66,27 @@ class PeerCommunicationBlocked(StateError):
     def __init__(self):super().__init__('peer-contact-blocked')
 
 
+def _operator_led(db, who):
+    """v1.3.86: a durable operator binding proves the operator himself started
+    and keeps leading this dialog. An AUTOMATIC terminal outcome recorded by
+    any port (a contact received or a classified refusal elsewhere) must not
+    strand a chat the operator is actively writing: he decides to continue it.
+    An explicit manual /num order stays authoritative and is NOT exempted, and
+    a binding for a different account or peer never applies here.
+    """
+    try:
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operator_bindings'"
+                      ).fetchone() is None:
+            return False
+        return db.execute('SELECT 1 FROM operator_bindings WHERE account=? AND peer=?',
+                          (who['account'], who['peer'])).fetchone() is not None
+    except Exception:
+        return False
+
+
+AUTOMATIC_REASONS = frozenset({'contact-received', 'contact-refused'})
+
+
 def ensure_communication_allowed(store,who,*,db=None):
     """Deny-only guard. No permits, replay, state reset or identity guessing.
 
@@ -81,7 +102,13 @@ def ensure_communication_allowed(store,who,*,db=None):
             return ensure_communication_allowed(store,who,db=connection)
     from mumu_namespace import ensure_account
     ensure_account(store,who,db)
-    if db.execute('SELECT 1 FROM mumu_peer_blocks WHERE peer=?',(who['peer'],)).fetchone() is not None:
+    row = db.execute('SELECT reason FROM mumu_peer_blocks WHERE peer=?', (who['peer'],)).fetchone()
+    if row is not None:
+        if row[0] in AUTOMATIC_REASONS and _operator_led(db, who):
+            # v1.3.86: the operator leads this dialog himself; the automatic
+            # cross-port outcome does not forbid assisting HIS conversation.
+            # Manual /num blocks and any other reason still deny below.
+            return
         raise PeerCommunicationBlocked()
 
 

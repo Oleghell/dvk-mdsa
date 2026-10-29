@@ -263,6 +263,32 @@ def record_checked(chain, who):
         db.execute('INSERT OR IGNORE INTO inbox_read_round VALUES(?,?)', (who['account'],who['peer']))
 
 
+def blocked_skip_marker(chain, who, snapshot):
+    """v1.3.86: record the newest message of a globally blocked chat as its
+    row skip marker.
+
+    A shared automatic block never lifts, so the unread batch can never be
+    answered by this engine. The marker rides the existing operator_rejects
+    skip machinery (same table, its own reason string): the native
+    needs-reply filter stops reopening this row - and the host stops rereading
+    its full history - until a genuinely NEW message changes the row's last
+    message. Chain state, reservations and receipts stay untouched; no salt,
+    fingerprint or stage is fabricated for a chat that never reached consume.
+    """
+    from assistant_operator_adoption import record_reject
+    who = identity(who)
+    messages = snapshot.get('messages') if isinstance(snapshot, dict) else None
+    latest = None
+    if isinstance(messages, list) and messages:
+        newest = messages[-1]
+        if isinstance(newest, dict) and isinstance(newest.get('id'), str):
+            latest = newest['id']
+    if latest is None:
+        return False
+    record_reject(chain.store, who, latest, 'peer-contact-blocked')
+    return True
+
+
 def reset_read_round(chain):
     with chain.store.read_connection() as db:
         if db.execute('SELECT 1 FROM inbox_read_round LIMIT 1').fetchone() is None:return
@@ -312,15 +338,24 @@ def with_seen_ids(chain, allowed):
                 out.append(dict(who,seen_ids=[] if review else rows))
         # v1.3.84: rejected operator-dialog probes ride along as skip markers:
         # the native scan bypasses such rows until their last message changes.
-        # They are never real targets and never duplicate a tracked peer.
+        # v1.3.86: a globally blocked tracked chat records the same kind of
+        # marker ('peer-contact-blocked'); for a peer that IS a target this
+        # round the marker id joins that target's own seen_ids instead of a
+        # second entry, so its still-unanswered last message is skipped until
+        # it changes. Markers never create targets and never duplicate a peer.
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operator_rejects'").fetchone():
-            known={(x['account'],x['peer']) for x in out}
+            by_peer={(x['account'],x['peer']):x for x in out}
             for account,peer,chat,last in db.execute(
                     'SELECT account,peer,chat,last_message FROM operator_rejects'):
-                if (isinstance(last,str) and last and (account,peer) not in known
-                        and len(out)<1000):
+                if not isinstance(last,str) or not last:
+                    continue
+                entry=by_peer.get((account,peer))
+                if entry is not None:
+                    if last not in entry['seen_ids'] and len(entry['seen_ids'])<128:
+                        entry['seen_ids']=entry['seen_ids']+[last]
+                elif len(out)<1000:
                     out.append(dict(account=account,peer=peer,chat=chat,seen_ids=[last]))
-                    known.add((account,peer))
+                    by_peer[(account,peer)]=out[-1]
     return targets(out)
 
 
@@ -459,6 +494,13 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             out['recent_window_limit']=50
             out['recent_window_direction']='bottom-up'
         processed=set()
+        # v1.3.86: adoption mode stays on until the native scan revisits a chat
+        # THIS pass already opened and deliberately left (a shared block, a
+        # deliberate exclusion, a deferred read). Re-asking would cycle the
+        # same row open→back forever; adoption then yields to strict journal
+        # targets for the rest of this pass and a genuinely new operator dialog
+        # is adopted on the next pass.
+        adopt_open=True
         def leave_manual(who):
             nonlocal host_checkpoint,phase
             phase='navigation';host_checkpoint='inbox-back'
@@ -503,7 +545,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             open_timing = {}
             selected = timed(open_timing, 'open', call, 'open', allowed=with_seen_ids(chain,allowed),
                             entry=entry, unread_only=unread_only, needs_reply_only=True,
-                            adopt_untracked=True)
+                            adopt_untracked=adopt_open)
             entry = 'dialogs'
             if selected['state'] == 'exhausted':
                 if group_kind == 'read':
@@ -511,6 +553,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 groups.pop(0)
                 continue
             who = identity(selected['identity'])
+            if adopt_open and (who['account'], who['peer']) in processed:
+                # v1.3.86: the scan came back to a row this pass already handled.
+                # Switch the remaining opens to strict journal targets so the
+                # pass cannot cycle open→back on the same dialog; the row is
+                # left by its own branch below exactly as before.
+                adopt_open = False
+                out['adoption_disabled_reopen'] = True
+                progress('Список вернулся к уже обработанному чату • дальше открываю только цели журнала.')
             out['dialogs_opened'] += 1
             if manually_blocked(chain.store,who):
                 # /num may commit during native open. Do not read, draft,
@@ -610,6 +660,16 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                     and manually_blocked(chain.store,who)):
                 leave_manual(who)
                 continue
+            if (result['status']=='chain-waiting' and result['reason']=='peer-contact-blocked'
+                    and private_snapshot and blocked_skip_marker(chain, who, private_snapshot[0])):
+                # v1.3.86: a permanent automatic block strands the unread batch;
+                # its newest message becomes the row's skip marker so the native
+                # needs-reply filter stops reopening this row (and the host stops
+                # rereading its full history) until a genuinely NEW message
+                # arrives. The exit notice itself keeps its own one-shot
+                # signature deduplication.
+                out['blocked_observed'] = out.get('blocked_observed', 0) + 1
+                progress('Глобальный запрет собеседника • строка диалога не открывается до нового сообщения.')
             deferred = result['reason'] in ('history-loading-timeout','history-read-budget-timeout','history-snapshot-too-large','send-preflight-deferred')
             ai_deferred=result['reason']=='ai-temporarily-unavailable'
             answer_deferred=result['reason']=='incoming-answer-pending'
