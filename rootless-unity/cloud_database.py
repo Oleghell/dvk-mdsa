@@ -87,8 +87,12 @@ def diagnostic(error):
 
 def operation(sql):
     if 'pg_advisory_xact_lock' in sql:return 'lock'
-    token=sql.lstrip().split(None,1)[0].upper() if sql.strip() else ''
-    if token in {'BEGIN','COMMIT','ROLLBACK'}:return token.lower()
+    stripped=sql.lstrip()
+    token=stripped.split(None,1)[0].upper() if stripped else ''
+    if token in {'BEGIN','COMMIT','ROLLBACK'}:
+        # v1.3.83: a read-only BEGIN batch is journal reading setup, not a
+        # save; the runtime stage label and the closed error operation agree.
+        return 'read' if token=='BEGIN' and 'READ ONLY' in stripped else token.lower()
     if token=='CREATE':return 'schema'
     if '_dvk_schema' in sql:return 'catalog'
     return 'read' if token=='SELECT' else 'write'
@@ -249,31 +253,45 @@ class Connection:
             return Cursor()
         if upper in ('BEGIN','BEGIN IMMEDIATE'):
             if self.in_transaction:raise CloudDatabaseError('cloud-transaction-invalid')
-            begin='BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' if self.read_only else 'BEGIN'
-            self._run(begin);self.in_transaction=True
             initializing=getattr(_local,"initializing",False)
-            settings=("SET LOCAL statement_timeout='65000'; SET LOCAL lock_timeout='60000'; SET LOCAL synchronous_commit=on" if initializing else
-                      "SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'; SET LOCAL synchronous_commit=on")
-            self._run(settings)
-            if not self.read_only:
-                # Keep the original FIFO waiter: restarting every 2s in 1.3.60
-                # lost queue position under multi-port contention. Reports
-                # 364/366: two installations (up to 18 ports) share one dataset,
-                # and a single holder (journal initialization, statistics
-                # backfill) can keep the lock far longer than 10s, so the FIFO
-                # waiter now uses the wider initialization budget ONLY for the
-                # advisory-lock statement itself; the normal bounded timeouts
-                # are restored immediately after acquisition for the body.
-                # There is NO retry of this transaction or its caller's body.
-                if not initializing:
-                    self._run("SET LOCAL statement_timeout='65000'; SET LOCAL lock_timeout='60000'")
-                try:self._run('SELECT pg_advisory_xact_lock(%s)',(LOCK_ID,))
-                except CloudDatabaseError as error:
-                    if error.code=='cloud-database-lock-timeout' and error.operation=='lock':
-                        self._run('ROLLBACK');self.in_transaction=False
-                    raise
-                if not initializing:
-                    self._run("SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'")
+            # v1.3.83: the entire transaction preamble travels as ONE simple-
+            # protocol round trip (no parameters, so psycopg uses PQsendQuery,
+            # which runs multi-statement batches). The old split path spent
+            # 2-5 sequential pooler round trips on EVERY journal block (BEGIN,
+            # SET LOCAL, widen, advisory lock, restore); one opened dialog runs
+            # dozens of such blocks, which was most of the ~30 s the user
+            # watched «читаю журнал / сохраняю журнал / подтверждаю запись в
+            # базу» cycle. Statement ORDER inside the one batch keeps the exact
+            # former semantics: the advisory lock still executes under the
+            # widened 65 s/60 s window and the caller's body still runs under
+            # the normal bounded 15 s/10 s timeouts restored right after it.
+            # There is still NO retry of this transaction or its caller's body.
+            if self.read_only:
+                batch=("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY"
+                       "; SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'"
+                       "; SET LOCAL synchronous_commit=on")
+            elif initializing:
+                batch=("BEGIN; SET LOCAL statement_timeout='65000'; SET LOCAL lock_timeout='60000'"
+                       "; SET LOCAL synchronous_commit=on"
+                       f"; SELECT pg_advisory_xact_lock({LOCK_ID})")
+            else:
+                batch=("BEGIN; SET LOCAL synchronous_commit=on"
+                       "; SET LOCAL statement_timeout='65000'; SET LOCAL lock_timeout='60000'"
+                       f"; SELECT pg_advisory_xact_lock({LOCK_ID})"
+                       "; SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'")
+            try:
+                self._run(batch)
+            except CloudDatabaseError as error:
+                # Same cleanup contract as the former split statements: a lock
+                # deadline aborts the batch's transaction server-side, so close
+                # that slot before the (now never pooled, error-marked) session
+                # is discarded. The lock id is inlined as a literal on purpose —
+                # a bound parameter would force the extended protocol, which
+                # cannot carry multiple statements in one round trip.
+                if error.code=='cloud-database-lock-timeout' and error.operation=='lock':
+                    self._run('ROLLBACK')
+                raise
+            self.in_transaction=True
             return Cursor()
         if upper in ('COMMIT','ROLLBACK'):
             self._run(upper);self.in_transaction=False

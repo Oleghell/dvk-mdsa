@@ -14,12 +14,21 @@ def collect(diagnostics,progress):
     value=dict(diagnostics=diagnostics,progress=progress,active=None)
     token=_context.set(value);done=threading.Event()
     def watch():
+        shown=None;shown_at=0.0
         while not done.wait(1):
             active=value['active']
-            if active:
-                stage,started=active
-                try:progress(LABELS.get(stage,stage)+f' • {int(perf_counter()-started)} с')
-                except Exception:pass
+            if not active:continue
+            stage,started=active
+            now=perf_counter()
+            # v1.3.83: one line when a stage starts, then at most one update
+            # every 10 s while it runs. The old per-second echo turned a single
+            # slow database stage into dozens of near-identical «читаю журнал
+            # • N с» lines for the same open dialog; brief statements that
+            # start and end between ticks now stay silent instead of flashing.
+            if stage==shown and now-shown_at<10:continue
+            shown=stage;shown_at=now
+            try:progress(LABELS.get(stage,stage)+f' • {int(now-started)} с')
+            except Exception:pass
     thread=threading.Thread(target=watch,daemon=True);thread.start()
     try:yield
     finally:

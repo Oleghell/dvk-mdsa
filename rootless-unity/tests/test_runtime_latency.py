@@ -92,6 +92,21 @@ class FastOptions(unittest.TestCase):
         self.assertEqual(values['db_lock_calls'],1)
         data=notify.diagnostic_json(dict(diagnostic=values));self.assertIn(b'db_lock_ms',data)
         self.assertNotIn(b'SQL',data)
+    def test_repeated_stage_lines_are_coalesced_not_repeated_every_second(self):
+        # v1.3.83: the watcher announces a stage once and then updates it at
+        # most every 10 s; the old per-second echo flooded the port log with
+        # dozens of near-identical «читаю журнал • N с» lines per open dialog.
+        # A frozen clock keeps every tick inside the 10 s window, so any number
+        # of ticks (and of REPEATED same-name phases) must yield ONE line.
+        import assistant_runtime as runtime
+        lines=[]
+        with patch.object(runtime,'perf_counter',return_value=100.0):
+            with runtime.collect({},lines.append):
+                with runtime.phase('db_read'):time.sleep(1.25)
+                with runtime.phase('db_read'):time.sleep(1.25)
+                with runtime.phase('db_write'):time.sleep(1.25)
+        self.assertEqual([line for line in lines if line.startswith('Читаю журнал')],['Читаю журнал • 0 с'])
+        self.assertEqual([line for line in lines if line.startswith('Сохраняю журнал')],['Сохраняю журнал • 0 с'])
 
 class DurableQueue(contact.ContactFlow):
     def ready(self):
@@ -144,6 +159,29 @@ class QueryCost(unittest.TestCase):
                 audit.observe(chain,f.snapshot(('Привет',False)))
                 audit.synchronize(chain,f.snapshot(('Привет',False)))
                 self.assertEqual(audit.pending(chain,f.WHO),[])
+
+class PollJournalRoundTrips(f.WholeChain):
+    def test_seen_receipts_and_saved_probe_share_one_read_transaction(self):
+        # v1.3.83: one poll iteration reads seen ids, pending reply receipts
+        # and the saved-receipt probe from ONE read-only transaction. The old
+        # form paid three separate cloud transaction preambles per iteration.
+        reads=[];original=self.store.read_connection
+        class Recording:
+            def __init__(self,inner):self.inner=inner;self.queries=[]
+            def execute(self,sql,params=()):self.queries.append(sql);return self.inner.execute(sql,params)
+        @contextmanager
+        def recording():
+            with original() as db:
+                proxy=Recording(db);reads.append(proxy);yield proxy
+        with patch.object(self.store,'read_connection',recording):
+            out=self.walk([f.snapshot()],max_polls=1,until_waiting=True)
+        self.assertEqual(out['status'],'chain-waiting')
+        polls=[proxy for proxy in reads if proxy.queries and proxy.queries[0]=='SELECT message FROM chain_seen WHERE chat=?']
+        self.assertEqual(len(polls),1)
+        self.assertEqual(polls[0].queries[1],"SELECT message FROM chain_reply_receipts WHERE chat=? AND status='pending'")
+        self.assertIn('chain_contact_outbox',polls[0].queries[2])
+for name in dir(f.WholeChain):
+    if name.startswith('test_') and name not in PollJournalRoundTrips.__dict__:setattr(PollJournalRoundTrips,name,None)
 
 class LockRecovery(unittest.TestCase):
     def raw(self,failures=0,target='pg_advisory_xact_lock'):

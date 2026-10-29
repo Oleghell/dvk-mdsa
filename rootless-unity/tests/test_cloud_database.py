@@ -175,18 +175,35 @@ class CloudStartupFailures(unittest.TestCase):
             db=cloud.Connection(raw,{},{});db.execute('BEGIN IMMEDIATE');db.execute('ROLLBACK')
         self.assertTrue(any("lock_timeout='60000'" in sql for sql,_ in raw.queries))
         raw=FakeRaw();db=cloud.Connection(raw,{},{});db.execute('BEGIN IMMEDIATE')
-        self.assertTrue(any("lock_timeout='10000'" in sql for sql,_ in raw.queries))
-        # The wider window wraps ONLY the advisory-lock statement; the effective
-        # timeouts for the caller's body are restored to the normal bounded set.
+        # v1.3.83: the whole preamble is ONE simple-protocol round trip. The
+        # wider window wraps ONLY the advisory-lock statement and the effective
+        # timeouts for the caller's body are restored to the normal bounded set
+        # inside the SAME batch, in the same statement order as before.
         advisory=[i for i,(sql,_) in enumerate(raw.queries) if 'pg_advisory' in sql]
         self.assertEqual(len(advisory),1)
-        self.assertIn("lock_timeout='60000'",raw.queries[advisory[0]-1][0])
-        self.assertEqual(raw.queries[advisory[0]+1][0],
-                         "SET LOCAL statement_timeout='15000'; SET LOCAL lock_timeout='10000'")
+        self.assertEqual(advisory[0],0)  # preamble batch is the only statement so far
+        batch=raw.queries[advisory[0]][0]
+        self.assertTrue(batch.startswith('BEGIN'))
+        self.assertLess(batch.index("lock_timeout='60000'"),batch.index('pg_advisory_xact_lock'))
+        self.assertGreater(batch.index("lock_timeout='10000'"),batch.index('pg_advisory_xact_lock'))
         # A read-only BEGIN takes no advisory lock and never widens.
         raw=FakeRaw();db=cloud.Connection(raw,{},{});db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
         self.assertFalse(any('pg_advisory' in sql for sql,_ in raw.queries))
         self.assertFalse(any("lock_timeout='60000'" in sql for sql,_ in raw.queries))
+        self.assertIn('READ ONLY',raw.queries[0][0])
+        # The read-only preamble batch is also a single round trip.
+        self.assertEqual(len(raw.queries),1)
+    def test_transaction_preamble_is_one_round_trip(self):
+        # Every journal block used to spend 2-5 sequential pooler round trips
+        # before its first real statement; one open dialog runs dozens of
+        # blocks, which is the ~30 s the user watched the journal labels cycle.
+        for readonly in (False,True):
+            with self.subTest(readonly=readonly):
+                raw=FakeRaw();db=cloud.Connection(raw,{},{})
+                if readonly:db.execute('PRAGMA query_only=ON')
+                db.execute('BEGIN IMMEDIATE' if not readonly else 'BEGIN')
+                self.assertEqual(len(raw.queries),1)
+                self.assertNotIn('%s',raw.queries[0][0])  # literal lock id, extended protocol would break batching
     def test_contact_backfill_is_set_based_and_preserves_existing_bans(self):
         from mumu_peer_policy import initialize,backfill_contacts
         db=sqlite3.connect(':memory:')

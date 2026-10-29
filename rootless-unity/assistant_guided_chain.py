@@ -524,26 +524,34 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         out['diagnostics']['legacy_stage_recovered']=getattr(chain,'last_legacy_recovered',False) is True
         out['diagnostics']['legacy_recovery_reason']=getattr(chain,'legacy_recovery_reason','not-applicable')
         pending_polls = 0
+        from assistant_reply_audit import DDL as receipts_schema
+        chain.store.ensure_tables(receipts_schema)
         for _ in range(max_polls):
             if stopped.is_set():
                 break
             if deadline is not None and time.monotonic() >= deadline:
                 out.update(status='chain-paused', reason='wait-timeout')
                 return out
+            # v1.3.83: seen ids, pending reply receipts and the saved-receipt
+            # probe all describe the SAME journal state, so one read-only
+            # transaction answers all three. The former three separate blocks
+            # each paid a full cloud transaction preamble per poll iteration
+            # of every open dialog. Values and their ordering are unchanged;
+            # only the round trips are gone. The receipts table initializer is
+            # ensured once above, exactly where pending() used to create it.
             with chain.store.read_connection() as db:
                 seen_ids={r[0] for r in db.execute('SELECT message FROM chain_seen WHERE chat=?',(who['chat'],))}
-            from assistant_reply_audit import pending as pending_replies
-            unanswered_ids=set(pending_replies(chain,who))
+                unanswered_ids={r[0] for r in db.execute(
+                    "SELECT message FROM chain_reply_receipts WHERE chat=? AND status='pending'",(who['chat'],))}
+                saved_receipt=db.execute("""SELECT 1 FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat
+                    WHERE c.account=? AND c.peer=? AND c.chat=? AND c.stage='done' AND o.status='pending'""",
+                    (who['account'],who['peer'],who['chat'])).fetchone() is not None
             excerpts=[m['text'] if isinstance(m['text'],str) else '[нет текста]' for m in before['messages'] if m['sender']==who['peer'] and (m['id'] not in seen_ids or m['id'] in unanswered_ids)]
             if excerpts and exit_capture is not None:exit_capture(excerpts)
             try:
                 # Deliver ONLY an already saved receipt; a global send ban must
                 # not strand its pending photo forever. Never run proposal/AI or
                 # authorize a new message through this receipt-only path.
-                with chain.store.read_connection() as db:
-                    saved_receipt=db.execute("""SELECT 1 FROM chain_dialogs c JOIN chain_contact_outbox o ON o.chat=c.chat
-                        WHERE c.account=? AND c.peer=? AND c.chat=? AND c.stage='done' AND o.status='pending'""",
-                        (who['account'],who['peer'],who['chat'])).fetchone() is not None
                 if saved_receipt:
                     stage, action = 'done', None
                     out['diagnostics']['saved_receipt_only']=True
