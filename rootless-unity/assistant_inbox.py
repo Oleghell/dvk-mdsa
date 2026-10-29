@@ -296,6 +296,51 @@ def reset_read_round(chain):
         db.execute('DELETE FROM inbox_read_round')
 
 
+def hidden_peers(chain, *, clock=time.time):
+    """v1.3.88: rows the native scan must refuse to open this round.
+
+    A manual /num silence or manual block, an ACTIVE history cooldown or a
+    run-scoped reply exclusion is a deliberate exclusion from this round's
+    targets. Before this fix the adoption filter still opened such rows (open
+    -> verified Back -> next pass -> again), which the user watched as «когда
+    все чаты прочитаны, не отвеченный просто заходит в чат постоянно и выходит,
+    и так по кругу» while every open+Back counted as processed work. The set is
+    recomputed for EVERY open call, so a cooldown that expires or a cleared
+    exclusion stops hiding the peer immediately; a genuinely new operator
+    dialog (untracked, unblocked) is still adopted exactly as before.
+    Exact (account, peer) pairs come from the deferral/exclusion journals; the
+    peer-scoped manual deny registry is uploaded as the '*' account.
+    """
+    if getattr(chain.store, 'mumu_shared_claims', False) is not True:
+        return ()
+    from assistant_history_wait import initialize as initialize_deferrals, instant
+    initialize_deferrals(chain.store)
+    now = instant(clock)
+    out = set()
+    def table(db, name):
+        # The shared-store adapter filters sqlite_master NAME listings to the
+        # device prefix, so a global table (mumu_peer_blocks) is invisible there.
+        # The existing SELECT 1 form sees both global and device-prefixed tables
+        # (the token rewriter resolves the prefixed name inside the literal).
+        return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='" + name + "'").fetchone() is not None
+    with chain.store.read_connection() as db:
+        if table(db, 'inbox_history_deferrals'):
+            for account, peer in db.execute(
+                    'SELECT account,peer FROM inbox_history_deferrals WHERE retry_after>?', (now,)):
+                out.add((account, peer))
+        if table(db, 'inbox_reply_exclusions'):
+            for account, peer in db.execute('SELECT account,peer FROM inbox_reply_exclusions'):
+                out.add((account, peer))
+        if table(db, 'mumu_peer_blocks'):
+            # /num always writes both a silence and its manual-block row, but a
+            # silence-only peer (older registry shapes) is denied just the same.
+            for (peer,) in db.execute(
+                    "SELECT peer FROM mumu_peer_blocks WHERE reason='manual-block' "
+                    "UNION SELECT peer FROM mumu_manual_silences"):
+                out.add(('*', peer))
+    return tuple(dict(account=account, peer=peer) for account, peer in sorted(out))
+
+
 def with_seen_ids(chain, allowed):
     # Read fallback excludes already-consumed incoming messages BEFORE opening.
     out=[]
@@ -545,7 +590,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             open_timing = {}
             selected = timed(open_timing, 'open', call, 'open', allowed=with_seen_ids(chain,allowed),
                             entry=entry, unread_only=unread_only, needs_reply_only=True,
-                            adopt_untracked=adopt_open)
+                            adopt_untracked=adopt_open, hidden=hidden_peers(chain, clock=clock))
             entry = 'dialogs'
             if selected['state'] == 'exhausted':
                 if group_kind == 'read':

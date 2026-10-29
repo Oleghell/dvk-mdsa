@@ -160,10 +160,10 @@ UTILS=r'''
   };
 '''
 
-def build(*,allowed=(),entry='dialogs',unread_only=False,needs_reply_only=False,offset=0,recent_limit=None,reverse=False,start=0,adopt_untracked=False):
+def build(*,allowed=(),entry='dialogs',unread_only=False,needs_reply_only=False,offset=0,recent_limit=None,reverse=False,start=0,adopt_untracked=False,hidden=()):
  _window(recent_limit,reverse,start)
  if type(offset) is not int or not 0<=offset<=MAX_MODELS or (recent_limit is not None and offset>=recent_limit):raise ValueError('Invalid model offset')
- s=browser.build('open',allowed=allowed,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only,adopt_untracked=adopt_untracked)
+ s=browser.build('open',allowed=allowed,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only,adopt_untracked=adopt_untracked,hidden=hidden)
  s=replace_once(s,' const operation=', ' const modelOffset='+str(offset)+';const modelStart='+str(start)+';\n const operation=')
  s=replace_once(s,'"il2cpp_class_get_parent"]','"il2cpp_class_get_parent",'+','.join(json.dumps(k) for k in EXTRA_APIS)+']')
  s=replace_once(s,'Object.assign(f,{classParent:', 'Object.assign(f,{'+BINDINGS+'classParent:')
@@ -205,7 +205,7 @@ def _window(recent_limit,reverse,start=0):
  if type(reverse) is not bool or (recent_limit is not None and (type(recent_limit) is not int or not 1<=recent_limit<=128)) or (reverse and recent_limit is None):raise ValueError('Invalid recent window')
  if type(start) is not int or start<0 or (start and (not reverse or recent_limit is None)) or start>=(recent_limit or 1):raise ValueError('Invalid recent position')
 
-def validate(raw,*,allowed=(),unread_only=False,needs_reply_only=False,offset=0,recent_limit=None,reverse=False,start=0,adopt_untracked=False):
+def validate(raw,*,allowed=(),unread_only=False,needs_reply_only=False,offset=0,recent_limit=None,reverse=False,start=0,adopt_untracked=False,hidden=()):
  _window(recent_limit,reverse,start)
  raw=copy.deepcopy(raw);n=raw.get('navigation',{});scan=n.pop('private_model_scan',None)
  if not isinstance(scan,dict) or set(scan) not in ({'next','count','skipped_headers'},{'next','count','skipped_headers','budget_yields'},{'next','count','skipped_headers','budget_yields','resume'}):raise ValueError('Invalid model evidence')
@@ -214,7 +214,7 @@ def validate(raw,*,allowed=(),unread_only=False,needs_reply_only=False,offset=0,
  nxt=scan['next']
  if nxt is not None and (type(nxt) is not int or not offset<nxt<=offset+SLICE or not nxt<scan['count']):raise ValueError('Invalid model cursor')
  if recent_limit is not None and (offset>=recent_limit or (nxt is not None and nxt>=recent_limit) or n.get('rows_scanned',0)>recent_limit):raise ValueError('Recent window exceeded')
- result=browser.validate(raw,'open',allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only,adopt_untracked=adopt_untracked)
+ result=browser.validate(raw,'open',allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only,adopt_untracked=adopt_untracked,hidden=hidden)
  resume=scan.get('resume')
  if resume is not None:
   limit=min(scan['count'],recent_limit or 0)
@@ -228,7 +228,7 @@ def validate(raw,*,allowed=(),unread_only=False,needs_reply_only=False,offset=0,
  result['diagnostic']['header_rows_skipped']=scan['skipped_headers']
  return result,nxt
 
-def perform(operation,executable,folder,cancelled=lambda:False,*,allowed=(),expected=None,entry='search',unread_only=False,needs_reply_only=False,progress=None,recent_limit=None,reverse=False,start=0,position_observer=None,adopt_untracked=False):
+def perform(operation,executable,folder,cancelled=lambda:False,*,allowed=(),expected=None,entry='search',unread_only=False,needs_reply_only=False,progress=None,recent_limit=None,reverse=False,start=0,position_observer=None,adopt_untracked=False,hidden=()):
  _window(recent_limit,reverse,start)
  if position_observer is not None and not callable(position_observer):raise ValueError('Invalid position observer')
  if operation!='open':return browser.perform(operation,executable,folder,cancelled,allowed=allowed,expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only)
@@ -243,11 +243,11 @@ def perform(operation,executable,folder,cancelled=lambda:False,*,allowed=(),expe
   source=build(allowed=(),entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start,adopt_untracked=adopt_untracked)
   position=[]
   def validator(raw):
-   value=validate(raw,allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start,adopt_untracked=adopt_untracked)
+   value=validate(raw,allowed=allowed,unread_only=unread_only,needs_reply_only=needs_reply_only,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start,adopt_untracked=adopt_untracked,hidden=hidden)
    resume=raw.get('navigation',{}).get('private_model_scan',{}).get('resume')
    if value[0]['state']=='opened' and resume is not None:position[:]=[resume]
    return value
-  result,nxt=capture(executable,folder,cancelled,inspector=browser.PreparedNavigation(source,allowed,validator,progress))
+  result,nxt=capture(executable,folder,cancelled,inspector=browser.PreparedNavigation(source,allowed,validator,progress,hidden=hidden))
   skipped+=result['diagnostic']['header_rows_skipped'];result['diagnostic']['header_rows_skipped']=skipped
   # capture has completed boot recheck/cleanup. This integer is only a search
   # priority, never a cached row, object pointer, identity or send permission.

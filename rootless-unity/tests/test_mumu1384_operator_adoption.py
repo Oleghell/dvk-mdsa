@@ -190,7 +190,11 @@ class NativeContracts(unittest.TestCase):
     def test_adopt_mode_permits_untracked_rows_and_strict_mode_does_not(self):
         source = self.source(adopt_untracked=True)
         self.assertIn('adoptUntracked=true', source)
-        self.assertIn('permitted=who=>adoptUntracked||allowedTargets.some', source)
+        # v1.3.88: the hidden-peer guard runs BEFORE the adoption arm, so a
+        # deliberately excluded row (block/cooldown/exclusion) is never opened
+        # even in adopt mode; every other row keeps the 1.3.84 contract.
+        self.assertIn('permitted=who=>!hiddenPeer(who)&&(adoptUntracked||allowedTargets.some', source)
+        self.assertIn("hiddenPeers.has(who.account+':'+who.peer)||hiddenPeers.has('*:'+who.peer)", source)
         self.assertIn('adoptUntracked=false', self.source())
         for bad in (1, 'true', None):
             with self.assertRaises(ValueError):

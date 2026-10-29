@@ -45,6 +45,32 @@ FLAGS={'cleanup_failed','ui_text_read','entry_verified','list_verified','chat_ve
 EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped','back_budget_retries','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','waiting_rows_skipped','handled_rows_skipped'}
 
 
+MAX_HIDDEN_PEERS=2000
+
+
+def hidden_peers(values):
+    """v1.3.88: rows the native scan must refuse to open, even in adoption mode.
+
+    Deny-only host data: exact (account, peer) pairs hide one own chat, the
+    '*' account hides a peer under every account (the manual deny registry is
+    peer-scoped). Never a permit, never a target: a hidden peer stays out of
+    allowedTargets and is skipped by permitted() BEFORE the adoption arm.
+    """
+    if not isinstance(values,(list,tuple)) or len(values)>MAX_HIDDEN_PEERS:raise ValueError('Invalid hidden peers')
+    out=[];seen=set()
+    for value in values:
+        if not isinstance(value,dict) or set(value)!={'account','peer'}:raise ValueError('Invalid hidden peer')
+        account,peer=value['account'],value['peer']
+        def decimal(text):
+            return isinstance(text,str) and re.fullmatch(r'[1-9][0-9]{0,18}',text) is not None \
+                and (len(text)<19 or text<='9223372036854775807')
+        if (account!='*' and not decimal(account)) or not decimal(peer):raise ValueError('Invalid hidden peer')
+        key=(account,peer)
+        if key in seen:raise ValueError('Ambiguous hidden peer')
+        seen.add(key);out.append(dict(account=account,peer=peer))
+    return out
+
+
 def targets(values):
     if not isinstance(values,(list,tuple)) or len(values)>MAX_TARGETS:raise ValueError('Invalid journal targets')
     out=[];seen=set()
@@ -179,7 +205,16 @@ UTILS=r'''
    const who={account:id64(s.accountId,manager),peer:id64(s.peerId,user),chat:id64(s.chatId,chat)};
    if(who.account===who.peer)return null;return {who,user,manager};
   };
-  const permitted=who=>adoptUntracked||allowedTargets.some(x=>x.account===who.account&&x.peer===who.peer&&(new Int64(x.chat).compare(0)<=0||x.chat===who.chat));
+  // v1.3.88: deliberately EXCLUDED peers (manual /num silences, manual blocks,
+  // active history cooldowns, run-scoped reply exclusions) must never be opened
+  // by the adoption filter either - that open -> verified Back -> next pass
+  // cycle was the reported reopen loop. '*' as the account hides the peer under
+  // every account (the manual deny registry is peer-scoped); an exact
+  // account:peer key hides exactly one own chat. The set is host data
+  // re-uploaded with every fresh script, so a cooldown that expires stops
+  // hiding the peer on the next open.
+  const hiddenPeer=who=>hiddenPeers!==null&&(hiddenPeers.has(who.account+':'+who.peer)||hiddenPeers.has('*:'+who.peer));
+  const permitted=who=>!hiddenPeer(who)&&(adoptUntracked||allowedTargets.some(x=>x.account===who.account&&x.peer===who.peer&&(new Int64(x.chat).compare(0)<=0||x.chat===who.chat)));
   const same=(a,b)=>a!==null&&b!==null&&a.account===b.account&&a.peer===b.peer&&a.chat===b.chat;
   const currentIdentity=current=>{
    const chat=call(s.currentChat,current);if(chat.isNull())fail('identity-not-bound');own(chat);
@@ -358,15 +393,16 @@ TICK=r'''
 '''
 
 
-def build(operation, *, allowed=(), expected=None, entry='search', unread_only=False, needs_reply_only=False, adopt_untracked=False):
+def build(operation, *, allowed=(), expected=None, entry='search', unread_only=False, needs_reply_only=False, adopt_untracked=False, hidden=()):
     if operation not in ('open','back','return','list') or entry not in ('search','dialogs','either') or (entry=='either' and operation!='list'):raise ValueError('Invalid fixed operation')
     if type(unread_only) is not bool or (unread_only and operation!='open'):raise ValueError('Invalid unread filter')
     if type(needs_reply_only) is not bool or (needs_reply_only and operation!='open'):raise ValueError('Invalid reply filter')
     if type(adopt_untracked) is not bool or (adopt_untracked and operation!='open'):raise ValueError('Invalid adoption filter')
-    allowed=targets(allowed);expected=identity(expected) if expected is not None else None
+    if type(hidden) not in (list,tuple) or (hidden and operation!='open'):raise ValueError('Invalid hidden peers')
+    allowed=targets(allowed);expected=identity(expected) if expected is not None else None;hidden=hidden_peers(hidden)
     if (operation=='back')!=(expected is not None) or (operation!='open' and allowed):raise ValueError('Invalid operation binding')
     s=route.FUNCTION
-    s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+',unreadOnly='+json.dumps(unread_only)+',needsReplyOnly='+json.dumps(needs_reply_only)+',adoptUntracked='+json.dumps(adopt_untracked)+';')
+    s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+',unreadOnly='+json.dumps(unread_only)+',needsReplyOnly='+json.dumps(needs_reply_only)+',adoptUntracked='+json.dumps(adopt_untracked)+',hiddenPeers=new Set('+json.dumps([x['account']+':'+x['peer'] for x in hidden])+');')
     s=replace_once(s,' function prepareNavigation(',PREPARE+'\n function prepareNavigation(')
     s=replace_once(s,'prepareDialogRoute(f,setup.navigation,getClass);','prepareDialogRoute(f,setup.navigation,getClass);prepareDialogBrowser(f,setup.navigation,getClass);')
     s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,back_budget_retries:0,observation_budget_retries:0,entry_read_budget_retries:0,entry_binding_waits:0,entry_search_recovered:false,unread_filter_applied:false,unread_verified:false,reply_filter_applied:false,reply_needed_verified:false,waiting_rows_skipped:0,handled_rows_skipped:0,profile_closed:false});
@@ -424,12 +460,13 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     return s
 
 
-def validate(value,operation, *, allowed=(), expected=None, unread_only=False, needs_reply_only=False, adopt_untracked=False):
+def validate(value,operation, *, allowed=(), expected=None, unread_only=False, needs_reply_only=False, adopt_untracked=False, hidden=()):
     if operation not in ('open','back','return','list'):raise ValueError('Invalid fixed operation')
     if type(unread_only) is not bool or (unread_only and operation!='open'):raise ValueError('Invalid unread filter')
     if type(needs_reply_only) is not bool or (needs_reply_only and operation!='open'):raise ValueError('Invalid reply filter')
     if type(adopt_untracked) is not bool or (adopt_untracked and operation!='open'):raise ValueError('Invalid adoption filter')
-    allowed=targets(allowed);expected=identity(expected) if expected is not None else None
+    if type(hidden) not in (list,tuple) or (hidden and operation!='open'):raise ValueError('Invalid hidden peers')
+    allowed=targets(allowed);expected=identity(expected) if expected is not None else None;hidden=hidden_peers(hidden)
     if (operation=='back')!=(expected is not None) or (operation!='open' and allowed):raise ValueError('Invalid operation binding')
     if not isinstance(value,dict) or not isinstance(value.get('navigation'),dict):raise ValueError('Missing dialog evidence')
     n=value['navigation']
@@ -496,6 +533,10 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
         # read-only structure probe before anything is sent. Every other
         # operation keeps the strict tracked-binding contract.
         if operation=='open' and not adopt_untracked and not any(x['account']==private['account'] and x['peer']==private['peer'] and (int(x['chat'])<=0 or x['chat']==private['chat']) for x in allowed):raise ValueError('Untracked private binding')
+        # v1.3.88: a hidden peer must NEVER leave the native scan as an opened
+        # dialog - the scan refuses it in permitted(), so evidence of an open
+        # hidden peer is a broken contract, never a usable result.
+        if operation=='open' and any((x['account']=='*' or x['account']==private['account']) and x['peer']==private['peer'] for x in hidden):raise ValueError('Hidden dialog opened')
         if operation=='back' and private!=expected:raise ValueError('Different back binding')
         if operation in ('return','list') or not n['chat_verified']:raise ValueError('Unexpected identity')
     # Reuse the verified thread/root/handle/modal/readiness validator without
@@ -521,7 +562,7 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
 # Targets are private data, never compiled JS. A fresh script accepts one upload
 # and one root call; no persistent native session or identity cache is retained.
 TARGET_BOOTSTRAP = r"""
-let navigationTargets=null,navigationStarted=false;
+let navigationTargets=null,navigationHidden=null,navigationStarted=false;
 function prepareNavigationTargets(values){
  if(navigationTargets!==null||navigationStarted)throw new Error('targets-already-prepared');
  const positive=v=>typeof v==='string'&&/^[1-9][0-9]{0,18}$/.test(v)&&
@@ -546,44 +587,63 @@ function prepareNavigationTargets(values){
  }
  navigationTargets=Object.freeze(checked);return true;
 }
+function prepareNavigationHidden(values){
+ if(navigationHidden!==null||navigationStarted)throw new Error('hidden-already-prepared');
+ const positive=v=>typeof v==='string'&&/^[1-9][0-9]{0,18}$/.test(v)&&
+  (v.length<19||v<='9223372036854775807');
+ if(!Array.isArray(values)||values.length>2000)throw new Error('invalid-hidden');
+ const seen=new Set(),checked=[];
+ for(const x of values){
+  if(x===null||typeof x!=='object'||Array.isArray(x))throw new Error('invalid-hidden');
+  const keys=Object.keys(x).sort().join(',');
+  if(keys!=='account,peer')throw new Error('invalid-hidden');
+  if((x.account!=='*'&&!positive(x.account))||!positive(x.peer))throw new Error('invalid-hidden');
+  const key=x.account+':'+x.peer;if(seen.has(key))throw new Error('duplicate-hidden');seen.add(key);
+  checked.push(key);
+ }
+ navigationHidden=new Set(checked);return true;
+}
 """
 
 
 def prepared_source(source):
     source=replace_once(source,'allowedTargets=[]','allowedTargets=navigationTargets')
+    source=replace_once(source,'hiddenPeers=new Set([])','hiddenPeers=navigationHidden')
     source=replace_once(source,'function probeUIKitRoot() {',"function probeUIKitRoot() {\n if(navigationTargets===null||navigationStarted)throw new Error('targets-not-ready');navigationStarted=true;")
     return TARGET_BOOTSTRAP+source
 
 
 class PreparedNavigation:
     """Authored adapter: only an unloaded-script transport error may reconnect."""
-    def __init__(self,source,allowed,validator,progress=None):
+    def __init__(self,source,allowed,validator,progress=None,hidden=()):
         self.source=prepared_source(source)
         self.allowed=targets(allowed)
+        self.hidden=hidden_peers(hidden)
         self.validator=validator
         self.progress=progress
 
     def __call__(self,port,token,cancel,binding):
         from search_online import inspect
         return inspect(port,token,cancel,source_function=self.source,
-                       validator=self.validator,navigation_targets=self.allowed)
+                       validator=self.validator,navigation_targets=self.allowed,
+                       navigation_hidden=self.hidden or None)
 
     def reconnecting(self,attempt):
         if self.progress is not None:
             self.progress(f'Восстанавливаю связь перед переходом • попытка {attempt}/2 • скрипт ещё не загружен')
 
 
-def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),expected=None,entry='search',unread_only=False, needs_reply_only=False, adopt_untracked=False):
+def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),expected=None,entry='search',unread_only=False, needs_reply_only=False, adopt_untracked=False, hidden=()):
     from one_chat_device import capture
     from search_online import inspect
     from startup_failure import checkpoint
     with checkpoint('navigation-source'):
         allowed=targets(allowed)
-        if operation!='open' and allowed:raise ValueError('Invalid operation binding')
+        if operation!='open' and (allowed or hidden):raise ValueError('Invalid operation binding')
         source=build(operation,allowed=(),expected=expected,entry=entry,unread_only=unread_only,needs_reply_only=needs_reply_only,adopt_untracked=adopt_untracked)
     def checked(result):
         try:
-            return validate(result,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only,adopt_untracked=adopt_untracked)
+            return validate(result,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only,adopt_untracked=adopt_untracked,hidden=hidden)
         except Exception as error:
             # A rejected result never becomes a usable result. Preserve ONLY the
             # independently validated public diagnostic; discard all raw RPC data.
@@ -600,4 +660,4 @@ def perform(operation,executable,folder,cancelled=lambda:False, *, allowed=(),ex
             else:
                 error._dvk_navigation=public
             raise
-    return capture(executable,folder,cancelled,inspector=PreparedNavigation(source,allowed,checked))
+    return capture(executable,folder,cancelled,inspector=PreparedNavigation(source,allowed,checked,hidden=hidden))

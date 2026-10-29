@@ -105,7 +105,7 @@ class Navigation(unittest.TestCase):
  def test_partial_slices_progress_without_scroll_or_open_retry(self):
   end=ih.nav('opened',guide.WHO);end['diagnostic']['header_rows_skipped']=0
   empty=ih.nav('exhausted');empty['diagnostic']['header_rows_skipped']=0
-  with patch('one_chat_device.capture',side_effect=[(copy.deepcopy(empty),18),(copy.deepcopy(empty),39),(end,None)]) as capture,patch.object(models,'build',return_value='function probeUIKitRoot() { const allowedTargets=[];}') as build:
+  with patch('one_chat_device.capture',side_effect=[(copy.deepcopy(empty),18),(copy.deepcopy(empty),39),(end,None)]) as capture,patch.object(models,'build',return_value='function probeUIKitRoot() { const allowedTargets=[],hiddenPeers=new Set([]);}') as build:
    result=models.perform('open','adb','folder',allowed=[guide.WHO],needs_reply_only=True)
    self.assertEqual(result['state'],'opened');self.assertEqual(capture.call_count,3)
    self.assertEqual([c.kwargs['offset'] for c in build.call_args_list],[0,18,39])

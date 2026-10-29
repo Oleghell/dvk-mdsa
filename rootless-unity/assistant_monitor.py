@@ -241,7 +241,21 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                 # A peer can reply while we are in another chat. Rescan from
                 # the list with fresh journal targets BEFORE sleeping/profiles.
                 # Only productive passes drain again; stale handled headers are filtered before open.
-                active = current.get('dialogs_processed',0) > 0
+                # v1.3.88: "productive" means the pass actually advanced dialog
+                # work - a reply was submitted, an outgoing was observed, a
+                # genuinely NEW incoming message was read, or a contact was
+                # forwarded. A pass that only OPENED rows and deliberately left
+                # them without an answer (a globally blocked chat, an AI/history
+                # deferral, a manual /num silence) is NOT productive: the same
+                # scan would find exactly the same rows again, and counting it
+                # as work kept the monitor rechecking the inbox forever instead
+                # of moving on to the profile search - the reported «когда все
+                # чаты прочитаны, не отвеченный просто заходит в чат постоянно и
+                # выходит по кругу, а анкеты не ищутся». Unproductive passes now
+                # fall through to the profile batch / idle wait below.
+                productive = any(current.get(key, 0) > 0 for key in (
+                    'submission_calls', 'new_incoming_messages', 'outgoing_observed', 'contacts_forwarded'))
+                active = current.get('dialogs_processed', 0) > 0 and productive
                 profile_due = mode == 'full' and clock() >= next_profiles
                 # MuMu drains until a fresh pass finds no eligible work, even
                 # across the old profile deadline. Deferred/review-only inputs

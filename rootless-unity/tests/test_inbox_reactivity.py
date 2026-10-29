@@ -98,7 +98,9 @@ class IdleLoop(unittest.TestCase):
         def wait(delay,stop):events.append(('wait',delay));stop.set();return True
         def results(*a,**k):
             events.append(('inbox',None))
-            return inbox_result(dialogs_processed=1) if len(events)==1 else inbox_result()
+            # v1.3.88: a pass that READ a genuinely new incoming message is
+            # productive and drains again; an open/leave-only pass is not.
+            return inbox_result(dialogs_processed=1,new_incoming_messages=1) if len(events)==1 else inbox_result()
         out,read=self.run_loop(results,wait)
         self.assertEqual(events,[('inbox',None),('inbox',None),('wait',5)])
         self.assertEqual(out['immediate_rechecks'],1);self.assertTrue(out['dialogs_verified'])
@@ -118,8 +120,25 @@ class IdleLoop(unittest.TestCase):
 
     def test_busy_burst_is_bounded_and_does_not_start_profiles_over_pending_replies(self):
         def wait(delay,stop):self.assertEqual(delay,5);stop.set();return True
-        out,read=self.run_loop(lambda *a,**k:inbox_result(dialogs_processed=1),wait)
+        # v1.3.88: "busy" means replies were actually submitted. A pass that
+        # only opened rows and left them unanswered is no longer rechecked
+        # forever (see test_open_leave_only_pass_moves_on_to_profiles).
+        out,read=self.run_loop(lambda *a,**k:inbox_result(dialogs_processed=1,submission_calls=1),wait)
         self.assertEqual(read.call_count,4);self.assertEqual(out['immediate_rechecks'],3)
+
+    def test_open_leave_only_pass_moves_on_to_profiles(self):
+        # The reported loop: all chats are read and answered, ONE unanswerable
+        # chat is opened and left every pass. dialogs_processed>0 alone must
+        # NOT count as productive work - the monitor proceeds to the profile
+        # search instead of cycling open->back on the same dialog forever.
+        events=[]
+        def wait(delay,stop):events.append(('wait',delay));stop.set();return True
+        def results(*a,**k):
+            events.append(('inbox',None))
+            return inbox_result(dialogs_processed=1) if len(events)==1 else inbox_result()
+        out,read=self.run_loop(results,wait)
+        self.assertEqual(events,[('inbox',None),('wait',5)])
+        self.assertEqual(out['immediate_rechecks'],0)
 
     def test_disabled_tg_is_visible_but_does_not_stop_monitor(self):
         def wait(delay,stop):stop.set();return True

@@ -143,7 +143,7 @@ class PacingAndSettings(unittest.TestCase):
         from test_assistant_monitor import inbox_result,list_result
         stop=threading.Event();now=[0];batches=[]
         def initial(*a,**kw):return dict(status='completed',report_name='last-run.json')
-        def read(*a,**kw):now[0]=300;return inbox_result(dialogs_processed=1)
+        def read(*a,**kw):now[0]=300;return inbox_result(dialogs_processed=1,submission_calls=1)
         def repeat(*a,**kw):batches.append(now[0]);stop.set();return initial()
         def navf(op,*a,**kw):return list_result() if op=='list' else dict(list_result(),state='search-ready')
         out=monitor.run(cfg.Settings(),stop,lambda _:True,initial=initial,inbox=read,repeat=repeat,navigator=navf,

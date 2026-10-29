@@ -119,7 +119,7 @@ class Drain(mf.Monitor):
     def test_more_than_two_productive_passes_before_search_even_after_deadline(self):
         events=[]
         def incoming(*a,**kw):
-            events.append('inbox');return mf.inbox_result(dialogs_processed=1) if events.count('inbox')<=5 else mf.inbox_result()
+            events.append('inbox');return mf.inbox_result(dialogs_processed=1,new_incoming_messages=1) if events.count('inbox')<=5 else mf.inbox_result()
         def profiles(*a,**kw):
             events.append('search');self.stop.set();return dict(status='completed',report_name='last-run.json')
         self.inbox.side_effect=incoming

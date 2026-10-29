@@ -75,7 +75,7 @@ class Continuous(mf.Monitor):
   out=self.run_fast();self.repeat.assert_called_once();self.assertEqual(out['last_pass']['history_deferred'],2)
   self.assertEqual(out['last_pass']['review_pending'],3);self.assertEqual(out['totals']['submission_calls'],0)
  def test_deadline_does_not_interrupt_incoming_drain(self):
-  now=iter([0,121,121]);self.inbox.side_effect=[mf.inbox_result(dialogs_processed=1),mf.inbox_result()]
+  now=iter([0,121,121]);self.inbox.side_effect=[mf.inbox_result(dialogs_processed=1,new_incoming_messages=1),mf.inbox_result()]
   def repeat(*a,**kw):self.stop.set();return dict(status='completed',report_name='last-run.json')
   repeat=MagicMock(side_effect=repeat)
   out=self.run_monitor(continuous=True,clock=lambda:next(now,121),repeat=repeat,wait=MagicMock(side_effect=AssertionError()))
@@ -100,7 +100,7 @@ class Scan(unittest.TestCase):
   first=inf.nav('exhausted');first['diagnostic']['header_rows_skipped']=0
   final=inf.nav('opened',inf.WHO);final['diagnostic']['header_rows_skipped']=0
   progress=MagicMock()
-  with patch('one_chat_device.capture',side_effect=[(first,64),(final,None)]),patch.object(models,'build',return_value='function probeUIKitRoot() { const allowedTargets=[];}'):
+  with patch('one_chat_device.capture',side_effect=[(first,64),(final,None)]),patch.object(models,'build',return_value='function probeUIKitRoot() { const allowedTargets=[],hiddenPeers=new Set([]);}'):
    out=models.perform('open','adb','folder',allowed=[inf.WHO],progress=progress)
   self.assertEqual(out['state'],'opened');self.assertEqual(progress.call_count,2)
   self.assertIn('65',progress.call_args.args[0]);self.assertNotIn('Анна',str(progress.call_args_list))

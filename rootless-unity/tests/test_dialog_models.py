@@ -46,7 +46,7 @@ class Models(unittest.TestCase):
  def test_logical_slices_use_no_device_gestures(self):
   first=nav('exhausted');first['diagnostic']['header_rows_skipped']=2
   last=nav('opened',WHO);last['diagnostic']['header_rows_skipped']=1
-  with patch('one_chat_device.capture',side_effect=[(first,64),(last,None)]) as capture,patch.object(models,'build',return_value='function probeUIKitRoot() { const allowedTargets=[];}') as build:
+  with patch('one_chat_device.capture',side_effect=[(first,64),(last,None)]) as capture,patch.object(models,'build',return_value='function probeUIKitRoot() { const allowedTargets=[],hiddenPeers=new Set([]);}') as build:
    out=models.perform('open','adb','folder',allowed=[WHO],needs_reply_only=True)
    self.assertEqual(out['state'],'opened');self.assertEqual(out['diagnostic']['header_rows_skipped'],3)
    self.assertEqual(capture.call_count,2)

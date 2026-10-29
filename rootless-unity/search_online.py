@@ -181,7 +181,7 @@ def validate(value, **navigation_options):
     return value
 
 
-def inspect(port, token, cancelled, expected=None, *, frida_api=None, source_function=FUNCTION, validator=validate, timeout=25, navigation_targets=None):
+def inspect(port, token, cancelled, expected=None, *, frida_api=None, source_function=FUNCTION, validator=validate, timeout=25, navigation_targets=None, navigation_hidden=None):
     from startup_failure import checkpoint, record
     with checkpoint('gadget-import'):
         if frida_api is None:
@@ -201,6 +201,12 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
         from dialog_browser import targets
         navigation_targets=targets(navigation_targets)
         source += '\nrpc.exports.preparetargets=function(values){return prepareNavigationTargets(values);};\n'
+    if navigation_hidden is not None:
+        # v1.3.88: deny-only row exclusions ride the same fresh-script upload as
+        # the journal targets; the native scan refuses them BEFORE adoption.
+        from dialog_browser import hidden_peers
+        navigation_hidden=hidden_peers(navigation_hidden)
+        source += '\nrpc.exports.preparehidden=function(values){return prepareNavigationHidden(values);};\n'
     with checkpoint('gadget-manager'):
         manager = f.get_device_manager()
     address = '127.0.0.1:' + str(port)
@@ -237,6 +243,10 @@ rpc.exports={runtime(){return {frida_version:Frida.version,arch:Process.arch,pla
                 stage = 'navigation-targets-upload'
                 if script.exports_sync.preparetargets(navigation_targets) is not True:
                     raise ReadStopped('navigation-targets-rejected')
+            if navigation_hidden is not None:
+                stage = 'navigation-hidden-upload'
+                if script.exports_sync.preparehidden(navigation_hidden) is not True:
+                    raise ReadStopped('navigation-hidden-rejected')
             if cancelled():raise ReadStopped('cancelled')
             def watch():
                 while not done.wait(.1):
