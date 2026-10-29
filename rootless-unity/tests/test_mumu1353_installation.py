@@ -34,6 +34,24 @@ class Installation(unittest.TestCase):
             for thread in threads:thread.start()
             for thread in threads:thread.join(10);self.assertFalse(thread.is_alive())
             self.assertEqual(errors,[]);self.assertEqual(len(results),8);self.assertEqual(len(set(results)),1)
+    def test_busy_bootstrap_write_is_retried_not_fatal(self):
+        # v1.3.84 (CI run 40887491098, windows shard 3-of-3): the pre-lock
+        # sentinel write raced the mandatory byte lock and surfaced a raw
+        # PermissionError instead of the retried installation-id-busy form.
+        from contextlib import contextmanager
+        from mumu_common import MumuError as Busy
+        with tempfile.TemporaryDirectory() as t,patch.object(installation,'machine_fingerprint',return_value='c'*64):
+            original=installation.installation_lock;fired=[]
+            @contextmanager
+            def once_busy(path):
+                if not fired:
+                    fired.append(1)
+                    raise Busy('installation-id-busy')
+                with original(path) as scope:yield scope
+            with patch.object(installation,'installation_lock',once_busy):
+                value=installation.load(t)
+            self.assertEqual(installation.load(t),value)
+            self.assertEqual(fired,[1])
     def test_corrupt_or_copied_identity_never_silently_reset(self):
         with tempfile.TemporaryDirectory() as t,patch.object(installation,'machine_fingerprint',return_value='c'*64):
             installation.load(t);path=Path(t)/'installation.json';original=path.read_bytes()

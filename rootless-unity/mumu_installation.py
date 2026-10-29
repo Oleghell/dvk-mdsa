@@ -36,11 +36,20 @@ def machine_fingerprint():
 def installation_lock(path):
     """Bootstrap-only OS lock; do not import the engine before port binding."""
     path.parent.mkdir(parents=True,exist_ok=True)
-    stream=path.open('a+b');locked=False
+    stream=None;locked=False
     try:
-        stream.seek(0,2)
-        if stream.tell()==0:stream.write(b'0');stream.flush()
-        stream.seek(0)
+        # The sentinel byte must exist BEFORE the 1-byte lock is taken (Windows
+        # cannot lock a zero-length region), so it is written pre-lock. Windows
+        # mandatory byte locks make a CONCURRENT bootstrap write fail with a
+        # raw PermissionError while another thread already holds byte 0: that
+        # is the same busy condition as the lock itself, never a corrupt state
+        # and never a hard stop. load() retries it inside its bounded window.
+        try:
+            stream=path.open('a+b')
+            stream.seek(0,2)
+            if stream.tell()==0:stream.write(b'0');stream.flush()
+            stream.seek(0)
+        except OSError:raise MumuError('installation-id-busy') from None
         try:
             if os.name=='nt':
                 import msvcrt
@@ -52,15 +61,16 @@ def installation_lock(path):
         except OSError:raise MumuError('installation-id-busy') from None
         yield
     finally:
-        try:
-            if locked:
-                if os.name=='nt':
-                    import msvcrt
-                    stream.seek(0);msvcrt.locking(stream.fileno(),msvcrt.LK_UNLCK,1)
-                else:
-                    import fcntl
-                    fcntl.flock(stream.fileno(),fcntl.LOCK_UN)
-        finally:stream.close()
+        if stream is not None:
+            try:
+                if locked:
+                    if os.name=='nt':
+                        import msvcrt
+                        stream.seek(0);msvcrt.locking(stream.fileno(),msvcrt.LK_UNLCK,1)
+                    else:
+                        import fcntl
+                        fcntl.flock(stream.fileno(),fcntl.LOCK_UN)
+            finally:stream.close()
 
 
 def load(folder=None):
