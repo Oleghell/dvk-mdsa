@@ -40,8 +40,8 @@ STARTUP_STAGGER_SECONDS = 27.0
 # so a fresh worker process replays nothing. The controller therefore
 # re-queues such a port automatically - bounded, jittered, Stop-aware -
 # instead of leaving it dead for the whole run.
-STARTUP_REQUEUE_LIMIT = 2
-STARTUP_REQUEUE_DELAYS = (20.0, 45.0)
+STARTUP_REQUEUE_LIMIT = 3
+STARTUP_REQUEUE_DELAYS = (20.0, 45.0, 90.0)
 # Pinned to cloud_database.TRANSIENT_CODES by test; duplicated so the GUI
 # controller itself never imports the engine's database layer.
 REQUEUE_DATABASE_CODES = frozenset({'cloud-database-unavailable', 'cloud-database-capacity'})
@@ -167,6 +167,51 @@ def run_one(value,settings,mode,fresh,stopped,progress,*,popen=subprocess.Popen,
             process.kill();process.wait(timeout=10)
 
 
+def run_with_startup_requeue(n, settings, mode, fresh, stopped, progress, *, worker=run_one,
+                             control=None, on_requeue=None, jitter=None):
+    """One worker run wrapped in the bounded pre-send startup requeue (v1.3.96).
+
+    Reports LAZ5VEvy (v1.3.95, port 5563): the journal-connect refusal
+    outlasted the worker ladder AND both controller requeues, and the MANUAL
+    «Перезапустить порт» path had no requeue at all - one bad minute left the
+    port dead until a human pressed the button again. The requeue loop is
+    therefore a reusable wrapper: the staggered multi-port start (run_many)
+    and the single-port restart both get the same bounded, jittered,
+    Stop-aware retries; `on_requeue` supplies a fresh PortControl for the
+    next attempt exactly like the GUI's manual resume (run_one finishes the
+    previous one on its own exit path). Nothing about the death evidence or
+    the hard stop changes - only the budget and the coverage.
+    """
+    if jitter is None:
+        from random import uniform
+        def jitter(): return uniform(0.8, 1.4)
+    kwargs = {} if control is None else dict(control=control)
+    attempt = 0
+    while True:
+        launched = time.time()
+        value = worker(n, settings, mode, fresh, stopped, progress, **kwargs)
+        # Reports 508-510: bounded automatic requeue of provably
+        # pre-send startup deaths; see startup_requeue_reason.
+        if stopped.is_set() or attempt >= STARTUP_REQUEUE_LIMIT:
+            return value
+        reason = startup_requeue_reason(n, launched)
+        if reason is None:
+            return value
+        if control is not None and on_requeue is not None:
+            # run_one already finished the previous control on its own exit
+            # path; a live requeued attempt needs a fresh one, exactly like
+            # the GUI's manual port resume, so pause/resume stay usable and
+            # the restart button never races the automatic retry.
+            control = on_requeue()
+            kwargs = dict(control=control)
+        wait = STARTUP_REQUEUE_DELAYS[min(attempt, len(STARTUP_REQUEUE_DELAYS) - 1)] * jitter()
+        progress(n, 'Автоповтор запуска (попытка {} из {}): {}; отправки не повторяются. Ожидаю ~{} с.'.format(
+            attempt + 2, STARTUP_REQUEUE_LIMIT + 1, reason, int(wait)))
+        if stopped.wait(wait):
+            return value  # Keep the real failure text.
+        attempt += 1
+
+
 def run_many(values,settings,mode,fresh,stopped,progress,*,worker=run_one,controls=None,spacing=None,jitter=None):
     values=parse('\n'.join(str(port(x)) for x in values))
     if spacing is None:spacing=STARTUP_STAGGER_SECONDS
@@ -186,28 +231,17 @@ def run_many(values,settings,mode,fresh,stopped,progress,*,worker=run_one,contro
                 progress(n,'Ожидаю очередь запуска ~{} с: порты стартуют по одному, чтобы не перегружать общую базу одним мгновенным запуском.'.format(int(delay)))
                 if stopped.wait(delay):value='Остановлено до запуска.'
             if value is None:
-                kwargs={} if controls is None else dict(control=controls[n])
-                attempt=0
-                while True:
-                    launched=time.time()
-                    value=worker(n,settings,mode,fresh,stopped,progress,**kwargs)
-                    # Reports 508-510: bounded automatic requeue of provably
-                    # pre-send startup deaths; see startup_requeue_reason.
-                    if stopped.is_set() or attempt>=STARTUP_REQUEUE_LIMIT:break
-                    reason=startup_requeue_reason(n,launched)
-                    if reason is None:break
-                    if controls is not None:
-                        # run_one already finished the previous control on its
-                        # own exit path; a live requeued attempt needs a fresh
-                        # one, exactly like the GUI's manual port resume, so
-                        # pause/resume stay usable and the restart button
-                        # never races the automatic retry.
-                        controls[n]=PortControl();kwargs=dict(control=controls[n])
-                    wait=STARTUP_REQUEUE_DELAYS[min(attempt,len(STARTUP_REQUEUE_DELAYS)-1)]*jitter()
-                    progress(n,'Автоповтор запуска (попытка {} из {}): {}; отправки не повторяются. Ожидаю ~{} с.'.format(
-                        attempt+2,STARTUP_REQUEUE_LIMIT+1,reason,int(wait)))
-                    if stopped.wait(wait):break  # Keep the real failure text.
-                    attempt+=1
+                def fresh_control():
+                    controls[n] = PortControl()
+                    return controls[n]
+                # v1.3.96: the bounded pre-send startup requeue is the shared
+                # run_with_startup_requeue wrapper - the manual single-port
+                # restart uses the same one, so both paths retry identically.
+                value = run_with_startup_requeue(
+                    n, settings, mode, fresh, stopped, progress, worker=worker,
+                    control=None if controls is None else controls[n],
+                    on_requeue=None if controls is None else fresh_control,
+                    jitter=jitter)
         except Exception:
             value='Ошибка запуска рабочего процесса. См. папку отчётов этого порта.'
             progress(n,value)

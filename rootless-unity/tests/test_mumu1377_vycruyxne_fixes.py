@@ -54,17 +54,20 @@ def write_report(n, value):
 class RequeueConstants(unittest.TestCase):
     def test_budget_is_two_extra_attempts_over_jittered_cooldowns(self):
         self.assertIs(type(mumu_controller.STARTUP_REQUEUE_LIMIT), int)
-        self.assertEqual(mumu_controller.STARTUP_REQUEUE_LIMIT, 2)
+        # v1.3.96 (report LAZ5VEvy): three requeues over (20, 45, 90) s ride
+        # out a multi-minute journal-connect refusal; every wait observes
+        # Stop and every non-transient death evidence stays fatal.
+        self.assertEqual(mumu_controller.STARTUP_REQUEUE_LIMIT, 3)
         delays = mumu_controller.STARTUP_REQUEUE_DELAYS
         self.assertIsInstance(delays, tuple)
         self.assertEqual(len(delays), mumu_controller.STARTUP_REQUEUE_LIMIT)
         for value in delays:
             self.assertIs(type(value), float)
             self.assertGreater(value, 0)
-            self.assertLessEqual(value, 60)
+            self.assertLessEqual(value, 120)
 
     def test_requeue_cooldowns_use_the_production_delays_by_default(self):
-        self.assertEqual(mumu_controller.STARTUP_REQUEUE_DELAYS, (20.0, 45.0))
+        self.assertEqual(mumu_controller.STARTUP_REQUEUE_DELAYS, (20.0, 45.0, 90.0))
 
     def test_database_codes_pin_the_engine_transient_set(self):
         from cloud_database import TRANSIENT_CODES
@@ -172,7 +175,7 @@ class RequeueInRunMany(unittest.TestCase):
         env.start()
         self.addCleanup(folder.cleanup)
         self.addCleanup(env.stop)
-        delays = patch.object(mumu_controller, 'STARTUP_REQUEUE_DELAYS', (0.0, 0.0))
+        delays = patch.object(mumu_controller, 'STARTUP_REQUEUE_DELAYS', (0.0, 0.0, 0.0))
         delays.start()
         self.addCleanup(delays.stop)
 
@@ -211,7 +214,7 @@ class RequeueInRunMany(unittest.TestCase):
         out, messages = self.run_many(worker)
         self.assertEqual(out, {5577: 'ok'})
         self.assertEqual(state['failed'], 2)
-        self.assertTrue(any(n == 5577 and 'Автоповтор запуска (попытка 2 из 3)' in text
+        self.assertTrue(any(n == 5577 and 'Автоповтор запуска (попытка 2 из 4)' in text
                             and 'общая база была занята' in text and 'отправки не повторяются' in text
                             for n, text in messages), messages)
 
@@ -227,13 +230,13 @@ class RequeueInRunMany(unittest.TestCase):
         out, messages = self.run_many(worker, ports=(5575,))
         self.assertEqual(out, {5575: 'ok'})
         self.assertEqual(state['failed'], 1)
-        self.assertTrue(any(n == 5575 and 'Автоповтор запуска (попытка 2 из 3)' in text
+        self.assertTrue(any(n == 5575 and 'Автоповтор запуска (попытка 2 из 4)' in text
                             and 'рабочий процесс' in text for n, text in messages), messages)
 
     def test_budget_is_bounded_and_the_real_error_survives(self):
         worker, calls, _ = self.failing_worker(report_5577)
         out, _ = self.run_many(worker)
-        self.assertEqual(calls, [5577, 5577, 5577])
+        self.assertEqual(calls, [5577, 5577, 5577, 5577])
         self.assertTrue(out[5577].startswith('Этап: journal-initialization'))
 
     def test_stop_after_the_first_death_never_requeues(self):
@@ -276,16 +279,18 @@ class RequeueInRunMany(unittest.TestCase):
         live = {5577: PortControl()}
         first = live[5577]
         out, _ = self.run_many(worker, controls=live)
-        self.assertEqual(calls, [5577, 5577, 5577])
+        self.assertEqual(calls, [5577, 5577, 5577, 5577])
         # Attempt 1 ran on the original control; every requeued attempt got a
         # DIFFERENT fresh one, so the GUI never sees a finished control while
         # an attempt is still live.
         self.assertIs(controls[0], first)
         self.assertIsNot(controls[1], first)
         self.assertIsNot(controls[2], first)
+        self.assertIsNot(controls[3], first)
         self.assertIsNot(controls[1], controls[2])
+        self.assertIsNot(controls[2], controls[3])
         # The dict now holds the LAST swapped control, finished by run_many.
-        self.assertIs(live[5577], controls[2])
+        self.assertIs(live[5577], controls[3])
         self.assertTrue(live[5577].finished)
 
     def test_control_swap_keeps_pause_usable_between_attempts(self):
@@ -297,8 +302,8 @@ class RequeueInRunMany(unittest.TestCase):
             seen.append(control.state())
             return worker(n, settings, mode, fresh, stopped, progress, control=control)
         out, _ = self.run_many(observing, controls=live)
-        # All three attempts ran on a live 'running' control - never finished.
-        self.assertEqual(seen, ['running', 'running', 'running'])
+        # All four attempts ran on a live 'running' control - never finished.
+        self.assertEqual(seen, ['running', 'running', 'running', 'running'])
         self.assertTrue(live[5577].finished)
 
     def test_requeue_waits_its_jittered_cooldown_between_attempts(self):
@@ -317,10 +322,10 @@ class RequeueInRunMany(unittest.TestCase):
         recorder = StopRecorder()
         worker, calls, _ = self.failing_worker(report_5577)
         out, _ = self.run_many(worker, stopped=recorder)
-        self.assertEqual(calls, [5577, 5577, 5577])
-        # spacing=0 and a single port mean no stagger waits: exactly the two
+        self.assertEqual(calls, [5577, 5577, 5577, 5577])
+        # spacing=0 and a single port mean no stagger waits: exactly the three
         # requeue cooldowns (patched to 0.0, jitter 1.0) are observed.
-        self.assertEqual(recorder.waits, [0.0, 0.0])
+        self.assertEqual(recorder.waits, [0.0, 0.0, 0.0])
 
     def test_requeue_survives_multi_port_run_alongside_healthy_ports(self):
         def worker(n, settings, mode, fresh, stopped, progress, *, control=None):

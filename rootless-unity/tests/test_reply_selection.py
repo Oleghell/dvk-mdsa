@@ -47,7 +47,12 @@ class ReplySchema(unittest.TestCase):
         source=b.build('open',allowed=[TARGET],needs_reply_only=True)
         for method in ('get_LastMessage','get_SenderId','get_ChatId','get_IsMine'):
             self.assertIn(method,source)
-        for needle in ('if(unread===0&&!header.incoming)', 'if(alreadyHandled', "fail('selection-last-message-changed')"):
+        # v1.3.96: the new-message admission - only an INCOMING last message
+        # opens the row; the unread badge never rescues an our-message-last
+        # row and never gates the reply filter (it stays the standalone
+        # read-check tool's own admission).
+        for needle in ('if(!header.incoming)', 'if(alreadyHandled', "fail('selection-last-message-changed')",
+                       'if(unreadOnly&&!needsReplyOnly&&unread===0)'):
             self.assertLess(source.index(needle),source.index('call(s.openCell,current,args)'))
         for forbidden in ('get_Text','get_Body','get_Name','OnSend'):
             self.assertNotIn(forbidden,source)

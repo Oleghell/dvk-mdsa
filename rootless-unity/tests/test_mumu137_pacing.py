@@ -48,7 +48,13 @@ class FastChain(gf.WholeChain):
  def test_missing_outgoing_is_bounded_and_never_repeats_send(self):
   before=gf.snapshot(('Привет',False));pause=MagicMock(return_value=False)
   out=self.walk([before],until_waiting=True,pause=pause)
-  self.assertEqual(out['reason'],'outgoing-not-observed');self.assertEqual(out['submission_calls'],1)
+  # v1.3.96 quick exit: ONE verification read after the send, then the chat
+  # is left. Her answered message keeps its pending answer receipt (our
+  # outgoing never showed up in the check), so the leave reason is the
+  # pending-answer cooldown, not the former three-poll exhaustion; the send
+  # is still bounded to one attempt and never repeated.
+  self.assertEqual(out['reason'],'incoming-answer-pending');self.assertEqual(out['status'],'chain-waiting')
+  self.assertEqual(out['submission_calls'],1)
   self.assertEqual(len(self.sent),1);pause.assert_not_called()
   again=self.walk([before],until_waiting=True,pause=pause)
   self.assertEqual(again['submission_calls'],0);self.assertEqual(len(self.sent),1)

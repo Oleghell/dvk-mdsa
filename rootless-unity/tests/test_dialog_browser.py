@@ -77,7 +77,10 @@ class BrowserSchema(unittest.TestCase):
         source=b.build('open',allowed=[TARGET],unread_only=True)
         self.assertIn('unreadOnly=true',source)
         self.assertIn("s.unreadCount=checked(s.chatModel,'get_UnreadCount',8)",source)
-        self.assertIn("if(unreadOnly&&unread===0){n.read_rows_skipped++;return false;}",source)
+        # v1.3.96: the badge keeps its admission role ONLY for the standalone
+        # read-check tool (unread_only without needs_reply_only); the
+        # assistant's reply filter never admits or blocks by the badge.
+        self.assertIn("if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}",source)
         first=source.index('unread=unreadCount(chat)')
         again=source.index('if(unreadCount(chat)!==unread)')
         self.assertLess(first,source.index("fail('selection-chat-changed')"))

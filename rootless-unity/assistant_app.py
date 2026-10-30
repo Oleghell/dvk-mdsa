@@ -519,14 +519,25 @@ def launch(self_check=False):
         device_table.item(str(n),values=(n,'Перезапускаю порт • отправки не повторяются'))
         def rerun():
             try:
-                run_one(n,current_run['settings'],current_run['mode'],False,stopped,
-                        lambda p,text:events.put(('device-progress',(p,text))),control=port_controls[n])
+                # v1.3.96: the manual restart rides the SAME bounded pre-send
+                # startup requeue as the staggered multi-port start, so one
+                # transient journal-connect refusal no longer leaves the
+                # manually restarted port dead until the button is pressed
+                # again. Each requeued attempt gets a fresh PortControl; the
+                # finally below finishes the latest one.
+                from mumu_controller import run_with_startup_requeue
+                def fresh_control():
+                    port_controls[n] = PortControl()
+                    return port_controls[n]
+                run_with_startup_requeue(n, current_run['settings'], current_run['mode'], False, stopped,
+                                         lambda p, text: events.put(('device-progress', (p, text))),
+                                         control=port_controls[n], on_requeue=fresh_control)
             except Exception:
-                events.put(('device-progress',(n,'Ошибка запуска рабочего процесса. См. папку отчётов этого порта.')))
+                events.put(('device-progress', (n, 'Ошибка запуска рабочего процесса. См. папку отчётов этого порта.')))
             finally:
                 port_controls[n].finish()
                 with restart_lock:restarts.discard(threading.current_thread())
-                events.put(('restart-finished',n))
+                events.put(('restart-finished', n))
         with restart_lock:
             thread=threading.Thread(target=rerun,daemon=True)
             restarts.add(thread)

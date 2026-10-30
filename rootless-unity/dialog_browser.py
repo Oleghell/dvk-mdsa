@@ -272,11 +272,23 @@ UTILS=r'''
      let unread=null,header=null;
      if(unreadOnly||needsReplyOnly){
       n.selection_checkpoint='unread';unread=unreadCount(chat);
-      if(unreadOnly&&unread===0){n.read_rows_skipped++;return false;}
+      // v1.3.96 «открываю только диалоги с новыми сообщениями, а не
+      // непрочитанными»: the badge alone never admits a row for the
+      // assistant's reply filter - UnreadCount is read-state shared with the
+      // operator (his manual open clears it, our own open clears it), so a
+      // cleared badge hides genuine unhandled input and a stale badge opens
+      // rows with nothing to answer. The badge stays the ADMISSION signal
+      // only for the standalone read-check tool (unread_only alone, the
+      // 0.4.6 user-confirmed contract); for the reply filter it is evidence
+      // and stability only (selection-unread-changed below).
+      if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}
      }
      if(needsReplyOnly){
       header=replyHeader(chat,model.who);
-      if(unread===0&&!header.incoming){n.waiting_rows_skipped++;return false;}
+      // The new-message admission itself: only a genuinely NEW INCOMING last
+      // message opens the row. Our own message last means the peer was
+      // already answered - skipped regardless of any unread badge.
+      if(!header.incoming){n.waiting_rows_skipped++;return false;}
       if(alreadyHandled(model.who,header.id)){n.handled_rows_skipped++;return false;}
      }
      n.selection_checkpoint='stability';

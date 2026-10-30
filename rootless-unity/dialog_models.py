@@ -122,10 +122,16 @@ UTILS=r'''
      const model=modelIdentity(chat);if(model===null||!permitted(model.who))return false;
      if(!model.manager.equals(manager)||id64(s.accountId,manager)!==model.who.account)fail('identity-not-bound');
      n.selection_checkpoint='unread';let unread=null,header=null;
-     if(unreadOnly||needsReplyOnly){unread=unreadCount(chat);if(unreadOnly&&unread===0){n.read_rows_skipped++;return false;}}
+     // v1.3.96 «открываю только диалоги с новыми сообщениями, а не
+     // непрочитанными»: the badge is read-state shared with the operator
+     // (his manual open clears it, our own open clears it), so it never
+     // ADMITS a row for the reply filter - only a genuinely NEW INCOMING
+     // last message does. The badge keeps its admission role solely for the
+     // standalone read-check tool (unread_only without needs_reply_only).
+     if(unreadOnly||needsReplyOnly){unread=unreadCount(chat);if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}}
      if(needsReplyOnly){
       header=headerOrSkip(chat,model.who);if(header===null)return false;
-      if(unread===0&&!header.incoming){n.waiting_rows_skipped++;return false;}
+      if(!header.incoming){n.waiting_rows_skipped++;return false;}
       if(alreadyHandled(model.who,header.id)){n.handled_rows_skipped++;return false;}
      }
      n.selection_checkpoint='model-stability';

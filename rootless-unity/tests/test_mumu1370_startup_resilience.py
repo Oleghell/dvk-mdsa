@@ -65,7 +65,7 @@ class JournalStartRetry(unittest.TestCase):
         self.assertEqual(store.call_count, 3)
         self.assertEqual(pauses, [3.0, 7.0])
         self.assertEqual(len(texts), 2)
-        self.assertIn('(2 из 5)', texts[0])
+        self.assertIn('(2 из 7)', texts[0])
         enable.assert_called_with('JOURNAL', new_only=True)
         contact.assert_called_with('JOURNAL')
 
@@ -76,10 +76,10 @@ class JournalStartRetry(unittest.TestCase):
         self.assertEqual(pauses, [3.0])
 
     def test_exhaustion_reraises_the_last_transient_failure(self):
-        error, store, pauses = self.attempt([transient() for _ in range(5)])
+        error, store, pauses = self.attempt([transient() for _ in range(7)])
         self.assertEqual(error.code, 'cloud-database-unavailable')
-        self.assertEqual(store.call_count, 5)
-        self.assertEqual(pauses, [3.0, 7.0, 15.0, 30.0])
+        self.assertEqual(store.call_count, 7)
+        self.assertEqual(pauses, [3.0, 7.0, 15.0, 30.0, 60.0, 120.0])
 
     def test_non_transient_code_is_not_retried(self):
         error, store, pauses = self.attempt([permission()])
@@ -102,7 +102,12 @@ class JournalStartRetry(unittest.TestCase):
         self.assertEqual(raised.exception.code, 'cloud-database-unavailable')
 
     def test_production_budget_is_five_attempts_over_wide_backoff(self):
-        self.assertEqual(self.worker.JOURNAL_START_RETRY_DELAYS, (3.0, 7.0, 15.0, 30.0))
+        # v1.3.96 (report LAZ5VEvy, port 5563): the pooler refused connects
+        # longer than the whole 5-attempt ladder plus both controller
+        # requeues, and the port stayed dead until a manual restart. Two more
+        # minute-scale rungs widen the in-worker window to ~4 minutes; Stop
+        # stays responsive at every rung and non-transient codes stay fatal.
+        self.assertEqual(self.worker.JOURNAL_START_RETRY_DELAYS, (3.0, 7.0, 15.0, 30.0, 60.0, 120.0))
         source = Path(self.worker.__file__).read_text(encoding='utf-8')
         self.assertEqual(source.count('JOURNAL_START_RETRY_DELAYS'), 3)
 

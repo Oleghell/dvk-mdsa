@@ -44,8 +44,12 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
         raw=script.exports_sync.probe();result=validate(raw,operation,allowed=allowed,expected=expected,unread_only=unread_only,needs_reply_only=needs_reply_only)
         if monitor:monitor.join(timeout=6)
         c=script.exports_sync.counts();n=raw['navigation']
-        expected_status={938:'returned',939:'frame-budget',940:'wrong-screen',930:'search-ready',931:'frame-budget',932:'opened',933:'frame-budget',934:'wrong-screen',935:'managed-exception',936:'wrong-screen',937:'returned',956:'returned',957:'dialogs-ready',958:'dialogs-ready',959:'managed-exception',960:'dialogs-ready',961:'entry-binding-timeout',800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'opened',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
-        if mode in (800,846) and needs_reply_only and seen_ids is not None and '1002' in seen_ids:expected_status='exhausted'
+        expected_status={938:'returned',939:'frame-budget',940:'wrong-screen',930:'search-ready',931:'frame-budget',932:'opened',933:'frame-budget',934:'wrong-screen',935:'managed-exception',936:'wrong-screen',937:'returned',956:'returned',957:'dialogs-ready',958:'dialogs-ready',959:'managed-exception',960:'dialogs-ready',961:'entry-binding-timeout',800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'exhausted',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
+        # v1.3.96 «открываю только диалоги с новыми сообщениями, а не
+        # непрочитанными»: mode 846 is an UNREAD badge on a row whose last
+        # message is OURS - the badge alone no longer admits it, the row is a
+        # waiting row exactly like the badge-less 847.
+        if mode in (800,) and needs_reply_only and seen_ids is not None and '1002' in seen_ids:expected_status='exhausted'
         actual=result['state'] if result['state']!='stopped' else n['stage'] if n['stage']=='not-attempted' else n['error']
         assert actual==expected_status,(mode,operation,actual,n,c)
         assert c['handles']==c['bad']==c['off']==c['route_bad']==0,(mode,n,c)
@@ -63,6 +67,7 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
             if result['state']=='exhausted':assert n['reply_filter_applied'] and not n['reply_needed_verified'] and c['clicks']==0,(mode,n,c)
             if result['state']!='opened':assert c['clicks']==0,(mode,n,c)
             if mode in (844,847):assert n['waiting_rows_skipped']==1,(n,c)
+            if mode==846:assert n['waiting_rows_skipped']==1 and n['read_rows_skipped']==0,(n,c)
             if mode==852:assert n['handled_rows_skipped']==1,(n,c)
         if mode in (930,931,932,933):
             assert c['routes']==1,(mode,n,c)
@@ -222,7 +227,13 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
             assert monitored['totals']['outgoing_observed']==1,monitored
             assert monitored['totals']['contacts_forwarded']==0,monitored
             assert not monitored['automatic_profile_repeat'] and not monitored['delivery_confirmed']
-            if mode==843:assert monitored['last_pass']['dialogs_opened']==0 and monitored['last_pass']['waiting_rows_skipped']==1,monitored
+            if mode==843:
+                # v1.3.96: the no-new-message row is a WAITING row in every
+                # scan mode - the badge no longer relabels it read_rows in
+                # the unread-group call - so the pass counts one skip per
+                # group navigation (unread group + read rotation) and no
+                # badge-based read_rows at all.
+                assert monitored['last_pass']['dialogs_opened']==0 and monitored['last_pass']['waiting_rows_skipped']==2 and monitored['last_pass']['read_rows_skipped']==0,monitored
             if mode in (836,843):assert recovered and all(r==1 for r in recovered),recovered
             assert sum(m['sender']=='100' for m in messages)==3,messages
             # A direct bare-number contact response reaches the durable outbox

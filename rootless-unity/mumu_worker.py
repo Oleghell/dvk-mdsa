@@ -21,7 +21,13 @@ TELEGRAM_DEVICE_NUMBERS={5563:1,5557:2,5559:3,5561:4,5565:5}
 # NOT EXISTS, idempotent backfill, policy inserts): a transport/capacity
 # failure may safely re-run the whole block. Stop keeps the hard cancel;
 # every other cloud code (lock timeout, permission, schema) stays fatal.
-JOURNAL_START_RETRY_DELAYS = (3.0, 7.0, 15.0, 30.0)
+# Reports LAZ5VEvy (v1.3.95, port 5563): the pooler refused connects for
+# LONGER than the whole ladder (5 attempts, ~55 s) plus both controller
+# requeues - the port stayed dead until a human pressed «Перезапустить
+# порт». Two more minute-scale rungs ride out a multi-minute refusal or a
+# local network blip without unbounded waiting; Stop stays responsive at
+# every rung and every non-transient code still surfaces immediately.
+JOURNAL_START_RETRY_DELAYS = (3.0, 7.0, 15.0, 30.0, 60.0, 120.0)
 
 
 # Reports QZ2X7 (v1.3.80, port 5585): the last stagger-queue ports reach the

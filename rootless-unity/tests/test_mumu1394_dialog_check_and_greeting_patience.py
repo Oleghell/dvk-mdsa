@@ -352,14 +352,34 @@ class WorklessRowMarkers(Base):
         uploaded = inbox.with_seen_ids(self.chain(), [dict(WHO)])
         self.assertIn('1003', uploaded[0]['seen_ids'])
         self.assertNotIn('1004', uploaded[0]['seen_ids'])
-        # Her genuinely new message re-opens the row and moves the marker to
-        # the NEW state (whichever closure processed it owns the reason; the
-        # marker never lags behind the row's current last message).
+        # Her genuinely new message re-opens the row. v1.3.96 quick exit: the
+        # visit sends its reply, performs the ONE verification read and leaves
+        # immediately; the still-unobserved outgoing keeps her answer receipt
+        # pending, so the leave reason is the pending-answer cooldown (the row
+        # is re-admitted on the next pass through the pending-receipt
+        # exclusion) instead of the former same-visit three-poll quarantine.
+        # The stale '1003' marker only skips that exact old state - the row's
+        # current '1004' state stays admitted.
         newer = msg(1004, 'Пока')
         second = self.selected_nav('opened', WHO, '1004')
         out = self.walk([second, nav('returned', WHO), nav('search-ready')],
                         [snap(hello, question, newer), snap(hello, question, newer)])
         self.assertEqual(out['new_incoming_messages'], 1)
+        self.assertEqual(out['submission_calls'], 1)
+        self.assertEqual(out['outcomes'], {'chain-waiting:incoming-answer-pending': 1})
+        with self.store.read_connection() as db:
+            self.assertEqual(db.execute('SELECT last_message,reason FROM operator_rejects').fetchall(),
+                             [('1003', 'workless-state')])
+        # Safety net unchanged: the next pass re-opens the deferred chat, the
+        # stale receipt still cannot observe the outgoing, the bounded three
+        # polls exhaust and the chat is isolated with the terminal marker
+        # pinned to the row's CURRENT last message.
+        import assistant_history_wait as history_wait
+        history_wait.clear(self.store, WHO)
+        third = self.selected_nav('opened', WHO, '1004')
+        out = self.walk([third, nav('returned', WHO), nav('search-ready')],
+                        [snap(hello, question, newer), snap(hello, question, newer)])
+        self.assertEqual(out['outcomes'], {'isolated:outgoing-not-observed': 1})
         with self.store.read_connection() as db:
             rows = db.execute('SELECT last_message,reason FROM operator_rejects').fetchall()
         self.assertEqual([row[0] for row in rows], ['1004'])
@@ -372,22 +392,28 @@ class WorklessRowMarkers(Base):
 
 class OnlyNeededRowsOpen(unittest.TestCase):
     """The native admission rule itself: waiting rows and consumed rows are
-    skipped before any open; only unread or genuinely unconsumed incoming
-    rows open (pinned on the composed scan source, both engines)."""
+    skipped before any open; only genuinely NEW INCOMING rows open (pinned on
+    the composed scan source, both engines). v1.3.96: the unread badge is no
+    longer an admission signal for the reply filter - our-message-last rows
+    are waiting rows regardless of the badge, and badge-less rows with an
+    unconsumed incoming message still open; the badge keeps its admission
+    role only for the standalone read-check tool (unread_only alone)."""
 
     def test_dialog_browser_needs_reply_filter_skips_waiting_and_handled(self):
         import dialog_browser
         s = dialog_browser.build('open', allowed=[dict(account='1', peer='2', chat='3', seen_ids=['9'])],
                                  needs_reply_only=True)
-        self.assertIn("if(unread===0&&!header.incoming){n.waiting_rows_skipped++;return false;}", s)
+        self.assertIn("if(!header.incoming){n.waiting_rows_skipped++;return false;}", s)
         self.assertIn("if(alreadyHandled(model.who,header.id)){n.handled_rows_skipped++;return false;}", s)
+        self.assertIn("if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}", s)
 
     def test_dialog_models_needs_reply_filter_is_the_same_rule(self):
         import dialog_models
         s = dialog_models.build(allowed=[dict(account='1', peer='2', chat='3', seen_ids=['9'])],
                                 needs_reply_only=True, recent_limit=50, reverse=True, start=0)
-        self.assertIn("if(unread===0&&!header.incoming){n.waiting_rows_skipped++;return false;}", s)
+        self.assertIn("if(!header.incoming){n.waiting_rows_skipped++;return false;}", s)
         self.assertIn("if(alreadyHandled(model.who,header.id)){n.handled_rows_skipped++;return false;}", s)
+        self.assertIn("if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}", s)
 
 
 if __name__ == '__main__':

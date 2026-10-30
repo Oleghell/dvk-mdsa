@@ -524,6 +524,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
         out['diagnostics']['legacy_stage_recovered']=getattr(chain,'last_legacy_recovered',False) is True
         out['diagnostics']['legacy_recovery_reason']=getattr(chain,'legacy_recovery_reason','not-applicable')
         pending_polls = 0
+        # v1.3.96: set right after a successful send in until_waiting mode -
+        # the next loop iteration performs the single quick-check leave.
+        leave_after_send_check = False
         from assistant_reply_audit import DDL as receipts_schema
         chain.store.ensure_tables(receipts_schema)
         for _ in range(max_polls):
@@ -669,15 +672,22 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 out.update(status='chain-needs-review', reason=stage)
                 return out
             if (until_waiting and action is None and
-                    stage in ('wait-reply', 'wait-mood', 'wait-contact')):
+                    stage in ('wait-reply', 'wait-mood', 'wait-contact')) or leave_after_send_check:
                 wait_reason=stage
                 if stage == 'wait-contact' and observed.get('clarify') == 'outgoing-observed':
                     wait_reason='contact-clarification-sent'
                 if stage == 'wait-contact' and observed.get('followup') == 'outgoing-observed':
                     wait_reason='contact-followup-sent'
+                if leave_after_send_check and stage.startswith('pending-'):
+                    # The one quick check did not observe our outgoing: the
+                    # receipt keeps its unconfirmed status and the chat is
+                    # re-checked by the next pass (attention/unknown-recovery),
+                    # exactly like the former three-poll exhaustion - just
+                    # without sitting in the open chat between the checks.
+                    wait_reason='outgoing-not-observed'
                 from assistant_reply_audit import synchronize,pending
                 synchronize(chain,before)
-                if until_waiting and out['submission_calls'] and out['outgoing_observed_this_run']:
+                if until_waiting and out['submission_calls'] and (out['outgoing_observed_this_run'] or leave_after_send_check):
                     # This bound read already took two complete native samples
                     # AFTER send. Don't take a third full history before Back.
                     out['diagnostics']['post_send_checked']=True
@@ -806,8 +816,28 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 if not returned:
                     out.update(reason='send-outcome-unknown')
                     return out
+                if until_waiting:
+                    # v1.3.96 «быстрая проверка отправки → сразу выхожу из
+                    # чата»: after a successful send the inbox walk performs
+                    # exactly ONE post-send verification read (the loop tail
+                    # below) and then leaves the chat - never three pending
+                    # polls, never a same-visit re-plan. Sitting in the open
+                    # chat invites exactly the fast peer reply that would be
+                    # left unread by the exit; her reply (already in the check
+                    # read or arriving after it) keeps its unanswered state and
+                    # the NEXT pass re-opens the row - which since v1.3.96
+                    # admits by the genuinely NEW incoming message, badge or
+                    # not. A draft her reply reserved is resumed by the
+                    # attention machinery of the next pass, never re-sent blind.
+                    leave_after_send_check=True
                 pending_polls = 0
             elif stage.startswith('pending-'):
+                if until_waiting and out['submission_calls']:
+                    # Defensive twin of the flag above: a send this run plus a
+                    # still-pending stage means the quick check already ran -
+                    # leave instead of polling the open chat three more times.
+                    out.update(status='chain-waiting', reason='outgoing-not-observed')
+                    return out
                 pending_polls += 1
                 if pending_polls >= 3:
                     out.update(reason='outgoing-not-observed')
@@ -821,8 +851,9 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                       'pending-contact': 'Сверяю отправленное предложение с историей → затем следующий чат.'
                       }.get(stage, 'Проверяю подтверждённое состояние чата.'))
             # Inbox processing never waits for a new peer message. After send,
-            # a fresh bound read itself observes native/UI progress; keep the
-            # same three-observation limit, without the artificial 5s sleep.
+            # a fresh bound read itself observes native/UI progress; with the
+            # v1.3.96 quick exit this ONE read is the whole post-send check,
+            # without the artificial 5s sleep and without further polls.
             if stopped.is_set() or (not until_waiting and pause(5)):
                 break
             before = read()

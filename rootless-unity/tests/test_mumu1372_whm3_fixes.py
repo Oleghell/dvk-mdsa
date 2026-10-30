@@ -235,8 +235,11 @@ class ManualPortResume(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / 'assistant_app.py').read_text(encoding='utf-8')
         self.assertIn("text='Перезапустить порт'", source)
         self.assertIn("state=='finished'", source)
-        # The restart reuses the captured run settings and mode, never fresh.
-        self.assertIn("run_one(n,current_run['settings'],current_run['mode'],False,stopped", source)
+        # The restart reuses the captured run settings and mode, never fresh;
+        # since v1.3.96 it rides the same bounded startup requeue wrapper as
+        # the staggered multi-port start (a transient journal-connect refusal
+        # no longer leaves a manually restarted port dead).
+        self.assertIn("run_with_startup_requeue(n, current_run['settings'], current_run['mode'], False, stopped", source)
         # Restarted ports keep the run busy until they finish.
         self.assertIn("main_done[0] and not restarts", source)
 
