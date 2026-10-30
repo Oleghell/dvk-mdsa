@@ -21,7 +21,11 @@ OWNER = re.compile(r'\b(?:мой|моя|мо[её]|меня|пиши(?:те)?\s+
 # spelling family в[ао](тс|тц|ц|с|т|сс)ап* (вотсап, вотапп, ватапп, вассап,
 # воцап, plus case endings) joins the labels, and «давай(те)»/«или» are
 # stripped only AFTER a contact item was already found in the message.
-WHATSAPP_FAMILY = r'в[ао](?:тс|тц|ц|с|т|сс)?ап\w*'
+# Reports 9104352d port 5567 (v1.3.91): «Вайцап» - the colloquial spelling
+# with «й» - was outside the family too, so the peer's messenger CHOICE was
+# unrecognized and the chain closed declined. The optional «й» after в[ао]
+# now covers вайцап/войцап/вайсап exactly like the rest of the family.
+WHATSAPP_FAMILY = r'в[ао]й?(?:тс|тц|ц|с|т|сс)?ап\w*'
 LABELS = re.compile(r'\b(?:телеграм\w*|телег[аеу]|тг|telegram|whatsapp|'+WHATSAPP_FAMILY+r'|макс(?:е|ом)?|мак(?:е|ом)?|мах(?:е|ом)?|max|телефон|номер|контакт|вот|держи|это|в|на|да|ага|можно|у|есть|давай(?:те)?|или)\b', re.I)
 PUNCTUATION = re.compile(r'^[\s:;,!.()—\-🙂😊👍]*$')
 
@@ -87,6 +91,28 @@ def voluntary_batch(messages):
     from assistant_contact_clarify import PLATFORM, CHOICE, NEGATIVE
     return bool(PLATFORM.search(value) and CHOICE.search(value) and not NEGATIVE.search(value))
 
+def messenger_consent(n):
+    """One clause names a messenger AND consents to it: the peer's own context.
+
+    Reports 9104352d port 5567 (v1.3.91): «Ватсап можно 89241810009 толком
+    без пошлости прошу вас» - the peer chose the messenger and attached her
+    number with a polite condition. The leftover remainder («толком без
+    пошлости прошу вас») refused her own number, so the chain closed declined
+    with the contact lost. This is the single-text form of voluntary_batch:
+    a clause carrying BOTH the platform and a consent word (never a negation
+    anywhere in the message) attributes the digits found in the same message
+    to the peer herself - the condition tail is her request about the future
+    exchange, not a third-party marker. Refusals, third-party context, quotes
+    and questions were already refused by self_shared's gates above; a
+    negated platform («нет у меня ватсапа…») can never consent.
+    """
+    from assistant_contact_clarify import PLATFORM, CHOICE, NEGATIVE
+    if NEGATIVE.search(n):
+        return False
+    return any(PLATFORM.search(clause) and CHOICE.search(clause)
+               for clause in re.split(r'[,;.\n]+', n))
+
+
 def self_shared(text, *, requested=False):
     if not isinstance(text, str) or not text.strip() or len(text) > 2048:
         return []
@@ -112,7 +138,11 @@ def self_shared(text, *, requested=False):
         own_remainder = re.sub(r'\b(?:пиши(?:те)?|мне|найди|найти|для|связи|я|здесь|тут)\b', '', own_remainder)
         explicit = re.search(r'\b(?:мой|моя|мо[её])\s+(?:номер|телефон|контакт|тг|телеграм\w*|'+WHATSAPP_FAMILY+r'|whatsapp)\b', n)
         return found if explicit or PUNCTUATION.fullmatch(own_remainder) else []
-    return found if requested is True and PUNCTUATION.fullmatch(remainder) else []
+    # v1.3.91: a bare handle/phone after the explicit request is a self-sharing
+    # action, and so is a number attached to an explicit messenger consent in
+    # the same message («Ватсап можно 89241810009 толком без пошлости прошу
+    # вас») - the polite remainder is not a third-party attribution.
+    return found if requested is True and (PUNCTUATION.fullmatch(remainder) or messenger_consent(n)) else []
 
 
 def display_name(name):

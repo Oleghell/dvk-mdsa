@@ -100,7 +100,10 @@ TG = r'(?:телеграм(?:м)?(?:а|е|ом|у)?|telegram|тг|телег[а�
 # in the contact stage either. One shared spelling family now covers
 # ватсап/вотсап/ватцап/вацап/воцап/вассап/вотапп/ватапп with case endings
 # and optional inner spacing, matching the detector in shared_contact.py.
-WA = r'(?:в[ао](?:тс|тц|ц|с|т|сс)?\s*апп?(?:а|е|ом)?|whats\s?app)'
+# Reports 9104352d port 5567 (v1.3.91): «Вайцап» (colloquial «й» spelling)
+# was outside the family as well - the choice was not recognized and the
+# chain closed declined. The optional «й» after в[ао] joins the same family.
+WA = r'(?:в[ао]й?(?:тс|тц|ц|с|т|сс)?\s*апп?(?:а|е|ом)?|whats\s?app)'
 # Finite adjacent fillers only: do not cross another app, question or negation.
 AVAIL_FILL = r'(?:(?:у меня|сейчас|пока|еще|все еще|вроде бы|вроде|только)\s+){0,3}'
 
@@ -120,8 +123,16 @@ def platform_signals(messages, app):
         negative |= bool(re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'(?:не\s+(?:очень\s+)?работает|нет|нету|не пользуюсь)\b',value)
             or re.search(r'\b(?:нет|нету|не\s+(?:очень\s+)?работает|не пользуюсь)\s+'+AVAIL_FILL+app+r'\b',value)
             or re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'работает\s+не\s+очень\b',value))
-        positive |= bool(re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'(?:есть|работает|живой|жива|жив|живое|лучше|удобнее|удобно)\b',value)
-            or re.search(r'\b(?:есть|пользуюсь|давай|можно|лучше)\s+(?:в\s+)?'+app+r'\b',value)
+        # Reports 9104352d port 5567 (v1.3.91): «Ватсап можно 89241810009…»
+        # and «Вайцапе сижу» put the verb AFTER the app name. The app-first
+        # positive list lacked можно/сижу/общаюсь/переписываюсь/пользуюсь/
+        # давай - the same word-order hole 1.3.84 closed for MAX - so such a
+        # reply was not an available alternative and the app-specific number
+        # question was never asked. Both lists now mirror each other; the
+        # negative patterns above still run first, so «ватсап не работает»
+        # stays a negation.
+        positive |= bool(re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'(?:есть|работает|живой|жива|жив|живое|лучше|удобнее|удобно|можно|пользуюсь|сижу|общаюсь|переписываюсь|давай(?:те)?)\b',value)
+            or re.search(r'\b(?:есть|пользуюсь|давай(?:те)?|можно|лучше|удобнее|удобно|сижу|общаюсь|переписываюсь)\s+(?:в\s+)?'+app+r'\b',value)
             or re.search(r'\bработает\s+'+AVAIL_FILL+app+r'\b',value)
             or re.fullmatch(r'(?:в\s+)?'+app,value))
     return positive and not negative, negative
