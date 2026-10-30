@@ -261,13 +261,20 @@ def build():
     helpers=replace_once(helpers,'const out=f.invoke(m,obj,params,ex);',"let receiver=obj;if(entry.unboxed){receiver=f.unbox(obj);if(receiver.isNull())fail('signature-mismatch');}\n   const out=f.invoke(m,receiver,params,ex);")
     helpers=replace_once(helpers,"if(!ex.readPointer().isNull())fail('managed-exception');return out;","if(!ex.readPointer().isNull())fail('managed-exception');if(entry.byref&&!out.isNull()&&!f.assignable(entry.result,f.objectClass(out)))fail('unexpected-object');return out;")
     helpers=replace_once(helpers,"} catch(e){n.error=typeof e==='string'", "} catch(e){if(e==='selection-changed'&&n.phase==='search'&&!n.open_attempted&&n.selection_retries<2){n.selection_retries++;return;}n.error=typeof e==='string'")
-    helpers=replace_once(helpers,'const held=[];const deadline=Date.now()+100;', 'const held=[];const heldByObject=new Map();const deadline=Date.now()+100;')
+    helpers=replace_once(helpers,'const held=[];const deadline=Date.now()+100;', 'const held=[];const heldByObject=new Map();let profileWaitExhausted=()=>{};const deadline=Date.now()+100;')
     helpers=replace_once(helpers,"if(obj.isNull())fail('unexpected-object');if(held.length>=64)", "if(obj.isNull())fail('unexpected-object');const key=obj.toString();if(heldByObject.has(key))return heldByObject.get(key);if(held.length>=64||n.handles_acquired>=180*64)")
     helpers=replace_once(helpers,'held.push(h);return h;', 'held.push(h);heldByObject.set(key,h);scopes[scopes.length-1].push({key,h});n.temporary_handles_peak=Math.max(n.temporary_handles_peak,held.length);return h;')
     helpers=replace_once(helpers,'  try {\n   const root=',TICK+'\n  try {\n   const root=')
     helpers=replace_once(helpers,"n.search_verified=true;state.origin=own(current);", "n.search_verified=true;const selected=chooseVisibleCandidate(current);if(selected===null){if(n.selection_counts.passes>=3&&state.selectionRow===0)fail('selection-unavailable');return;}\n    state.targetUser=own(selected.user);held.splice(held.indexOf(state.targetUser),1);\n    state.origin=own(current);")
     helpers=replace_once(helpers,'n.open_attempted=true;call(s.open,current);',"const promotion=Memory.alloc(1);promotion.writeU8(0);\n    n.open_attempted=true;call(s.open,current,args([selected.entry,promotion,selected.avatar]));")
-    helpers=replace_once(helpers,'n.profile_verified=true;state.card=own(current);','if(!verifyProfile(current)){if(n.profile_model_waits<'+str(PROFILE_MODEL_WAIT_LIMIT)+'){n.profile_model_waits++;state.nextActionAt=Date.now()+100;return;}fail(\'screen-not-ready\');}\n    n.profile_verified=true;state.card=own(current);')
+    # v1.3.93: the wait itself carries ONLY the capped poll counter - no hidden
+    # wall-clock pacing and no in-base saturation stop. The compose line in
+    # assistant_pass.build overrides this no-op hook with the bounded
+    # screen-not-ready stop AND injects the observation pacing, so stripping the
+    # compose line (the slow-profile-baseline contract) leaves a raw counted
+    # spin that dies by the frame/call budgets instead of a silently sleeping
+    # observer.
+    helpers=replace_once(helpers,'n.profile_verified=true;state.card=own(current);','if(!verifyProfile(current)){if(n.profile_model_waits<'+str(PROFILE_MODEL_WAIT_LIMIT)+')n.profile_model_waits++;else profileWaitExhausted();return;}\n    n.profile_verified=true;state.card=own(current);')
     helpers=replace_once(helpers,"if(!bool(s.canClose,current))fail('screen-not-ready');",'if(!verifyProfile(current))return;')
     helpers=replace_once(helpers,"['card','origin']","['content','targetUser','card','origin']")
     helpers=replace_once(helpers,"n.open_completed=true;n.phase='wait-profile'", "n.open_completed=true;state.nextActionAt=Date.now()+1000;n.phase='wait-profile'")
@@ -276,7 +283,7 @@ def build():
     if(n.friends_status==='not-read'){
      const result={friends_status:'unavailable',friends_count:null,friends_eligible:null};
      if(s.friendCount!==null){
-      const waitForModel=()=>{n.profile_model_waits++;state.nextActionAt=Date.now()+100;};
+      const waitForModel=()=>{if(n.profile_model_waits<__PROFILE_MODEL_WAIT_LIMIT__)n.profile_model_waits++;};
       const content=target(state.content),model=call(s.contentProfile,content);
       if(model.isNull()){
        if(n.profile_model_waits<__PROFILE_MODEL_WAIT_LIMIT__){waitForModel();return;}

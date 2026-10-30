@@ -83,8 +83,9 @@ class NativeSource(unittest.TestCase):
     def test_both_waits_are_bounded_with_counted_evidence(self):
         s = assistant_pass.build('Привет')
         bound = 'n.profile_model_waits<' + str(native.PROFILE_MODEL_WAIT_LIMIT)
-        # wait-profile content wait + the two friends-model waits
-        self.assertEqual(s.count(bound), 3)
+        # wait-profile content wait + the capped waitForModel + the two
+        # friends-model gate reads
+        self.assertEqual(s.count(bound), 4)
         self.assertIn('if(n.chat_open_waits<' + str(native.CHAT_OPEN_WAIT_LIMIT)
                       + '){n.chat_open_waits++;state.nextActionAt=Date.now()+1000;return;}', s)
         # the chat-not-opened skip emits the evidence and routes into the
@@ -97,9 +98,14 @@ class NativeSource(unittest.TestCase):
 
     def test_structurally_unreadable_profile_fails_fast_instead_of_sitting(self):
         s = assistant_pass.build('Привет')
-        self.assertIn("if(n.profile_model_waits<" + str(native.PROFILE_MODEL_WAIT_LIMIT)
-                      + "){n.profile_model_waits++;state.nextActionAt=Date.now()+100;return;}"
-                      "fail('screen-not-ready');", s)
+        # the base wait only counts (capped) and calls a no-op hook - no hidden
+        # pacing, no in-base stop; the compose line arms the hook with the
+        # bounded stop so pacing and bound can never be separated
+        self.assertIn("if(!verifyProfile(current)){if(n.profile_model_waits<"
+                      + str(native.PROFILE_MODEL_WAIT_LIMIT)
+                      + ")n.profile_model_waits++;else profileWaitExhausted();return;}", s)
+        self.assertIn("profileWaitExhausted=()=>fail('screen-not-ready');", s)
+        self.assertIn('let profileWaitExhausted=()=>{};', s)
 
     def test_close_gate_accepts_only_a_saturated_unavailable_read(self):
         s = assistant_pass.build('Привет')

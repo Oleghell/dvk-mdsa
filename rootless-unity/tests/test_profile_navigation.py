@@ -116,9 +116,12 @@ class ProfileSchema(unittest.TestCase):
         self.assertIn('navState.nextActionAt=Date.now()+1000',p.FUNCTION)
         self.assertIn('if(Date.now()<navState.nextActionAt)return;',p.FUNCTION)
         self.assertEqual(p.FUNCTION.count('state.nextActionAt=Date.now()+1000'),2)
-        # v1.3.92: the model wait is still a 100ms non-blocking poll, now with a
-        # bounded evidence counter instead of an unbounded park on the anketa.
-        self.assertIn('const waitForModel=()=>{n.profile_model_waits++;state.nextActionAt=Date.now()+100;};',p.FUNCTION)
+        # v1.3.93: the model wait is a capped evidence counter - the pacing
+        # itself is compose-injected, so the base script keeps no hidden sleep.
+        self.assertIn('const waitForModel=()=>{if(n.profile_model_waits<'+str(p.PROFILE_MODEL_WAIT_LIMIT)+')n.profile_model_waits++;};',p.FUNCTION)
+        # the wait-profile saturation stop is a no-op hook the compose line arms
+        self.assertIn('let profileWaitExhausted=()=>{};',p.FUNCTION)
+        self.assertIn('else profileWaitExhausted();return;}',p.FUNCTION)
         self.assertIn('n.profile_model_waits<'+str(p.PROFILE_MODEL_WAIT_LIMIT)+')',p.FUNCTION)
         self.assertIn('chat_open_waits:0',p.FUNCTION)
         self.assertNotIn('Thread.Sleep',p.FUNCTION)

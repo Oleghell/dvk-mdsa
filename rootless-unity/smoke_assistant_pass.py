@@ -87,7 +87,11 @@ def one(library, case):
             if case=='send-return-budget':
                 source=source.replace('call(s.send,current,args);n.send_handler_returned=true;',"call(s.send,current,args);fail('frame-budget');n.send_handler_returned=true;")
             if case=='slow-profile-baseline':
-                source=source.replace("if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+100;",'')
+                # v1.3.93: the pacing AND the wait-profile saturation stop ride
+                # the SAME compose line (the base script ships a counted no-op
+                # hook), so stripping it leaves the raw counted spin that must
+                # die by the frame/call budgets, never by a hidden sleep.
+                source=source.replace("if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+100;profileWaitExhausted=()=>fail('screen-not-ready');",'')
             script = session.create_script(source + '''
 rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
  cohortpending(){return cohortReservation();},cohortack(value){return cohortAcknowledge(value);},

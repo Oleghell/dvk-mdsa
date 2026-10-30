@@ -156,8 +156,13 @@ def build(text, visited=()):
     # Unready profile/return views used to spin on every Unity callback,
     # burning frame/call budgets before the next UI update. Throttle only
     # observations; existing action latches, 100ms frame and total budgets stay.
+    # v1.3.93: the SAME compose line now also arms the wait-profile saturation
+    # stop (the base script ships a counted no-op hook), so the pacing and the
+    # bounded wait can never be separated - a build that strips this line gets
+    # the raw counted spin that dies by the frame/call budgets, never a
+    # silently sleeping observer.
     source = replace_once(source, 'const deadline=Date.now()+100;',
-        "const deadline=Date.now()+100;\n  if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+100;")
+        "const deadline=Date.now()+100;\n  if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+100;profileWaitExhausted=()=>fail('screen-not-ready');")
     return 'let assistantSelectedPeer=null;\n' + source
 
 
