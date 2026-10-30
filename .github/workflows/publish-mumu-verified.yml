@@ -1,4 +1,7 @@
 name: Publish verified MuMu artifact
+# Publish path without workflow_dispatch rights: a push to mumu that changes this
+# file fires this workflow with an empty run_id, which selects the latest
+# successful Build DvkAssistant run on mumu and publishes its verified artifact.
 'on':
   push:
     branches:
