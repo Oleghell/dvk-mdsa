@@ -8,6 +8,17 @@ WAIT_SECONDS = 15.0
 WAIT_INTERVAL = 1.0
 MAX_READ_ATTEMPTS = 16
 COOLDOWN_SECONDS = 60.0
+# v1.3.94 (user report: «мне пишет обработано 22 диалога на анкете это бред»):
+# the FLAT 60-second deferral cooldown made every deferred dialog re-open
+# every single minute forever. On a loaded multi-port MuMu host one
+# open+read costs 10-30s, so a handful of deferred chats (AI unavailable,
+# photo pending, slow history) consumed the WHOLE pass in an endless
+# open→read→defer carousel - the user watched «обработано 22 диалога» with
+# nothing actually done and the port never reaching the profile search.
+# Each CONSECUTIVE deferral of the same chat now doubles its cooldown
+# (60s → 2m → 4m → … capped at COOLDOWN_MAX_SECONDS); a clean read (clear)
+# or a genuinely new message resets the ladder. First deferral unchanged.
+COOLDOWN_MAX_SECONDS = 3600.0
 BUDGET_READ_ATTEMPTS = 4
 BUDGET_RETRY_INTERVAL = 0.5
 
@@ -102,7 +113,28 @@ def verified_loading(value):
 def initialize(store):
     store.ensure_tables('''CREATE TABLE IF NOT EXISTS inbox_history_deferrals(
             account TEXT NOT NULL,peer TEXT NOT NULL,chat TEXT NOT NULL,
-            retry_after REAL NOT NULL,PRIMARY KEY(account,peer))''')
+            retry_after REAL NOT NULL,deferrals INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(account,peer))''')
+    # v1.3.94: migrate pre-1.3.94 tables (no deferrals column) in place.
+    # The per-store latch keeps the warm path free of schema work (the
+    # hot-path contract: a warm component opens no schema transaction);
+    # the column probe is a plain SELECT, and the ALTER itself runs at most
+    # once per store object. A duplicate-column error means another process
+    # migrated concurrently - anything else is a real failure and surfaces.
+    if getattr(store, '_dvk_deferrals_migrated', False):
+        return
+    import sqlite3
+    try:
+        with store.read_connection() as db:
+            db.execute('SELECT deferrals FROM inbox_history_deferrals LIMIT 1').fetchone()
+    except sqlite3.OperationalError:
+        try:
+            with store.connection() as db:
+                db.execute('ALTER TABLE inbox_history_deferrals ADD COLUMN deferrals INTEGER NOT NULL DEFAULT 0')
+        except sqlite3.OperationalError as error:
+            if 'duplicate column' not in str(error).lower():
+                raise
+    store._dvk_deferrals_migrated = True
 
 
 def instant(clock):
@@ -123,12 +155,27 @@ def eligible(store, attention, unread, *, clock=time.time):
 
 
 def defer(store, who, *, clock=time.time):
+    """v1.3.94: consecutive deferrals of the same chat double the cooldown.
+
+    First deferral keeps the historic 60s. A chat that defers again right
+    after its previous cooldown expired is a chat the engine could not
+    finish twice in a row - re-opening it every minute is exactly the
+    reported carousel («обработано 22 диалога», nothing done). The ladder
+    doubles per consecutive deferral up to COOLDOWN_MAX_SECONDS and resets
+    completely on the first clean read (clear) - the dialog is work again
+    the moment it actually completes.
+    """
     who=identity(who)
-    until=instant(clock)+COOLDOWN_SECONDS
+    now=instant(clock)
     with store.connection() as db:
-        db.execute('''INSERT INTO inbox_history_deferrals VALUES(?,?,?,?)
-            ON CONFLICT(account,peer) DO UPDATE SET chat=excluded.chat,retry_after=excluded.retry_after''',
-            (who['account'],who['peer'],who['chat'],until))
+        row=db.execute('SELECT retry_after,deferrals FROM inbox_history_deferrals WHERE account=? AND peer=?',
+            (who['account'],who['peer'])).fetchone()
+        attempts=(row[1]+1) if row is not None else 1
+        until=now+min(COOLDOWN_MAX_SECONDS,COOLDOWN_SECONDS*(2**(attempts-1)))
+        db.execute('''INSERT INTO inbox_history_deferrals VALUES(?,?,?,?,?)
+            ON CONFLICT(account,peer) DO UPDATE SET chat=excluded.chat,retry_after=excluded.retry_after,deferrals=excluded.deferrals''',
+            (who['account'],who['peer'],who['chat'],until,attempts))
+    return until
 
 
 def clear(store, who):

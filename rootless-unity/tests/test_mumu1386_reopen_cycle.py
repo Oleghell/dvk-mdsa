@@ -133,8 +133,9 @@ class ReopenCycle(Base):
         import assistant_history_wait as history_wait
         history_wait.initialize(self.store)
         with self.store.connection() as db:
-            db.execute('INSERT INTO inbox_history_deferrals VALUES(?,?,?,?)',
-                       (who['account'], who['peer'], who['chat'], 1e12))
+            # v1.3.94: the deferral table grew a consecutive-miss counter.
+            db.execute('INSERT INTO inbox_history_deferrals VALUES(?,?,?,?,?)',
+                       (who['account'], who['peer'], who['chat'], 1e12, 0))
 
     def test_reopened_row_switches_remaining_opens_to_strict_targets(self):
         # The adopt filter opens a tracked-but-cooled chat (deliberately

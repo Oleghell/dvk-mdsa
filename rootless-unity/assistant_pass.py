@@ -161,8 +161,30 @@ def build(text, visited=()):
     # bounded wait can never be separated - a build that strips this line gets
     # the raw counted spin that dies by the frame/call budgets, never a
     # silently sleeping observer.
+    # v1.3.94 (user report: «в последней версии всё также заходит в новую
+    # анкету, сидит так и выходит»): the 100ms pacing capped the whole
+    # profile-readiness window at 50x100ms = 5 seconds - far below the real
+    # profile load latency of a loaded multi-port MuMu host (v1.3.78 measured
+    # 4-15s for ONE bound chat read on the same hosts), so a slow-but-good
+    # anketa was closed-and-skipped before it could ever be greeted and the
+    # pass reported «просмотрено 15 анкет и не одной не отписало». The profile
+    # waits now poll at the SAME one-second gate the chat phases have used
+    # since 0.3.27 («ожидание открытия/закрытия чата опрашивается раз в
+    # секунду… не расходует 180 callback-кадров»), so the unchanged
+    # PROFILE_MODEL_WAIT_LIMIT=50 now means up to 50 SECONDS of patience for
+    # the content controller and the friends model, and the waits stop burning
+    # the 180-frame/6000-call budgets (50 paced polls instead of 10 per
+    # second). The saturation itself no longer hard-fails the cycle either:
+    # profileWaitExhausted is armed with the verified close-and-skip routing
+    # (pin the resolved queue card, publish the saturated 'unavailable'
+    # outcome, fall into the existing confirm-profile close gate) instead of
+    # fail('screen-not-ready'), which used to stop the whole pass at
+    # profile-check-stopped and push the port into recovery rounds - a dead
+    # screen is now skipped exactly like a stalled model, bounded by the
+    # existing consecutive-recovery limit. The base hook stays a no-op, so the
+    # stripped baseline still dies by its own budgets (smoke contract).
     source = replace_once(source, 'const deadline=Date.now()+100;',
-        "const deadline=Date.now()+100;\n  if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+100;profileWaitExhausted=()=>fail('screen-not-ready');")
+        "const deadline=Date.now()+100;\n  if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+1000;profileWaitExhausted=()=>{state.card=own(current);held.splice(held.indexOf(state.card),1);n.profile_verified=true;n.friends_status='unavailable';n.friends_count=null;n.friends_eligible=null;n.phase='confirm-profile';state.nextActionAt=Date.now()+1000;};")
     return 'let assistantSelectedPeer=null;\n' + source
 
 

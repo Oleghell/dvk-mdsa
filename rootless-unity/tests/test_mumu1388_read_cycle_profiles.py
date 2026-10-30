@@ -124,8 +124,9 @@ class HiddenRows(Base):
         import assistant_history_wait as history_wait
         history_wait.initialize(self.store)
         with self.store.connection() as db:
-            db.execute('INSERT INTO inbox_history_deferrals VALUES(?,?,?,?)',
-                       (who['account'], who['peer'], who['chat'], 1e12))
+            # v1.3.94: the deferral table grew a consecutive-miss counter.
+            db.execute('INSERT INTO inbox_history_deferrals VALUES(?,?,?,?,?)',
+                       (who['account'], who['peer'], who['chat'], 1e12, 0))
 
     def walk_eligible(self):
         # One eligible tracked chat (answered in this pass) keeps the pass
@@ -160,8 +161,8 @@ class HiddenRows(Base):
         import assistant_history_wait as history_wait
         history_wait.initialize(self.store)
         with self.store.connection() as db:
-            db.execute('INSERT INTO inbox_history_deferrals VALUES(?,?,?,?)',
-                       (OTHER['account'], OTHER['peer'], OTHER['chat'], 0))
+            db.execute('INSERT INTO inbox_history_deferrals VALUES(?,?,?,?,?)',
+                       (OTHER['account'], OTHER['peer'], OTHER['chat'], 0, 0))
         self.assertEqual(inbox.hidden_peers(self.chain()), ())
 
     def test_manually_blocked_row_is_hidden_from_every_open(self):
@@ -215,8 +216,8 @@ class HiddenSet(unittest.TestCase):
 
     def test_active_cooldown_hides_and_expiry_releases(self):
         with self.store.connection() as db:
-            db.execute("INSERT INTO inbox_history_deferrals VALUES('100','200','300',?)", (self.now + 60,))
-            db.execute("INSERT INTO inbox_history_deferrals VALUES('100','201','301',?)", (self.now - 10,))
+            db.execute("INSERT INTO inbox_history_deferrals VALUES('100','200','300',?,?)", (self.now + 60, 0))
+            db.execute("INSERT INTO inbox_history_deferrals VALUES('100','201','301',?,?)", (self.now - 10, 0))
         now = self.hidden()
         self.assertIn(dict(account='100', peer='200'), now)
         self.assertNotIn(dict(account='100', peer='201'), now)

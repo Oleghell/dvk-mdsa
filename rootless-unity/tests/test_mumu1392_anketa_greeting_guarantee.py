@@ -100,12 +100,23 @@ class NativeSource(unittest.TestCase):
         s = assistant_pass.build('Привет')
         # the base wait only counts (capped) and calls a no-op hook - no hidden
         # pacing, no in-base stop; the compose line arms the hook with the
-        # bounded stop so pacing and bound can never be separated
+        # bounded stop so pacing and bound can never be separated.
+        # v1.3.94: the armed stop is the verified close-and-skip routing (a
+        # dead screen is skipped like a stalled model, the pass continues)
+        # instead of the old hard fail('screen-not-ready') that stopped the
+        # whole pass and pushed the port into recovery rounds; the pacing in
+        # the same line is the one-second chat-phase gate, so the unchanged
+        # PROFILE_MODEL_WAIT_LIMIT=50 now means up to 50 seconds of patience.
         self.assertIn("if(!verifyProfile(current)){if(n.profile_model_waits<"
                       + str(native.PROFILE_MODEL_WAIT_LIMIT)
                       + ")n.profile_model_waits++;else profileWaitExhausted();return;}", s)
-        self.assertIn("profileWaitExhausted=()=>fail('screen-not-ready');", s)
+        self.assertIn("profileWaitExhausted=()=>{state.card=own(current);held.splice(held.indexOf(state.card),1);"
+                      "n.profile_verified=true;n.friends_status='unavailable';n.friends_count=null;n.friends_eligible=null;"
+                      "n.phase='confirm-profile';state.nextActionAt=Date.now()+1000;};", s)
+        self.assertIn("if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')"
+                      "state.nextActionAt=Date.now()+1000;", s)
         self.assertIn('let profileWaitExhausted=()=>{};', s)
+        self.assertNotIn("profileWaitExhausted=()=>fail", s)
 
     def test_close_gate_accepts_only_a_saturated_unavailable_read(self):
         s = assistant_pass.build('Привет')

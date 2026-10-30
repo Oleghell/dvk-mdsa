@@ -323,6 +323,40 @@ def terminal_marker(chain, who, latest):
     return True
 
 
+# v1.3.94: the clean waiting outcomes of a fully read chat. A read that ends
+# in one of these WITHOUT any submission, outgoing, contact, deferral or
+# pending receipt found ZERO work in the row state the native filter judged -
+# the open was provably pointless, and the same state must not re-open on
+# every later pass («мне пишет обработано 22 диалога на анкете это бред»).
+WORKLESS_REASONS = frozenset({'wait-reply', 'wait-mood', 'wait-contact',
+                               'contact-clarification-sent', 'contact-followup-sent'})
+
+
+def workless_marker(chain, who, latest):
+    """v1.3.94: durable row-skip marker for a dialog opened with ZERO work.
+
+    The native needs-reply filter admits a row whose last message is the
+    peer's whenever that message id is absent from the uploaded consumed
+    ids - and consumed ids deliberately EXCLUDE messages with a pending
+    reply receipt, so a chat whose clean read comes back as a plain waiting
+    stage (nothing new, nothing sent, nothing deferred, nothing isolated,
+    no pending receipt) used to re-open on EVERY later pass in exactly the
+    same state, each open counted as «обработано» while nothing was done.
+    The row's CURRENT last message id (the native selection reports it)
+    now becomes a durable skip marker through the existing operator_rejects
+    machinery, exactly like the v1.3.90 terminal-state markers: the row is
+    skipped in every scan mode until a GENUINELY new message changes its
+    last message. Deferred chats never get one - their cooldown must
+    re-admit them unchanged to retry the owed answer; only a PROVEN
+    workless read is marked.
+    """
+    if not isinstance(latest, str) or not latest:
+        return False
+    from assistant_operator_adoption import record_reject
+    record_reject(chain.store, identity(who), latest, 'workless-state')
+    return True
+
+
 def snapshot_marker(chain, who, snapshot):
     """v1.3.90: record the terminal marker from a snapshot the host just read."""
     messages = snapshot.get('messages') if isinstance(snapshot, dict) else None
@@ -586,6 +620,7 @@ def report():
                 header_rows_skipped=0, history_deferred=0, history_cooldown_skipped=0, history_retry_after_seconds=60, personal_data_exported=False, chat_content_exported=False,
                 terminal_rows_deny=0,
                 terminal_row_markers=0,
+                workless_row_markers=0,
                 device_scope='MuMu-4-only', last_navigation=None, last_chat_diagnostics=None)
 
 
@@ -1023,6 +1058,25 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                     out['review_causes'][cause] = out['review_causes'].get(cause, 0) + 1
                 count('isolated:' + code)
                 progress('Диалоги • один чат на проверке, продолжаю остальные')
+            # v1.3.94: a fully read row that came back as a plain waiting
+            # stage with ZERO work done (no submission, no outgoing, no
+            # contact, no deferral, no pending receipt) was opened for
+            # nothing: the same row state must not re-open on every later
+            # pass. Record its last message id as the durable skip marker
+            # («в то же состояние не захожу, только в новое») before the
+            # verified Back - a genuinely NEW message still re-admits it.
+            if (not isolated and row_last is not None
+                    and result['status'] == 'chain-waiting'
+                    and result['reason'] in WORKLESS_REASONS
+                    and not result['submission_calls']
+                    and not result['outgoing_observed_this_run']
+                    and not result['stages']['peer_contact']
+                    and not unanswered
+                    and not (deferred or ai_deferred or answer_deferred or photo_deferred)
+                    and not manually_blocked(chain.store, who)
+                    and workless_marker(chain, who, row_last)):
+                out['workless_row_markers'] += 1
+                progress('Обработанный диалог не открывается до нового сообщения • маркер записан.')
             out['dialogs_processed'] += 1
             processed.add((who['account'],who['peer']))
             if not deferred and not ai_deferred and not answer_deferred and not photo_deferred and not unanswered:

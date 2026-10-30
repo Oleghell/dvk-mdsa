@@ -279,7 +279,14 @@ def build():
     helpers=replace_once(helpers,"['card','origin']","['content','targetUser','card','origin']")
     helpers=replace_once(helpers,"n.open_completed=true;n.phase='wait-profile'", "n.open_completed=true;state.nextActionAt=Date.now()+1000;n.phase='wait-profile'")
     helpers=replace_once(helpers,"n.close_completed=true;n.phase='wait-return'", "n.close_completed=true;state.nextActionAt=Date.now()+1000;n.phase='wait-return'")
-    friends_stage=r"""if(!verifyProfile(current))return;
+    # v1.3.94: the guard only waits while the friends read is still pending.
+    # A cycle whose content wait SATURATED (profileWaitExhausted routing in the
+    # compose line) arrives here with friends_status already 'unavailable' and
+    # a pinned queue card: it must fall straight through to the verified close
+    # instead of waiting for a content controller that never appeared. The
+    # normal path is untouched: while the read is 'not-read' an unverified
+    # content still means "wait for the next observation".
+    friends_stage=r"""if(!verifyProfile(current)&&n.friends_status==='not-read')return;
     if(n.friends_status==='not-read'){
      const result={friends_status:'unavailable',friends_count:null,friends_eligible:null};
      if(s.friendCount!==null){
@@ -345,7 +352,13 @@ def validate(value):
         if source not in {'Profile.get_FriendsCount'} or type(count) is not int or not 0<=count<=1000000 or type(eligible) is not bool or eligible!=(count<50) or not n.get('profile_verified'):raise ValueError('Invalid friends count')
     elif count is not None or eligible is not None:raise ValueError('Unknown friends must remain unknown')
     if n.get('close_completed') and status=='not-read':raise ValueError('Friends stage skipped')
-    if status in {'unavailable','invalid'} and not n.get('profile_verified'):raise ValueError('Friends without profile')
+    # v1.3.94: 'unavailable' is the one outcome whose content-level flags may
+    # legitimately stay false - the saturated content-timeout skip pins the
+    # queue and closes it without a content controller - and ONLY with the
+    # genuinely saturated counter. 'invalid' (and every unsaturated form)
+    # still requires the fully verified profile.
+    if status=='invalid' and not n.get('profile_verified'):raise ValueError('Friends without profile')
+    if status=='unavailable' and not n.get('profile_verified') and model_waits!=PROFILE_MODEL_WAIT_LIMIT:raise ValueError('Inconsistent missing friends source')
     if status=='unavailable' and source=='Profile.get_FriendsCount' and model_waits!=PROFILE_MODEL_WAIT_LIMIT:raise ValueError('Inconsistent missing friends source')
     if status=='invalid' and source not in {'Profile.get_FriendsCount'}:raise ValueError('Inconsistent invalid friends source')
     retries=n.get('selection_retries')
@@ -385,7 +398,7 @@ def validate(value):
     if n.pop('selection_status',None) not in {'not-checked','no-visible-row','no-eligible-cell','selected'}:raise ValueError('Invalid selection category')
     extra={k:n.pop(k,None) for k in ('target_user_verified','profile_content_verified')}
     if any(type(v) is not bool for v in extra.values()):raise ValueError('Invalid profile verification')
-    if n.get('profile_verified') and not all(extra.values()):raise ValueError('Unverified profile identity')
+    if n.get('profile_verified') and not all(extra.values()) and not (status=='unavailable' and model_waits==PROFILE_MODEL_WAIT_LIMIT):raise ValueError('Unverified profile identity')
     for old,new in [('profile_verified','filters_verified'),('close_attempted','cancel_attempted'),('close_completed','cancel_completed')]:
         if old not in n:raise ValueError('Missing profile step')
         n[new]=n.pop(old)

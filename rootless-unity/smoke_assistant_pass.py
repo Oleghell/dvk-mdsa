@@ -15,7 +15,7 @@ from greetings import get_greeting
 
 
 def one(library, case):
-    mode = 518 if case == 'crowded-search' else 519 if case in ('slow-profile','slow-profile-baseline') else 502 if case == 'nonempty' else 505 if case == 'handler-error' else 513
+    mode = 518 if case == 'crowded-search' else 520 if case == 'slow-profile-baseline' else 519 if case == 'slow-profile' else 502 if case == 'nonempty' else 505 if case == 'handler-error' else 513
     flag = 7 if case in ('input-disabled','input-disabled-back-identity','input-disabled-back-unknown') else 4 if case == 'identity-change' else 3 if case == 'draft' else 0
     visited = list(map(str,range(1,25))) if case == 'crowded-search' else ['1', '2'] if case == 'friends-50' else ['1'] if case == 'skip-visited' else []
     child = subprocess.Popen([sys.executable, '-u', '-c',
@@ -91,7 +91,19 @@ def one(library, case):
                 # the SAME compose line (the base script ships a counted no-op
                 # hook), so stripping it leaves the raw counted spin that must
                 # die by the frame/call budgets, never by a hidden sleep.
-                source=source.replace("if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+100;profileWaitExhausted=()=>fail('screen-not-ready');",'')
+                # v1.3.94: the line now carries the one-second observation
+                # pacing and the close-and-skip routing for the armed hook;
+                # the strip semantics are unchanged - remove pacing AND arm
+                # together, the baseline must still die by its own budgets.
+                # The baseline rides fixture mode 520, whose profile content
+                # NEVER appears (mode 519 matures at 6 wall-clock seconds):
+                # under pool contention the unpaced spin could stretch past
+                # the maturation and greet, turning the budget contract into
+                # a timing race - a never-ready profile makes the stripped
+                # build deterministically exhaust its own budgets. The strip
+                # keeps the frame-deadline declaration itself (only the
+                # injected pacing and the armed hook ride the compose text).
+                source=source.replace("if(n.phase==='wait-profile'||n.phase==='confirm-profile'||n.phase==='wait-return')state.nextActionAt=Date.now()+1000;profileWaitExhausted=()=>{state.card=own(current);held.splice(held.indexOf(state.card),1);n.profile_verified=true;n.friends_status='unavailable';n.friends_count=null;n.friends_eligible=null;n.phase='confirm-profile';state.nextActionAt=Date.now()+1000;};",'')
             script = session.create_script(source + '''
 rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
  cohortpending(){return cohortReservation();},cohortack(value){return cohortAcknowledge(value);},
