@@ -58,6 +58,24 @@ jobs:
         ARCHIVE: ${{ steps.archive.outputs.archive }}
       run: 'set -euo pipefail
 
-        gh release create "v$VERSION" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --title "DvkAssistant $VERSION" --notes-file RELEASE_NOTES.md --latest
+        TAG="v$VERSION"
+
+        # Creating a tag THROUGH the release API at a target behind HEAD with workflow
+        # changes after it demands contents:write,workflows:write - a permission the
+        # GITHUB_TOKEN can never carry, so the release create dies with 403 "Resource
+        # not accessible by integration". The tag-first flow avoids that gate: the tag
+        # is pushed beforehand (git protocol, PAT with workflow rights) pointing at the
+        # verified SOURCE_SHA, and attaching a release to an existing tag needs only
+        # contents:write.
+
+        if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+
+          gh release create "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY" --title "DvkAssistant $VERSION" --notes-file RELEASE_NOTES.md --latest
+
+        else
+
+          gh release create "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --title "DvkAssistant $VERSION" --notes-file RELEASE_NOTES.md --latest
+
+        fi
 
         '
