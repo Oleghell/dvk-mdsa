@@ -110,17 +110,41 @@ def verified_loading(value):
         and value.get('wait_reason') in ('history-loading','history-not-loaded'))
 
 
-def initialize(store):
-    store.ensure_tables('''CREATE TABLE IF NOT EXISTS inbox_history_deferrals(
+# v1.3.95 (user report: every port dead at startup, «такие ошибки ловлю при
+# старте», monitor reports 576-579 all stopped at prepare-inbox-targets-failed
+# / ValueError with zero passes): the CREATE deliberately carries NO column
+# default. The cloud bridge's CREATE gate (cloud_sql.schema_info) accepts only
+# NULL/CURRENT_TIMESTAMP defaults and rejects anything else BEFORE the
+# already-registered no-op, so the 1.3.94 `DEFAULT 0` here killed EVERY
+# cloud-primary startup inside checkpoint('inbox-targets') before a single
+# dialog was checked - and a local SQLite store executes CREATE directly,
+# never running that gate, which is why CI stayed green while production
+# died. defer() is the only writer of this table and always supplies the
+# value explicitly, so a fresh table needs no default.
+DEFERRALS_DDL = '''CREATE TABLE IF NOT EXISTS inbox_history_deferrals(
             account TEXT NOT NULL,peer TEXT NOT NULL,chat TEXT NOT NULL,
-            retry_after REAL NOT NULL,deferrals INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY(account,peer))''')
+            retry_after REAL NOT NULL,deferrals INTEGER NOT NULL,
+            PRIMARY KEY(account,peer))'''
+
+
+def initialize(store):
+    store.ensure_tables(DEFERRALS_DDL)
     # v1.3.94: migrate pre-1.3.94 tables (no deferrals column) in place.
     # The per-store latch keeps the warm path free of schema work (the
     # hot-path contract: a warm component opens no schema transaction);
     # the column probe is a plain SELECT, and the ALTER itself runs at most
-    # once per store object. A duplicate-column error means another process
-    # migrated concurrently - anything else is a real failure and surfaces.
+    # once per store object.
+    # v1.3.95: the ALTER keeps its DEFAULT 0 - SQLite refuses ADD COLUMN
+    # NOT NULL without one, and the bridge passes the statement straight
+    # through to the server (it never enters the CREATE gate), so existing
+    # rows are still backfilled with 0 exactly as 1.3.94 intended. A FAILED
+    # alter no longer sniffs the error text: the cloud bridge collapses
+    # Postgres' duplicate-column error into a generic code with none of the
+    # SQLite wording, so the 1.3.94 string match would turn a benign
+    # concurrent migration into a hard startup failure. The column is simply
+    # re-probed once - present means another process already migrated this
+    # store (the only way an ALTER can fail while the column appears), still
+    # missing means the original failure surfaces unchanged.
     if getattr(store, '_dvk_deferrals_migrated', False):
         return
     import sqlite3
@@ -132,8 +156,11 @@ def initialize(store):
             with store.connection() as db:
                 db.execute('ALTER TABLE inbox_history_deferrals ADD COLUMN deferrals INTEGER NOT NULL DEFAULT 0')
         except sqlite3.OperationalError as error:
-            if 'duplicate column' not in str(error).lower():
-                raise
+            try:
+                with store.read_connection() as db:
+                    db.execute('SELECT deferrals FROM inbox_history_deferrals LIMIT 1').fetchone()
+            except sqlite3.OperationalError:
+                raise error from None
     store._dvk_deferrals_migrated = True
 
 
