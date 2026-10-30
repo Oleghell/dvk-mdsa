@@ -341,7 +341,100 @@ def hidden_peers(chain, *, clock=time.time):
     return tuple(dict(account=account, peer=peer) for account, peer in sorted(out))
 
 
-def with_seen_ids(chain, allowed):
+MAX_DENY_TARGETS = 700
+
+
+def terminal_deny(chain):
+    """v1.3.89: finished chats the native scan must treat as already handled.
+
+    A terminal chain stage (done / declined / manual-review) means the work on
+    that dialog is COMPLETE - the contact was received and forwarded, the
+    refusal was accepted, or the row is quarantined for the operator. The
+    1.3.88 hidden set deliberately left such rows visible (automatic outcomes
+    keep their own skip markers), but the native needs-reply filter only
+    consults THIS round's journal targets: alreadyHandled() answered false
+    for every terminal row, so adoption mode (reset at every pass start) kept
+    OPENING each finished chat whose last message is the peer's - a refusal,
+    a delivered contact - and the host left it read-only by verified Back,
+    counting the open as processed work. That is the reported «когда все чаты
+    прочитаны и обработаны оно повторно заходит в них на секунду и выходит по
+    очереди … не в холостую проходило по чатам с которыми уже проведена
+    работа». Finished peers now ride along with their consumed message ids,
+    so the row is skipped exactly like a 1.3.86 skip marker: until a GENUINELY
+    new message changes the row's last message, no terminal chat is reopened
+    by any mode of the scan, and the pass moves on to the profile search.
+    """
+    if getattr(chain.store, 'mumu_shared_claims', False) is not True:
+        return ()
+    with chain.store.read_connection() as db:
+        # Same source precedence as inbox_targets (guided bindings, then the
+        # send journal, then operator adoptions); a terminal stage requires a
+        # chain_dialogs row, so the LEFT JOIN becomes an inner JOIN here.
+        operator_source = ''
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operator_bindings'").fetchone():
+            operator_source = '''
+            UNION ALL
+            SELECT b.account,b.peer,b.chat FROM operator_bindings b
+            WHERE NOT EXISTS (SELECT 1 FROM guided_bindings g WHERE g.account=b.account AND g.peer=b.peer)
+              AND NOT EXISTS (SELECT 1 FROM manual_actions m WHERE m.account=b.account AND m.peer=m.peer)'''
+        # Manually blocked peers are already hidden from the scan outright;
+        # keeping them out only shrinks the uploaded deny evidence.
+        rows = db.execute('''
+          SELECT s.account,s.peer,c.chat FROM (
+            SELECT account,peer,chat FROM guided_bindings
+            UNION ALL
+            SELECT m.account,m.peer,m.initial_chat FROM manual_actions m
+            WHERE m.status!='not-invoked' AND NOT EXISTS (
+              SELECT 1 FROM guided_bindings g WHERE g.account=m.account AND g.peer=m.peer)
+          ''' + operator_source + '''
+          ) s JOIN chain_dialogs c ON c.account=s.account AND c.peer=s.peer
+          WHERE c.stage IN ('done','declined','manual-review')
+            AND NOT EXISTS(SELECT 1 FROM mumu_peer_blocks b LEFT JOIN mumu_manual_silences ms
+              ON ms.peer=b.peer WHERE b.peer=s.peer AND (b.reason='manual-block' OR ms.peer IS NOT NULL))
+          ORDER BY s.account,s.peer''').fetchall()
+    return tuple(dict(account=account, peer=peer, chat=chat) for account, peer, chat in rows[:MAX_DENY_TARGETS])
+
+
+def deny_with_seen(chain, deny):
+    """One pass-scoped read: the consumed ids that mark each finished row handled.
+
+    Consumed ids only - a stale pending reply receipt must NOT keep a finished
+    row reopenable (the receipt audit resolves itself whenever the chat is
+    legitimately opened again). Newest-first ranking keeps the ids most likely
+    to be the row's current last message when a pathological finished chat
+    exceeds the 128-id transport cap; the row then degrades to the old
+    once-per-pass open, never to a crash or a truncated hard error.
+    """
+    if not deny:
+        return ()
+    from assistant_reply_audit import DDL as receipt_ddl
+    from assistant_skip_audit import DDL as skip_ddl
+    chain.store.ensure_tables(receipt_ddl, skip_ddl)
+    out = []
+    with chain.store.read_connection() as db:
+        # At most 128 chats / 256 parameters per batch, as with the journal
+        # targets; 128 ids per chat cap the transport payload.
+        for offset in range(0, len(deny), 128):
+            batch = deny[offset:offset + 128]
+            chats = list(dict.fromkeys(who['chat'] for who in batch))
+            marks = ','.join('?' for _ in chats)
+            query = ('SELECT chat,message FROM ('
+                     'SELECT chat,message,ROW_NUMBER() OVER('
+                     'PARTITION BY chat ORDER BY length(message) DESC, message DESC) AS item_number FROM ('
+                     'SELECT s.chat,s.message FROM chain_seen s WHERE s.chat IN (' + marks + ') '
+                     'UNION SELECT i.chat,i.message FROM inbox_reported_inputs i WHERE i.chat IN (' + marks + '))) '
+                     'WHERE item_number<=128')
+            seen = {chat: [] for chat in chats}
+            for chat, message in db.execute(query, tuple(chats + chats)):
+                seen[chat].append(message)
+            for who in batch:
+                ids = seen[who['chat']]
+                if ids:
+                    out.append(dict(who, seen_ids=ids))
+    return tuple(out)
+
+
+def with_seen_ids(chain, allowed, deny=()):
     # Read fallback excludes already-consumed incoming messages BEFORE opening.
     out=[]
     from assistant_contact_receipt import candidates as contact_candidates
@@ -381,6 +474,21 @@ def with_seen_ids(chain, allowed):
                 review=(who['account'],who['peer'],who['chat']) in receipt_reviews
                 if len(rows)>128 and not review:raise StateError('observed-history-too-large')
                 out.append(dict(who,seen_ids=[] if review else rows))
+        # v1.3.89: finished chats ride along as deny-with-evidence rows. A
+        # terminal peer that is NOT a target this round joins the uploaded
+        # target list with its consumed ids, so the native needs-reply filter
+        # (alreadyHandled) skips the row in EVERY mode - adoption included -
+        # instead of opening it for a verified Back once per pass. A peer that
+        # IS a target this round (a recovery probe, a review candidate) keeps
+        # its real entry: deny evidence never overrides a live target, and
+        # the 1000-entry transport bound is respected by skipping the rest.
+        if deny:
+            by_peer={(x['account'],x['peer']):x for x in out}
+            for entry in deny:
+                key=(entry['account'],entry['peer'])
+                if entry.get('seen_ids') and key not in by_peer and len(out)<1000:
+                    out.append(dict(entry))
+                    by_peer[key]=out[-1]
         # v1.3.84: rejected operator-dialog probes ride along as skip markers:
         # the native scan bypasses such rows until their last message changes.
         # v1.3.86: a globally blocked tracked chat records the same kind of
@@ -418,6 +526,7 @@ def report():
                 return_verified=False, dialogs_verified=False, delivery_confirmed=False,
                 all_dialogs_covered=False, ui_may_remain_open=False,
                 header_rows_skipped=0, history_deferred=0, history_cooldown_skipped=0, history_retry_after_seconds=60, personal_data_exported=False, chat_content_exported=False,
+                terminal_rows_deny=0,
                 device_scope='MuMu-4-only', last_navigation=None, last_chat_diagnostics=None)
 
 
@@ -529,6 +638,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         reason = 'visible-pass-limit'
         groups = [(attention, False, 'pending'), (list(unread), True, 'unread'),
                   (read_round(chain, unread), False, 'read')]
+        deny=()
         if getattr(chain.store,'mumu_shared_claims',False):
             # Let native row order decide, not unread/pending grouping. Both
             # read and unread inputs retain needs_reply_only/receipt filtering.
@@ -538,6 +648,13 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             groups=[(list(combined.values()),False,'recent')]
             out['recent_window_limit']=50
             out['recent_window_direction']='bottom-up'
+            # v1.3.89: finished chats (contact received, refusal accepted,
+            # operator review) ride every open of this pass as deny-with-
+            # evidence rows. Read once per pass: terminal stages only change
+            # through processing, and processed peers are filtered out below,
+            # so the evidence never goes stale inside one pass.
+            deny=deny_with_seen(chain, terminal_deny(chain))
+            out['terminal_rows_deny']=len(deny)
         processed=set()
         # v1.3.86: adoption mode stays on until the native scan revisits a chat
         # THIS pass already opened and deliberately left (a shared block, a
@@ -588,7 +705,12 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             host_checkpoint = 'inbox-open'
             from assistant_stage_timing import timed
             open_timing = {}
-            selected = timed(open_timing, 'open', call, 'open', allowed=with_seen_ids(chain,allowed),
+            # v1.3.89: deny evidence drops a peer this pass already opened (the
+            # same pruning the group lists get), so a finished chat that was
+            # deliberately revisited cannot be re-admitted by its own evidence.
+            selected = timed(open_timing, 'open', call, 'open',
+                            allowed=with_seen_ids(chain, allowed, deny=[
+                                x for x in deny if (x['account'], x['peer']) not in processed]),
                             entry=entry, unread_only=unread_only, needs_reply_only=True,
                             adopt_untracked=adopt_open, hidden=hidden_peers(chain, clock=clock))
             entry = 'dialogs'
