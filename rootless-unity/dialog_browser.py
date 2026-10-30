@@ -42,7 +42,7 @@ PHASES={'entry','wait-list','scan','wait-chat','wait-back','wait-search','done'}
 CHECKPOINTS={'model-route-owner','model-route-parameters','model-route-enums','model-route-literals','model-route-signature','model-manager','model-collection','model-route','not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','unread-count','chat-controller','open-handler','back-handler','profile-queue','profile-close','ready'}
 SELECTION={'model-list','model-stability','not-checked','table','visible','cell','binding','filter','unread','stability','open','verify-chat','back','search','exhausted'}
 FLAGS={'cleanup_failed','ui_text_read','entry_verified','list_verified','chat_verified','destination_verified','action_attempted','action_completed','selection_verified','exhausted','unread_filter_applied','unread_verified','reply_filter_applied','reply_needed_verified','entry_search_recovered','profile_closed'}
-EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped','back_budget_retries','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','waiting_rows_skipped','handled_rows_skipped'}
+EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped','back_budget_retries','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','waiting_rows_skipped','handled_rows_skipped','selected_message'}
 
 
 MAX_HIDDEN_PEERS=2000
@@ -302,6 +302,10 @@ UTILS=r'''
       n.reply_needed_verified=true;
      }
      save('selectedChat',chat);save('selectedUser',model.user);state.selectedIdentity=model.who;
+     // v1.3.90: the row's last message id the needs-reply filter judged. The
+     // host records it as the durable skip marker when the chat is deliberately
+     // left read-only, so the same state is never re-entered on later passes.
+     if(needsReplyOnly)n.selected_message=header.id;
      const args=Memory.alloc(Process.pointerSize*2);args.writePointer(cell);args.add(Process.pointerSize).writePointer(chat);
      n.selection_verified=true;n.selection_checkpoint='open';n.action_attempted=true;
      call(s.openCell,current,args);n.action_completed=true;n.phase='wait-chat';return true;
@@ -405,7 +409,7 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+',unreadOnly='+json.dumps(unread_only)+',needsReplyOnly='+json.dumps(needs_reply_only)+',adoptUntracked='+json.dumps(adopt_untracked)+',hiddenPeers=new Set('+json.dumps([x['account']+':'+x['peer'] for x in hidden])+');')
     s=replace_once(s,' function prepareNavigation(',PREPARE+'\n function prepareNavigation(')
     s=replace_once(s,'prepareDialogRoute(f,setup.navigation,getClass);','prepareDialogRoute(f,setup.navigation,getClass);prepareDialogBrowser(f,setup.navigation,getClass);')
-    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,back_budget_retries:0,observation_budget_retries:0,entry_read_budget_retries:0,entry_binding_waits:0,entry_search_recovered:false,unread_filter_applied:false,unread_verified:false,reply_filter_applied:false,reply_needed_verified:false,waiting_rows_skipped:0,handled_rows_skipped:0,profile_closed:false});
+    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,back_budget_retries:0,observation_budget_retries:0,entry_read_budget_retries:0,entry_binding_waits:0,entry_search_recovered:false,unread_filter_applied:false,unread_verified:false,reply_filter_applied:false,reply_needed_verified:false,waiting_rows_skipped:0,handled_rows_skipped:0,profile_closed:false,selected_message:null});
  for(const k of ['search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'])delete r.navigation[k];''')
     s=replace_once(s,'"il2cpp_type_get_object"]','"il2cpp_type_get_object","il2cpp_class_get_parent"]')
     s=replace_once(s,"Object.assign(f,{classType:","Object.assign(f,{classParent:bind('class_get_parent','pointer',['pointer']),classType:")
@@ -475,6 +479,13 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     if n['metadata_checkpoint'] not in CHECKPOINTS or n['selection_checkpoint'] not in SELECTION:raise ValueError('Invalid checkpoint')
     for k,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128),('waiting_rows_skipped',128),('handled_rows_skipped',128),('back_budget_retries',MAX_BACK_BUDGET_RETRIES),('observation_budget_retries',MAX_OBSERVATION_BUDGET_RETRIES),('entry_read_budget_retries',MAX_ENTRY_READ_BUDGET_RETRIES),('entry_binding_waits',MAX_ENTRY_BINDING_WAITS)]:
         if type(n[k]) is not int or not 0<=n[k]<=limit:raise ValueError('Invalid scan bounds')
+    # v1.3.90: the selected row's last message id, reported only when the
+    # needs-reply filter actually selected a row. It is a positive id string
+    # exactly like an uploaded seen_ids entry - never a body, sender or name.
+    if n['selected_message'] is not None:
+        if not needs_reply_only or not n['reply_needed_verified'] or not isinstance(n['selected_message'],str) \
+                or not re.fullmatch(r'[1-9][0-9]{0,18}', n['selected_message']):
+            raise ValueError('Invalid selected message')
     # Startup chat binding waits exist only in the list/either recovery path:
     # they precede the one verified Back on a successfully bound chat, or end
     # as the same identity-not-bound stop when the wait is exhausted.
@@ -554,7 +565,7 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     bn['controller_path']=[old(k) for k in bn['controller_path']]
     nav.validate(base,errors=ERRORS)
     from navigation_root_diagnostic import extract
-    diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped','back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','root_top_kind','last_presented_kind','controller_path')}
+    diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped','back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','selected_message','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','root_top_kind','last_presented_kind','controller_path')}
     diagnostic['root_probe']=extract(value)
     return dict(state=('exhausted' if n['exhausted'] else 'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready') if ready else 'stopped',identity=private,diagnostic=diagnostic)
 

@@ -142,6 +142,10 @@ UTILS=r'''
      const context=Memory.alloc(4),method=Memory.alloc(4);context.writeS32(s.contextValue);method.writeS32(s.methodValue);
      const args=Memory.alloc(Process.pointerSize*3);args.writePointer(chat);args.add(Process.pointerSize).writePointer(context);args.add(Process.pointerSize*2).writePointer(method);
      save('selectedChat',chat);save('selectedUser',model.user);state.selectedIdentity=model.who;
+     // v1.3.90: the row's last message id the needs-reply filter judged; the
+     // host records it as the durable skip marker on deliberate read-only
+     // leaves so the same row state is never re-entered on later passes.
+     if(needsReplyOnly)n.selected_message=header.id;
      n.selection_verified=true;n.unread_verified=unreadOnly;n.reply_needed_verified=needsReplyOnly;
      n.selection_checkpoint='open';n.action_attempted=true;call(s.openModel,router,args);
      n.action_completed=true;n.phase='wait-chat';return true;

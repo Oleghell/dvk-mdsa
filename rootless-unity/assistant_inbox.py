@@ -289,6 +289,51 @@ def blocked_skip_marker(chain, who, snapshot):
     return True
 
 
+def terminal_stage(chain, who):
+    """The chain stage of a tracked chat, or None when it has no chain row."""
+    with chain.store.read_connection() as db:
+        row = db.execute('SELECT stage FROM chain_dialogs WHERE account=? AND peer=?',
+                         (who['account'], who['peer'])).fetchone()
+    return row[0] if row else None
+
+
+def terminal_marker(chain, who, latest):
+    """v1.3.90: durable row-skip marker for a chat whose work is FINISHED.
+
+    The 1.3.89 deny evidence only covers consumed/reported message ids. A
+    finished chat without them - a contact received with delivery disabled, a
+    review quarantine before consume, or any post-terminal new message the
+    engine deliberately left read-only - had NO entry in the uploaded target
+    list, so the native needs-reply filter answered alreadyHandled() false and
+    adoption mode reopened the row on EVERY later pass that had live work:
+    «заходит в чат, которому час, и несколько раз проверен». The marker is the
+    row's CURRENT last message id (the native selection reports it), recorded
+    through the same operator_rejects machinery: the row is skipped in every
+    mode until a genuinely NEW message changes its last message - exactly the
+    «не захожу в то же состояние, только в новое» contract. Only terminal
+    stages ever receive one; an active chat keeps its live target flow.
+    """
+    from assistant_chain import TERMINAL
+    if terminal_stage(chain, who) not in TERMINAL:
+        return False
+    if not isinstance(latest, str) or not latest:
+        return False
+    from assistant_operator_adoption import record_reject
+    record_reject(chain.store, identity(who), latest, 'terminal-state')
+    return True
+
+
+def snapshot_marker(chain, who, snapshot):
+    """v1.3.90: record the terminal marker from a snapshot the host just read."""
+    messages = snapshot.get('messages') if isinstance(snapshot, dict) else None
+    latest = None
+    if isinstance(messages, list) and messages:
+        newest = messages[-1]
+        if isinstance(newest, dict) and isinstance(newest.get('id'), str):
+            latest = newest['id']
+    return terminal_marker(chain, who, latest)
+
+
 def reset_read_round(chain):
     with chain.store.read_connection() as db:
         if db.execute('SELECT 1 FROM inbox_read_round LIMIT 1').fetchone() is None:return
@@ -437,6 +482,7 @@ def deny_with_seen(chain, deny):
 def with_seen_ids(chain, allowed, deny=()):
     # Read fallback excludes already-consumed incoming messages BEFORE opening.
     out=[]
+    review_peers=set()
     from assistant_contact_receipt import candidates as contact_candidates
     receipt_reviews=contact_candidates(chain.store)
     from assistant_selection_recovery import targets as selection_targets
@@ -474,6 +520,11 @@ def with_seen_ids(chain, allowed, deny=()):
                 review=(who['account'],who['peer'],who['chat']) in receipt_reviews
                 if len(rows)>128 and not review:raise StateError('observed-history-too-large')
                 out.append(dict(who,seen_ids=[] if review else rows))
+                if review:
+                    # v1.3.90: a review target MUST open - its empty seen_ids is
+                    # deliberate - so skip markers (v1.3.90 terminal-state, v1.3.86
+                    # blocks, v1.3.84 rejects) may never merge into its entry.
+                    review_peers.add((who['account'],who['peer']))
         # v1.3.89: finished chats ride along as deny-with-evidence rows. A
         # terminal peer that is NOT a target this round joins the uploaded
         # target list with its consumed ids, so the native needs-reply filter
@@ -496,6 +547,11 @@ def with_seen_ids(chain, allowed, deny=()):
         # round the marker id joins that target's own seen_ids instead of a
         # second entry, so its still-unanswered last message is skipped until
         # it changes. Markers never create targets and never duplicate a peer.
+        # v1.3.90: a review target keeps its deliberately EMPTY seen_ids - a
+        # review is pending work on the very state a marker would skip - so
+        # markers merge only into non-review entries. v1.3.90 terminal-state
+        # markers (finished chats without consumed-id evidence) use the same
+        # merge: skipped in every mode until a genuinely NEW message arrives.
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operator_rejects'").fetchone():
             by_peer={(x['account'],x['peer']):x for x in out}
             for account,peer,chat,last in db.execute(
@@ -504,6 +560,8 @@ def with_seen_ids(chain, allowed, deny=()):
                     continue
                 entry=by_peer.get((account,peer))
                 if entry is not None:
+                    if (account,peer) in review_peers:
+                        continue
                     if last not in entry['seen_ids'] and len(entry['seen_ids'])<128:
                         entry['seen_ids']=entry['seen_ids']+[last]
                 elif len(out)<1000:
@@ -527,6 +585,7 @@ def report():
                 all_dialogs_covered=False, ui_may_remain_open=False,
                 header_rows_skipped=0, history_deferred=0, history_cooldown_skipped=0, history_retry_after_seconds=60, personal_data_exported=False, chat_content_exported=False,
                 terminal_rows_deny=0,
+                terminal_row_markers=0,
                 device_scope='MuMu-4-only', last_navigation=None, last_chat_diagnostics=None)
 
 
@@ -720,6 +779,11 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 groups.pop(0)
                 continue
             who = identity(selected['identity'])
+            # v1.3.90: the row's last message id the native needs-reply filter
+            # judged for THIS selection. Captured before any Back overwrites
+            # the last navigation diagnostic; used only as a skip-marker id.
+            row_last = selected['diagnostic'].get('selected_message') \
+                if isinstance(selected.get('diagnostic'), dict) else None
             if adopt_open and (who['account'], who['peer']) in processed:
                 # v1.3.86: the scan came back to a row this pass already handled.
                 # Switch the remaining opens to strict journal targets so the
@@ -761,6 +825,16 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                     ] for items, _group_unread, _group_kind in groups for x in items):
                 # The adoption filter must not bypass this round's deliberate
                 # exclusions (history cooldown or reply window): leave read-only.
+                # v1.3.90: a TERMINAL chat landed here because finished rows are
+                # never targets; before this fix the leave recorded nothing, so
+                # the same row state was reopened on every later pass with live
+                # work. Its current last message id now becomes the durable skip
+                # marker - the row is skipped until a genuinely NEW message
+                # changes it. Active (non-terminal) strays never get one: a
+                # cooldown or reply window must re-admit them unchanged.
+                if row_last and terminal_marker(chain, who, row_last):
+                    out['terminal_row_markers'] += 1
+                    progress('Законченный чат пропущен до нового сообщения • маркер записан.')
                 leave_manual(who)
                 continue
             progress(f'Читаю открытый диалог • {out["dialogs_opened"]}')
@@ -905,6 +979,12 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             # Mark durably BEFORE leaving: a failed back cannot enable a resend.
             if isolated:
                 chain.mark_review(who)
+                # v1.3.90: the quarantined chat is terminal now; its newest read
+                # message becomes the durable row-skip marker so later passes do
+                # not re-enter the SAME state (manual-review rows are never reply
+                # targets). A genuinely new message still reopens the row.
+                if private_snapshot and snapshot_marker(chain, who, private_snapshot[0]):
+                    out['terminal_row_markers'] += 1
             progress('Исходящее подтверждено → возвращаюсь к списку.' if result['outgoing_observed_this_run'] and not unanswered else 'Возвращаюсь к списку диалогов.')
             host_checkpoint = 'inbox-back'
             timed(result['diagnostics'], 'back', call, 'back', expected=who)
