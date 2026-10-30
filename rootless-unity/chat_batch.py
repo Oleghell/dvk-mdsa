@@ -91,7 +91,7 @@ def build(variants=None):
     s=replace(s,"if(klass.equals(s.search))return 'search';", "if(klass.equals(s.filters))return 'chat';if(klass.equals(s.search))return 'search';")
     s=replace(s,"if(k==='search'||k==='profile'){","if(k==='search'||k==='profile'||k==='chat'){")
     s=replace(s,"!['search','profile'].includes(k)","!['search','profile','chat'].includes(k)")
-    s=replace(s,"    n.close_attempted=true;", "    if(n.friends_status!=='read')fail('screen-not-ready');\n    if(n.friends_eligible&&!n.chat_open_attempted){n.phase='open-chat';state.nextActionAt=Date.now()+1000;return;}\n    n.close_attempted=true;")
+    s=replace(s,"    n.close_attempted=true;", "    if(n.friends_status!=='read'&&!(n.friends_status==='unavailable'&&n.profile_model_waits>="+str(single.PROFILE_MODEL_WAIT_LIMIT)+"))fail('screen-not-ready');\n    if(n.friends_eligible&&!n.chat_open_attempted){n.phase='open-chat';state.nextActionAt=Date.now()+1000;return;}\n    n.close_attempted=true;")
     read=chat.READ
     read=replace(read,"   if(!f.objectClass(user).equals(s.user))fail('unexpected-object');","   if(!f.objectClass(user).equals(s.user)||!user.equals(target(state.targetUser)))fail('identity-changed');")
     for old,new in [('origin','chatController'),('card','chatModelPin'),('user','chatUserPin'),('cm','chatCMPin')]:
@@ -136,11 +136,11 @@ def build(variants=None):
 def build_random():return build([choose_index() for _ in range(LIMIT)])
 FUNCTION=build()
 
-def validate(value, *, skipped_empty=False, skipped_unready=False):
+def validate(value, *, skipped_empty=False, skipped_unready=False, skipped_chat_open=False):
     v=copy.deepcopy(value)
     if not isinstance(v,dict) or not isinstance(v.get('navigation'),dict):raise ValueError('Missing automatic navigation')
     n=v['navigation']
-    if type(skipped_empty) is not bool or type(skipped_unready) is not bool:raise ValueError('Invalid empty skip')
+    if type(skipped_empty) is not bool or type(skipped_unready) is not bool or type(skipped_chat_open) is not bool:raise ValueError('Invalid empty skip')
     if skipped_unready and (skipped_empty or n.get('stage')!='navigation-ready' or n.get('phase')!='done' or
         n.get('error')!='none' or n.get('history_status')!='not-ready' or n.get('message_count') is not None or
         n.get('samples')!=0 or n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
@@ -176,6 +176,23 @@ def validate(value, *, skipped_empty=False, skipped_unready=False):
         n['close_attempted']=True;n['close_completed']=True
 
     if x['send_handler_returned'] and not x['send_attempted']:raise ValueError('Submission without invocation')
+    # v1.3.92: the chat-open wait counter only exists on a chat whose open was
+    # actually attempted, and its saturation is the ONLY legitimate form of the
+    # chat-not-opened skip evidence checked below.
+    chat_open_waits=n.get('chat_open_waits')
+    if type(chat_open_waits) is not int or not 0<=chat_open_waits<=single.CHAT_OPEN_WAIT_LIMIT:raise ValueError('Invalid chat open wait count')
+    if chat_open_waits and not x['chat_open_attempted']:raise ValueError('Chat open wait without attempt')
+    if skipped_chat_open and (n.get('stage')!='navigation-ready' or n.get('phase')!='done' or
+        n.get('error')!='none' or n.get('friends_eligible') is not True or n.get('friends_status')!='read' or
+        x['chat_open_attempted'] is not True or x['chat_open_completed'] is not True or
+        x['chat_verified'] is not False or x['chat_identity_verified'] is not False or
+        x['chat_back_attempted'] is not False or x['chat_back_completed'] is not False or
+        x['chat_return_verified'] is not False or x['chat_return_route']!='not-checked' or
+        chat_open_waits!=single.CHAT_OPEN_WAIT_LIMIT or
+        x['send_attempted'] is not False or x['send_handler_returned'] is not False or
+        x['history_status']!='not-ready' or x['message_count'] is not None or x['samples']!=0 or
+        n.get('return_verified') is not True or n.get('close_attempted') is not True or n.get('close_completed') is not True):
+        raise ValueError('Unverified chat-open skip')
     if x['send_attempted']:
         get_greeting(x['greeting_variant'])
         if x['messages_sent'] is not None or not x['chat_identity_verified'] or n.get('friends_eligible') is not True:raise ValueError('Unverified send')
@@ -190,7 +207,8 @@ def validate(value, *, skipped_empty=False, skipped_unready=False):
     if x['send_attempted'] and (not classified or x['history_status']!='empty'):raise ValueError('Send without stable empty history')
     if n.get('stage')=='navigation-ready':
         if n.get('friends_eligible'):
-            if not x['chat_return_verified'] or (not classified and not skipped_unready):raise ValueError('Unfinished chat cycle')
+            if skipped_chat_open:pass
+            elif not x['chat_return_verified'] or (not classified and not skipped_unready):raise ValueError('Unfinished chat cycle')
             if x['history_status']=='empty' and not x['send_handler_returned'] and not skipped_empty:raise ValueError('Empty cycle did not submit')
         elif x['chat_open_attempted']:raise ValueError('Skipped profile opened chat')
     if n.get('phase') in PHASES:n['phase']='confirm-profile'

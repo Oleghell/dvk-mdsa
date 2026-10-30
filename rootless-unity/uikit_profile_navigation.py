@@ -11,6 +11,24 @@ VERSION='0.3.27'
 ACTION_DELAY_MS=1000
 FRIEND_SOURCES={'not-found','signature-unsupported','Profile.get_FriendsCount'}
 MAX_SELECTION_PASSES=3
+# v1.3.92 (user report: «заходит в новую анкету, сидит там и не отписывает
+# приветствие»): a freshly opened profile whose content or friends model never
+# becomes readable used to park the cycle ON THE OPEN ANKETA with an unbounded
+# 100ms poll until the whole 90-second native budget expired - the pass then
+# stopped on profile-check-stopped, the port rode recovery rounds and the user
+# watched a silent anketa with no greeting. The profile-readiness wait is now a
+# bounded, evidence-counted wait: PROFILE_MODEL_WAIT_LIMIT waits (>=100ms each,
+# shared by the wait-profile content check and the confirm-profile model wait)
+# and the read publishes the pre-existing 'unavailable' outcome so the verified
+# close moves the pass on to the next candidate. The same bound closes the
+# wait-profile content wait as a fast screen-not-ready fail (a structurally
+# unreadable profile keeps today's stop doctrine) instead of a 90s sit.
+PROFILE_MODEL_WAIT_LIMIT=50
+# v1.3.92: OnMessageButton was invoked but the chat screen never appeared -
+# the old wait-chat phase re-verified the profile forever. After
+# CHAT_OPEN_WAIT_LIMIT one-second polls the assistant cycle records a verified
+# 'chat-not-opened' skip and closes the anketa itself (assistant_profile_read).
+CHAT_OPEN_WAIT_LIMIT=15
 SELECTION_COUNTERS={'passes':3,'rows':74,'cells':1184,'cell_unready':1184,'table_missing':3,'table_unready':3,'row_unready':74,'binding_missing':74,'entry_missing':1184,'promoted':1184,'user_missing':1184,'self_user':1184,'avatar_missing':1184,'avatar_unready':1184,'avatar_hidden':1184,'avatar_noninteractive':1184}
 METADATA_CHECKPOINTS=('base', 'classes', 'method:avatarUser', 'method:cellAvatar', 'method:cellEntry', 'method:child', 'method:childCount', 'method:children', 'method:contentUser', 'method:currentContent', 'method:entryCount', 'method:entryItem', 'method:entryUser', 'method:enumerator', 'method:next', 'method:open', 'method:profileChecked', 'method:promo', 'method:recordEntries', 'method:rowItems', 'method:scroll', 'method:selfUser', 'method:visible', 'method:visibleCount', 'method:visibleItem', 'nested', 'ready')
 SELECTION_CHECKS={'not-checked','visible-list','row-binding','row-children','cell-entry','promotion','record-items','entry-membership','entry-user','avatar-user','visible-stability','row-stability','cell-stability','items-stability','promotion-stability','selected'}
@@ -237,7 +255,7 @@ def build():
     helpers=replace_once(helpers,"['canClose','card','get_CanBeClosedByUser',2],",'')
     helpers=replace_once(helpers,"['open','search','ShowSearchSettings',1],['cancel','card','DismissWithCancel',1]", "['cancel','profile','DV.Profiles.ProfileViewController.IDelegate.OnCloseRequested',1]")
     helpers=replace_once(helpers,'  return s;\n }','  return prepareProfile(f,s,getClass,get,signature);\n }')
-    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "action_delay_ms:1000,friends_source:'not-found',friends_status:'not-read',friends_count:null,friends_eligible:null,selection_counts:{passes: 0, rows: 0, cells: 0, cell_unready: 0, table_missing: 0, table_unready: 0, row_unready: 0, binding_missing: 0, entry_missing: 0, promoted: 0, user_missing: 0, self_user: 0, avatar_missing: 0, avatar_unready: 0, avatar_hidden: 0, avatar_noninteractive: 0},temporary_handles_peak:0,metadata_checkpoint:'base',selection_check:'not-checked',selection_retries:0,selection_status:'not-checked',target_user_verified:false,profile_content_verified:false,action_backend:'semantic-controller-handlers',ui_text_read:false")
+    helpers=replace_once(helpers,"action_backend:'semantic-controller-handlers',ui_text_read:false", "action_delay_ms:1000,friends_source:'not-found',friends_status:'not-read',friends_count:null,friends_eligible:null,profile_model_waits:0,chat_open_waits:0,selection_counts:{passes: 0, rows: 0, cells: 0, cell_unready: 0, table_missing: 0, table_unready: 0, row_unready: 0, binding_missing: 0, entry_missing: 0, promoted: 0, user_missing: 0, self_user: 0, avatar_missing: 0, avatar_unready: 0, avatar_hidden: 0, avatar_noninteractive: 0},temporary_handles_peak:0,metadata_checkpoint:'base',selection_check:'not-checked',selection_retries:0,selection_status:'not-checked',target_user_verified:false,profile_content_verified:false,action_backend:'semantic-controller-handlers',ui_text_read:false")
     helpers=replace_once(helpers,"if(entry.arity===1){if(!f.classFromType", "if(entry.params){for(let i=0;i<entry.params.length;i++){const t=f.param(m,i),a=entry.params[i];if(t.isNull()||f.byref(t)||f.typeKind(t)!==a.kind||(a.klass&&!f.classFromType(t).equals(a.klass)))fail('signature-mismatch');}if(entry.result&&!f.classFromType(f.returnType(m)).equals(entry.result))fail('signature-mismatch');}\n   else if(entry.arity===1){if(!f.classFromType")
     helpers=replace_once(helpers,"||f.byref(f.returnType(m)))fail('signature-mismatch');","||!!f.byref(f.returnType(m))!==!!entry.byref)fail('signature-mismatch');")
     helpers=replace_once(helpers,'const out=f.invoke(m,obj,params,ex);',"let receiver=obj;if(entry.unboxed){receiver=f.unbox(obj);if(receiver.isNull())fail('signature-mismatch');}\n   const out=f.invoke(m,receiver,params,ex);")
@@ -249,7 +267,7 @@ def build():
     helpers=replace_once(helpers,'  try {\n   const root=',TICK+'\n  try {\n   const root=')
     helpers=replace_once(helpers,"n.search_verified=true;state.origin=own(current);", "n.search_verified=true;const selected=chooseVisibleCandidate(current);if(selected===null){if(n.selection_counts.passes>=3&&state.selectionRow===0)fail('selection-unavailable');return;}\n    state.targetUser=own(selected.user);held.splice(held.indexOf(state.targetUser),1);\n    state.origin=own(current);")
     helpers=replace_once(helpers,'n.open_attempted=true;call(s.open,current);',"const promotion=Memory.alloc(1);promotion.writeU8(0);\n    n.open_attempted=true;call(s.open,current,args([selected.entry,promotion,selected.avatar]));")
-    helpers=replace_once(helpers,'n.profile_verified=true;state.card=own(current);','if(!verifyProfile(current))return;\n    n.profile_verified=true;state.card=own(current);')
+    helpers=replace_once(helpers,'n.profile_verified=true;state.card=own(current);','if(!verifyProfile(current)){if(n.profile_model_waits<'+str(PROFILE_MODEL_WAIT_LIMIT)+'){n.profile_model_waits++;state.nextActionAt=Date.now()+100;return;}fail(\'screen-not-ready\');}\n    n.profile_verified=true;state.card=own(current);')
     helpers=replace_once(helpers,"if(!bool(s.canClose,current))fail('screen-not-ready');",'if(!verifyProfile(current))return;')
     helpers=replace_once(helpers,"['card','origin']","['content','targetUser','card','origin']")
     helpers=replace_once(helpers,"n.open_completed=true;n.phase='wait-profile'", "n.open_completed=true;state.nextActionAt=Date.now()+1000;n.phase='wait-profile'")
@@ -258,21 +276,28 @@ def build():
     if(n.friends_status==='not-read'){
      const result={friends_status:'unavailable',friends_count:null,friends_eligible:null};
      if(s.friendCount!==null){
-      const waitForModel=()=>{state.nextActionAt=Date.now()+100;};
+      const waitForModel=()=>{n.profile_model_waits++;state.nextActionAt=Date.now()+100;};
       const content=target(state.content),model=call(s.contentProfile,content);
-      if(model.isNull()){waitForModel();return;}own(model);
-      if(!f.objectClass(model).equals(s.profileModel))fail('unexpected-object');
-      // A freshly displayed placeholder must not publish a misleading zero.
-      if(!bool(s.friendActual,model)){waitForModel();return;}
-      const first=longInteger(s.friendCount,model),second=longInteger(s.friendCount,model);
-      if(!call(s.contentProfile,content).equals(model)||!bool(s.friendActual,model))fail('identity-changed');
-      if(first.compare(second)!==0||first.compare(0)<0||first.compare(1000000)>0)result.friends_status='invalid';
-      else {result.friends_count=first.toNumber();result.friends_eligible=result.friends_count<50;result.friends_status='read';}
+      if(model.isNull()){
+       if(n.profile_model_waits<__PROFILE_MODEL_WAIT_LIMIT__){waitForModel();return;}
+      }else{
+       own(model);
+       if(!f.objectClass(model).equals(s.profileModel))fail('unexpected-object');
+       // A freshly displayed placeholder must not publish a misleading zero.
+       if(!bool(s.friendActual,model)){
+        if(n.profile_model_waits<__PROFILE_MODEL_WAIT_LIMIT__){waitForModel();return;}
+       }else{
+        const first=longInteger(s.friendCount,model),second=longInteger(s.friendCount,model);
+        if(!call(s.contentProfile,content).equals(model)||!bool(s.friendActual,model))fail('identity-changed');
+        if(first.compare(second)!==0||first.compare(0)<0||first.compare(1000000)>0)result.friends_status='invalid';
+        else {result.friends_count=first.toNumber();result.friends_eligible=result.friends_count<50;result.friends_status='read';}
+       }
+      }
      }
      if(!verifyProfile(current))fail('identity-changed');
      Object.assign(n,result);
     }
-    n.close_attempted"""
+    n.close_attempted""".replace('__PROFILE_MODEL_WAIT_LIMIT__',str(PROFILE_MODEL_WAIT_LIMIT))
     helpers=replace_once(helpers,"if(!verifyProfile(current))return;\n    n.close_attempted",friends_stage)
 
     # Keep the proven cancellation, lifetime, main-thread and frame guards byte-for-byte.
@@ -295,8 +320,16 @@ def validate(value):
     import copy
     out=copy.deepcopy(value);n=out['navigation']
     flags={'cleanup_failed','search_verified','profile_verified','return_verified','open_attempted','open_completed','close_attempted','close_completed','ui_text_read'}
-    fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','selection_status','target_user_verified','profile_content_verified','metadata_checkpoint','selection_check','selection_retries','temporary_handles_peak','selection_counts','action_delay_ms','friends_source','friends_status','friends_count','friends_eligible'}
+    fields=flags|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','selection_status','target_user_verified','profile_content_verified','metadata_checkpoint','selection_check','selection_retries','temporary_handles_peak','selection_counts','action_delay_ms','friends_source','friends_status','friends_count','friends_eligible','profile_model_waits','chat_open_waits'}
     if set(n)!=fields:raise ValueError('Unexpected profile fields')
+    # v1.3.92: the two bounded-wait counters are strict evidence - the waits
+    # only exist on an opened profile, and an 'unavailable' read with a RESOLVED
+    # friends binding is legitimate ONLY when the bounded wait actually
+    # saturated (anything else would be a bypass of the read loop).
+    model_waits=n.pop('profile_model_waits',None);chat_open_waits=n.pop('chat_open_waits',None)
+    if type(model_waits) is not int or not 0<=model_waits<=PROFILE_MODEL_WAIT_LIMIT:raise ValueError('Invalid profile model wait count')
+    if type(chat_open_waits) is not int or not 0<=chat_open_waits<=CHAT_OPEN_WAIT_LIMIT:raise ValueError('Invalid chat open wait count')
+    if (model_waits or chat_open_waits) and not n.get('open_attempted'):raise ValueError('Profile wait without open')
     if type(n.pop('action_delay_ms',None)) is not int or value['navigation']['action_delay_ms']!=ACTION_DELAY_MS:raise ValueError('Invalid action delay')
     source=n.pop('friends_source',None);status=n.pop('friends_status',None)
     count=n.pop('friends_count',None);eligible=n.pop('friends_eligible',None)
@@ -306,7 +339,7 @@ def validate(value):
     elif count is not None or eligible is not None:raise ValueError('Unknown friends must remain unknown')
     if n.get('close_completed') and status=='not-read':raise ValueError('Friends stage skipped')
     if status in {'unavailable','invalid'} and not n.get('profile_verified'):raise ValueError('Friends without profile')
-    if status=='unavailable' and source in {'Profile.get_FriendsCount'}:raise ValueError('Inconsistent missing friends source')
+    if status=='unavailable' and source=='Profile.get_FriendsCount' and model_waits!=PROFILE_MODEL_WAIT_LIMIT:raise ValueError('Inconsistent missing friends source')
     if status=='invalid' and source not in {'Profile.get_FriendsCount'}:raise ValueError('Inconsistent invalid friends source')
     retries=n.get('selection_retries')
     if type(retries) is not int or not 0<=retries<=2:raise ValueError('Invalid selection retry count')

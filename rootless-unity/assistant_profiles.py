@@ -23,7 +23,7 @@ def report(limit):
     return dict(tool_version=VERSION, mode='new-profiles-pass', status='profiles-stopped',
                 reason='not-started', profile_limit=limit, profiles_checked=0, qualified_profiles=0, scan_limit=MAX_SCANNED,
                 search_cycles=0, search_cycle_limit=MAX_SEARCH_CYCLES,
-                skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0, skipped_input_disabled=0,
+                skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0, skipped_input_disabled=0, skipped_unreadable=0, skipped_chat_not_opened=0,
                 read_recovery_limit=MAX_READ_RECOVERIES, consecutive_read_recoveries=0, recovery_events=[], greetings_offered=0, shared_peer_skips=0,
                 reservations_released=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
@@ -178,6 +178,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 'selection_check', 'read_checkpoint', 'wait_reason', 'search_verified',
                 'open_attempted', 'open_completed', 'chat_open_attempted', 'chat_open_completed',
                 'send_attempted', 'send_handler_returned', 'return_verified',
+                'profile_model_waits', 'chat_open_waits',
                 'profile_read_budget_retries', 'greeting_frame_splits', 'profile_ready_waits',
                 'profile_read_skipped', 'profile_read_skip_reason', 'profile_input_enabled', 'chat_back_attempted', 'chat_back_completed',
                 'chat_return_verified', 'chat_identity_verified', 'chat_return_route', 'shared_peer_skipped') if key in n}
@@ -225,7 +226,11 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             out['profiles_checked'] += 1
             if n['send_attempted'] and not n['send_handler_returned']:
                 raise StateError('send-outcome-unknown')
-            if not n.get('profile_read_skipped'):
+            # v1.3.92: an 'unavailable' friends read is a bounded failure skip
+            # exactly like the read skips, so it must not reset the consecutive
+            # recovery limit either (in the assistant cycle the close gate only
+            # ever returns a SATURATED unavailable read as navigation-ready).
+            if not n.get('profile_read_skipped') and n.get('friends_status') != 'unavailable':
                 out['consecutive_read_recoveries'] = 0
             if n['send_handler_returned']:
                 pass
@@ -240,11 +245,45 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 # Native validation and durable record_visit completed before
                 # cycle returns. No host Back, reauthorization or send replay.
                 from assistant_profile_read import SKIP_REASONS
-                if (n.get('profile_read_skip_reason') not in SKIP_REASONS or offered or n.get('error') != 'none' or
-                    n.get('return_verified') is not True or n.get('chat_return_verified') is not True or
-                    n.get('chat_back_completed') is not True or n.get('chat_identity_verified') is not True or
-                    n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
-                    n.get('cleanup_failed') is not False):
+                from uikit_profile_navigation import CHAT_OPEN_WAIT_LIMIT
+                if n['profile_read_skip_reason'] == 'chat-not-opened':
+                    # v1.3.92: OnMessageButton was invoked but the chat screen
+                    # never appeared within the bounded native wait; the anketa
+                    # itself was closed with verified evidence. The pass moves
+                    # on to the next candidate instead of parking on the open
+                    # profile for the whole cycle budget.
+                    if (n['profile_read_skip_reason'] not in SKIP_REASONS or offered or n.get('error') != 'none' or
+                        n.get('return_verified') is not True or n.get('close_completed') is not True or
+                        n.get('chat_open_attempted') is not True or n.get('chat_open_waits') != CHAT_OPEN_WAIT_LIMIT or
+                        n.get('chat_return_verified') is not False or n.get('chat_back_completed') is not False or
+                        n.get('chat_identity_verified') is not False or n.get('friends_eligible') is not True or
+                        n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
+                        n.get('cleanup_failed') is not False):
+                        raise StateError('return-not-verified')
+                    out['skipped_chat_not_opened'] += 1
+                    out['consecutive_read_recoveries'] += 1
+                    event = dict(sequence=out['skipped_chat_not_opened'], reason='chat-not-opened',
+                        status='recovered', action='verified-close-and-skip', return_verified=True,
+                        send_attempted=False, diagnostic=dict(out['last_profile_diagnostics']),
+                        continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES, notification='not-needed')
+                    out['recovery_events'].append(event)
+                    out['recovery_events'] = out['recovery_events'][-20:]
+                    progress('Анкета пропущена: личка не открылась после нажатия. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else ' Достигнут лимит восстановлений.'))
+                    if getattr(settings, 'errors_enabled', False):
+                        from assistant_error_notify import notify_recovery
+                        try:
+                            result = (notify_recovery if recovery_notifier is None else recovery_notifier)(event)
+                            event['notification'] = result if result in ('accepted','unknown','not-configured','not-needed') else 'unknown'
+                        except Exception:
+                            event['notification'] = 'unknown'
+                    if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES:
+                        raise StateError('profile-recovery-limit')
+                    continue
+                elif (n.get('profile_read_skip_reason') not in SKIP_REASONS or offered or n.get('error') != 'none' or
+                        n.get('return_verified') is not True or n.get('chat_return_verified') is not True or
+                        n.get('chat_back_completed') is not True or n.get('chat_identity_verified') is not True or
+                        n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
+                        n.get('cleanup_failed') is not False):
                     raise StateError('return-not-verified')
                 if n['profile_read_skip_reason'] == 'input-disabled':
                     if n.get('profile_input_enabled') is not False:
@@ -262,6 +301,29 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 out['recovery_events'].append(event)
                 out['recovery_events'] = out['recovery_events'][-20:]
                 progress('Анкета пропущена: история не готова. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else ' Достигнут лимит восстановлений.'))
+                if getattr(settings, 'errors_enabled', False):
+                    from assistant_error_notify import notify_recovery
+                    try:
+                        result = (notify_recovery if recovery_notifier is None else recovery_notifier)(event)
+                        event['notification'] = result if result in ('accepted','unknown','not-configured','not-needed') else 'unknown'
+                    except Exception:
+                        event['notification'] = 'unknown'
+                if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES:
+                    raise StateError('profile-recovery-limit')
+            elif n.get('friends_status') == 'unavailable' and not n['friends_eligible']:
+                # v1.3.92: the profile model never became readable inside the
+                # bounded native wait (profile_model_waits saturated). The anketa
+                # was closed with verified evidence; the pass continues on the
+                # next candidate instead of a silent sit plus a stopped pass.
+                out['skipped_unreadable'] += 1
+                out['consecutive_read_recoveries'] += 1
+                event = dict(sequence=out['skipped_unreadable'], reason='friends-model-timeout',
+                    status='recovered', action='verified-close-and-skip', return_verified=True,
+                    send_attempted=False, diagnostic=dict(out['last_profile_diagnostics']),
+                    continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES, notification='not-needed')
+                out['recovery_events'].append(event)
+                out['recovery_events'] = out['recovery_events'][-20:]
+                progress('Анкета пропущена: число друзей не загрузилось за отведённое время. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else ' Достигнут лимит восстановлений.'))
                 if getattr(settings, 'errors_enabled', False):
                     from assistant_error_notify import notify_recovery
                     try:

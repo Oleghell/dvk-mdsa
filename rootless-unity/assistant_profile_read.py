@@ -5,14 +5,14 @@ profile/chat/send action and no budget increase. A pre-authorization read may
 exit via the same pinned chat once, then require verified return before skip.
 Legacy unknowns stay held.
 """
-from uikit_profile_navigation import replace_once as replace
+from uikit_profile_navigation import CHAT_OPEN_WAIT_LIMIT, replace_once as replace
 import cohort_pass
 import chat_send_probe
 
 PHASES = {'prepare-greeting', 'submit-greeting'}
 DEFAULTS = dict(profile_read_budget_retries=0, greeting_frame_splits=0, profile_ready_waits=0)
 SKIP_DEFAULTS = dict(profile_read_skipped=False, profile_read_skip_reason='none', profile_input_enabled=None)
-SKIP_REASONS = {'chat-not-actual', 'history-loading', 'history-not-loaded', 'frame-budget', 'input-disabled'}
+SKIP_REASONS = {'chat-not-actual', 'history-loading', 'history-not-loaded', 'frame-budget', 'input-disabled', 'chat-not-opened'}
 # A skip is not a successful history read and never an authorization. The next
 # native frame must verify the pinned chat before Back; then verify search.
 SKIP_GUARD = """n.phase==='check-chat'&&n.chat_open_completed&&n.chat_verified&&n.chat_identity_verified&&
@@ -60,6 +60,26 @@ INPUT_GATE = """n.profile_input_enabled=bool(s.input,chat);
 
 def specialize(source):
     import json
+    # v1.3.92 (user report: «заходит в новую анкету, сидит там и не отписывает
+    # приветствие»): OnMessageButton was invoked but the chat screen never
+    # appeared - the old wait-chat phase re-verified the profile forever, so
+    # the cycle parked ON THE OPEN ANKETA until the whole 90-second native
+    # budget, stopped the pass and pushed the port into recovery rounds. The
+    # wait is now counted: after CHAT_OPEN_WAIT_LIMIT one-second polls the
+    # cycle records a verified 'chat-not-opened' skip and routes itself into
+    # the existing confirm-profile close gate, which closes the anketa with
+    # the same verified evidence used for every other skip. The pass then
+    # continues on the next candidate instead of sitting silently.
+    source = replace(source, """if(n.phase==='wait-chat'){
+    if(k==='profile'){if(!current.equals(target(state.card))||!verifyProfile(current))fail('identity-changed');return;}""",
+                    """if(n.phase==='wait-chat'){
+    if(k==='profile'){
+     if(!current.equals(target(state.card))||!verifyProfile(current))fail('identity-changed');
+     if(n.chat_open_waits<""" + str(CHAT_OPEN_WAIT_LIMIT) + """){n.chat_open_waits++;state.nextActionAt=Date.now()+1000;return;}
+     n.profile_read_skipped=true;n.profile_read_skip_reason='chat-not-opened';
+     state.sample=null;n.samples=0;n.message_count=null;n.history_status='not-ready';
+     n.phase='confirm-profile';state.nextActionAt=Date.now()+1000;return;
+    }""")
     source = replace(source, 'r.navigation=emptyNavigation();',
                      'r.navigation=emptyNavigation();Object.assign(r.navigation,'+json.dumps(dict(DEFAULTS, **SKIP_DEFAULTS))+');')
     # Only an identity-verified, not-yet-authorized chat may wait for IsActual.
@@ -143,14 +163,32 @@ def validate(n):
     skipped = skip['profile_read_skipped']
     if skipped != (skip['profile_read_skip_reason'] != 'none'):
         raise ValueError('Missing profile read skip reason')
-    if skipped and (n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
+    chat_open_skip = skipped and skip['profile_read_skip_reason'] == 'chat-not-opened'
+    if chat_open_skip:
+        # The chat open was attempted and counted to its bound, the screen
+        # stayed on the profile, and the anketa itself is what gets closed and
+        # returned - so the chat-side evidence is exactly the inverse of the
+        # read-skip forms above.
+        if (n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
+            n.get('chat_open_attempted') is not True or n.get('chat_open_completed') is not True or
+            n.get('chat_verified') is not False or n.get('chat_identity_verified') is not False or
+            n.get('chat_back_attempted') is not False or n.get('chat_back_completed') is not False or
+            n.get('chat_return_verified') is not False or n.get('chat_return_route') != 'not-checked' or
+            n.get('chat_open_waits') != CHAT_OPEN_WAIT_LIMIT or
+            n.get('friends_eligible') is not True or
+            n.get('history_status') != 'not-ready' or n.get('message_count') is not None or n.get('samples') != 0 or
+            n.get('phase') not in {'confirm-profile', 'wait-return', 'done'} or
+            (n.get('stage') == 'navigation-ready' and
+             (n.get('error') != 'none' or n.get('return_verified') is not True or n.get('close_completed') is not True))):
+            raise ValueError('Unverified chat-open skip')
+    elif skipped and (n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
         n.get('chat_verified') is not True or n.get('chat_identity_verified') is not True or
         n.get('history_status') != 'not-ready' or n.get('message_count') is not None or n.get('samples') != 0 or
         n.get('phase') not in {'close-chat','wait-chat-back','confirm-profile','wait-return','done'} or
         (n.get('stage') == 'navigation-ready' and
          (n.get('error') != 'none' or n.get('chat_return_verified') is not True or n.get('return_verified') is not True))):
         raise ValueError('Unverified profile skip')
-    if skipped and skip['profile_read_skip_reason'] not in {'frame-budget','input-disabled'} and n.get('wait_reason') != skip['profile_read_skip_reason']:
+    if skipped and skip['profile_read_skip_reason'] not in {'frame-budget','input-disabled','chat-not-opened'} and n.get('wait_reason') != skip['profile_read_skip_reason']:
         raise ValueError('Profile skip without read failure')
     values = {key: n.pop(key) for key in DEFAULTS}
     if skipped and (values['greeting_frame_splits'] != 0 and skip['profile_read_skip_reason'] != 'input-disabled' or
@@ -171,4 +209,8 @@ def validate(n):
             raise ValueError('Invalid greeting preparation')
         n['phase'] = 'check-chat'
 
-    return skipped and n.get('stage') == 'navigation-ready'
+    # v1.3.92: the caller needs to know WHICH verified skip form this is - the
+    # unready-chat read skip keeps the chat-side evidence contract, while the
+    # chat-not-opened skip proves the chat never appeared at all.
+    return (skipped and not chat_open_skip and n.get('stage') == 'navigation-ready',
+            chat_open_skip and n.get('stage') == 'navigation-ready')

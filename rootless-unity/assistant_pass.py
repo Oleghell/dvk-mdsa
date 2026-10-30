@@ -200,7 +200,9 @@ def validate(value, *, shared_peer_skipped=False):
     import copy
     checked = copy.deepcopy(value)
     from assistant_profile_read import validate as validate_profile_read
-    skipped_unready = validate_profile_read(checked['navigation'])
+    # v1.3.92: the profile-read validator now distinguishes the two verified
+    # skip forms - the unready-chat read skip and the chat-not-opened skip.
+    skipped_unready, skipped_chat_open = validate_profile_read(checked['navigation'])
     if type(checked['navigation']['cycle_timeout_ms']) is not int or checked['navigation']['cycle_timeout_ms'] != CYCLE_TIMEOUT_MS:
         raise ValueError('Invalid manual-cycle deadline')
     checked['navigation']['cycle_timeout_ms'] = chat_batch.CYCLE_TIMEOUT_MS
@@ -222,13 +224,14 @@ def validate(value, *, shared_peer_skipped=False):
     if native_skip and not (n.get('send_attempted') is False and n.get('send_handler_returned') is False):
         raise ValueError('Shared skip with submission')
     chat_batch.validate(checked, skipped_empty=native_skip and n.get('stage') == 'navigation-ready',
-                        skipped_unready=skipped_unready)
+                        skipped_unready=skipped_unready, skipped_chat_open=skipped_chat_open)
     return value
 
 
 PROFILE_DIAGNOSTIC_FIELDS=('stage','error','phase','frames','managed_calls','metadata_checkpoint',
     'selection_check','read_checkpoint','wait_reason','search_verified','open_attempted','open_completed',
     'chat_open_attempted','chat_open_completed','send_attempted','send_handler_returned','return_verified',
+    'profile_model_waits','chat_open_waits',
     'profile_read_budget_retries','greeting_frame_splits','profile_ready_waits','profile_read_skipped',
     'profile_read_skip_reason','profile_input_enabled','chat_back_attempted','chat_back_completed',
     'chat_return_verified','chat_identity_verified','chat_return_route','shared_peer_skipped')

@@ -132,7 +132,7 @@ def diagnostic_json(report):
     numbers = {'profile_source_bytes','profile_history_count','profile_setup_ms','state_samples','city_visible_rows','city_total_rows','city_scan_samples','city_matches','city_read_budget_retries','city_transition_overruns','send_snapshot_refreshes','photo_read_retries','read_retries','send_preflight_retries','recovery_attempts','recovery_rounds','transport_failures','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
         'setup_retry_attempts','profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
-        'skipped_unready_chat','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
+        'skipped_unready_chat','skipped_unreadable','skipped_chat_not_opened','profile_model_waits','chat_open_waits','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
         'entry_read_budget_retries','entry_binding_waits','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs','shared_peer_skips'}
     from assistant_stage_timing import FIELDS as TIMING_FIELDS
     numbers |= TIMING_FIELDS
@@ -151,13 +151,13 @@ def diagnostic_json(report):
     from search_city import CHECKPOINTS as CITY_CHECKPOINTS,PREPARE_STEPS as CITY_PREPARE,IDENTITY as CITY_IDENTITY
     from adb_evidence import REASONS as ADB_REASONS
     codes = CITY_CHECKPOINTS | CITY_PREPARE | CITY_IDENTITY | SEND_ERRORS | SCALAR_CHECKPOINTS | SCALAR_STATES | IDENTITY_CHECKPOINTS | {'ReadStopped','not-read','text','non-text','own','not-own'} | STAGES | TYPES | {'OtherError','StateError','IntegrityError','OperationalError','DatabaseError','AttributeError'} | ADB_CHECKS | ADB_REASONS | KNOWN | HOST_CHECKPOINTS | {'chat-'+code for code in KNOWN} | NAV_PHASES | NAV_CHECKPOINTS | NAV_SELECTION | set(VALIDATION_REASONS) | set(READ_STEPS) | set(WAIT_REASONS) | set(CHECKPOINTS) | {
-        'profile-open-call','profile-noop-check','profile-back-call','profile-after-back','profile-return-check','before-profile-open','reconnecting','reconnected','profile-script-not-created','groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip',
+        'profile-open-call','profile-noop-check','profile-back-call','profile-after-back','profile-return-check','before-profile-open','reconnecting','reconnected','profile-script-not-created','groq','openrouter','gemini','zai','none','not-needed','accepted','unknown','not-configured','recovered','verified-back-and-skip','verified-close-and-skip',
         'stopped','paused','completed','profiles-completed','profiles-stopped','profiles-cancelled',
         'inbox-completed','inbox-stopped','inbox-empty','navigation-ready','navigation-stopped',
         'done','check-chat','prepare-greeting','submit-greeting','close-chat','wait-chat-back','search','profile','wait-return','scan-city',
         'query-city','confirm-profile','wait-profile','wait-chat','wait-city','verify-search','select-city',
         'profile-limit','visible-exhausted','model','last-message','chat-not-actual','history-loading',
-        'history-not-loaded','profile-recovery-limit','working','checking','cancelled','recovering','safe-recovery'}
+        'history-not-loaded','profile-recovery-limit','working','checking','cancelled','recovering','safe-recovery','chat-not-opened','friends-model-timeout'}
     from uikit_root import STAGES as ROOT_STAGES, STEPS as ROOT_STEPS, SOURCES as ROOT_SOURCES
     codes |= ROOT_STAGES | ROOT_STEPS | set(ROOT_SOURCES) | {'not-observed'}
     flags |= {'api_available','metadata_ready','observer_installed','observed_callback','main_thread_confirmed'}

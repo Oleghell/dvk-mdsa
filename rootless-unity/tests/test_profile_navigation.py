@@ -13,7 +13,7 @@ def ready_profile():
     value=ready_navigation();n=value['navigation']
     for old,new in [('filters_verified','profile_verified'),('cancel_attempted','close_attempted'),('cancel_completed','close_completed')]:n[new]=n.pop(old)
     n['selection_counts']=dict.fromkeys(p.SELECTION_COUNTERS,0);n['selection_counts'].update(passes=1,rows=1,cells=1)
-    n.update(action_delay_ms=1000,friends_source='not-found',friends_status='unavailable',friends_count=None,friends_eligible=None)
+    n.update(action_delay_ms=1000,friends_source='not-found',friends_status='unavailable',friends_count=None,friends_eligible=None,profile_model_waits=0,chat_open_waits=0)
     n.update(temporary_handles_peak=20,selection_check='selected',selection_retries=0,metadata_checkpoint='ready',selection_status='selected',target_user_verified=True,profile_content_verified=True)
     return value
 
@@ -116,7 +116,11 @@ class ProfileSchema(unittest.TestCase):
         self.assertIn('navState.nextActionAt=Date.now()+1000',p.FUNCTION)
         self.assertIn('if(Date.now()<navState.nextActionAt)return;',p.FUNCTION)
         self.assertEqual(p.FUNCTION.count('state.nextActionAt=Date.now()+1000'),2)
-        self.assertIn('const waitForModel=()=>{state.nextActionAt=Date.now()+100;};',p.FUNCTION)
+        # v1.3.92: the model wait is still a 100ms non-blocking poll, now with a
+        # bounded evidence counter instead of an unbounded park on the anketa.
+        self.assertIn('const waitForModel=()=>{n.profile_model_waits++;state.nextActionAt=Date.now()+100;};',p.FUNCTION)
+        self.assertIn('n.profile_model_waits<'+str(p.PROFILE_MODEL_WAIT_LIMIT)+')',p.FUNCTION)
+        self.assertIn('chat_open_waits:0',p.FUNCTION)
         self.assertNotIn('Thread.Sleep',p.FUNCTION)
         self.assertNotIn('while(Date.now()',p.FUNCTION)
         for delay in (True,999,1000.0,None):
