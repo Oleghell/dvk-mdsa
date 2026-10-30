@@ -56,26 +56,32 @@ jobs:
         SOURCE_SHA: ${{ steps.checked.outputs.sha }}
         VERSION: ${{ steps.archive.outputs.version }}
         ARCHIVE: ${{ steps.archive.outputs.archive }}
-      run: 'set -euo pipefail
-
+      run: |
+        set -euo pipefail
         TAG="v$VERSION"
-
+        # GitHub caps a release body at 125000 characters, and RELEASE_NOTES.md is the
+        # CUMULATIVE history of every version (539K and growing - v1.3.45 was the last
+        # release that still fit), so publishing the whole file died with
+        # 422 "body is too long": the release carries only its own version's section.
+        python3 - "$VERSION" <<'PYCODE'
+        import re, sys
+        version = sys.argv[1]
+        text = open('RELEASE_NOTES.md', encoding='utf-8').read()
+        m = re.search(r'(?ms)^# DvkAssistant ' + re.escape(version) + r'(?![0-9])[^\n]*\n.*?(?=^# DvkAssistant |\Z)', text)
+        assert m, 'section for ' + version + ' not found in RELEASE_NOTES.md'
+        body = m.group(0).strip()
+        assert len(body) <= 125000, 'release notes section too long: %d' % len(body)
+        open('release-notes-current.md', 'w', encoding='utf-8').write(body + '\n')
+        PYCODE
         # Creating a tag THROUGH the release API at a target behind HEAD with workflow
         # changes after it demands contents:write,workflows:write - a permission the
-        # GITHUB_TOKEN can never carry, so the release create dies with 403 "Resource
-        # not accessible by integration". The tag-first flow avoids that gate: the tag
-        # is pushed beforehand (git protocol, PAT with workflow rights) pointing at the
-        # verified SOURCE_SHA, and attaching a release to an existing tag needs only
-        # contents:write.
-
+        # GITHUB_TOKEN can never carry (gh CLI issue 9514), so the release create dies
+        # with 403 "Resource not accessible by integration". The tag-first flow avoids
+        # that gate: the tag is pushed beforehand (git protocol, PAT with workflow
+        # rights) pointing at the verified SOURCE_SHA, and attaching a release to an
+        # existing tag needs only contents:write.
         if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
-
-          gh release create "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY" --title "DvkAssistant $VERSION" --notes-file RELEASE_NOTES.md --latest
-
+          gh release create "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY" --title "DvkAssistant $VERSION" --notes-file release-notes-current.md --latest
         else
-
-          gh release create "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --title "DvkAssistant $VERSION" --notes-file RELEASE_NOTES.md --latest
-
+          gh release create "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --title "DvkAssistant $VERSION" --notes-file release-notes-current.md --latest
         fi
-
-        '
