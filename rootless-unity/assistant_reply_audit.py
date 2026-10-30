@@ -73,6 +73,42 @@ def pending(chain,who):
         return [r[0] for r in db.execute("SELECT message FROM chain_reply_receipts WHERE chat=? AND status='pending' ORDER BY message",(who['chat'],))]
 
 
+def owed(chain,who,snapshot=None):
+    """v1.3.97: the pending receipts that still carry OWED work in this history.
+
+    The ledger (chain_reply_receipts) durably records every peer message read
+    but not draft-confirmed-answered - that record is append-only history and
+    stays untouched. Whether a receipt still DEMANDS work is a property of the
+    current verified history, not of the ledger alone: the moment ANY message
+    from our own account follows her message (the bot's confirmed outgoing or
+    the operator's manual reply from the same account), our side has had the
+    last word after her message and nothing is owed on it - the receipt no
+    longer defers the chat, no longer fires the «ответ ещё не подтверждён»
+    notice, no longer blocks the workless marker and no longer postpones the
+    read-round bookkeeping. Her genuinely NEW message (nothing of ours after
+    it - the badge-less, already-read, fast reply included) stays owed and the
+    next pass answers it exactly as before. Absence of a verified snapshot or
+    of her message inside it stays OWED (conservative: no evidence, no
+    release) - the previous behaviour, never a silent drop.
+    """
+    remaining=pending(chain,who)
+    if not isinstance(snapshot,dict) or not isinstance(snapshot.get('messages'),list):
+        return remaining
+    messages=snapshot['messages']
+    out=[]
+    for message in remaining:
+        index=next((i for i,m in enumerate(messages)
+                    if isinstance(m,dict) and m.get('id')==message
+                    and m.get('sender')==who['peer']),None)
+        if index is None:
+            out.append(message)
+            continue
+        if not any(isinstance(m,dict) and m.get('sender')==who['account']
+                   for m in messages[index+1:]):
+            out.append(message)
+    return out
+
+
 def recycle_followup(chain,snapshot):
     """A NEW contextual answer after an observed earlier one, never a send retry."""
     if chain.responder is None:return

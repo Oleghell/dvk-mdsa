@@ -988,8 +988,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 out.update(status='inbox-stopped', reason='chat-' + result['reason'])
                 return out
             host_checkpoint = 'inbox-audit'
-            from assistant_reply_audit import pending as pending_replies
-            unanswered=pending_replies(chain,who)
+            # v1.3.97: the owed projection of the pending ledger - a receipt
+            # shadowed by OUR side's later word in the just-read history (the
+            # bot's confirmed outgoing or the operator's manual reply) is not
+            # live work: no «ответ ещё не подтверждён» notice, no workless
+            # marker block, no read-round postponement. Her genuinely new
+            # message stays owed exactly as before.
+            from assistant_reply_audit import owed as owed_replies
+            unanswered=owed_replies(chain,who,private_snapshot[0] if private_snapshot else None)
             result['unanswered_messages']=len(unanswered)
             notice_needed=(result['reason']!='contact-notification-queued' and not manually_blocked(chain.store,who) and not result['notifications']['accepted']
                     and (bool(unanswered) or not result['outgoing_observed_this_run'] or result['stages']['peer_contact']))

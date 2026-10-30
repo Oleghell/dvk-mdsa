@@ -322,13 +322,22 @@ class Inbox(Base):
     def test_manually_answered_read_chat_is_not_answered_again(self):
         # v1.3.85: the operator's manual answer no longer isolates the chat; the
         # bot simply does not double-answer an arrival the human already answered.
+        # v1.3.97: the visit now leaves with the CLEAN waiting stage instead of
+        # 'incoming-answer-pending' - her message is shadowed by our side's own
+        # later word in the verified history, so the owed projection of the
+        # pending ledger carries no live work: no misleading «ответ ещё не
+        # подтверждён» notice, no inert deferral cooldown (which only hid the
+        # peer - and delayed her NEXT genuinely new message) for a row the
+        # reply filter already skips as ours-last. The receipt itself stays in
+        # the durable ledger; her next message is admitted exactly as before.
         self.journal()
         hello, manual = msg(1002, 'Привет'), msg(1003, 'Это мой ручной ответ', True)
         chain=self.chain(); chain.consume(snap())
         out = self.walk([nav('exhausted'), nav('opened', WHO, unread=False),
                          nav('returned', WHO), nav('search-ready')], [snap(hello, manual)], chain=chain)
-        self.assertEqual(out['outcomes'], {'chain-waiting:incoming-answer-pending': 1})
+        self.assertEqual(out['outcomes'], {'chain-waiting:wait-reply': 1})
         self.assertEqual(out['isolated_dialogs'], 0)
+        self.assertEqual(out['history_deferred'], 0)
         self.assertEqual(out['submission_calls'], 0)
         self.assertFalse(self.sent)
 

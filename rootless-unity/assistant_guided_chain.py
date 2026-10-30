@@ -685,7 +685,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     # exactly like the former three-poll exhaustion - just
                     # without sitting in the open chat between the checks.
                     wait_reason='outgoing-not-observed'
-                from assistant_reply_audit import synchronize,pending
+                from assistant_reply_audit import synchronize, owed
                 synchronize(chain,before)
                 if until_waiting and out['submission_calls'] and (out['outgoing_observed_this_run'] or leave_after_send_check):
                     # This bound read already took two complete native samples
@@ -698,7 +698,7 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                         if not extends_snapshot(before,fresh):raise StateError('guided-contact-history-changed')
                         before=fresh
                         continue
-                remaining=pending(chain,who)
+                remaining=owed(chain,who,before)
                 out['unanswered_messages']=len(remaining)
                 if remaining:
                     wait_reason='incoming-answer-pending'

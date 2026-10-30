@@ -111,7 +111,10 @@ class ReplyFlow(Base):
         self.assertEqual(out['review_causes'],{})
         self.assertEqual(out['submission_calls'],0)
         self.assertFalse(self.sent)
-        self.assertEqual(out['outcomes'],{'chain-waiting:incoming-answer-pending':1})
+        # v1.3.97: the clean waiting stage, not 'incoming-answer-pending' - the
+        # owed projection sees the operator's own word AFTER her arrival, so
+        # no false answer-pending defer/notice fires on the human's answer.
+        self.assertEqual(out['outcomes'],{'chain-waiting:wait-reply':1})
         with chain.store.read_connection() as db:
             self.assertEqual(db.execute('SELECT stage FROM chain_dialogs').fetchone(),('wait-reply',))
             self.assertEqual({r[0] for r in db.execute('SELECT message FROM chain_seen')},{'1001','1002','1003'})
@@ -125,8 +128,12 @@ class ReplyFlow(Base):
         self.assertEqual(out['submission_calls'],1)
         self.assertEqual(self.sent,[QUESTIONS[0]])
         # The operator-answered arrival keeps its receipt pending (the program
-        # never claims the human's answer), so the chat stays queued for checks.
-        self.assertEqual(out['outcomes'],{'chain-waiting:incoming-answer-pending':1})
+        # never claims the human's answer), but v1.3.97's owed projection sees
+        # our side's later words (his manual answer, the bot's confirmed
+        # question) shadowing both arrivals: the visit ends in the CLEAN
+        # waiting stage - the chat stays a scan target exactly as before,
+        # without the inert answer-pending cooldown on top.
+        self.assertEqual(out['outcomes'],{'chain-waiting:wait-mood':1})
 
     def test_history_change_cause_is_persistent_without_storing_body(self):
         self.journal();chain=self.chain();chain.consume(snap())
