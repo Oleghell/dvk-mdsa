@@ -80,7 +80,7 @@ jobs:
         # that gate: the tag is pushed beforehand (git protocol, PAT with workflow
         # rights) pointing at the verified SOURCE_SHA, and attaching a release to an
         # existing tag needs only contents:write. This flow shipped v1.3.96
-        # (run #195) and v1.3.97 (run #196).
+        # (run #195), v1.3.97 (run #196) and v1.3.98 (run #197).
         if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
           gh release create "$TAG" "$ARCHIVE" "$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY" --title "DvkAssistant $VERSION" --notes-file release-notes-current.md --latest
         else
