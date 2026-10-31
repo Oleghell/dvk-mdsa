@@ -362,6 +362,9 @@ def summary(result):
         cooling = (result.get('last_pass') or {}).get('history_cooldown_skipped',0)
         if deferred or cooling:
             text += f' • ждут загрузки истории {max(deferred,cooling)}'
+        retry = (result.get('last_pass') or {}).get('retry_rows_opened',0)
+        if retry:
+            text += f' • повтор по расписанию {retry}'
         contact_pending = (result.get('last_pass') or {}).get('contact_delivery_pending',0)
         if contact_pending:
             text += f" • контактов ожидают TG {contact_pending}"

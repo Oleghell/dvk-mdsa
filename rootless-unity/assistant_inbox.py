@@ -258,6 +258,55 @@ def read_round(chain, active):
     return remaining
 
 
+def ledger_retry_peers(chain, *, clock=time.time):
+    """v1.3.103: chats whose OWED work may open WITHOUT an unread badge.
+
+    «когда идет проверка диалога то открывается каждый неотвеченный диалог,
+    когда нужно чтобы открывало новый входящий не прочитанный»: the check now
+    admits a row by its UNREAD badge, so the old badge-less new-incoming
+    admission (which opened every merely-unanswered row - the deferred
+    chats, the strays, the operator-read dialogs) is gone. Exactly two
+    ledger sources still own badge-less work, and both are the promised
+    «проверю позже» recheck, never a carousel:
+
+    1. a deferral-ladder row whose retry_after has EXPIRED (the bounded
+       doubling ladder: 60s -> 2m -> ... -> 1h; a clean read clears it) -
+       the chat the engine could not finish and owes a retry;
+    2. a pending reply receipt - her message that was read but not yet
+       draft-confirmed-answered (the durable ledger, including the
+       answer-pending draft that must be resumed).
+
+    Both converge in one visit: the owed answer resolves the receipt (the
+    row becomes ours-last, a waiting row), a shadowed receipt ends in the
+    clean waiting leave with its workless marker, and a still-failing chat
+    re-defers up the ladder. Chats under an ACTIVE cooldown never reach the
+    target lists (history_wait.eligible filters them, hidden_peers hides
+    them), so this set is exactly the rechecks that are due NOW.
+    """
+    from assistant_history_wait import DEFERRALS_DDL, instant
+    from assistant_reply_audit import DDL as receipt_ddl
+    chain.store.ensure_tables(DEFERRALS_DDL, receipt_ddl)
+    now = instant(clock)
+    out = set()
+    with chain.store.read_connection() as db:
+        for account, peer in db.execute(
+                'SELECT account,peer FROM inbox_history_deferrals WHERE retry_after<=?', (now,)):
+            out.add((account, peer))
+        for account, peer in db.execute(
+                "SELECT d.account,d.peer FROM chain_dialogs d WHERE EXISTS("
+                "SELECT 1 FROM chain_reply_receipts r WHERE r.chat=d.chat AND r.status='pending')"):
+            out.add((account, peer))
+    return out
+
+
+def mark_retry_targets(items, retries):
+    """Attach the native retry flag to this round's owed-recheck targets."""
+    for who in items:
+        if (who['account'], who['peer']) in retries:
+            who['retry'] = True
+    return items
+
+
 def record_checked(chain, who):
     with chain.store.connection() as db:
         db.execute('INSERT OR IGNORE INTO inbox_read_round VALUES(?,?)', (who['account'],who['peer']))
@@ -565,17 +614,25 @@ def with_seen_ids(chain, allowed, deny=()):
             batch=allowed[offset:offset+128]
             chats=list(dict.fromkeys(who['chat'] for who in batch))
             marks=','.join('?' for _ in chats)
+            # v1.3.103: a host-scheduled retry target opens WITHOUT a badge to
+            # finish its owed work, so its owed last message must NOT be
+            # filtered as already-handled: lift the reported-input
+            # suppression for exactly those chats (arm 1 already excludes
+            # pending-receipt messages). Every other chat keeps the exact
+            # 1.3.89 suppression.
+            retry_chats=sorted({who['chat'] for who in batch if who.get('retry') is True})
+            retry_clause=' AND r.chat NOT IN ('+','.join('?' for _ in retry_chats)+')' if retry_chats else ''
             query="""SELECT chat,message FROM (
               SELECT chat,message,ROW_NUMBER() OVER(PARTITION BY chat ORDER BY message) AS item_number FROM (
                 SELECT s.chat,s.message FROM chain_seen s WHERE s.chat IN ("""+marks+""") AND s.message NOT IN
                   (SELECT message FROM chain_reply_receipts WHERE chat=s.chat AND status='pending')
                 UNION SELECT r.chat,r.message FROM chain_reply_receipts r JOIN inbox_reported_inputs i
                   ON r.chat=i.chat AND r.message=i.message AND r.fingerprint=i.fingerprint
-                  WHERE r.chat IN ("""+marks+""")
+                  WHERE r.chat IN ("""+marks+""")"""+retry_clause+"""
               ) observed
             ) ranked WHERE item_number<=129 ORDER BY chat,message"""
             seen={chat:[] for chat in chats}
-            for chat,message in db.execute(query,tuple(chats+chats)):seen[chat].append(message)
+            for chat,message in db.execute(query,tuple(chats+chats+retry_chats)):seen[chat].append(message)
             for who in batch:
                 rows=seen[who['chat']]
                 review=(who['account'],who['peer'],who['chat']) in receipt_reviews
@@ -613,6 +670,9 @@ def with_seen_ids(chain, allowed, deny=()):
         # markers merge only into non-review entries. v1.3.90 terminal-state
         # markers (finished chats without consumed-id evidence) use the same
         # merge: skipped in every mode until a genuinely NEW message arrives.
+        # v1.3.103: a host-scheduled retry target is the same class of
+        # must-open live work - a marker may never suppress the recheck it
+        # exists to perform.
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operator_rejects'").fetchone():
             by_peer={(x['account'],x['peer']):x for x in out}
             for account,peer,chat,last in db.execute(
@@ -621,7 +681,7 @@ def with_seen_ids(chain, allowed, deny=()):
                     continue
                 entry=by_peer.get((account,peer))
                 if entry is not None:
-                    if (account,peer) in review_peers:
+                    if (account,peer) in review_peers or entry.get('retry') is True:
                         continue
                     if last not in entry['seen_ids'] and len(entry['seen_ids'])<128:
                         entry['seen_ids']=entry['seen_ids']+[last]
@@ -635,7 +695,7 @@ def report():
     return dict(tool_version=VERSION, mode='inbox-chain-pass', status='inbox-stopped',
                 reason='not-started', dialog_limit=LIMIT, dialogs_opened=0,
                 new_incoming_messages=0, incoming_scan_complete=False,
-                dialogs_processed=0, read_dialogs_checked=0, read_recovery_enabled=True, reply_filter_enabled=True, read_rows_skipped=0, waiting_rows_skipped=0, handled_rows_skipped=0, confirmations=0, automatic_authorizations=0,
+                dialogs_processed=0, read_dialogs_checked=0, read_recovery_enabled=True, reply_filter_enabled=True, read_rows_skipped=0, retry_rows_opened=0, read_retry_targets=0, waiting_rows_skipped=0, handled_rows_skipped=0, confirmations=0, automatic_authorizations=0,
                 submission_calls=0, handler_returns=0, outgoing_observed=0, contacts_forwarded=0, contacts_detected=0, contact_delivery_pending=0,
                 contact_notifications=dict(accepted=0,unknown=0,disabled=0,blocked=0),
                 isolated_dialogs=0, isolated_reasons={}, review_causes={}, isolation_notification='not-needed', review_pending=0,
@@ -697,6 +757,10 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         chain.store.ensure_tables(resource_receipts)
         attention, unread = inbox_targets(chain)
         attention, unread, skipped = history_wait.eligible(chain.store, attention, unread, clock=clock)
+        retries = ledger_retry_peers(chain, clock=clock)
+        mark_retry_targets(attention, retries)
+        mark_retry_targets(unread, retries)
+        out['read_retry_targets'] = sum(1 for x in attention + unread if x.get('retry') is True)
         out['history_cooldown_skipped'] = skipped
         out['tracked_active']=len(unread)
         out['tracked_attention']=len(attention)
@@ -736,10 +800,16 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 raise StateError('reply-selection-not-verified')
             out['waiting_rows_skipped'] += n.get('waiting_rows_skipped',0)
             out['handled_rows_skipped'] += n.get('handled_rows_skipped',0)
+            # v1.3.103: the badge gate makes read-row skips (and the rare
+            # badge-less retry recheck) reply-filter evidence for every open,
+            # not only the unread group's navigation.
+            out['read_rows_skipped'] += n.get('read_rows_skipped',0)
+            if n.get('retry_rows_opened',0):
+                out['retry_rows_opened'] += n['retry_rows_opened']
+                progress('Открываю диалог по расписанию повтора • ответ ещё не подтверждён.')
         if operation == 'open' and kwargs['unread_only']:
             if not n['unread_filter_applied'] or n['unread_verified'] != (value['state'] == 'opened'):
                 raise StateError('unread-selection-not-verified')
-            out['read_rows_skipped'] += n['read_rows_skipped']
         who = identity(value['identity']) if value['identity'] is not None else None
         if (value['state'] in ('opened', 'returned')) != (who is not None):
             raise ValueError('Invalid navigation binding')
@@ -796,6 +866,9 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
         def page_groups():
             attention,unread=inbox_targets(chain)
             attention,unread,_=history_wait.eligible(chain.store,attention,unread,clock=clock)
+            retries=ledger_retry_peers(chain,clock=clock)
+            mark_retry_targets(attention,retries)
+            mark_retry_targets(unread,retries)
             groups=[(attention,False,'pending'),(list(unread),True,'unread'),(read_round(chain,unread),False,'read')]
             return [(targets([x for x in items[i:i+MAX_TARGETS] if (x['account'],x['peer']) not in processed]),unread_only,kind) for items,unread_only,kind in groups for i in range(0,len(items),MAX_TARGETS)]
         # Chunk transport payloads, not the number of dialogs processed.
@@ -1102,10 +1175,15 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                         and result['reason']!='send-preflight-deferred'):
                     from assistant_skip_audit import reported
                     marked=reported(chain,who,private_snapshot[0])
-                    if marked and (ai_deferred or answer_deferred):
-                        # Exact old inputs are suppressed; a NEW input needs no
-                        # leftover timer before becoming eligible.
-                        history_wait.clear(chain.store,who)
+                    # v1.3.103: the reported mark suppresses the OLD input for
+                    # every upload that is NOT the scheduled recheck (another
+                    # port, a later pass before the ladder expires). The
+                    # ladder row itself is deliberately KEPT now: it is the
+                    # only bound on the badge-less retry recheck that lifts
+                    # the suppression (retry_rows_opened), so a chat whose
+                    # answer keeps failing rechecks at 60s -> 2m -> ... -> 1h
+                    # instead of every pass, and a genuinely new input is
+                    # answered when the current step expires.
                 if event['notification'] in ('accepted','unknown'):
                     out['personal_data_exported']=True
                     if exit_messages or exit_image is not None:out['chat_content_exported']=True

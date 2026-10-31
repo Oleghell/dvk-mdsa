@@ -7,7 +7,7 @@ WHO=dict(account='100',peer='200',chat='300')
 TARGET=dict(WHO,chat='-1')
 
 
-def one(library,mode,operation='open',entry='search',unread_only=False,start_override=None,needs_reply_only=False,local_engine=False,seen_ids=None):
+def one(library,mode,operation='open',entry='search',unread_only=False,start_override=None,needs_reply_only=False,local_engine=False,seen_ids=None,retry=False):
     code='''import ctypes,sys,time
 lib=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_LOCAL if sys.argv[4]=='1' else ctypes.RTLD_GLOBAL)
 lib.fixture_init(int(sys.argv[2]));lib.fixture_browser_entry(int(sys.argv[3]))
@@ -19,6 +19,9 @@ for _ in range(100000):
     if mode in (829,832):allowed=[dict(account='100',peer='201',chat='301'),TARGET]
     if mode==852:allowed=[dict(TARGET,seen_ids=['1002'])]
     if seen_ids is not None:allowed=[dict(TARGET,seen_ids=seen_ids)]
+    # v1.3.103: the host-scheduled recheck rides the retry target flag; a
+    # badge-less row opens ONLY through it (mode 845 is exactly that shape).
+    if retry:allowed=[dict(TARGET,retry=True)]
     expected=(dict(WHO,peer='201') if mode==809 else WHO) if operation=='back' else None
     start=3 if operation=='back' else 1 if operation=='return' or entry=='dialogs' else 0
     if start_override is not None:start=start_override
@@ -46,10 +49,14 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
         c=script.exports_sync.counts();n=raw['navigation']
         expected_status={938:'returned',939:'frame-budget',940:'wrong-screen',930:'search-ready',931:'frame-budget',932:'opened',933:'frame-budget',934:'wrong-screen',935:'managed-exception',936:'wrong-screen',937:'returned',956:'returned',957:'dialogs-ready',958:'dialogs-ready',959:'managed-exception',960:'dialogs-ready',961:'entry-binding-timeout',800:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',801:'not-attempted',802:'selection-chat-changed',803:'identity-changed',804:'not-attempted',805:'exhausted',807:'managed-exception',808:'managed-exception',809:'identity-not-bound',810:'exhausted',811:'selection-count-changed',812:'signature-mismatch',813:'screen-not-ready',814:'identity-changed',815:'cancelled',816:'exhausted',817:'opened',818:'collection-too-large',819:'opened',820:'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready',821:'view-parent-depth-limit',822:'exhausted',823:'opened',824:'selection-unread-changed',825:'not-attempted',826:'unread-count-invalid',827:'signature-mismatch',828:'managed-exception',829:'opened',831:'selection-unread-changed',832:'exhausted',833:'not-attempted',834:'not-attempted',835:'not-attempted',836:'returned',837:'frame-budget',838:'identity-changed',839:'cancelled',840:'managed-exception',841:'returned',842:'frame-budget',844:'exhausted',845:'opened',846:'exhausted',847:'exhausted',848:'selection-last-message-changed',849:'selection-last-message-changed',850:'identity-not-bound',851:'identity-not-bound',852:'exhausted',853:'not-attempted',854:'identity-not-bound',855:'selection-unread-changed'}[mode]
         # v1.3.96 «открываю только диалоги с новыми сообщениями, а не
-        # непрочитанными»: mode 846 is an UNREAD badge on a row whose last
-        # message is OURS - the badge alone no longer admits it, the row is a
-        # waiting row exactly like the badge-less 847.
+        # непрочитанными» -> v1.3.103 «нужно чтобы открывало новый входящий не
+        # прочитанный»: mode 846 is an UNREAD badge on a row whose last message
+        # is OURS - a waiting row exactly like before. Mode 845 is the badge-less
+        # hers-last unconsumed row: under the 1.3.103 gate it is a READ row and
+        # stays closed - and with the retry target flag it is the scheduled
+        # recheck that DOES open without a badge.
         if mode in (800,) and needs_reply_only and seen_ids is not None and '1002' in seen_ids:expected_status='exhausted'
+        if mode==845:expected_status='opened' if retry else 'exhausted'
         actual=result['state'] if result['state']!='stopped' else n['stage'] if n['stage']=='not-attempted' else n['error']
         assert actual==expected_status,(mode,operation,actual,n,c)
         assert c['handles']==c['bad']==c['off']==c['route_bad']==0,(mode,n,c)
@@ -66,7 +73,11 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
             if result['state']=='opened':assert n['reply_filter_applied'] and n['reply_needed_verified'] and c['unread_reads']>=2,(mode,n,c)
             if result['state']=='exhausted':assert n['reply_filter_applied'] and not n['reply_needed_verified'] and c['clicks']==0,(mode,n,c)
             if result['state']!='opened':assert c['clicks']==0,(mode,n,c)
-            if mode in (844,847):assert n['waiting_rows_skipped']==1,(n,c)
+            # v1.3.103: a badge-less row never reaches the header checks - it
+            # is a read skip whatever its last message is (844 ours-last,
+            # 845 hers-last unconsumed, 847 no last message at all).
+            if mode in (844,845,847) and not retry:assert n['read_rows_skipped']==1 and n['retry_rows_opened']==0,(n,c)
+            if mode==845 and retry:assert n['retry_rows_opened']==1 and n['read_rows_skipped']==0,(n,c)
             if mode==846:assert n['waiting_rows_skipped']==1 and n['read_rows_skipped']==0,(n,c)
             if mode==852:assert n['handled_rows_skipped']==1,(n,c)
         if mode in (930,931,932,933):
@@ -228,12 +239,11 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
             assert monitored['totals']['contacts_forwarded']==0,monitored
             assert not monitored['automatic_profile_repeat'] and not monitored['delivery_confirmed']
             if mode==843:
-                # v1.3.96: the no-new-message row is a WAITING row in every
-                # scan mode - the badge no longer relabels it read_rows in
-                # the unread-group call - so the pass counts one skip per
-                # group navigation (unread group + read rotation) and no
-                # badge-based read_rows at all.
-                assert monitored['last_pass']['dialogs_opened']==0 and monitored['last_pass']['waiting_rows_skipped']==2 and monitored['last_pass']['read_rows_skipped']==0,monitored
+                # v1.3.103: the no-new-message row is badge-less after our own
+                # open cleared it - a READ row under the new gate, counted once
+                # per group navigation (unread group + read rotation), never a
+                # waiting row (the header is never read for it).
+                assert monitored['last_pass']['dialogs_opened']==0 and monitored['last_pass']['read_rows_skipped']==2 and monitored['last_pass']['waiting_rows_skipped']==0,monitored
             if mode in (836,843):assert recovered and all(r==1 for r in recovered),recovered
             assert sum(m['sender']=='100' for m in messages)==3,messages
             # A direct bare-number contact response reaches the durable outbox
@@ -259,7 +269,13 @@ rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},pr
                     navigator=navigator,reader=reader,sender=sender,notifier=lambda payload:delivered.append(payload) or True,
                     greetings=(greeting,),pause=lambda _:False,entry='dialogs',return_to='dialogs',contact_photo=lambda who:photo)
                 assert again['status']==('inbox-completed' if cached_models else 'inbox-empty') and again['dialogs_opened']==0 and len(delivered)==1,again
-                if cached_models:assert contacted['header_rows_skipped']>0 and again['header_rows_skipped']>0,(contacted,again)
+                if cached_models:
+                    # v1.3.103: the bad-header row is still read and skipped while
+                    # its badge is set (the contacted run proves the header path);
+                    # after our own open cleared the badge, the again run never
+                    # reaches the header - the badge gate closes the row first.
+                    assert contacted['header_rows_skipped']>0,(contacted,again)
+                    assert again['header_rows_skipped']==0 and again['read_rows_skipped']==2,(contacted,again)
             if cached_models:
                 # Full MuMu mode must leave the verified, drained inbox for
                 # search without spending the rest of the old 120s interval.
@@ -331,6 +347,9 @@ if __name__=='__main__':
     for mode in (938,939,940):one(lib,mode,operation='back')
     for mode in range(844,856):one(lib,mode,needs_reply_only=True)
     one(lib,846,unread_only=True,needs_reply_only=True)
+    # v1.3.103: the scheduled recheck - the same badge-less hers-last
+    # unconsumed row opens ONLY through the host-marked retry target.
+    one(lib,845,needs_reply_only=True,retry=True)
     for mode,ids in ((800,['1002']),(800,['9999']),(846,['1002'])):
         one(lib,mode,entry='dialogs',needs_reply_only=True,seen_ids=ids)
     integration(lib)

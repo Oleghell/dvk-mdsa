@@ -25,29 +25,63 @@ class ReportedInputs(Base):
         self.assertEqual(out['status'],'inbox-completed');self.assertFalse(self.sent)
         return chain,sample,out
 
-    def test_reported_is_not_answered_but_blocks_same_input_before_open(self):
+    def test_reported_input_is_suppressed_until_the_ladder_recheck(self):
         chain,sample,out=self.initial_skip()
         self.assertEqual(audit.pending(chain,WHO),['1002'])
+        # The suppression stays for every upload that is NOT the scheduled
+        # recheck (another port, a pass before the ladder expires).
         self.assertIn('1002',inbox.with_seen_ids(chain,[WHO])[0]['seen_ids'])
-        self.assertEqual(wait.eligible(self.store,[WHO],[])[2],0) # New input has no leftover timer.
-        result=self.walk([nav('exhausted'),nav('search-ready')],[],chain=chain)
+        # v1.3.103: the ladder row is deliberately kept - it is what bounds
+        # the badge-less recheck, so the chat cools instead of reopening on
+        # every pass (the reported AI deferral is work owed LATER).
+        self.assertEqual(wait.eligible(self.store,[WHO],[])[2],1)
+        result=self.walk([nav('search-ready')],[],chain=chain)
         self.reader.assert_not_called();self.assertEqual(chain.responder.call_count,1)
         self.assertEqual(result['dialogs_opened'],0)
-        self.assertIn('1002',self.nav.call_args_list[0].kwargs['allowed'][0]['seen_ids'])
+        self.assertEqual(result['status'],'inbox-empty')
         with self.store.connection() as db:
             self.assertEqual(db.execute('SELECT message FROM inbox_reported_inputs').fetchall(),[('1002',)])
             self.assertEqual(db.execute('SELECT status FROM chain_actions').fetchone()[0],'awaiting-approval')
 
-    def test_new_peer_message_can_be_answered_without_wait(self):
+    def test_the_ladder_recheck_lifts_the_suppression_and_retries_the_answer(self):
         chain,sample,_=self.initial_skip()
         chain.responder.side_effect=None;chain.responder.return_value=dict(decision='reply',text='Как настроение?')
+        # The ladder expires: the recheck target opens WITHOUT a badge and
+        # the reported suppression is lifted for exactly that chat.
+        with self.store.connection() as db:
+            db.execute('UPDATE inbox_history_deferrals SET retry_after=0')
+        fresh=snap(msg(1002,'Привет'))
+        after=copy.deepcopy(fresh);after['messages'].append(msg(1004,'Как настроение?',True))
+        opened=nav('opened',WHO);opened['diagnostic']['retry_rows_opened']=1
+        out=self.walk([opened,nav('returned',WHO),nav('search-ready')],[fresh,fresh,after],chain=chain)
+        self.assertEqual(out['status'],'inbox-completed')
+        self.assertEqual(out['submission_calls'],1);self.assertEqual(self.sent,['Как настроение?'])
+        self.assertEqual(audit.pending(chain,WHO),[])
+        self.assertEqual(out['retry_rows_opened'],1)
+        allowed=self.nav.call_args_list[0].kwargs['allowed'][0]
+        self.assertTrue(allowed['retry']);self.assertNotIn('1002',allowed['seen_ids'])
+
+    def test_new_peer_message_waits_only_for_the_current_ladder_step(self):
+        chain,sample,_=self.initial_skip()
+        chain.responder.side_effect=None;chain.responder.return_value=dict(decision='reply',text='Как настроение?')
+        # While the step is still running the chat is deliberately cooling:
+        # no carousel, no answer yet - the new input is not lost, only later.
         fresh=snap(msg(1002,'Привет'),msg(1003,'Как ты?'))
+        out=self.walk([nav('search-ready')],[fresh],chain=chain)
+        self.assertEqual(out['status'],'inbox-empty')
+        self.assertEqual(out['reason'],'history-cooldown')
+        self.assertFalse(self.sent)
+        # The moment the step expires the chat is target work again and the
+        # recheck answers everything current (the old input included).
+        with self.store.connection() as db:
+            db.execute('UPDATE inbox_history_deferrals SET retry_after=0')
         after=copy.deepcopy(fresh);after['messages'].append(msg(1004,'Как настроение?',True))
         out=self.walk([nav('opened',WHO),nav('returned',WHO),nav('search-ready')],[fresh,fresh,after],chain=chain)
         self.assertEqual(out['submission_calls'],1);self.assertEqual(self.sent,['Как настроение?'])
         self.assertEqual(audit.pending(chain,WHO),[])
-        ids=self.nav.call_args_list[0].kwargs['allowed'][0]['seen_ids']
-        self.assertIn('1002',ids);self.assertNotIn('1003',ids)
+        allowed=self.nav.call_args_list[0].kwargs['allowed'][0]
+        self.assertTrue(allowed['retry'])
+        self.assertNotIn('1002',allowed['seen_ids']);self.assertNotIn('1003',allowed['seen_ids'])
 
     def test_disabled_telegram_does_not_create_reported_mark(self):
         chain,_,_=self.initial_skip(notice=False)

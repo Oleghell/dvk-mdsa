@@ -9,9 +9,11 @@
    with a wider budget (worker rungs to 120 s, three controller requeues).
 
 2. «ты открываешь только входящие диалоги с новыми сообщениями, а не
-   непрочитанными» - the native row admission is the genuinely NEW INCOMING
-   last message; the unread badge (read-state shared with the operator, our
-   own opens clear it) never admits or blocks a row for the reply filter.
+   непрочитанными» (v1.3.96) -> v1.3.103 «нужно чтобы открывало новый
+   входящий не прочитанный»: the native row admission is the genuinely NEW
+   INCOMING last message WITH an unread badge; a badge-less row is a read
+   row and stays closed, and the only badge-less open is the host-marked
+   retry recheck of owed work (deferral ladder due, or a pending receipt).
 
 3. «после быстрой проверки отправки сообщения сразу выходишь из чата» - the
    inbox walk performs exactly ONE verification read after a send and leaves
@@ -122,8 +124,9 @@ class QuickExitAfterSend(Base):
 
 
 class NewMessageAdmission(unittest.TestCase):
-    """«открываю только входящие диалоги с новыми сообщениями»: the badge is
-    never an admission signal for the reply filter, on both engines."""
+    """«нужно чтобы открывало новый входящий не прочитанный» (v1.3.103): the
+    unread badge IS an admission signal for the reply filter, on both engines;
+    the only badge-less open is the host-marked retry recheck."""
 
     TARGET = dict(account='1', peer='2', chat='3')
 
@@ -132,21 +135,27 @@ class NewMessageAdmission(unittest.TestCase):
                                  needs_reply_only=True)
         # The waiting skip no longer consults the badge at all.
         self.assertIn("if(!header.incoming){n.waiting_rows_skipped++;return false;}", s)
-        # The badge gate survives ONLY for the standalone read-check tool.
-        self.assertIn("if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}", s)
-        self.assertNotIn("if(unread===0&&!header.incoming)", s)
-        # Order: badge read, new-message check, handled check, then the open.
-        self.assertLess(s.index('unread=unreadCount(chat)'),
+        # v1.3.103: the badge gate - one rule for both filters, with the retry
+        # recheck as the ONLY badge-less exception.
+        self.assertIn("if(unread===0&&!retryRow(model.who)){n.read_rows_skipped++;return false;}", s)
+        self.assertIn("if(unread===0)n.retry_rows_opened++;", s)
+        self.assertNotIn("unreadOnly&&!needsReplyOnly", s)
+        # Order: badge gate BEFORE the header read - a badge-less row never
+        # even reaches the incoming/handled checks.
+        self.assertLess(s.index('if(unread===0&&!retryRow'),
                         s.index("if(!header.incoming)"))
         self.assertLess(s.index("if(!header.incoming)"),
                         s.index('call(s.openCell,current,args)'))
+        # The retry helper is the badge-less exception's only source.
+        self.assertIn("x.retry===true);", s)
 
     def test_models_admission_is_the_same_rule(self):
         s = dialog_models.build(allowed=[dict(self.TARGET, seen_ids=['9'])],
                                 needs_reply_only=True, recent_limit=50, reverse=True, start=0)
         self.assertIn("if(!header.incoming){n.waiting_rows_skipped++;return false;}", s)
-        self.assertIn("if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}", s)
-        self.assertNotIn("if(unread===0&&!header.incoming)", s)
+        self.assertIn("if(unread===0&&!retryRow(model.who)){n.read_rows_skipped++;return false;}", s)
+        self.assertIn("if(needsReplyOnly&&unread===0)n.retry_rows_opened++;", s)
+        self.assertNotIn("unreadOnly&&!needsReplyOnly", s)
 
     def test_badged_row_with_our_last_message_is_valid_waiting_evidence(self):
         # The 846 shape: unread evidence present, the row skipped as waiting
@@ -158,20 +167,57 @@ class NewMessageAdmission(unittest.TestCase):
         result = dialog_browser.validate(value, 'open', allowed=[TARGET], needs_reply_only=True)
         self.assertEqual(result['state'], 'opened')
 
+    def test_badge_less_row_is_a_read_skip_under_the_reply_filter(self):
+        # v1.3.103: a badge-less row is skipped by the gate BEFORE the header
+        # checks - read_rows_skipped is legitimate reply-filter evidence now.
+        from test_dialog_browser import raw_open, TARGET
+        value = raw_open()
+        value['navigation'].update(reply_filter_applied=True, reply_needed_verified=True,
+                                   waiting_rows_skipped=0, read_rows_skipped=2)
+        result = dialog_browser.validate(value, 'open', allowed=[TARGET], needs_reply_only=True)
+        self.assertEqual(result['state'], 'opened')
+        self.assertEqual(result['diagnostic']['read_rows_skipped'], 2)
+
+    def test_badge_less_row_without_any_filter_is_still_rejected(self):
+        # A plain open (no unread and no reply filter) never reports read skips.
+        from test_dialog_browser import raw_open, TARGET
+        value = raw_open()
+        value['navigation'].update(read_rows_skipped=1)
+        with self.assertRaises(ValueError):
+            dialog_browser.validate(value, 'open', allowed=[TARGET])
+
+    def test_retry_open_needs_the_host_marked_retry_target(self):
+        # A badge-less open is legitimate ONLY through a retry target the host
+        # uploaded; the native may never invent one.
+        from test_dialog_browser import raw_open, TARGET
+        value = raw_open()
+        value['navigation'].update(reply_filter_applied=True, reply_needed_verified=True,
+                                   retry_rows_opened=1)
+        with self.assertRaises(ValueError):
+            dialog_browser.validate(value, 'open', allowed=[TARGET], needs_reply_only=True)
+        result = dialog_browser.validate(value, 'open', allowed=[dict(TARGET, retry=True)],
+                                         needs_reply_only=True)
+        self.assertEqual(result['state'], 'opened')
+        self.assertEqual(result['diagnostic']['retry_rows_opened'], 1)
+        # And never without the reply filter itself (the read-check tool never
+        # reports retry evidence).
+        with self.assertRaises(ValueError):
+            dialog_browser.validate(value, 'open', allowed=[dict(TARGET, retry=True)],
+                                    unread_only=True)
+
     def test_combined_flags_report_the_unread_evidence_without_gating(self):
-        # unread_only + needs_reply_only (the inbox 'unread' group): the
-        # unread filter is applied/verified evidence, while the ADMISSION is
-        # the reply filter's - a badge-less row still opens on its new
-        # incoming message and a badged row without one stays closed.
+        # unread_only + needs_reply_only (the inbox 'unread' group): both
+        # filters agree - the badge gates, the reply checks stay.
         source = dialog_browser.build('open', allowed=[self.TARGET],
                                       unread_only=True, needs_reply_only=True)
-        self.assertIn("if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}", source)
+        self.assertIn("if(unread===0&&!retryRow(model.who)){n.read_rows_skipped++;return false;}", source)
 
     def test_read_check_tool_keeps_its_own_badge_admission(self):
         # unread_only ALONE (the 0.4.6 user-confirmed read-check tool) still
-        # opens by the badge and skips read rows.
+        # opens by the badge and skips read rows - now through the very same
+        # shared gate string.
         source = dialog_browser.build('open', allowed=[self.TARGET], unread_only=True)
-        self.assertIn("if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}", source)
+        self.assertIn("if(unread===0&&!retryRow(model.who)){n.read_rows_skipped++;return false;}", source)
 
 
 class StartupRequeueWrapper(unittest.TestCase):

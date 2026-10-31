@@ -8,7 +8,7 @@ TARGET=dict(WHO,chat='-1')
 def raw_open():
     value=ready_route();n=value['navigation']
     for k in ('search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'):n.pop(k)
-    n.update(entry_verified=True,list_verified=True,chat_verified=True,destination_verified=True,action_attempted=True,action_completed=True,selection_verified=True,exhausted=False,private_identity=dict(WHO),metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,unread_filter_applied=False,unread_verified=False,read_rows_skipped=0,back_budget_retries=0,observation_budget_retries=0,entry_read_budget_retries=0,entry_binding_waits=0,entry_search_recovered=False,reply_filter_applied=False,reply_needed_verified=False,waiting_rows_skipped=0,handled_rows_skipped=0,profile_closed=False,selected_message=None)
+    n.update(entry_verified=True,list_verified=True,chat_verified=True,destination_verified=True,action_attempted=True,action_completed=True,selection_verified=True,exhausted=False,private_identity=dict(WHO),metadata_checkpoint='ready',selection_checkpoint='verify-chat',rows_scanned=2,scan_batches=1,unread_filter_applied=False,unread_verified=False,read_rows_skipped=0,retry_rows_opened=0,back_budget_retries=0,observation_budget_retries=0,entry_read_budget_retries=0,entry_binding_waits=0,entry_search_recovered=False,reply_filter_applied=False,reply_needed_verified=False,waiting_rows_skipped=0,handled_rows_skipped=0,profile_closed=False,selected_message=None)
     n['controller_path']=['chat'];n['root_top_kind']='chat'
     return value
 
@@ -77,10 +77,10 @@ class BrowserSchema(unittest.TestCase):
         source=b.build('open',allowed=[TARGET],unread_only=True)
         self.assertIn('unreadOnly=true',source)
         self.assertIn("s.unreadCount=checked(s.chatModel,'get_UnreadCount',8)",source)
-        # v1.3.96: the badge keeps its admission role ONLY for the standalone
-        # read-check tool (unread_only without needs_reply_only); the
-        # assistant's reply filter never admits or blocks by the badge.
-        self.assertIn("if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}",source)
+        # v1.3.103: one badge gate for every filter-carrying open - the
+        # standalone read-check tool and the assistant's reply filter alike;
+        # the only badge-less exception is the retry target recheck.
+        self.assertIn("if(unread===0&&!retryRow(model.who)){n.read_rows_skipped++;return false;}",source)
         first=source.index('unread=unreadCount(chat)')
         again=source.index('if(unreadCount(chat)!==unread)')
         self.assertLess(first,source.index("fail('selection-chat-changed')"))

@@ -122,13 +122,17 @@ UTILS=r'''
      const model=modelIdentity(chat);if(model===null||!permitted(model.who))return false;
      if(!model.manager.equals(manager)||id64(s.accountId,manager)!==model.who.account)fail('identity-not-bound');
      n.selection_checkpoint='unread';let unread=null,header=null;
-     // v1.3.96 «открываю только диалоги с новыми сообщениями, а не
-     // непрочитанными»: the badge is read-state shared with the operator
-     // (his manual open clears it, our own open clears it), so it never
-     // ADMITS a row for the reply filter - only a genuinely NEW INCOMING
-     // last message does. The badge keeps its admission role solely for the
-     // standalone read-check tool (unread_only without needs_reply_only).
-     if(unreadOnly||needsReplyOnly){unread=unreadCount(chat);if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}}
+     // v1.3.103 «когда идет проверка диалога ... нужно чтобы открывало
+     // новый входящий не прочитанный»: the UNREAD badge is the admission
+     // signal for the reply filter on this engine too - a badge-less row is
+     // a read row and stays closed, whatever its last message is. The ONLY
+     // badge-less exception is the host-marked retry target (retryRow), the
+     // scheduled recheck of owed work (a deferral-ladder step that expired,
+     // or a pending reply receipt); the 1.3.96 badge-less new-incoming
+     // admission is what the user watched as «открывается каждый
+     // неотвеченный диалог». The badge still never admits a row alone: the
+     // incoming-last-message and unconsumed-id checks below stay.
+     if(unreadOnly||needsReplyOnly){unread=unreadCount(chat);if(unread===0&&!retryRow(model.who)){n.read_rows_skipped++;return false;}}
      if(needsReplyOnly){
       header=headerOrSkip(chat,model.who);if(header===null)return false;
       if(!header.incoming){n.waiting_rows_skipped++;return false;}
@@ -153,6 +157,8 @@ UTILS=r'''
      // leaves so the same row state is never re-entered on later passes.
      if(needsReplyOnly)n.selected_message=header.id;
      n.selection_verified=true;n.unread_verified=unreadOnly;n.reply_needed_verified=needsReplyOnly;
+     // v1.3.103: a badge-less open is legitimate ONLY through the retry flag.
+     if(needsReplyOnly&&unread===0)n.retry_rows_opened++;
      n.selection_checkpoint='open';n.action_attempted=true;call(s.openModel,router,args);
      n.action_completed=true;n.phase='wait-chat';return true;
     });

@@ -235,7 +235,13 @@ API Object *il2cpp_runtime_invoke(Method *m,void *obj,void **args,void **exc){
   if(mode==827)return NULL;
   if(mode==828){*exc=&exception;return NULL;}
   browser_unread=browser_clear_unread&&browser_seen?0:1;
-  if(mode==822||mode==832||mode==843||mode==844||mode==845||mode==847||mode==852||(mode==829&&((Object *)obj)->value==0))browser_unread=0;
+  /* v1.3.103: mode 852 keeps its BADGE - the consumed-id (handled) skip
+     must stay provable on a badged row, because a badge-less row never
+     reaches alreadyHandled any more (the badge gate skips it first).
+     Mode 843 also drops its hard zero: its badge now follows the realistic
+     read-state model (a new incoming message resets it, our own open
+     clears it), which is the state the 1.3.103 gate is built on. */
+  if(mode==822||mode==832||mode==844||mode==845||mode==847||(mode==829&&((Object *)obj)->value==0))browser_unread=0;
   if(mode==824&&browser_unread_reads>=2)browser_unread=0;
   if((mode==831||mode==855)&&browser_unread_reads>=2)browser_unread=2;
   if(mode==826)browser_unread=-1;

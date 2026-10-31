@@ -392,12 +392,13 @@ class WorklessRowMarkers(Base):
 
 class OnlyNeededRowsOpen(unittest.TestCase):
     """The native admission rule itself: waiting rows and consumed rows are
-    skipped before any open; only genuinely NEW INCOMING rows open (pinned on
-    the composed scan source, both engines). v1.3.96: the unread badge is no
-    longer an admission signal for the reply filter - our-message-last rows
-    are waiting rows regardless of the badge, and badge-less rows with an
-    unconsumed incoming message still open; the badge keeps its admission
-    role only for the standalone read-check tool (unread_only alone)."""
+    skipped before any open; only genuinely NEW INCOMING UNREAD rows open
+    (pinned on the composed scan source, both engines). v1.3.103: the unread
+    badge is an admission signal for the reply filter too - a badge-less row
+    is a read row and stays closed whatever its last message is; the only
+    badge-less open is the host-marked retry target (the scheduled recheck
+    of owed work: a deferral-ladder step that expired, or a pending receipt).
+    """
 
     def test_dialog_browser_needs_reply_filter_skips_waiting_and_handled(self):
         import dialog_browser
@@ -405,7 +406,8 @@ class OnlyNeededRowsOpen(unittest.TestCase):
                                  needs_reply_only=True)
         self.assertIn("if(!header.incoming){n.waiting_rows_skipped++;return false;}", s)
         self.assertIn("if(alreadyHandled(model.who,header.id)){n.handled_rows_skipped++;return false;}", s)
-        self.assertIn("if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}", s)
+        self.assertIn("if(unread===0&&!retryRow(model.who)){n.read_rows_skipped++;return false;}", s)
+        self.assertIn("if(unread===0)n.retry_rows_opened++;", s)
 
     def test_dialog_models_needs_reply_filter_is_the_same_rule(self):
         import dialog_models
@@ -413,7 +415,8 @@ class OnlyNeededRowsOpen(unittest.TestCase):
                                 needs_reply_only=True, recent_limit=50, reverse=True, start=0)
         self.assertIn("if(!header.incoming){n.waiting_rows_skipped++;return false;}", s)
         self.assertIn("if(alreadyHandled(model.who,header.id)){n.handled_rows_skipped++;return false;}", s)
-        self.assertIn("if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}", s)
+        self.assertIn("if(unread===0&&!retryRow(model.who)){n.read_rows_skipped++;return false;}", s)
+        self.assertIn("if(needsReplyOnly&&unread===0)n.retry_rows_opened++;", s)
 
 
 if __name__ == '__main__':

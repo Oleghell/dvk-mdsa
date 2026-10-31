@@ -42,7 +42,7 @@ PHASES={'entry','wait-list','scan','wait-chat','wait-back','wait-search','done'}
 CHECKPOINTS={'model-route-owner','model-route-parameters','model-route-enums','model-route-literals','model-route-signature','model-manager','model-collection','model-route','not-checked','classes','scroll','visible','count','item','cell-binding','chat-model','unread-count','chat-controller','open-handler','back-handler','profile-queue','profile-close','ready'}
 SELECTION={'model-list','model-stability','not-checked','table','visible','cell','binding','filter','unread','stability','open','verify-chat','back','search','exhausted'}
 FLAGS={'cleanup_failed','ui_text_read','entry_verified','list_verified','chat_verified','destination_verified','action_attempted','action_completed','selection_verified','exhausted','unread_filter_applied','unread_verified','reply_filter_applied','reply_needed_verified','entry_search_recovered','profile_closed'}
-EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped','back_budget_retries','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','waiting_rows_skipped','handled_rows_skipped','selected_message'}
+EXTRAS=FLAGS|{'stage','phase','error','frames','managed_calls','handles_acquired','handles_released','root_top_kind','last_presented_kind','controller_path','action_backend','readiness_check','readiness','view_parent_depth','private_identity','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','read_rows_skipped','retry_rows_opened','back_budget_retries','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','waiting_rows_skipped','handled_rows_skipped','selected_message'}
 
 
 MAX_HIDDEN_PEERS=2000
@@ -75,7 +75,8 @@ def targets(values):
     if not isinstance(values,(list,tuple)) or len(values)>MAX_TARGETS:raise ValueError('Invalid journal targets')
     out=[];seen=set()
     for value in values:
-        if not isinstance(value,dict) or set(value) not in ({'account','peer','chat'},{'account','peer','chat','seen_ids'}):raise ValueError('Invalid target')
+        if not isinstance(value,dict) or set(value) not in ({'account','peer','chat'},{'account','peer','chat','seen_ids'},{'account','peer','chat','retry'},{'account','peer','chat','seen_ids','retry'}):raise ValueError('Invalid target')
+        if 'retry' in value and value['retry'] is not True:raise ValueError('Invalid retry target')
         if not isinstance(value['chat'],str) or not re.fullmatch(r'0|[1-9][0-9]{0,18}|-[1-9][0-9]{0,18}',value['chat']) or not -(2**63)<=int(value['chat'])<2**63:raise ValueError('Invalid initial chat')
         checked=identity(dict(account=value['account'],peer=value['peer'],chat=value['chat'] if int(value['chat'])>0 else '1'))
         checked['chat']=value['chat']
@@ -84,6 +85,7 @@ def targets(values):
             if not isinstance(ids,list) or len(ids)>128 or any(not isinstance(i,str) for i in ids) or len(set(ids))!=len(ids):raise ValueError('Invalid observed IDs')
             for message in ids:identity(dict(account=checked['account'],peer=checked['peer'],chat=message))
             checked['seen_ids']=list(ids)
+        if value.get('retry') is True:checked['retry']=True
         key=(checked['account'],checked['peer'])
         if key in seen:raise ValueError('Ambiguous target')
         seen.add(key);out.append(checked)
@@ -197,6 +199,13 @@ UTILS=r'''
   };
   const alreadyHandled=(who,id)=>allowedTargets.some(x=>x.account===who.account&&x.peer===who.peer&&
     (new Int64(x.chat).compare(0)<=0||x.chat===who.chat)&&(x.seen_ids||[]).includes(id));
+  // v1.3.103: the ONLY badge-less admission the reply filter keeps. The host
+  // marks a target row with retry===true exactly when its OWED work is due
+  // (a deferral-ladder step that expired, or a pending reply receipt) - the
+  // promised «проверю позже» recheck. Every other badge-less row is a read
+  // row: skipped without opening, whatever its last message is.
+  const retryRow=who=>allowedTargets.some(x=>x.account===who.account&&x.peer===who.peer&&
+    (new Int64(x.chat).compare(0)<=0||x.chat===who.chat)&&x.retry===true);
   const modelIdentity=chat=>{
    if(chat.isNull()||!f.objectClass(chat).equals(s.chatModel))fail('identity-not-bound');
    if(!bool(s.isDialog,chat)||!bool(s.actual,chat)||bool(s.draft,chat))return null;
@@ -272,16 +281,18 @@ UTILS=r'''
      let unread=null,header=null;
      if(unreadOnly||needsReplyOnly){
       n.selection_checkpoint='unread';unread=unreadCount(chat);
-      // v1.3.96 «открываю только диалоги с новыми сообщениями, а не
-      // непрочитанными»: the badge alone never admits a row for the
-      // assistant's reply filter - UnreadCount is read-state shared with the
-      // operator (his manual open clears it, our own open clears it), so a
-      // cleared badge hides genuine unhandled input and a stale badge opens
-      // rows with nothing to answer. The badge stays the ADMISSION signal
-      // only for the standalone read-check tool (unread_only alone, the
-      // 0.4.6 user-confirmed contract); for the reply filter it is evidence
-      // and stability only (selection-unread-changed below).
-      if(unreadOnly&&!needsReplyOnly&&unread===0){n.read_rows_skipped++;return false;}
+      // v1.3.103 «когда идет проверка диалога ... нужно чтобы открывало
+      // новый входящий не прочитанный»: the UNREAD badge is now the
+      // admission signal for the reply filter too, exactly as for the
+      // standalone read-check tool. The 1.3.96 badge-less new-incoming
+      // admission opened EVERY merely-unanswered row - deferred chats after
+      // their cooldown, strays, operator-read dialogs - which the user
+      // watched as «открывается каждый неотвеченный диалог». A row without a
+      // badge stays closed; the genuinely-new-but-read case and the owed
+      // recheck both ride the host-marked retry exception above, so nothing
+      // owed is ever silently dropped. The badge still never admits a row
+      // alone: the incoming-last-message and unconsumed-id checks below stay.
+      if(unread===0&&!retryRow(model.who)){n.read_rows_skipped++;return false;}
      }
      if(needsReplyOnly){
       header=replyHeader(chat,model.who);
@@ -312,6 +323,8 @@ UTILS=r'''
       if(!fresh.last.equals(header.last)||fresh.id!==header.id||fresh.sender!==header.sender||
          fresh.mine!==header.mine||fresh.chat!==header.chat)fail('selection-last-message-changed');
       n.reply_needed_verified=true;
+      // v1.3.103: a badge-less open is legitimate ONLY through the retry flag.
+      if(unread===0)n.retry_rows_opened++;
      }
      save('selectedChat',chat);save('selectedUser',model.user);state.selectedIdentity=model.who;
      // v1.3.90: the row's last message id the needs-reply filter judged. The
@@ -421,7 +434,7 @@ def build(operation, *, allowed=(), expected=None, entry='search', unread_only=F
     s=replace_once(s,'function probeUIKitRoot() {','function probeUIKitRoot() {\n const operation='+json.dumps(operation)+',entryScreen='+json.dumps(entry)+',allowedTargets='+json.dumps(allowed)+',expectedIdentity='+json.dumps(expected)+',unreadOnly='+json.dumps(unread_only)+',needsReplyOnly='+json.dumps(needs_reply_only)+',adoptUntracked='+json.dumps(adopt_untracked)+',hiddenPeers=new Set('+json.dumps([x['account']+':'+x['peer'] for x in hidden])+');')
     s=replace_once(s,' function prepareNavigation(',PREPARE+'\n function prepareNavigation(')
     s=replace_once(s,'prepareDialogRoute(f,setup.navigation,getClass);','prepareDialogRoute(f,setup.navigation,getClass);prepareDialogBrowser(f,setup.navigation,getClass);')
-    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,back_budget_retries:0,observation_budget_retries:0,entry_read_budget_retries:0,entry_binding_waits:0,entry_search_recovered:false,unread_filter_applied:false,unread_verified:false,reply_filter_applied:false,reply_needed_verified:false,waiting_rows_skipped:0,handled_rows_skipped:0,profile_closed:false,selected_message:null});
+    s=replace_once(s,'r.navigation=emptyNavigation();','r.navigation=emptyNavigation();'+'''Object.assign(r.navigation,{phase:'entry',entry_verified:false,list_verified:false,chat_verified:false,destination_verified:false,action_attempted:false,action_completed:false,selection_verified:false,exhausted:false,private_identity:null,metadata_checkpoint:'not-checked',selection_checkpoint:'not-checked',rows_scanned:0,scan_batches:0,read_rows_skipped:0,retry_rows_opened:0,back_budget_retries:0,observation_budget_retries:0,entry_read_budget_retries:0,entry_binding_waits:0,entry_search_recovered:false,unread_filter_applied:false,unread_verified:false,reply_filter_applied:false,reply_needed_verified:false,waiting_rows_skipped:0,handled_rows_skipped:0,profile_closed:false,selected_message:null});
  for(const k of ['search_verified','dialogs_verified','return_verified','open_attempted','open_completed','back_attempted','back_completed'])delete r.navigation[k];''')
     s=replace_once(s,'"il2cpp_type_get_object"]','"il2cpp_type_get_object","il2cpp_class_get_parent"]')
     s=replace_once(s,"Object.assign(f,{classType:","Object.assign(f,{classParent:bind('class_get_parent','pointer',['pointer']),classType:")
@@ -489,7 +502,7 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     if set(n)!=EXTRAS or n['phase'] not in PHASES or n['error'] not in ERRORS:raise ValueError('Invalid dialog evidence')
     if any(type(n[k]) is not bool for k in FLAGS) or n['ui_text_read']:raise ValueError('Invalid flags')
     if n['metadata_checkpoint'] not in CHECKPOINTS or n['selection_checkpoint'] not in SELECTION:raise ValueError('Invalid checkpoint')
-    for k,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128),('waiting_rows_skipped',128),('handled_rows_skipped',128),('back_budget_retries',MAX_BACK_BUDGET_RETRIES),('observation_budget_retries',MAX_OBSERVATION_BUDGET_RETRIES),('entry_read_budget_retries',MAX_ENTRY_READ_BUDGET_RETRIES),('entry_binding_waits',MAX_ENTRY_BINDING_WAITS)]:
+    for k,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128),('retry_rows_opened',128),('waiting_rows_skipped',128),('handled_rows_skipped',128),('back_budget_retries',MAX_BACK_BUDGET_RETRIES),('observation_budget_retries',MAX_OBSERVATION_BUDGET_RETRIES),('entry_read_budget_retries',MAX_ENTRY_READ_BUDGET_RETRIES),('entry_binding_waits',MAX_ENTRY_BINDING_WAITS)]:
         if type(n[k]) is not int or not 0<=n[k]<=limit:raise ValueError('Invalid scan bounds')
     # v1.3.90: the selected row's last message id, reported only when the
     # needs-reply filter actually selected a row. It is a positive id string
@@ -521,8 +534,15 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
         startup_back=operation=='list' and not n['chat_verified'] and n['private_identity'] is None and n['selection_checkpoint']=='not-checked'
         if not (bound_back or startup_back) or n['phase'] not in ('wait-back','done') or not n['entry_verified'] or not n['action_completed']:
             raise ValueError('Invalid back recovery evidence')
-    if n['read_rows_skipped']>n['rows_scanned']:raise ValueError('Invalid skipped rows')
-    if not unread_only and (n['unread_filter_applied'] or n['unread_verified'] or n['read_rows_skipped']):raise ValueError('Unexpected unread evidence')
+    if n['read_rows_skipped']>n['rows_scanned'] or n['retry_rows_opened']>n['rows_scanned'] or n['read_rows_skipped']+n['retry_rows_opened']>n['rows_scanned']:raise ValueError('Invalid skipped rows')
+    # v1.3.103: the badge gate now skips read rows for the reply filter too;
+    # only a filter-carrying open may report them. A plain open never does.
+    if not (unread_only or needs_reply_only) and (n['unread_filter_applied'] or n['unread_verified'] or n['read_rows_skipped']):raise ValueError('Unexpected unread evidence')
+    # A badge-less open exists ONLY through a host-marked retry target, and
+    # only under the reply filter: the recheck the host scheduled (deferral
+    # ladder due, or an owed pending receipt), never a native invention.
+    if n['retry_rows_opened'] and (not needs_reply_only or not n['reply_filter_applied']
+            or not any(x.get('retry') is True for x in allowed)):raise ValueError('Unexpected retry evidence')
     if not needs_reply_only and (n['reply_filter_applied'] or n['reply_needed_verified'] or n['waiting_rows_skipped'] or n['handled_rows_skipped']):raise ValueError('Unexpected reply evidence')
     if n['waiting_rows_skipped']+n['handled_rows_skipped']>n['rows_scanned']:raise ValueError('Invalid reply skipped count')
     if n['reply_needed_verified'] and (not n['reply_filter_applied'] or not n['selection_verified']):raise ValueError('Invalid reply evidence')
@@ -577,7 +597,7 @@ def validate(value,operation, *, allowed=(), expected=None, unread_only=False, n
     bn['controller_path']=[old(k) for k in bn['controller_path']]
     nav.validate(base,errors=ERRORS)
     from navigation_root_diagnostic import extract
-    diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped','back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','selected_message','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','root_top_kind','last_presented_kind','controller_path')}
+    diagnostic={k:n[k] for k in ('stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned','scan_batches','action_attempted','action_completed','destination_verified','unread_filter_applied','unread_verified','read_rows_skipped','retry_rows_opened','back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','selected_message','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','root_top_kind','last_presented_kind','controller_path')}
     diagnostic['root_probe']=extract(value)
     return dict(state=('exhausted' if n['exhausted'] else 'opened' if operation=='open' else 'returned' if operation=='back' else 'dialogs-ready' if operation=='list' else 'search-ready') if ready else 'stopped',identity=private,diagnostic=diagnostic)
 
@@ -597,10 +617,12 @@ function prepareNavigationTargets(values){
  for(const x of values){
   if(x===null||typeof x!=='object'||Array.isArray(x))throw new Error('invalid-target');
   const keys=Object.keys(x).sort().join(',');
-  if(keys!=='account,chat,peer'&&keys!=='account,chat,peer,seen_ids')throw new Error('invalid-target');
+  if(keys!=='account,chat,peer'&&keys!=='account,chat,peer,seen_ids'&&keys!=='account,chat,peer,retry'&&keys!=='account,chat,peer,retry,seen_ids')throw new Error('invalid-target');
   if(!positive(x.account)||!positive(x.peer)||!chat(x.chat))throw new Error('invalid-target');
+  if(Object.prototype.hasOwnProperty.call(x,'retry')&&x.retry!==true)throw new Error('invalid-target');
   const key=x.account+':'+x.peer;if(seen.has(key))throw new Error('duplicate-target');seen.add(key);
   const value={account:x.account,peer:x.peer,chat:x.chat};
+  if(Object.prototype.hasOwnProperty.call(x,'retry'))value.retry=true;
   if(Object.prototype.hasOwnProperty.call(x,'seen_ids')){
    if(!Array.isArray(x.seen_ids)||x.seen_ids.length>128||x.seen_ids.some(v=>!positive(v))||
       new Set(x.seen_ids).size!==x.seen_ids.length)throw new Error('invalid-seen-ids');

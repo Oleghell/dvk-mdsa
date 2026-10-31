@@ -59,7 +59,7 @@ def safe_diagnostic(value):
     keys={'stage','error','phase','metadata_checkpoint','selection_checkpoint','rows_scanned',
           'scan_batches','action_attempted','action_completed','destination_verified',
           'unread_filter_applied','unread_verified','read_rows_skipped'}
-    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','header_rows_skipped','root_probe','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','root_top_kind','last_presented_kind','controller_path','selected_message'}:
+    if not isinstance(value,dict) or not keys<=set(value) or set(value)-keys-{'back_budget_retries','reply_filter_applied','reply_needed_verified','waiting_rows_skipped','handled_rows_skipped','retry_rows_opened','header_rows_skipped','root_probe','observation_budget_retries','entry_read_budget_retries','entry_binding_waits','entry_search_recovered','root_top_kind','last_presented_kind','controller_path','selected_message'}:
         raise ValueError('Invalid diagnostic')
     if (value['stage'] not in {'not-attempted','navigation-ready','navigation-stopped','cleanup-failed'}
             or value['error'] not in ERRORS or value['phase'] not in PHASES
@@ -72,7 +72,9 @@ def safe_diagnostic(value):
     for key,limit in [('rows_scanned',128),('scan_batches',180),('read_rows_skipped',128)]:
         if type(value[key]) is not int or not 0<=value[key]<=limit:
             raise ValueError('Invalid diagnostic counter')
-    if value['read_rows_skipped']>value['rows_scanned'] or (not value['unread_filter_applied'] and (value['unread_verified'] or value['read_rows_skipped'])):
+    # v1.3.103: read-row skips now exist under the reply filter too (the
+    # badge gate); only a filter-carrying navigation may report them.
+    if value['read_rows_skipped']>value['rows_scanned'] or (not value['unread_filter_applied'] and not value.get('reply_filter_applied') and (value['unread_verified'] or value['read_rows_skipped'])):
         raise ValueError('Invalid unread diagnostic')
     retries=value.get('back_budget_retries',0)
     if type(retries) is not int or not 0<=retries<=MAX_BACK_BUDGET_RETRIES:
@@ -111,6 +113,12 @@ def safe_diagnostic(value):
             raise ValueError('Invalid selected message')
     for key in ('waiting_rows_skipped','handled_rows_skipped'):
         if key in value and (type(value[key]) is not int or not 0<=value[key]<=value['rows_scanned']):raise ValueError('Invalid reply count')
+    # v1.3.103: badge-less retry opens - the host-scheduled recheck of owed
+    # work. Bounded like every scan counter, only under the reply filter.
+    if 'retry_rows_opened' in value:
+        if type(value['retry_rows_opened']) is not int or not 0<=value['retry_rows_opened']<=value['rows_scanned'] \
+                or (value['retry_rows_opened'] and not value.get('reply_filter_applied')):
+            raise ValueError('Invalid retry count')
     if 'header_rows_skipped' in value and (type(value['header_rows_skipped']) is not int or not 0<=value['header_rows_skipped']<=100000):raise ValueError('Invalid header count')
     if 'root_probe' in value:
         from navigation_root_diagnostic import clean
