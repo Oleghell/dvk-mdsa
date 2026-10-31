@@ -18,6 +18,19 @@ MAX_LIMIT = 20
 MAX_SEARCH_CYCLES = 200
 MAX_SCANNED = 200
 MAX_READ_RECOVERIES = 3
+# v1.3.100 («одна анкета — один просмотр», user report: «все также проходится
+# в холостую по новым анкетам… не набивало просмотры анкет, такого быть не
+# должно»): the old failure bound was CONSECUTIVE only, and every clean
+# qualification verdict (friends>=50, existing chat) reset it - so a
+# saturated host could legally interleave [fail, verdict, fail, verdict…]
+# and grind through up to MAX_SCANNED opened ankety in ONE pass with zero
+# greetings, racking a view on every girl. A pass now carries a TOTAL
+# budget of opened-without-send failures: once MAX_FAILED_OPENS ankety
+# were opened without a single greeting going out, the pass stops
+# ('profile-recovery-limit', the existing bounded recovery machinery) and
+# no more ankety are opened in vain. Qualification verdicts and successful
+# greetings never count against it - they are the pass's productive opens.
+MAX_FAILED_OPENS = 3
 
 
 def report(limit):
@@ -25,7 +38,7 @@ def report(limit):
                 reason='not-started', profile_limit=limit, profiles_checked=0, qualified_profiles=0, scan_limit=MAX_SCANNED,
                 search_cycles=0, search_cycle_limit=MAX_SEARCH_CYCLES,
                 skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0, skipped_input_disabled=0, skipped_unreadable=0, skipped_chat_not_opened=0, skipped_submit_frame_budget=0,
-                read_recovery_limit=MAX_READ_RECOVERIES, consecutive_read_recoveries=0, recovery_events=[], greetings_offered=0, shared_peer_skips=0,
+                read_recovery_limit=MAX_READ_RECOVERIES, failed_open_limit=MAX_FAILED_OPENS, consecutive_read_recoveries=0, failed_opens=0, recovery_events=[], greetings_offered=0, shared_peer_skips=0,
                 reservations_released=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
                 greetings_declined=0, city_changes=0, city_reservations_recovered=0, search_budget_rotations=0, last_profile_diagnostics=None,
@@ -263,13 +276,14 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                         raise StateError('return-not-verified')
                     out['skipped_chat_not_opened'] += 1
                     out['consecutive_read_recoveries'] += 1
+                    out['failed_opens'] += 1
                     event = dict(sequence=out['skipped_chat_not_opened'], reason='chat-not-opened',
                         status='recovered', action='verified-close-and-skip', return_verified=True,
                         send_attempted=False, diagnostic=dict(out['last_profile_diagnostics']),
-                        continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES, notification='not-needed')
+                        continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES and out['failed_opens'] < MAX_FAILED_OPENS, notification='not-needed')
                     out['recovery_events'].append(event)
                     out['recovery_events'] = out['recovery_events'][-20:]
-                    progress('Анкета пропущена: личка не открылась после нажатия. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else ' Достигнут лимит восстановлений.'))
+                    progress('Анкета пропущена: личка не открылась после нажатия. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else (' Достигнут лимит восстановлений.' if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES else ' Достигнут лимит анкет без отправки за проход: холостых просмотров больше не делаю.')))
                     if getattr(settings, 'errors_enabled', False):
                         from assistant_error_notify import notify_recovery
                         try:
@@ -277,7 +291,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                             event['notification'] = result if result in ('accepted','unknown','not-configured','not-needed') else 'unknown'
                         except Exception:
                             event['notification'] = 'unknown'
-                    if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES:
+                    if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES or out['failed_opens'] >= MAX_FAILED_OPENS:
                         raise StateError('profile-recovery-limit')
                     continue
                 elif n['profile_read_skip_reason'] == 'submit-frame-budget':
@@ -293,7 +307,11 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                     # committed claim is released by the pass layer
                     # (reservation_released), so another port's анкета can
                     # still greet the peer instead of a 24-hour
-                    # claimed-but-never-greeted shield.
+                    # claimed-but-never-greeted shield. v1.3.100: her shared
+                    # visit row (record_visit) keeps every port from RE-OPENING
+                    # this anketa inside the same 24-hour window, so the
+                    # release ends the claim without feeding a re-view
+                    # carousel - tomorrow's anketa may greet her again.
                     if (n['profile_read_skip_reason'] not in SKIP_REASONS or not offered or
                             n.get('error') != 'none' or
                             n.get('return_verified') is not True or n.get('chat_return_verified') is not True or
@@ -305,13 +323,14 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                         raise StateError('return-not-verified')
                     out['skipped_submit_frame_budget'] += 1
                     out['consecutive_read_recoveries'] += 1
+                    out['failed_opens'] += 1
                     event = dict(sequence=out['skipped_submit_frame_budget'], reason='submit-frame-budget',
                         status='recovered', action='verified-close-and-skip', return_verified=True,
                         send_attempted=False, diagnostic=dict(out['last_profile_diagnostics']),
-                        continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES, notification='not-needed')
+                        continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES and out['failed_opens'] < MAX_FAILED_OPENS, notification='not-needed')
                     out['recovery_events'].append(event)
                     out['recovery_events'] = out['recovery_events'][-20:]
-                    progress('Анкета пропущена: кадр отправки не уложился в бюджет (12 портов). Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else ' Достигнут лимит восстановлений.'))
+                    progress('Анкета пропущена: кадр отправки не уложился в бюджет (12 портов). Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else (' Достигнут лимит восстановлений.' if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES else ' Достигнут лимит анкет без отправки за проход: холостых просмотров больше не делаю.')))
                     if getattr(settings, 'errors_enabled', False):
                         from assistant_error_notify import notify_recovery
                         try:
@@ -319,7 +338,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                             event['notification'] = result if result in ('accepted','unknown','not-configured','not-needed') else 'unknown'
                         except Exception:
                             event['notification'] = 'unknown'
-                    if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES:
+                    if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES or out['failed_opens'] >= MAX_FAILED_OPENS:
                         raise StateError('profile-recovery-limit')
                     continue
                 elif (n.get('profile_read_skip_reason') not in SKIP_REASONS or offered or n.get('error') != 'none' or
@@ -337,13 +356,14 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                     continue
                 out['skipped_unready_chat'] += 1
                 out['consecutive_read_recoveries'] += 1
+                out['failed_opens'] += 1
                 event = dict(sequence=out['skipped_unready_chat'], reason=n['profile_read_skip_reason'],
                     status='recovered', action='verified-back-and-skip', return_verified=True,
                     send_attempted=False, diagnostic=dict(out['last_profile_diagnostics']),
-                    continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES, notification='not-needed')
+                    continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES and out['failed_opens'] < MAX_FAILED_OPENS, notification='not-needed')
                 out['recovery_events'].append(event)
                 out['recovery_events'] = out['recovery_events'][-20:]
-                progress('Анкета пропущена: история не готова. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else ' Достигнут лимит восстановлений.'))
+                progress('Анкета пропущена: история не готова. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else (' Достигнут лимит восстановлений.' if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES else ' Достигнут лимит анкет без отправки за проход: холостых просмотров больше не делаю.')))
                 if getattr(settings, 'errors_enabled', False):
                     from assistant_error_notify import notify_recovery
                     try:
@@ -351,7 +371,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                         event['notification'] = result if result in ('accepted','unknown','not-configured','not-needed') else 'unknown'
                     except Exception:
                         event['notification'] = 'unknown'
-                if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES:
+                if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES or out['failed_opens'] >= MAX_FAILED_OPENS:
                     raise StateError('profile-recovery-limit')
             elif n.get('friends_status') == 'unavailable' and not n['friends_eligible']:
                 # v1.3.92: the profile model never became readable inside the
@@ -360,13 +380,14 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 # next candidate instead of a silent sit plus a stopped pass.
                 out['skipped_unreadable'] += 1
                 out['consecutive_read_recoveries'] += 1
+                out['failed_opens'] += 1
                 event = dict(sequence=out['skipped_unreadable'], reason='friends-model-timeout',
                     status='recovered', action='verified-close-and-skip', return_verified=True,
                     send_attempted=False, diagnostic=dict(out['last_profile_diagnostics']),
-                    continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES, notification='not-needed')
+                    continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES and out['failed_opens'] < MAX_FAILED_OPENS, notification='not-needed')
                 out['recovery_events'].append(event)
                 out['recovery_events'] = out['recovery_events'][-20:]
-                progress('Анкета пропущена: число друзей не загрузилось за отведённое время. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else ' Достигнут лимит восстановлений.'))
+                progress('Анкета пропущена: число друзей не загрузилось за отведённое время. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else (' Достигнут лимит восстановлений.' if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES else ' Достигнут лимит анкет без отправки за проход: холостых просмотров больше не делаю.')))
                 if getattr(settings, 'errors_enabled', False):
                     from assistant_error_notify import notify_recovery
                     try:
@@ -374,7 +395,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                         event['notification'] = result if result in ('accepted','unknown','not-configured','not-needed') else 'unknown'
                     except Exception:
                         event['notification'] = 'unknown'
-                if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES:
+                if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES or out['failed_opens'] >= MAX_FAILED_OPENS:
                     raise StateError('profile-recovery-limit')
             elif not n['friends_eligible']:
                 out['skipped_friends'] += 1

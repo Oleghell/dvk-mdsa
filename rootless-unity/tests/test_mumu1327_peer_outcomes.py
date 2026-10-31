@@ -54,20 +54,38 @@ class Availability(unittest.TestCase):
                 self.assertTrue(self.store(5559).peer_claimed(p))
                 self.assertFalse(self.store(5559).peer_terminal(p))
                 with self.assertRaises(SharedPeerClaimed):self.a.reserve(p,'Hi',approved=True)
-    def test_profile_visit_and_recovery_skip_are_phone_local(self):
+    def test_profile_visit_is_shared_across_ports_but_recovery_skips_stay_local(self):
+        # v1.3.100 («одна анкета — один просмотр»): record_visit now also
+        # commits the SHARED mumu_profile_visits window row, so another port's
+        # native pre-filter skips her anketa WITHOUT opening it (no second
+        # view on the same girl). Recovery skips stay phone-local exactly as
+        # before, and a shared visit is NEVER a greeting ban: peer_claimed()
+        # stays False and another port may still reserve her greeting through
+        # any non-anketa path.
         self.a.record_visit('201',dict(profile_verified=True,friends_count=10,history_status='empty'))
         self.a.skip_recovery_peer(dict(WHO,peer='202'))
         self.assertIn('201',self.a.visited_peers());self.assertIn('202',self.a.visited_peers())
-        self.assertNotIn('201',self.b.visited_peers());self.assertNotIn('202',self.b.visited_peers())
+        self.assertIn('201',self.b.visited_peers())
+        self.assertNotIn('202',self.b.visited_peers())
+        self.assertFalse(self.b.peer_claimed(pending(peer='201')))
         self.assertFalse(self.b.peer_claimed(pending(peer='202')))
+        # A visit never blocks a reservation: only claims/blocks/journals do.
+        self.assertIsNotNone(self.b.reserve(pending(peer='201'),'Hi',approved=True))
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertEqual(db.execute('SELECT peer FROM mumu_profile_visits').fetchall(),[('201',)])
     def test_old_global_greeting_visit_and_recovery_rows_kept_but_not_bans(self):
         with closing(sqlite3.connect(self.path)) as db,db:
             db.execute("INSERT INTO mumu_peer_claims(peer,device,account) VALUES('210','5557','100')")
             db.execute("INSERT INTO mumu_profile_visits(peer) VALUES('211')")
             db.execute("INSERT INTO mumu_recovery_skips VALUES('212')")
         b=self.store(5559)
-        for peer in ('210','211','212'):
-            self.assertNotIn(peer,b.visited_peers());self.assertFalse(b.peer_claimed(pending(peer=peer)))
+        # v1.3.100: the legacy visit row ('211', fresh by its CURRENT_TIMESTAMP
+        # default) now ENTERS the snapshot window like any new visit, but it
+        # is still not a greeting ban. The pre-1.3.87 claims/recovery rows
+        # stay pure audit exactly as before.
+        for peer,seen in (('210',False),('211',True),('212',False)):
+            self.assertEqual(peer in b.visited_peers(),seen)
+            self.assertFalse(b.peer_claimed(pending(peer=peer)))
         with closing(sqlite3.connect(self.path)) as db:
             self.assertEqual(db.execute('SELECT peer FROM mumu_peer_claims').fetchall(),[('210',)])
             self.assertEqual(db.execute('SELECT peer FROM mumu_profile_visits').fetchall(),[('211',)])

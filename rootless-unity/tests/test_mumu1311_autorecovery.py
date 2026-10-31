@@ -108,15 +108,37 @@ class ContinueProfiles(unittest.TestCase):
         self.assertFalse(out['recovery_events'][-1]['continue_work'])
         self.assertTrue(all(e['return_verified'] for e in out['recovery_events']))
 
-    def test_successful_read_resets_consecutive_error_limit(self):
+    def test_clean_reads_reset_consecutive_but_the_total_no_send_budget_still_binds(self):
+        # v1.3.100 («одна анкета — один просмотр»): the old doctrine let a
+        # clean qualification verdict RESET the only (consecutive) failure
+        # bound, so [fail, verdict]×N ground through up to 200 opened ankety
+        # with zero greetings - the reported «проходится в холостую по новым
+        # анкетам… набивало просмотры». The consecutive counter still resets
+        # (its semantics are unchanged), but the pass-wide TOTAL of opened-
+        # without-send failures now stops the pass at MAX_FAILED_OPENS.
         values=[]
         for _ in range(4):
             values.extend([skipped(),cycle_result()])
         values.append(cycle_result(send_attempted=True,send_handler_returned=True))
         out,calls=self.go(values,errors=False)
-        self.assertEqual((out['status'],calls),('profiles-completed',9))
-        self.assertEqual(out['skipped_unready_chat'],4)
-        self.assertEqual(out['consecutive_read_recoveries'],0)
+        self.assertEqual((out['status'],out['reason']),('profiles-stopped','profile-recovery-limit'))
+        self.assertEqual(calls,5)
+        self.assertEqual(out['skipped_unready_chat'],3)
+        self.assertEqual(out['failed_opens'],profiles.MAX_FAILED_OPENS)
+        # The verdict cycles DID reset the consecutive counter: the third
+        # failure was again the first in its own streak.
+        self.assertEqual(out['consecutive_read_recoveries'],1)
+        self.assertTrue(out['recovery_events'][-1]['return_verified'])
+        self.assertFalse(out['recovery_events'][-1]['continue_work'])
+
+    def test_a_single_failure_between_clean_cycles_still_completes_the_pass(self):
+        # The budget is three, not one: a lone flaky anketa between productive
+        # cycles must never stop the pass.
+        values=[skipped(),cycle_result(send_attempted=True,send_handler_returned=True)]
+        out,calls=self.go(values,errors=False)
+        self.assertEqual((out['status'],calls),('profiles-completed',2))
+        self.assertEqual((out['skipped_unready_chat'],out['failed_opens']),(1,1))
+        self.assertEqual(out['qualified_profiles'],1)
 
     def test_disabled_alert_and_unknown_telegram_not_retried(self):
         for enabled,result in [(False,'accepted'),(True,'unknown'),(True,RuntimeError('PRIVATE'))]:

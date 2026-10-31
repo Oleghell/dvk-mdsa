@@ -280,7 +280,8 @@ def launch(self_check=False):
             if not messagebox.askyesno('Очистить историю анкет',
                     f'Забыть просмотренные анкеты и резерв города MuMu ADB {target}?\n'
                     'Сначала останови этот порт и вручную проверь экран поиска.\n'
-                    'Журнал отправок и общая защита от повторных приветствий сохранятся.',parent=w):return
+                    'Журнал отправок и общая защита от повторных приветствий сохранятся.\n'
+                    'Общая суточная защита от повторных ПРОСМОТРОВ анкет тоже сохранится.',parent=w):return
             try:
                 from assistant_profiles import clear_history
                 from mumu_store import SharedStore

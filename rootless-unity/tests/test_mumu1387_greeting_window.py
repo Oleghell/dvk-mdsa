@@ -298,15 +298,26 @@ class CloudTranslation(unittest.TestCase):
             '"account"=EXCLUDED."account","created_at"=EXCLUDED."created_at"')
 
     def test_snapshot_sources_split_claims_window_from_permanent_blocks(self):
+        # v1.3.100: a third source joined between claims and blocks - the
+        # SHARED profile visits with the same 24-hour window as claims
+        # («одна анкета — один просмотр»). Order is windowed claims, windowed
+        # visits, permanent blocks.
         from mumu_store import SharedStore
         sources = SharedStore.shared_visited_sources(None, 'CUTOFF_STAMP')
+        self.assertEqual(len(sources), 3)
         claims_sql, claims_params = sources[0]
-        blocks_sql, blocks_params = sources[1]
+        visits_sql, visits_params = sources[1]
+        blocks_sql, blocks_params = sources[2]
         self.assertEqual(claims_params, ('CUTOFF_STAMP',))
+        self.assertEqual(visits_params, ('CUTOFF_STAMP',))
         self.assertEqual(blocks_params, ())
         self.assertIn('created_at>=?', claims_sql)
         self.assertIn('ORDER BY created_at DESC', claims_sql)
+        self.assertIn('checked_at>=?', visits_sql)
+        self.assertIn('ORDER BY checked_at DESC', visits_sql)
+        self.assertIn('FROM mumu_profile_visits', visits_sql)
         self.assertNotIn('created_at>=?', blocks_sql)
+        self.assertNotIn('checked_at>=?', blocks_sql)
         self.assertIn('ORDER BY created_at DESC', blocks_sql)
 
     def test_blocked_claim_query_filters_by_the_window_in_both_storages(self):

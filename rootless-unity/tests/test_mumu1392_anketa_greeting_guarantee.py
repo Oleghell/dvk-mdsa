@@ -233,11 +233,27 @@ class ContinueAfterStalledAnketa(unittest.TestCase):
         self.assertEqual(calls, 3)
         self.assertEqual(out['skipped_chat_not_opened'], 3)
 
-    def test_a_successful_greeting_resets_the_consecutive_limit(self):
+    def test_interleaved_failures_stop_at_the_total_no_send_budget(self):
+        # v1.3.100: a greeting between failures no longer licenses unlimited
+        # more opened-without-send ankety - the pass-wide budget (3) binds.
+        # The old pin (5 calls, completed) was the exact reported shape:
+        # «просмотрено N анкет и не одной не отписало».
         out, calls = self.go([unreadable_saturation(), unreadable_saturation(), greeted(),
                               chat_not_opened(), greeted()], limit=2)
-        self.assertEqual((out['status'], calls), ('profiles-completed', 5))
+        self.assertEqual((out['status'], out['reason']), ('profiles-stopped', 'profile-recovery-limit'))
+        self.assertEqual(calls, 4)
         self.assertEqual((out['skipped_unreadable'], out['skipped_chat_not_opened']), (2, 1))
+        self.assertEqual(out['failed_opens'], 3)
+        self.assertEqual(out['qualified_profiles'], 1)
+        # One greeting DID land before the budget stopped the idle walking.
+        self.assertEqual(out['send_attempts'], 1)
+        self.assertTrue(out['recovery_events'][-1]['return_verified'])
+
+    def test_two_failures_around_a_greeting_still_complete_the_pass(self):
+        out, calls = self.go([unreadable_saturation(), greeted(), chat_not_opened(), greeted()], limit=2)
+        self.assertEqual((out['status'], calls), ('profiles-completed', 4))
+        self.assertEqual((out['skipped_unreadable'], out['skipped_chat_not_opened']), (1, 1))
+        self.assertEqual(out['failed_opens'], 2)
         self.assertEqual(out['qualified_profiles'], 2)
 
     def test_forged_chat_open_skip_stops_instead_of_continuing(self):

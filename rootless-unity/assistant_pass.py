@@ -290,6 +290,13 @@ def release_acknowledged_no_send(store, state, navigation, stopped):
     to the eligible pool so another port's анкета can greet her. Best effort
     by design: a saturated pooler may refuse this release too, and the claim
     then keeps its window exactly as before.
+
+    v1.3.100: the peer's shared visit row (record_visit, written in the same
+    cycle) still keeps every port from RE-OPENING her anketa inside the
+    24-hour window, so this release now ends the claim WITHOUT inviting an
+    immediate re-open - the next chance is tomorrow's anketa, exactly the
+    «можно через сутки» rule the user set for claims. The release therefore
+    stays correct and loses its only downside (the re-view carousel).
     """
     acknowledged = state.get('acknowledged')
     if (acknowledged is None or not isinstance(navigation, dict)

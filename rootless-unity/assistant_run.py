@@ -98,6 +98,7 @@ def summary(result):
         city = profiles['current_city']
         parts.append(f"Анкеты{(' (' + city + ')') if city else ''}: подходящих {profiles.get('qualified_profiles', 0)}/{profiles['profile_limit']}, просмотрено {profiles['profiles_checked']}, "
                      f"попыток приветствия {profiles['send_attempts']}, возвратов обработчика {profiles['handlers_returned']}, "
+                     f"открыто без отправки {profiles.get('failed_opens', 0)}/{profiles.get('failed_open_limit', 0)}, "
                      f"пропущено (50+ друзей) {profiles['skipped_friends']}, "
                      f"пропущено (уже есть переписка) {profiles['skipped_existing_chat']}.")
         if profiles.get('send_attempts_unknown'):
@@ -129,6 +130,7 @@ INBOX_REASONS = {
     'cancelled': 'Остановлено.',
 }
 PROFILE_REASONS = {
+    'profile-recovery-limit': 'Лимит анкет без отправки: открытые анкеты не дали ни одного приветствия, и дальнейшие холостые просмотры остановлены. Повторные просмотры этих анкет исключены на сутки.',
     'profile-scan-limit': 'Достигнут предел просмотра 200 анкет. Подходящих недостаточно; продолжение — новым запуском.',
     'greeting-not-approved': 'Приветствие не подтверждено — оно не отправлялось.',
     'send-outcome-unknown': 'Результат отправки приветствия неизвестен — повтора не будет.',

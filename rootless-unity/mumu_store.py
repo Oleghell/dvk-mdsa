@@ -289,8 +289,22 @@ class SharedStore(BaseStore):
         reserve() agree through the same cutoff). Terminal contact outcomes
         stay in the snapshot forever: «если анкета оставила номер или
         отказалась его давать, то уже на других анкетах никогда ей не пишем».
+
+        v1.3.100 («одна анкета — один просмотр», user report: «все также
+        проходится в холостую по новым анкетам… не набивало просмотры
+        анкет, такого быть не должно»): shared profile VISITS join the same
+        snapshot with the same 24-hour window. A profile that ANY port
+        opened is skipped by EVERY port's native selection without opening
+        anything, so one anketa costs at most ONE view per day across the
+        whole fleet instead of one per port - and a released no-send claim
+        (1.3.81/1.3.99) no longer feeds an immediate re-open carousel. A
+        visit row is pure view protection: blocked()/reserve() never
+        consult it, so greeting eligibility keeps its own claim/journal/
+        block semantics exactly as before («можно через сутки»).
         """
         return (('SELECT peer FROM mumu_greeting_claims WHERE created_at>=? ORDER BY created_at DESC',
+                 (claim_cutoff,)),
+                ('SELECT peer FROM mumu_profile_visits WHERE checked_at>=? ORDER BY checked_at DESC',
                  (claim_cutoff,)),
                 ('SELECT peer FROM mumu_peer_blocks ORDER BY created_at DESC', ()))
 
@@ -328,8 +342,28 @@ class SharedStore(BaseStore):
         return [identifier(x) for x in values]
 
     def record_visit(self,peer,navigation):
-        # Base record is already phone-namespaced. Another phone can visit it.
-        super().record_visit(peer,navigation)
+        # v1.3.100 («одна анкета — один просмотр»): the own-port row and the
+        # shared window row commit in ONE transaction, so a profile opened by
+        # any port is never re-OPENED by another port inside the 24-hour
+        # window (the native selection pre-filter skips her without a view).
+        # The namespaced row is byte-for-byte the engine's original write
+        # (INSERT OR IGNORE, permanent per-port verdict); the shared row is
+        # pure view protection with a refreshed window stamp and is NEVER a
+        # greeting ban - blocked()/reserve()/peer_claimed() do not consult it.
+        # The base implementation is reproduced instead of super()'s so both
+        # writes share one BEGIN IMMEDIATE/COMMIT: a failure writes neither
+        # (the pre-existing deferred-visit hole is unchanged, never widened).
+        from conversation_engine import identifier
+        from mumu_greetings import claim_stamp
+        who=identifier(peer)
+        if navigation['profile_verified'] is not True:
+            return
+        with self.connection() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS profile_visits(peer TEXT PRIMARY KEY, friends_count INTEGER, history_status TEXT NOT NULL, checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
+            db.execute('INSERT OR IGNORE INTO profile_visits(peer,friends_count,history_status) VALUES(?,?,?)',
+                       (who, navigation['friends_count'], navigation['history_status']))
+            db.execute('INSERT OR REPLACE INTO mumu_profile_visits(peer,checked_at) VALUES(?,?)',
+                       (who, claim_stamp()))
 
     def skip_recovery_peer(self,who):
         from one_chat_probe import identity
