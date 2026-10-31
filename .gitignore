@@ -36,3 +36,6 @@ ai-keys.txt
 *.dpapi
 *supabase*connection*.json
 database-cloud-primary.json
+
+# Local frida native-suite build artifacts (run_native_tests.py).
+native-test-logs/

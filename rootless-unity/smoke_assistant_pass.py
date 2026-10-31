@@ -38,7 +38,21 @@ def one(library, case):
                 from unittest.mock import patch
                 with patch('assistant_profile_read.specialize',side_effect=lambda value:value):
                     source=manual.build(text,visited)
-                source=source.replace('r.navigation=emptyNavigation();','r.navigation=emptyNavigation();r.navigation.profile_read_budget_retries=0;r.navigation.greeting_frame_splits=0;r.navigation.profile_ready_waits=0;')
+                # v1.3.99 taught validate() a fourth DEFAULTS counter
+                # (submit_frame_retries) while this hand-kept twin still
+                # re-added only the three original fields, so every native
+                # run since died at 'Missing profile read evidence' - the
+                # suite had not actually been executed before that push.
+                # The baseline now derives its injection from the module's
+                # own DEFAULTS: the specialize-stripped build stays free of
+                # the profile-read specializations while carrying EXACTLY
+                # the evidence keys validate() will demand, whatever a
+                # future version adds.
+                import assistant_profile_read
+                source=source.replace('r.navigation=emptyNavigation();',
+                    'r.navigation=emptyNavigation();'+''.join(
+                        'r.navigation.%s=%s;'%(key,json.dumps(value))
+                        for key,value in assistant_profile_read.DEFAULTS.items()))
             if case in ('combined-frame','combined-frame-baseline'):
                 source=source.replace("n.read_checkpoint='identity';","{const until=Date.now()+65;while(Date.now()<until){}}n.read_checkpoint='identity';")
                 source=source.replace('const manager=call(s.cohortManager,chat);',"{const until=Date.now()+45;while(Date.now()<until){}}const manager=call(s.cohortManager,chat);")
