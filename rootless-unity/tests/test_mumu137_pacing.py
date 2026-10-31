@@ -97,9 +97,9 @@ class Continuous(mf.Monitor):
   out=self.run_fast(repeat=repeat);repeat.assert_called_once();self.assertEqual(out['reason'],'profile-pass-stopped')
 
 class Scan(unittest.TestCase):
- def test_four_rows_yield_before_budget_and_keep_all_selection_checks(self):
+ def test_sixteen_rows_yield_before_budget_and_keep_all_selection_checks(self):
   source=models.build(allowed=[inf.WHO],needs_reply_only=True)
-  self.assertIn('batch<4&&',source);self.assertIn('Date.now()<deadline-40',source)
+  self.assertIn('batch<16&&',source);self.assertIn('Date.now()<deadline-40',source)
   for text in ('stableModels(current,manager,cm,count,state.scanIndex,chat)','selection-unread-changed','selection-last-message-changed','!n.action_attempted&&!n.action_completed','state.rowBudgetYields<3','budget_yields<12'):
    self.assertIn(text,source)
  def test_scan_progress_uses_only_logical_offsets_not_names(self):

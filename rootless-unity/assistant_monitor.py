@@ -212,11 +212,38 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
             next_profiles = clock() + settings.profile_interval
             entry = 'search' if mode == 'full' else 'either'
             immediate_passes = 0
+            # v1.3.105 («ускорь эти все проверки а то бывает ждать 5-10 секунд
+            # пока оно все прочекает» / «при проверки лички на входящее бывает
+            # секунд 20 что-то проверяет когда все пусто и отвечено»): every
+            # steady-state iteration used to spend a FULL device navigation
+            # (frida session + script + frames, seconds on the loaded MuMu
+            # host) on navigate('list', 'dialogs') purely to re-verify the
+            # screen the previous pass had just left verified - and the pass
+            # that follows re-verifies the same entry itself: its first open
+            # requires entry='dialogs' and fails closed on any other screen
+            # (search is even recovered by the open's own switchTab arm), so
+            # the pre-pass navigation added cost, never proof. The redundant
+            # verification is skipped exactly when the previous pass PROVED
+            # the dialogs screen (its own dialogs_verified=True, nothing moved
+            # the device since): the real transitions stay - the recovery-
+            # capable entry='either'/'search' navigations, the post-profile
+            # navigate('list','search') off the search screen, and every
+            # first pass after startup. A screen that does change under the
+            # idle wait now stops the monitor through the inbox pass itself
+            # ('inbox-pass-stopped', the same recovery supervisor route the
+            # navigate failure used) instead of 'dialog-list-not-verified'.
+            list_verified = False
             while True:
                 boundary(stopped)
                 check_stop()
-                phase = 'dialog-list-not-verified'
-                navigate('list', entry)
+                if entry != 'dialogs' or not list_verified:
+                    phase = 'dialog-list-not-verified'
+                    navigate('list', entry)
+                else:
+                    # The previous pass proved the dialogs screen; the open
+                    # below re-verifies it natively. Keep the observable
+                    # bookkeeping identical to a successful list navigation.
+                    out.update(dialogs_verified=True, ui_may_remain_open=False)
                 entry = 'dialogs'
                 phase = 'inbox-pass-stopped'
                 out.update(dialogs_verified=False, ui_may_remain_open=True)
@@ -232,6 +259,10 @@ def run(settings, stopped, approve, progress=lambda _: None, *, mode='full',
                     raise StateError('dialog-list-not-verified')
                 out.update(dialogs_verified=True, ui_may_remain_open=False)
                 out['passes_completed'] += 1
+                # v1.3.105: this completed/empty pass leaves the device ON the
+                # dialogs screen with its own verified proof - the next
+                # iteration's pre-pass 'list' navigation is redundant.
+                list_verified = True
                 review = set(current['outcomes']) & PAUSE_OUTCOMES
                 if review:
                     out.update(status='paused', reason='message-not-approved' if

@@ -8,7 +8,7 @@ WHO=dict(account='100',peer='200',chat='300')
 OTHER=dict(account='100',peer='201',chat='301')
 def one(library,mode,slow=False,baseline=False,seen_ids=None,recent_limit=None,reverse=False,start=0):
  child=subprocess.Popen([sys.executable,'-u','-c',
- "import ctypes,sys,time\nl=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)\nl.fixture_init(int(sys.argv[2]));l.fixture_browser_entry(1)\nprint('ready',flush=True)\nfor _ in range(20000):\n l.fixture_tick();time.sleep(float(sys.argv[3]))",str(library),str(mode),str(.45 if slow else .003)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+ "import ctypes,sys,time\nl=ctypes.CDLL(sys.argv[1],mode=ctypes.RTLD_GLOBAL)\nl.fixture_init(int(sys.argv[2]));l.fixture_browser_entry(1)\nprint('ready',flush=True)\nfor _ in range(20000):\n l.fixture_tick();time.sleep(float(sys.argv[3]))",str(library),str(mode),str(2.2 if slow else .003)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
  session=script=None
  try:
   assert child.stdout.readline().strip()=='ready';session=frida.get_local_device().attach(child.pid)
@@ -16,7 +16,7 @@ def one(library,mode,slow=False,baseline=False,seen_ids=None,recent_limit=None,r
   if seen_ids is not None:allowed=[dict(WHO,seen_ids=seen_ids)]
   while True:
    source=prepared_source(models.build(allowed=(),needs_reply_only=True,offset=offset,recent_limit=recent_limit,reverse=reverse,start=start))
-   if baseline:source=source.replace('batch<4&&','batch<1&&')
+   if baseline:source=source.replace('batch<16&&','batch<1&&')
    script=session.create_script(source+'''
 rpc.exports={preparetargets(values){return prepareNavigationTargets(values);},probe(){return probeUIKitRoot();},counts(){const r=n=>new NativeFunction(Module.getGlobalExportByName(n),'int',[])();return [r('fixture_handles'),r('fixture_bad_frees'),r('fixture_off_thread_calls'),r('fixture_model_visible_calls'),r('fixture_browser_clicks'),r('fixture_browser_backs'),r('fixture_route_bad'),r('fixture_model_clicks')];}};''')
    script.load();assert script.exports_sync.preparetargets(allowed) is True;raw=script.exports_sync.probe()

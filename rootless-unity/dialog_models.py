@@ -11,7 +11,21 @@ from uikit_profile_navigation import replace_once
 MAX_MODELS=100000
 SLICE=64
 SCAN_MILLISECONDS=4000
-ROWS_PER_FRAME=4
+# v1.3.105 («ускорь эти все проверки а то бывает ждать 5-10 секунд пока оно
+# все прочекает» / «при проверки лички на входящее бывает секунд 20 что-то
+# проверяет когда все пусто и отвечено», S5GK7 monitors 611-638): the measured
+# open_ms on the loaded 12-port host was median 7.6s / avg 8.1s, and the
+# all-read 50-row window needed 13 scan callbacks at 4 rows each because a
+# STATIC dialogs screen fires its watched uikit-component-update at roughly
+# one hertz - the scan alone waited 6-13 seconds before reporting
+# 'exhausted'. The batch bound rises to 16 rejected rows per callback: the
+# 50-row window now needs at most 4 callbacks. Nothing else moves - the
+# (batch===0||Date.now()<deadline-40) guard still refuses to START a row
+# past 60ms of the 100ms frame budget, every candidate row keeps its full
+# within-callback double-read stability proof, an open still ends the batch
+# immediately (if(opened)return), and the 4s SCAN_MILLISECONDS budget still
+# splits a slow scan across slices through the same cursor continuation.
+ROWS_PER_FRAME=16
 EXTRA_APIS=['il2cpp_class_get_field_from_name','il2cpp_field_get_parent',
  'il2cpp_field_get_type','il2cpp_field_get_flags','il2cpp_field_get_value',
  'il2cpp_class_value_size','il2cpp_class_is_enum','il2cpp_class_enum_basetype',

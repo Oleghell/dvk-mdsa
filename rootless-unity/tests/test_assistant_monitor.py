@@ -98,9 +98,9 @@ class Monitor(unittest.TestCase):
         self.assertTrue(self.initial.call_args.kwargs['fresh_session'])
         self.assertEqual(self.inbox.call_count, 3)
         self.assertTrue(all(c.kwargs == dict(entry='dialogs', return_to='dialogs') for c in self.inbox.call_args_list))
-        self.assertEqual([c.kwargs['entry'] for c in self.navigator.call_args_list], ['either', 'dialogs', 'search', 'dialogs', 'dialogs'])
+        self.assertEqual([c.kwargs['entry'] for c in self.navigator.call_args_list], ['either', 'dialogs', 'search'])
         self.assertEqual([c.args[0] for c in self.navigator.call_args_list],
-                         ['list', 'return', 'list', 'list', 'list'])
+                         ['list', 'return', 'list'])
         self.assertEqual(out['totals']['outgoing_observed'], 3)
         self.assertFalse(self.held)
         self.assertTrue(out['automatic_profile_repeat'])
@@ -198,10 +198,19 @@ class Monitor(unittest.TestCase):
         self.approve.assert_not_called()
 
     def test_switched_screen_during_wait_stops_next_pass(self):
-        self.navigator.side_effect = [list_result(), RuntimeError('PRIVATE')]
+        # v1.3.105: the steady-state pre-pass 'list' navigation is skipped
+        # (the previous pass proved the dialogs screen), so a screen that
+        # changes under the idle wait is now caught by the NEXT PASS itself:
+        # its own open fails closed and the monitor stops with
+        # 'inbox-pass-stopped' - the same recovery route a navigation
+        # failure used, one redundant device session earlier.
+        self.navigator.side_effect = [list_result()]
+        self.inbox.side_effect = [inbox_result(),
+                                  dict(inbox_report(), status='inbox-stopped', reason='navigation-stopped')]
         out = self.run_monitor(mode='inbox', wait=lambda _: False)
-        self.assertEqual(self.inbox.call_count, 1)
-        self.assertEqual(out['reason'], 'dialog-list-not-verified')
+        self.assertEqual(self.inbox.call_count, 2)
+        self.navigator.assert_called_once()
+        self.assertEqual(out['reason'], 'inbox-pass-stopped')
         self.assertNotIn('PRIVATE', json.dumps(out))
 
     def test_bad_report_stops_before_next_pass_and_masks_exception(self):
