@@ -20,8 +20,19 @@ class ProfileFrames(unittest.TestCase):
         a=s.index("if(n.phase==='check-chat')");b=s.index("if(n.phase==='prepare-greeting')");c=s.index("if(n.phase==='submit-greeting')")
         self.assertNotIn('cohortPending=reservation',s[a:b])
         self.assertNotIn('call(s.send,current,args)',s[a:c])
+        # v1.3.106: the full identity/context re-verification guards live in
+        # prepare-greeting (the fresh frame after the two-sample split); the
+        # submit-greeting frame carries only the light pin context because the
+        # SEND block itself re-verifies identity and screen LIVE at the send
+        # instant - a strictly stronger check than cached flag re-testing.
         for guard in ('integer(s.count,cm)!==0','!call(s.last,chat).isNull()',"!call(s.opponent,chat).equals(user)"):
-            self.assertIn(guard,s[b:c]);self.assertIn(guard,s[c:])
+            self.assertIn(guard,s[b:c])
+        for guard in ('integer(s.count,cm)!==0','!call(s.last,chat).isNull()',
+                      '!call(s.chatUser,current).equals(user)','!call(s.messages,chat).equals(cm)'):
+            self.assertIn(guard,s[c:])
+        # The duplicated third CONTEXT copy is gone from submit-greeting: the
+        # pinned opponent recheck must NOT appear twice after the ACK gate.
+        self.assertEqual(s[c:].count("!call(s.opponent,chat).equals(user)"),0)
         self.assertIn("if(cohortApproved!==reservationKey)fail('identity-changed');",s[c:])
         self.assertIn('const deadline=Date.now()+100;',s)
         self.assertIn('n.managed_calls>=6000',s)

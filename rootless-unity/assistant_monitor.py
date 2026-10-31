@@ -407,6 +407,17 @@ def summary(result):
         if contact_pending:
             text += f" • контактов ожидают TG {contact_pending}"
             if not result.get('contacts_enabled'):text += ' (передача выключена)'
+        # v1.3.106 («отчеты в телеграм бота перестает присылать будто где-то
+        # копиться в буфере»): the delivery queue is VISIBLE in the waiting
+        # summary - a growing backlog or a relaunched/dead worker is exactly
+        # the silent-notifications state the user reported, and it now shows
+        # as a number instead of nothing.
+        queue=(result.get('last_pass') or {}).get('tg_queue')
+        if isinstance(queue,dict):
+            queued=queue.get('queued',0);restarts=queue.get('restarts',0)
+            if queued:text += f' • в очереди TG {queued}'
+            if restarts:text += f' • очередь TG перезапущена {restarts} раз'
+            if queue.get('dead'):text += ' • очередь TG не работает'
         pending = (result.get('last_pass') or {}).get('review_pending', 0)
         if pending or totals.get('isolated_dialogs', 0):
             text += f" • на проверке {max(pending, totals.get('isolated_dialogs', 0))}"

@@ -66,6 +66,18 @@ ISOLATE = {'greeting-not-verified', 'send-outcome-unknown', 'outgoing-not-observ
            'zai-repeat-greeting', 'zai-unsafe-reply', 'zai-invalid-response'}
 CONTINUE = {'chain-waiting', 'chain-completed', 'chain-needs-review', 'chain-paused'}
 
+# v1.3.106 (dropmefiles eEP7SW): the authored ValueError texts of the pre-open
+# target preparation (with_seen_ids/hidden_peers kwargs) and the navigation
+# envelope checks. Recording the exact code on a validation-failed stop turns
+# the next report into a pinpointed line; raw exception text never enters the
+# report, only this closed set.
+PREPARATION_VALIDATION_CODES = {
+    'Invalid journal targets', 'Invalid target', 'Invalid retry target', 'Invalid initial chat',
+    'Invalid observed IDs', 'Ambiguous target', 'Invalid test identity', 'Self dialog',
+    'Invalid navigation result', 'Unverified navigation', 'Unexpected navigation state',
+    'Invalid navigation binding', 'Invalid navigation diagnostic', 'Invalid cooldown clock',
+}
+
 
 def isolation_reason(result, *, quick_send_exit=False):
     """Only authored, identity-rechecked message failures may leave via verified back.
@@ -700,7 +712,20 @@ def with_seen_ids(chain, allowed, deny=()):
                 elif len(out)<1000:
                     out.append(dict(account=account,peer=peer,chat=chat,seen_ids=[last]))
                     by_peer[(account,peer)]=out[-1]
-    return targets(out)
+    # v1.3.106 (eEP7SW): the final targets() validation runs INSIDE the open's
+    # kwargs evaluation, before call() resets last_navigation - exactly where a
+    # single duplicated (account, peer) from the Python-side assembly arms (the
+    # group slice plus the prepended retry target, the deny/operator merges)
+    # raised ValueError('Ambiguous target') and stopped the whole pass with the
+    # previous Back's diagnostic still in the report. The list is defensively
+    # deduplicated here (first entry wins, matching the combined.setdefault
+    # semantics the MuMu path already uses): the native scan re-verifies every
+    # row it opens, so a transport-side duplicate is never peer state. seen_ids
+    # keep the SQL's UNION dedup plus the 128 cap enforced above.
+    deduplicated={}
+    for entry in out:
+        deduplicated.setdefault((entry['account'],entry['peer']),entry)
+    return targets(list(deduplicated.values()))
 
 
 def report():
@@ -765,6 +790,15 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if status in out['contact_notifications']:out['contact_notifications'][status]+=1
             if status=='accepted':out['contacts_forwarded']+=1
             if status in ('accepted','unknown'):out['personal_data_exported']=True
+        # v1.3.106 («отчеты в телеграм бота перестает присылать будто где-то
+        # копиться в буфере»): the delivery queue's own health rides the pass
+        # report so a stuck or slow Telegram shows up as a number instead of
+        # silence. queued>0 means notices are waiting; restarts>0 means the
+        # worker died and was relaunched; dead=True means it cannot deliver.
+        try:
+            out['tg_queue']=dispatcher.backlog()
+        except Exception:
+            pass
     progress('Подготавливаю список диалогов из общей базы…')
     with checkpoint('inbox-targets'):
         out['contact_delivery_pending']=pending_contacts()
@@ -923,14 +957,30 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             host_checkpoint = 'inbox-open'
             from assistant_stage_timing import timed
             open_timing = {}
-            # v1.3.89: deny evidence drops a peer this pass already opened (the
-            # same pruning the group lists get), so a finished chat that was
-            # deliberately revisited cannot be re-admitted by its own evidence.
+            # v1.3.106 (dropmefiles eEP7SW, two ports, host_failure
+            # 'validation-failed' at host_checkpoint 'inbox-open' while the
+            # report's last_navigation kept the PREVIOUS verified Back): a
+            # ValueError raised while the open's kwargs were still being
+            # evaluated - inside with_seen_ids()/hidden_peers(), BEFORE
+            # call() resets out['last_navigation'] - produced exactly that
+            # signature and stopped the whole pass. The preparation now runs
+            # under its own named checkpoint with the authored validation code
+            # recorded, so the next report names the failing check instead of
+            # the bare category, and the prepared target list is defensively
+            # deduplicated (the SQL sources are UNION-deduplicated per query,
+            # but the merged deny/operator-marker arms and the retry-target
+            # prepend assemble the final list in Python, where one duplicated
+            # (account, peer) turns into ValueError('Ambiguous target') and a
+            # dead port).
+            host_checkpoint = 'inbox-prepare'
+            prepared_allowed = with_seen_ids(chain, allowed, deny=[
+                x for x in deny if (x['account'], x['peer']) not in processed])
+            prepared_hidden = hidden_peers(chain, clock=clock)
+            host_checkpoint = 'inbox-open'
             selected = timed(open_timing, 'open', call, 'open',
-                            allowed=with_seen_ids(chain, allowed, deny=[
-                                x for x in deny if (x['account'], x['peer']) not in processed]),
+                            allowed=prepared_allowed,
                             entry=entry, unread_only=unread_only, needs_reply_only=True,
-                            adopt_untracked=adopt_open, hidden=hidden_peers(chain, clock=clock))
+                            adopt_untracked=adopt_open, hidden=prepared_hidden)
             entry = 'dialogs'
             if selected['state'] == 'exhausted':
                 # v1.3.104: a queued post-send verification target that rode
@@ -1332,6 +1382,11 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
     except Exception as error:
         from assistant_failure import category,evidence
         out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
+        # v1.3.106 (eEP7SW): the authored ValueError texts are closed codes -
+        # recording WHICH check fired turns the next 'validation-failed' stop
+        # into a pinpointed line instead of a category the user cannot act on.
+        if isinstance(error, ValueError) and str(error) in PREPARATION_VALIDATION_CODES:
+            out['validation_reason'] = str(error)
         from cloud_database import diagnostic as database_diagnostic
         database=database_diagnostic(error)
         if database:out['database']=database

@@ -133,14 +133,16 @@ def diagnostic_json(report):
         'setup_retry_attempts','profile_read_budget_retries','submit_frame_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
         'skipped_unready_chat','skipped_unreadable','skipped_chat_not_opened','skipped_submit_frame_budget','profile_model_waits','chat_open_waits','read_recovery_limit','failed_open_limit','consecutive_read_recoveries','failed_opens','no_greet_opens','no_greet_open_limit','no_greet_streak_limit','skipped_friends','skipped_existing_chat','skipped_input_disabled','search_cycles','profile_limit','send_attempts',
-        'entry_read_budget_retries','entry_binding_waits','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','retry_rows_opened','read_retry_targets','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs','shared_peer_skips','post_send_checks','post_send_list_verified','post_send_list_unconfirmed','post_send_reopened'}
+        'entry_read_budget_retries','entry_binding_waits','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','retry_rows_opened','read_retry_targets','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs','shared_peer_skips','post_send_checks','post_send_list_verified','post_send_list_unconfirmed','post_send_reopened',
+        # v1.3.106: the Telegram delivery queue's own health counters.
+        'tg_queued','tg_delivered','tg_failed','tg_depth','tg_deepest','tg_restarts','list_scan_retries'}
     from assistant_stage_timing import FIELDS as TIMING_FIELDS
     numbers |= TIMING_FIELDS
     flags = {'profile_cycle_no_send_verified','state_verified','city_open_attempted','city_open_completed','city_query_attempted','city_query_text_completed','city_query_completed','city_result_verified','city_form_verified','city_verified','online_verified','saved_receipt_only','input_disabled_verified','history_wait_exhausted','history_budget_exhausted','history_snapshot_oversized','post_send_checked','send_no_invocation_verified','profile_script_executed','submission_attempted','submission_returned','contact_review_reconciled','send_attempted','send_handler_returned','send_attempts_unknown','return_verified','search_verified',
         'open_attempted','open_completed','chat_open_attempted','chat_open_completed','chat_identity_verified',
         'chat_back_attempted','chat_back_completed','chat_return_verified','profile_read_skipped',
         'apply_attempted','apply_completed','city_form_verified','city_select_attempted','city_select_completed','shared_peer_skipped',
-        'action_attempted','action_completed','entry_verified','selection_verified','dialogs_verified','destination_verified','cleanup_failed','continue_work','cooldown'}
+        'action_attempted','action_completed','entry_verified','selection_verified','dialogs_verified','destination_verified','cleanup_failed','continue_work','cooldown','tg_dead'}
     labels = {'send_host_failure','city_checkpoint','city_prepare','city_identity','photo_checkpoint','last_send_failure','status','reason','error','phase','stage','wait_reason','read_checkpoint','last_error',
         'scalar_checkpoint','scalar_state','identity_checkpoint','message_kind','message_direction','error_type','adb_check','adb_reason','host_failure','host_checkpoint','failure_point','profile_read_skip_reason','action','chat_return_route','notification','metadata_checkpoint','selection_checkpoint','provider','code','step','frame_source','validation_reason'}
     from groq_reply import VALIDATION_REASONS
@@ -162,6 +164,10 @@ def diagnostic_json(report):
     codes |= ROOT_STAGES | ROOT_STEPS | set(ROOT_SOURCES) | {'not-observed'}
     flags |= {'api_available','metadata_ready','observer_installed','observed_callback','main_thread_confirmed'}
     numbers |= {'observed_calls'}
+    # v1.3.106 (eEP7SW): the authored pre-open validation codes are closed
+    # labels - the next validation-failed stop names its exact check.
+    from assistant_inbox import PREPARATION_VALIDATION_CODES
+    codes |= PREPARATION_VALIDATION_CODES
     def clean(value, depth=0):
         if not isinstance(value, dict) or depth > 7:
             return {}
@@ -188,6 +194,16 @@ def diagnostic_json(report):
                 from cloud_database import clean_diagnostic
                 safe=clean_diagnostic(entry)
                 if safe:result[key]=safe
+            elif key=='tg_queue' and isinstance(entry,dict):
+                # v1.3.106: the Telegram delivery queue's health, projected to
+                # flat whitelisted counters (no identities ride along).
+                health={}
+                for source,target in (('queued','tg_queued'),('delivered','tg_delivered'),('failed','tg_failed'),
+                                       ('depth','tg_depth'),('deepest','tg_deepest'),('restarts','tg_restarts')):
+                    value=entry.get(source)
+                    if type(value) is int and 0<=value<=1000000:health[target]=value
+                if entry.get('dead') is True:health['tg_dead']=True
+                if health:result[key]=health
             elif key=='validation':
                 # Startup failures keep the authored ValueError invariant that
                 # rejected a navigation; the closed set lives in startup_failure.

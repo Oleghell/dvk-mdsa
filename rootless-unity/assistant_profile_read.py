@@ -63,6 +63,35 @@ CONTEXT = r'''
      !call(s.last,chat).isNull()||bool(s.presenting,current)||bool(s.dismissing,current)||!checkView(current))fail('screen-not-ready');
 '''
 
+# v1.3.106 («если новая анкета подходит по параметрам то при открытии диалога
+# пусть сразу без проверки отправляет сообщение» / «с первым приветствием тоже
+# что-то срочно делай ибо все равно в холостую там сидит»): the ACKed
+# submit-greeting frame used to carry the THIRD full CONTEXT re-verification
+# on top of the SEND block's own final identity+screen gate - ~17 redundant
+# managed calls in the one 100ms tick that also invokes OnSendText. Under a
+# loaded twelve-port MuMu host that tick regularly blew its frame budget
+# exactly at the send call, burned all 8 dedicated fresh frames and ended the
+# cycle as the verified submit-frame-budget skip - the mechanical root of
+# both «в холостую сидит» and «14 анкет / 0 сообщений». The submit frame now
+# carries only what the SEND block actually consumes: the controller pin
+# check, the three saved pins, the integer helper and the field box with its
+# class check. Identity, history and input are NOT re-checked here because
+# the SEND block itself re-verifies them LIVE at the send instant
+# (resolve(candidate).equals(current), the four identity pins, input enabled,
+# count===0, last-message null, checkView) - a live model read is strictly
+# stronger than re-testing cached n.* flags. The full CONTEXT still guards
+# check-chat (the two-sample empty-history read) and prepare-greeting (the
+# fresh-frame re-verification after the split, with the input-disabled skip
+# gate), so the send path keeps every verified-evidence contract the
+# validators demand; only the duplicated third copy is gone.
+SUBMIT_CONTEXT = r'''
+    if(k!=='chat'||!current.equals(target(state.chatController)))fail('identity-changed');
+    const chat=target(state.chatModelPin),user=target(state.chatUserPin),cm=target(state.chatCMPin);
+    if(chat.isNull()||user.isNull()||cm.isNull())fail('identity-changed');
+    const integer=(entry,obj)=>{const box=call(entry,obj);if(box.isNull())fail('signature-mismatch');const p=f.unbox(box);if(p.isNull())fail('signature-mismatch');return p.readS32();};
+    const field=call(s.all,cm);if(field.isNull()||!f.objectClass(field).equals(s.loadedClass))fail('screen-not-ready');own(field);
+'''
+
 
 # Input availability is read from the verified model, never screenshot text.
 INPUT_GATE = """n.profile_input_enabled=bool(s.input,chat);
@@ -136,7 +165,7 @@ def specialize(source):
     n.phase='submit-greeting';state.nextActionAt=Date.now();return;
    }
    if(n.phase==='submit-greeting'){
-''' + CONTEXT + cohort_pass.RESERVE.split('   if(cohortApproved!==reservationKey){', 1)[0] + "   if(cohortApproved!==reservationKey)fail('identity-changed');\n" + send + r'''
+''' + SUBMIT_CONTEXT + cohort_pass.RESERVE.split('   if(cohortApproved!==reservationKey){', 1)[0] + "   if(cohortApproved!==reservationKey)fail('identity-changed');\n" + send + r'''
     n.phase='close-chat';state.nextActionAt=Date.now()+1000;return;
    }
 ''' + source[b:]
