@@ -27,7 +27,7 @@ class CityTransitions(unittest.TestCase):
  def test_exception_and_cancel_are_checked_before_accepting_return(self):
   source=city.build('Псков')
   self.assertIn("if(!ex.readPointer().isNull())fail('managed-exception');if(fixedCancellationRequested)fail('cancelled');if(Date.now()>deadline)",source)
-  self.assertIn("if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted)||(n.phase==='scan-city'&&!n.city_select_attempted)||(n.phase==='wait-city-return'&&n.city_select_completed&&!n.apply_attempted)||(n.phase==='confirm-filters'&&n.city_form_verified&&!n.apply_attempted)||(n.phase==='wait-return'&&n.apply_completed&&n.city_select_completed&&n.city_form_verified))&&n.city_read_budget_retries<4)",source)
+  self.assertIn("if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted)||(n.phase==='scan-city'&&!n.city_select_attempted)||(n.phase==='wait-city'&&n.city_open_completed)||(n.phase==='wait-city-return'&&n.city_select_completed&&!n.apply_attempted)||(n.phase==='confirm-filters'&&n.city_form_verified&&!n.apply_attempted)||(n.phase==='wait-return'&&n.apply_completed&&n.city_select_completed&&n.city_form_verified))&&n.city_read_budget_retries<4)",source)
  def test_destination_still_verified_on_fresh_frame(self):
   source=city.build('Псков')
   self.assertIn("if(!current.equals(target(state.origin)))fail('identity-changed');",source)

@@ -9,11 +9,19 @@ RETRY_CODES={'frame-budget','call-limit','frame-limit','transition-timeout','cal
     'selection-unavailable','screen-not-ready','wrong-screen','unexpected-screen','read-stopped',
     'native-transport-error','native-operation-cancelled','native-script-error','native-state-error',
     'native-process-unavailable','transport-error','device-timeout','readonly-list-updated',
-    'entry-binding-timeout'}
+    'entry-binding-timeout','observer-stopped'}
 BLOCK_CODES={'city-claim-changed','profile-authorization-pending','profile-authorization-missing','profile-authorization-failed','profile-script-unavailable','unverified-host-failure','identity-changed','identity-not-bound','untracked-dialog','changed-dialog',
     'report-write-failed','message-not-approved','greeting-not-approved','cancelled',
     'journal-busy','journal-locked','journal-readonly','journal-storage-full','journal-io-error',
     'journal-corrupt','journal-error','resource-missing','resource-access-denied'}
+
+# Reports 9104352d monitoring snapshots 614/617/621/623 (v1.3.99): four ports
+# stopped DEAD on navigation error 'observer-stopped' - the bounded observer
+# finished while the navigation was still running, the same transient class as
+# 'transition-timeout' - but that code was missing from RETRY_CODES, so
+# recoverable() classified the stop as unverified-host-failure and no recovery
+# round ever ran (mumu_cities.recover_pending already retried it). The code
+# joins the retryable set; identity/journal/approval blocks stay final.
 
 # Reports WHm3 (v1.3.71): a screen no fixed operation could verify kept the
 # port in "recovering" forever - repair() returned False every round while

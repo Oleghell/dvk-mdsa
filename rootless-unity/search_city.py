@@ -260,7 +260,15 @@ def build(city):
     s = replace(s, 'const deadline=Date.now()+100;', "const deadline=Date.now()+100;let cityFrameMutated=false;if(n.phase==='wait-return')state.cityReturnNext=Date.now()+100;")
     s = replace(s, 'const out=f.invoke(m,obj,params,ex);',
         'if([s.open,s.cityOpen,s.cityTextSet,s.citySearch,s.citySelect,s.onlineSet,s.distanceSet,s.refreshForm,s.apply].includes(entry))cityFrameMutated=true;const out=f.invoke(m,obj,params,ex);')
-    s = replace(s, "} catch(e){n.error=", "} catch(e){if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted)||(n.phase==='scan-city'&&!n.city_select_attempted)||(n.phase==='wait-city-return'&&n.city_select_completed&&!n.apply_attempted)||(n.phase==='confirm-filters'&&n.city_form_verified&&!n.apply_attempted)||(n.phase==='wait-return'&&n.apply_completed&&n.city_select_completed&&n.city_form_verified))&&n.city_read_budget_retries<4){n.city_read_budget_retries++;if(n.phase==='scan-city'){state.cityFingerprint=null;n.city_scan_samples=0;}return;}n.error=")
+    # Reports 9104352d snapshots 615/616 (v1.3.99): the wait-city phase (the
+    # picker is already open and we merely WAIT for the city screen) had no
+    # retry clause, so one slow observation tick after cityOpen completed
+    # stopped the whole city transition at 'city-not-verified' with
+    # city_read_budget_retries=0 and pushed the port into recovery rounds.
+    # The wait-city tick is pure observation (no mutating entry can run there
+    # after city_open_completed), so it joins the same bounded retry; the
+    # cityFrameMutated guard still forbids retrying the invoke itself.
+    s = replace(s, "} catch(e){n.error=", "} catch(e){if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted)||(n.phase==='scan-city'&&!n.city_select_attempted)||(n.phase==='wait-city'&&n.city_open_completed)||(n.phase==='wait-city-return'&&n.city_select_completed&&!n.apply_attempted)||(n.phase==='confirm-filters'&&n.city_form_verified&&!n.apply_attempted)||(n.phase==='wait-return'&&n.apply_completed&&n.city_select_completed&&n.city_form_verified))&&n.city_read_budget_retries<4){n.city_read_budget_retries++;if(n.phase==='scan-city'){state.cityFingerprint=null;n.city_scan_samples=0;}return;}n.error=")
     # A repeated observation must release its old persisted handles, including
     # the origin captured immediately before a pre-invoke budget rejection.
     s = replace(s, 'const saveOnline=(key,obj)=>{const h=own(obj);',

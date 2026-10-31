@@ -11,6 +11,7 @@ import time
 import chat_batch
 import cohort_pass
 from assistant_config import check_text
+from assistant_profile_read import SUBMIT_FRAME_RETRY_LIMIT
 from assistant_store import StateError
 from uikit_profile_navigation import replace_once
 
@@ -259,7 +260,7 @@ PROFILE_DIAGNOSTIC_FIELDS=('stage','error','phase','frames','managed_calls','met
     'selection_check','read_checkpoint','wait_reason','search_verified','open_attempted','open_completed',
     'chat_open_attempted','chat_open_completed','send_attempted','send_handler_returned','return_verified',
     'profile_model_waits','chat_open_waits',
-    'profile_read_budget_retries','greeting_frame_splits','profile_ready_waits','profile_read_skipped',
+    'profile_read_budget_retries','greeting_frame_splits','profile_ready_waits','submit_frame_retries','profile_read_skipped',
     'profile_read_skip_reason','profile_input_enabled','chat_back_attempted','chat_back_completed',
     'chat_return_verified','chat_identity_verified','chat_return_route','shared_peer_skipped')
 
@@ -274,6 +275,37 @@ def drain_threads(threads,done,*,timeout=30,clock=time.monotonic):
     for thread in threads:thread.join(timeout=max(0,deadline-clock()))
     if any(thread.is_alive() for thread in threads):
         raise StateError('profile-authorization-pending')
+
+
+def release_acknowledged_no_send(store, state, navigation, stopped):
+    """v1.3.99 (twelve ports at once): return an ACKed claim that PROVES no send.
+
+    The submit-frame-budget skip can only fire AFTER the durable ACK (the
+    monitor stashes that reservation in ``state['acknowledged']``), and its
+    validated evidence chain proves the send latch never opened: both send
+    flags false, the dedicated submit budget exhausted, the chat closed with
+    verified evidence. The committed claim would otherwise shield the peer
+    for its whole 24-hour window with no greeting at all; the same
+    idempotent, device-scoped release as the pre-ACK paths returns the peer
+    to the eligible pool so another port's анкета can greet her. Best effort
+    by design: a saturated pooler may refuse this release too, and the claim
+    then keeps its window exactly as before.
+    """
+    acknowledged = state.get('acknowledged')
+    if (acknowledged is None or not isinstance(navigation, dict)
+            or navigation.get('send_attempted') is not False
+            or navigation.get('send_handler_returned') is not False
+            or navigation.get('profile_read_skip_reason') != 'submit-frame-budget'
+            or navigation.get('submit_frame_retries') != SUBMIT_FRAME_RETRY_LIMIT):
+        return False
+    try:
+        shared_registry_read(
+            lambda: store.release_reservation(acknowledged), stopped,
+            delays=RELEASE_RETRY_DELAYS, deadline=RELEASE_DEADLINE_SECONDS)
+    except Exception:
+        return False
+    state['reservation_released'] = True
+    return True
 
 
 def monitor(script, store, text, approve, done, cancelled, state, failures=None, preclaimed=frozenset()):
@@ -428,6 +460,13 @@ def monitor(script, store, text, approve, done, cancelled, state, failures=None,
                 # the peer stays eligible instead of silently lost.
                 release(pending)
                 raise StateError('Подтверждение устарело. Отправка остановлена.')
+            # v1.3.99 (twelve ports at once): remember the authorization that
+            # actually reached the native side. The exhaustion skip below
+            # (submit-frame-budget) can only fire AFTER this ACK, and its
+            # validated no-attempt evidence is what lets inspect() return
+            # this committed claim to the eligible pool instead of shielding
+            # the peer for 24 hours without any greeting.
+            state['acknowledged'] = dict(pending)
             return  # Exactly one authorization per host operation.
         except Exception as error:
             from run_preparation import record as prepared
@@ -569,6 +608,13 @@ def inspect(port, token, cancelled, text, store, approve, *, frida_api=None):
                 raise StateError('profile-authorization-missing')
             if action_id is not None:
                 store.finish(action_id, n)
+                # v1.3.99 (twelve ports at once): the ACKed greeting submit
+                # exhausted its own bounded fresh-frame budget without ever
+                # opening the send latch. Return the committed claim to the
+                # eligible pool so another port can still greet the peer
+                # instead of a 24-hour claimed-but-never-greeted shield.
+                release_acknowledged_no_send(
+                    store, state, n, lambda: cancelled() or done.is_set())
             if failures:
                 stage='profile-authorization'
                 raise failures[0]

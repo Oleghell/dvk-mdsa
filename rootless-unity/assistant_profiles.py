@@ -12,6 +12,7 @@ import secrets
 from assistant_store import StateError
 from version import VERSION
 from assistant_authorization import flags
+from assistant_profile_read import SUBMIT_FRAME_RETRY_LIMIT
 
 MAX_LIMIT = 20
 MAX_SEARCH_CYCLES = 200
@@ -23,7 +24,7 @@ def report(limit):
     return dict(tool_version=VERSION, mode='new-profiles-pass', status='profiles-stopped',
                 reason='not-started', profile_limit=limit, profiles_checked=0, qualified_profiles=0, scan_limit=MAX_SCANNED,
                 search_cycles=0, search_cycle_limit=MAX_SEARCH_CYCLES,
-                skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0, skipped_input_disabled=0, skipped_unreadable=0, skipped_chat_not_opened=0,
+                skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0, skipped_input_disabled=0, skipped_unreadable=0, skipped_chat_not_opened=0, skipped_submit_frame_budget=0,
                 read_recovery_limit=MAX_READ_RECOVERIES, consecutive_read_recoveries=0, recovery_events=[], greetings_offered=0, shared_peer_skips=0,
                 reservations_released=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
@@ -179,7 +180,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 'open_attempted', 'open_completed', 'chat_open_attempted', 'chat_open_completed',
                 'send_attempted', 'send_handler_returned', 'return_verified',
                 'profile_model_waits', 'chat_open_waits',
-                'profile_read_budget_retries', 'greeting_frame_splits', 'profile_ready_waits',
+                'profile_read_budget_retries', 'greeting_frame_splits', 'profile_ready_waits', 'submit_frame_retries',
                 'profile_read_skipped', 'profile_read_skip_reason', 'profile_input_enabled', 'chat_back_attempted', 'chat_back_completed',
                 'chat_return_verified', 'chat_identity_verified', 'chat_return_route', 'shared_peer_skipped') if key in n}
             if n.get('shared_peer_skipped'):
@@ -269,6 +270,48 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                     out['recovery_events'].append(event)
                     out['recovery_events'] = out['recovery_events'][-20:]
                     progress('Анкета пропущена: личка не открылась после нажатия. Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else ' Достигнут лимит восстановлений.'))
+                    if getattr(settings, 'errors_enabled', False):
+                        from assistant_error_notify import notify_recovery
+                        try:
+                            result = (notify_recovery if recovery_notifier is None else recovery_notifier)(event)
+                            event['notification'] = result if result in ('accepted','unknown','not-configured','not-needed') else 'unknown'
+                        except Exception:
+                            event['notification'] = 'unknown'
+                    if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES:
+                        raise StateError('profile-recovery-limit')
+                    continue
+                elif n['profile_read_skip_reason'] == 'submit-frame-budget':
+                    # v1.3.99 (twelve ports at once): the ACKed greeting submit
+                    # could not fit its send into ANY of its bounded fresh
+                    # frames - the saturated host could not deliver the tick.
+                    # The native cycle closed the chat with the same verified
+                    # evidence every other skip uses, and the pass continues on
+                    # the next candidate instead of parking the port in
+                    # recovery rounds on the open dialog. This skip exists ONLY
+                    # after the authorization ran, so ``offered`` is REQUIRED
+                    # here - the exact inverse of every other skip form. The
+                    # committed claim is released by the pass layer
+                    # (reservation_released), so another port's анкета can
+                    # still greet the peer instead of a 24-hour
+                    # claimed-but-never-greeted shield.
+                    if (n['profile_read_skip_reason'] not in SKIP_REASONS or not offered or
+                            n.get('error') != 'none' or
+                            n.get('return_verified') is not True or n.get('chat_return_verified') is not True or
+                            n.get('chat_back_completed') is not True or n.get('chat_identity_verified') is not True or
+                            n.get('send_attempted') is not False or n.get('send_handler_returned') is not False or
+                            n.get('submit_frame_retries') != SUBMIT_FRAME_RETRY_LIMIT or
+                            n.get('greeting_frame_splits') != 1 or
+                            n.get('cleanup_failed') is not False):
+                        raise StateError('return-not-verified')
+                    out['skipped_submit_frame_budget'] += 1
+                    out['consecutive_read_recoveries'] += 1
+                    event = dict(sequence=out['skipped_submit_frame_budget'], reason='submit-frame-budget',
+                        status='recovered', action='verified-close-and-skip', return_verified=True,
+                        send_attempted=False, diagnostic=dict(out['last_profile_diagnostics']),
+                        continue_work=out['consecutive_read_recoveries'] < MAX_READ_RECOVERIES, notification='not-needed')
+                    out['recovery_events'].append(event)
+                    out['recovery_events'] = out['recovery_events'][-20:]
+                    progress('Анкета пропущена: кадр отправки не уложился в бюджет (12 портов). Возврат проверен.' + (' Продолжаю поиск.' if event['continue_work'] else ' Достигнут лимит восстановлений.'))
                     if getattr(settings, 'errors_enabled', False):
                         from assistant_error_notify import notify_recovery
                         try:

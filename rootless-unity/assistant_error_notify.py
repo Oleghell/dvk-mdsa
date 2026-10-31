@@ -130,9 +130,9 @@ def diagnostic_json(report):
         'last_city_recovery','root_probe','last_profile_diagnostics','last_city_navigation','last_navigation','last_navigation_failure',
         'last_preparation_failure','preparation_failure','last_chat_diagnostics','last_read_failure','photo_failure','diagnostic','recovery_events','ai_failures'}
     numbers = {'profile_source_bytes','profile_history_count','profile_setup_ms','state_samples','city_visible_rows','city_total_rows','city_scan_samples','city_matches','city_read_budget_retries','city_transition_overruns','send_snapshot_refreshes','photo_read_retries','read_retries','send_preflight_retries','recovery_attempts','recovery_rounds','transport_failures','frames','managed_calls','samples','message_count','profile_ready_waits','greeting_frame_splits',
-        'setup_retry_attempts','profile_read_budget_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
+        'setup_retry_attempts','profile_read_budget_retries','submit_frame_retries','city_read_budget_retries','city_queries_started','city_candidates_skipped',
         'city_result_waits','city_query_text_returns','city_query_returns','profiles_checked','qualified_profiles',
-        'skipped_unready_chat','skipped_unreadable','skipped_chat_not_opened','profile_model_waits','chat_open_waits','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
+        'skipped_unready_chat','skipped_unreadable','skipped_chat_not_opened','skipped_submit_frame_budget','profile_model_waits','chat_open_waits','read_recovery_limit','consecutive_read_recoveries','search_cycles','profile_limit','send_attempts',
         'entry_read_budget_retries','entry_binding_waits','observation_budget_retries','back_budget_retries','rows_scanned','scan_batches','read_rows_skipped','handlers_returned','sequence','passes_completed','profile_batches_completed','history_deferred','isolated_dialogs','shared_peer_skips'}
     from assistant_stage_timing import FIELDS as TIMING_FIELDS
     numbers |= TIMING_FIELDS

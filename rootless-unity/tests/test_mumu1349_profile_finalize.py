@@ -13,7 +13,7 @@ from cloud_database import CloudDatabaseError
 def result(send=False):
     value=cycle(count=0 if send else 1)
     value['navigation'].update(cycle_timeout_ms=90000, profile_read_budget_retries=0,
-                               profile_ready_waits=0,greeting_frame_splits=1 if send else 0)
+                               profile_ready_waits=0,submit_frame_retries=0,greeting_frame_splits=1 if send else 0)
     return native.validate(value)
 
 class Drain(unittest.TestCase):

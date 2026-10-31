@@ -154,7 +154,10 @@ class ManualGate(unittest.TestCase):
             state = {}
             manual.monitor(script, store, 'Hi', lambda *args: True, done, lambda: False, state)
             script.exports_sync.cohortack.assert_called_once()
-            self.assertEqual(state, {'action_id': 1})
+            # v1.3.99 (twelve ports at once): the successful ACK also records
+            # the acknowledged reservation; the exhaustion skip's validated
+            # no-attempt evidence is what lets inspect() release THIS claim.
+            self.assertEqual(state, {'action_id': 1, 'acknowledged': dict(pending())})
 
     def test_stale_reply_after_operation_end_cannot_authorize(self):
         script, store = MagicMock(), MagicMock()
@@ -183,7 +186,7 @@ class ManualGate(unittest.TestCase):
     def test_validator_preserves_safety_and_only_changes_timeout_copy(self):
         value = cycle()
         value['navigation']['cycle_timeout_ms'] = 90000
-        value['navigation'].update(profile_read_budget_retries=0,profile_ready_waits=0,greeting_frame_splits=1)
+        value['navigation'].update(profile_read_budget_retries=0,profile_ready_waits=0,greeting_frame_splits=1,submit_frame_retries=0)
         before = copy.deepcopy(value)
         self.assertIs(manual.validate(value), value)
         self.assertEqual(value, before)

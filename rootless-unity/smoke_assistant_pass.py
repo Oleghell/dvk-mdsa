@@ -161,7 +161,18 @@ rpc.exports={root(){return probeBatchProfile();},cancel(){cancelNavigation();},
                 assert n['profile_read_budget_retries']==(4 if case=='submit-budget-always' else 1),(case,n)
                 if case in ('submit-budget-always','submit-budget-identity'):
                     assert not n['send_attempted'] and not n['send_handler_returned'] and len(approvals)==1,(case,n)
-                    assert n['error']==('frame-budget' if case=='submit-budget-always' else 'identity-changed'),(case,n)
+                    if case=='submit-budget-always':
+                        # v1.3.99 (twelve ports at once): the ACKed submit frame
+                        # now has its OWN bounded fresh-frame budget, and its
+                        # exhaustion is the verified close-and-skip
+                        # (submit-frame-budget) instead of a hard stop that
+                        # parked the port in recovery rounds on the open chat.
+                        assert n['submit_frame_retries']==8 and n['profile_read_skipped'] and \
+                               n['profile_read_skip_reason']=='submit-frame-budget',(case,n)
+                        assert n['stage']=='navigation-ready' and n['error']=='none' and n['return_verified'],(case,n)
+                        assert counts['backs']==1,(case,counts)
+                    else:
+                        assert n['error']=='identity-changed',(case,n)
             if case=='slow-profile-baseline':
                 assert n['stage']=='navigation-stopped' and n['error'] in ('frame-limit','call-limit') and not approvals, n
             if case == 'slow-profile':

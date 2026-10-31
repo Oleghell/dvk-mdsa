@@ -33,7 +33,7 @@ def greeted():
     from test_chat_batch import cycle
     value = cycle()
     value['navigation'].update(cycle_timeout_ms=90000,
-        profile_read_budget_retries=0, profile_ready_waits=0, greeting_frame_splits=1)
+        profile_read_budget_retries=0, profile_ready_waits=0, greeting_frame_splits=1, submit_frame_retries=0)
     return value
 
 
@@ -49,7 +49,7 @@ def unreadable_saturation(extra=None):
     n.update(cycle_timeout_ms=90000,
         friends_status='unavailable', friends_count=None, friends_eligible=None,
         profile_model_waits=native.PROFILE_MODEL_WAIT_LIMIT, chat_open_waits=0,
-        profile_read_budget_retries=0, profile_ready_waits=0, greeting_frame_splits=0,
+        profile_read_budget_retries=0, profile_ready_waits=0, greeting_frame_splits=0, submit_frame_retries=0,
         chat_open_attempted=False, chat_open_completed=False, chat_verified=False,
         chat_identity_verified=False, chat_back_attempted=False, chat_back_completed=False,
         chat_return_verified=False, chat_return_route='not-checked',

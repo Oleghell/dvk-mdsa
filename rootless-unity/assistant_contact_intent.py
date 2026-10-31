@@ -52,7 +52,16 @@ def max_selected(messages):
             after=re.search(r'\b'+MAX+r'\s+(?:(?:у меня|мне|тоже|сейчас|пока|тольк[оа]|тока|можешь)\s+){0,3}'
                 +r'(?:есть|работает|установлен\w*|можно|удобнее|лучше|предпочитаю|пользуюсь|сижу|общаюсь|переписываюсь|давай(?:те)?|тольк[оа]|тока|скача\w*)\b',value)
             owner=re.fullmatch(r'(?:ну\s+)?у меня\s+(?:есть\s+)?'+MAX,value)
-            positive |= bool((bare and not other_available) or before or after or owner)
+            # Reports 9104352d ports 5557(2)/5563(1) (v1.3.99): «вацапа нет /
+            # а макс» and «У меня Макс и вацап.» left the MAX choice
+            # unrecognized - the conjunction «а/но/зато макс» never matched the
+            # bare/owner fullmatches, and the ownership tail («и вацап»)
+            # broke the owner fullmatch - so the live chain closed declined.
+            # Both are search forms appended AFTER the deny gates above, so
+            # «а макс не работает»/«У меня нет MAX» still return False.
+            conjunction=re.search(r'\b(?:а|но|зато)\s+(?:у\s+меня\s+)?(?:есть\s+)?(?:в\s+)?'+MAX+r'\b',value)
+            owner_list=re.search(r'\bу\s+меня\s+(?:есть\s+)?(?:тольк[оа]\s+|тока\s+)?(?:в\s+)?'+MAX+r'\b',value)
+            positive |= bool((bare and not other_available) or before or after or owner or conjunction or owner_list)
     return positive
 
 
@@ -103,7 +112,13 @@ TG = r'(?:телеграм(?:м)?(?:а|е|ом|у)?|telegram|тг|телег[а�
 # Reports 9104352d port 5567 (v1.3.91): «Вайцап» (colloquial «й» spelling)
 # was outside the family as well - the choice was not recognized and the
 # chain closed declined. The optional «й» after в[ао] joins the same family.
-WA = r'(?:в[ао]й?(?:тс|тц|ц|с|т|сс)?\s*апп?(?:а|е|ом)?|whats\s?app)'
+# Reports 9104352d ports 5567/5563 (v1.3.99): «В ват сап» (space INSIDE the
+# consonant cluster) and «Вптсап» (the «п»-for-«о» keyboard typo, о/п are
+# adjacent on ЙЦУКЕН) were still outside the family - both closed the live
+# chain declined. The cluster now tolerates the internal space (т с/т ц) and
+# the second letter accepts «п»; deny patterns run first, so «ватсап не
+# работает» stays a negation.
+WA = r'(?:в(?:[ао]й?|п)(?:т\s*[сц]|тс|тц|ц|с|т|сс)?\s*апп?(?:а|е|ом|у)?|whats\s?app)'
 # Finite adjacent fillers only: do not cross another app, question or negation.
 AVAIL_FILL = r'(?:(?:у меня|сейчас|пока|еще|все еще|вроде бы|вроде|только)\s+){0,3}'
 
@@ -131,10 +146,18 @@ def platform_signals(messages, app):
         # question was never asked. Both lists now mirror each other; the
         # negative patterns above still run first, so «ватсап не работает»
         # stays a negation.
+        # Reports 9104352d port 5559 (v1.3.99): «У меня только ватсап» carries
+        # NO verb at all - plain ownership («у меня (есть/только) ватсап») was
+        # never a positive availability signal, so the WhatsApp choice stayed
+        # unrecognized and the chain closed declined. The ownership search
+        # joins the positives; the negation patterns above still win, so
+        # «у меня нет ватсапа» stays unavailable.
+        ownership=re.search(r'\bу\s+меня\s+(?:есть\s+)?(?:тольк[оа]\s+|тока\s+)?(?:в\s+)?'+app+r'\b',value)
         positive |= bool(re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'(?:есть|работает|живой|жива|жив|живое|лучше|удобнее|удобно|можно|пользуюсь|сижу|общаюсь|переписываюсь|давай(?:те)?)\b',value)
             or re.search(r'\b(?:есть|пользуюсь|давай(?:те)?|можно|лучше|удобнее|удобно|сижу|общаюсь|переписываюсь)\s+(?:в\s+)?'+app+r'\b',value)
             or re.search(r'\bработает\s+'+AVAIL_FILL+app+r'\b',value)
-            or re.fullmatch(r'(?:в\s+)?'+app,value))
+            or ownership
+            or re.fullmatch(r'(?:я\s+)?(?:в\s+)?'+app,value))
     return positive and not negative, negative
 
 

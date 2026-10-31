@@ -182,7 +182,7 @@ class SharedSkip(unittest.TestCase):
         self.assertIn('JSON.stringify(reservation)!==JSON.stringify(cohortPending)',source)
         self.assertNotIn("n.history_status='not-empty'",source)
     def skipped(self):
-        value=cycle();n=value['navigation'];n.update(cycle_timeout_ms=90000,shared_peer_skipped=True,profile_read_budget_retries=0,profile_ready_waits=0,greeting_frame_splits=1,
+        value=cycle();n=value['navigation'];n.update(cycle_timeout_ms=90000,shared_peer_skipped=True,profile_read_budget_retries=0,profile_ready_waits=0,greeting_frame_splits=1,submit_frame_retries=0,
             send_attempted=False,send_handler_returned=False,messages_sent=0,greeting_variant=None)
         return value
     def test_skip_validation_requires_host_and_native_evidence(self):

@@ -19,7 +19,7 @@ from test_inbox_profiles import cycle_result, Config
 def skipped():
     value=cycle(count=1);n=value['navigation']
     n.update(cycle_timeout_ms=90000, profile_ready_waits=4, greeting_frame_splits=0,
-        profile_read_budget_retries=0,profile_read_skipped=True,profile_read_skip_reason='chat-not-actual',
+        profile_read_budget_retries=0,submit_frame_retries=0,profile_read_skipped=True,profile_read_skip_reason='chat-not-actual',
         history_status='not-ready',wait_reason='chat-not-actual',message_count=None,samples=0,
         read_checkpoint='model',model_actual=False)
     return value

@@ -43,7 +43,21 @@ def should_close(db, snapshot, stage, incoming, *, requested, max_choice=False, 
             related=APP.search(clause) or re.search(r'телеграм|telegram|'+_WA_SPELLINGS+r'|whatsapp|\bтг\b|номер|контакт|мессенджер',clause)
             if personal or not (related or echo):return True
     choice=chosen(incoming)
-    if stage=='pending-clarify':return not choice
+    if stage=='pending-clarify':
+        # Reports 9104352d port 5571 (v1.3.99): «89098384279 пиши» arrived while
+        # our own clarify was returned but not yet VISIBLE in history. The
+        # contact-bearing packet made chosen() return False («do not ask for a
+        # contact already present»), so this stage closed the live chain
+        # declined and the peer's own number was lost. A phone/handle in the
+        # packet answers the in-flight number question instead: the chain stays
+        # open, the arrival stays unconsumed and the shared branch re-evaluates
+        # it with requested=True once the clarify is observed (or it stays
+        # refused by the ownership gates if it is not safely self-attributed).
+        from shared_contact import contact_items
+        if any(contact_items(visible(message.get('text')), allow_unformatted=True)
+               for message in incoming):
+            return False
+        return not choice
     # Reports MuMu-5563 (v1.3.84): «Я в Максе сижу» closed the chain as declined
     # both before and after the one clarification. A RECOGNIZED fresh choice
     # (messenger, MAX presence or number indifference) is not an off-topic

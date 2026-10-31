@@ -24,7 +24,7 @@ class Recovery(unittest.TestCase):
 
     def test_strict_counter_and_no_cached_history_authorization(self):
         v=cycle();n=v['navigation'];n.update(cycle_timeout_ms=90000,
-            profile_read_budget_retries=0,profile_ready_waits=1,greeting_frame_splits=1)
+            profile_read_budget_retries=0,profile_ready_waits=1,greeting_frame_splits=1,submit_frame_retries=0)
         before=copy.deepcopy(v);self.assertIs(assistant_pass.validate(v),v);self.assertEqual(v,before)
         for key,bad in [('profile_ready_waits',True),('profile_ready_waits',-1),('profile_ready_waits',5),
                         ('chat_identity_verified',False),('chat_verified',False),('samples',1),('model_actual',False)]:

@@ -25,8 +25,18 @@ OWNER = re.compile(r'\b(?:мой|моя|мо[её]|меня|пиши(?:те)?\s+
 # with «й» - was outside the family too, so the peer's messenger CHOICE was
 # unrecognized and the chain closed declined. The optional «й» after в[ао]
 # now covers вайцап/войцап/вайсап exactly like the rest of the family.
-WHATSAPP_FAMILY = r'в[ао]й?(?:тс|тц|ц|с|т|сс)?ап\w*'
-LABELS = re.compile(r'\b(?:телеграм\w*|телег[аеу]|тг|telegram|whatsapp|'+WHATSAPP_FAMILY+r'|макс(?:е|ом)?|мак(?:е|ом)?|мах(?:е|ом)?|max|телефон|номер|контакт|вот|держи|это|в|на|да|ага|можно|у|есть|давай(?:те)?|или)\b', re.I)
+# Reports 9104352d ports 5567/5563 (v1.3.99): «В ват сап» (space inside the
+# consonant cluster) and «Вптсап» (the «п»-for-«о» keyboard typo) join the
+# same family, mirroring assistant_contact_intent.WA byte-for-byte.
+WHATSAPP_FAMILY = r'в(?:[ао]й?|п)(?:т\s*[сц]|тс|тц|ц|с|т|сс)?ап\w*'
+# Reports 9104352d port 5571 (v1.3.99): «89098384279 пиши» - the peer's own
+# number with an invitation verb - left the un-stripped remainder «пиши»,
+# so the bare phone after an explicit request was refused and the chain
+# closed declined with the contact lost. The consent/invitation verbs
+# (пиши/напиши/звони/набери/стучись/жду/мне/сюда) are stripped from the
+# remainder exactly like «вот/держи/давай»; third-party and off-topic
+# remainders are still refused by the gates above.
+LABELS = re.compile(r'\b(?:телеграм\w*|телег[аеу]|тг|telegram|whatsapp|'+WHATSAPP_FAMILY+r'|макс(?:е|ом)?|мак(?:е|ом)?|мах(?:е|ом)?|max|телефон|номер|контакт|вот|держи|это|в|на|да|ага|можно|у|есть|давай(?:те)?|или|напиши(?:те)?|пиши(?:те)?|мне|звони(?:те)?|набери(?:те)?|набирай(?:те)?|стучись|стучитесь|сюда|жду|зови(?:те)?)\b', re.I)
 PUNCTUATION = re.compile(r'^[\s:;,!.()—\-🙂😊👍]*$')
 
 

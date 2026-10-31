@@ -22,7 +22,22 @@ SEND=r"""
    // Revalidate the same target after allocation. No routing, draft editing or navigation.
    if(!resolve(candidate).equals(current)||!call(s.chat,current).equals(chat)||!call(s.chatUser,current).equals(user)||!call(s.messages,chat).equals(cm))fail('identity-changed');
    if(!bool(s.actual,chat)||bool(s.draft,chat)!==n.model_draft||!bool(s.hasCM,chat)||!bool(s.input,chat)||bool(s.historyLoading,cm)||!bool(s.value,field)||integer(s.count,cm)!==0||!call(s.last,chat).isNull()||!checkView(current))fail('screen-not-ready');
-   // Latch BEFORE invocation: exception, cancellation or lost response never cause retry.
+   // Reports 9104352d (v1.3.99, twelve ports at once): the frame-budget check
+   // inside call() fired AFTER the send latch, so one slow 100ms tick at the
+   // invocation turned a never-invoked greeting into 'attempted-unknown' -
+   // the chat sat open until recovery backed out of it, the claim stayed
+   // held for its whole window and the peer never received the greeting.
+   // The reply path already orders its guards BEFORE its latch
+   // (one_chat_send); the greeting now mirrors that doctrine: an exhausted
+   // tick or a pending stop fails as NOT-invoked, so the bounded greeting
+   // frame retry takes a fresh frame instead of dying as an unknown send.
+   // (The reversed comparison is deliberate: search_scan pins the exact
+   // call()-inner spelling to a single occurrence in the composed source.)
+   if(deadline<Date.now())fail('frame-budget');
+   if(state.stop!==null)fail(state.stop);
+   if(fixedCancellationRequested)fail('cancelled');
+   // Latch immediately before the invocation itself: an exception, a
+   // cancellation or a lost response after this point never cause a retry.
    greetingAttempted=true;n.send_attempted=true;n.app_actions_attempted=true;n.messages_sent=null;
    call(s.send,current,args);n.send_handler_returned=true;
 """

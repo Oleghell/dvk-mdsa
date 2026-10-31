@@ -10,9 +10,22 @@ import cohort_pass
 import chat_send_probe
 
 PHASES = {'prepare-greeting', 'submit-greeting'}
-DEFAULTS = dict(profile_read_budget_retries=0, greeting_frame_splits=0, profile_ready_waits=0)
+# v1.3.99 (twelve ports at once): the ACKed submit-greeting frame carries the
+# whole re-verified context plus the send invocation inside ONE 100ms tick.
+# Under a loaded multi-port MuMu host that tick regularly blows its budget at
+# the send call - previously AFTER the latch, which recorded a never-invoked
+# greeting as 'attempted-unknown' (claim held, chat parked open until
+# recovery backed out, peer never greeted). The pre-latch guards in
+# chat_send_probe.SEND now fail such a tick as NOT-invoked, and the send
+# frame gets its OWN bounded retry budget (submit_frame_retries, 8 fresh
+# frames) on top of the shared read budget, so the greeting lands on a later
+# frame instead of dying with the whole cycle.
+SUBMIT_FRAME_RETRY_LIMIT = 8
+DEFAULTS = dict(profile_read_budget_retries=0, greeting_frame_splits=0, profile_ready_waits=0,
+                submit_frame_retries=0)
 SKIP_DEFAULTS = dict(profile_read_skipped=False, profile_read_skip_reason='none', profile_input_enabled=None)
-SKIP_REASONS = {'chat-not-actual', 'history-loading', 'history-not-loaded', 'frame-budget', 'input-disabled', 'chat-not-opened'}
+SKIP_REASONS = {'chat-not-actual', 'history-loading', 'history-not-loaded', 'frame-budget', 'input-disabled',
+                'chat-not-opened', 'submit-frame-budget'}
 # A skip is not a successful history read and never an authorization. The next
 # native frame must verify the pinned chat before Back; then verify search.
 SKIP_GUARD = """n.phase==='check-chat'&&n.chat_open_completed&&n.chat_verified&&n.chat_identity_verified&&
@@ -136,16 +149,51 @@ def specialize(source):
     !n.send_attempted&&!n.send_handler_returned&&n.profile_read_budget_retries<4){
     n.profile_read_budget_retries++;state.nextActionAt=Date.now();return;
    }
+   if(e==='frame-budget'&&n.phase==='submit-greeting'&&cohortApproved!==null&&
+    n.chat_open_completed&&n.chat_verified&&n.chat_identity_verified&&n.greeting_frame_splits===1&&
+    !n.send_attempted&&!n.send_handler_returned&&n.submit_frame_retries<__SUBMIT_FRAME_RETRY_LIMIT__){
+    // v1.3.99 (twelve ports at once): the ACKed greeting submit gets its own
+    // bounded fresh-frame budget - the send itself must not starve because
+    // the read phases already consumed the shared 4-retry budget under load.
+    // Only a frame that never opened the send latch retries; the latch plus
+    // the pre-latch guards in the SEND block keep every post-invoke failure
+    // an unknown that is never replayed.
+    n.submit_frame_retries++;state.nextActionAt=Date.now();return;
+   }
+   if(e==='frame-budget'&&n.phase==='submit-greeting'&&cohortApproved!==null&&
+    n.chat_open_completed&&n.chat_verified&&n.chat_identity_verified&&n.greeting_frame_splits===1&&
+    !n.send_attempted&&!n.send_handler_returned&&n.submit_frame_retries===__SUBMIT_FRAME_RETRY_LIMIT__){
+    // v1.3.99 (twelve ports at once): even the dedicated fresh frames could
+    // not fit the ACKed send - the host is saturated. The chat is closed with
+    // the same verified evidence every other skip uses (no open-dialog park,
+    // no recovery round) and the pass continues; the host releases the
+    // committed claim (assistant_pass) so another port can still greet the
+    // peer instead of a 24-hour claimed-but-never-greeted shield.
+    const reason='submit-frame-budget';''' + SKIP + r'''
+   }
    if(e==='frame-budget'&&n.phase==='check-chat'&&n.chat_open_completed&&n.chat_verified&&
     !n.send_attempted&&!n.send_handler_returned&&cohortPending===null&&cohortApproved===null&&
     n.profile_read_budget_retries<4){
     n.profile_read_budget_retries++;state.sample=null;n.samples=0;n.message_count=null;
     n.history_status='unknown';state.waitSignature=null;state.nextActionAt=Date.now();return;
    }
+   if(e==='frame-budget'&&['wait-profile','confirm-profile'].includes(n.phase)&&
+    n.open_completed&&!n.close_attempted&&!n.chat_open_attempted&&
+    !n.send_attempted&&!n.send_handler_returned&&n.profile_read_budget_retries<4){
+    // Reports 9104352d snapshots 626/628/631/633 (v1.3.99): a slow observation
+    // tick between the opened anketa and its content/friends read stopped the
+    // whole profile cycle (profile-check-stopped, profile_read_budget_retries=0)
+    // and parked the port in recovery rounds. The wait-profile/confirm-profile
+    // tick is pure observation: the open already completed and the close
+    // latch (!n.close_attempted) guarantees no uncertain mutating cancel is
+    // ever retried - the same bounded budget the check-chat phase uses.
+    n.profile_read_budget_retries++;state.nextActionAt=Date.now();return;
+   }
    if(e==='frame-budget'&&n.profile_read_budget_retries===4&&''' + SKIP_GUARD + r''' ){
     const reason='frame-budget';''' + SKIP + r'''
    }
 ''')
+    source = source.replace('__SUBMIT_FRAME_RETRY_LIMIT__', str(SUBMIT_FRAME_RETRY_LIMIT))
     return source
 
 
@@ -188,14 +236,16 @@ def validate(n):
         (n.get('stage') == 'navigation-ready' and
          (n.get('error') != 'none' or n.get('chat_return_verified') is not True or n.get('return_verified') is not True))):
         raise ValueError('Unverified profile skip')
-    if skipped and skip['profile_read_skip_reason'] not in {'frame-budget','input-disabled','chat-not-opened'} and n.get('wait_reason') != skip['profile_read_skip_reason']:
+    if skipped and skip['profile_read_skip_reason'] not in {'frame-budget','input-disabled','chat-not-opened','submit-frame-budget'} and n.get('wait_reason') != skip['profile_read_skip_reason']:
         raise ValueError('Profile skip without read failure')
     values = {key: n.pop(key) for key in DEFAULTS}
-    if skipped and (values['greeting_frame_splits'] != 0 and skip['profile_read_skip_reason'] != 'input-disabled' or
+    if skipped and (values['greeting_frame_splits'] != 0 and skip['profile_read_skip_reason'] not in {'input-disabled','submit-frame-budget'} or
         skip['profile_read_skip_reason'] == 'chat-not-actual' and values['profile_ready_waits'] != 4 or
-        skip['profile_read_skip_reason'] == 'frame-budget' and values['profile_read_budget_retries'] != 4):
+        skip['profile_read_skip_reason'] == 'frame-budget' and values['profile_read_budget_retries'] != 4 or
+        skip['profile_read_skip_reason'] == 'submit-frame-budget' and (values['submit_frame_retries'] != SUBMIT_FRAME_RETRY_LIMIT or values['greeting_frame_splits'] != 1)):
         raise ValueError('Profile skip before bounded reads')
-    for key, maximum in (('profile_read_budget_retries', 4), ('greeting_frame_splits', 1), ('profile_ready_waits', 4)):
+    for key, maximum in (('profile_read_budget_retries', 4), ('greeting_frame_splits', 1), ('profile_ready_waits', 4),
+                         ('submit_frame_retries', SUBMIT_FRAME_RETRY_LIMIT)):
         if type(values[key]) is not int or not 0 <= values[key] <= maximum:
             raise ValueError('Invalid profile read counter')
     if values['profile_ready_waits'] and not (n.get('chat_verified') and n.get('chat_identity_verified')):

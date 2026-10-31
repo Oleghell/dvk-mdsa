@@ -139,7 +139,7 @@ class ProfileSkipValidation(unittest.TestCase):
         from assistant_pass import CYCLE_TIMEOUT_MS
         raw=cycle();n=raw['navigation']
         n.update(cycle_timeout_ms=CYCLE_TIMEOUT_MS,profile_read_budget_retries=0,
-            greeting_frame_splits=1,profile_ready_waits=0,shared_peer_skipped=latched,
+            greeting_frame_splits=1,profile_ready_waits=0,submit_frame_retries=0,shared_peer_skipped=latched,
             stage='navigation-stopped',error='cancelled',phase='submit-greeting',
             send_attempted=False,send_handler_returned=False,greeting_variant=None,messages_sent=0,
             chat_back_attempted=False,chat_back_completed=False,chat_return_verified=False,
