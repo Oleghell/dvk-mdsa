@@ -365,6 +365,13 @@ def summary(result):
         retry = (result.get('last_pass') or {}).get('retry_rows_opened',0)
         if retry:
             text += f' • повтор по расписанию {retry}'
+        # v1.3.104: the send verification moved from the open chat to the row
+        # scan; show it so «проверяй уже в личке на отправку» is observable.
+        last = result.get('last_pass') or {}
+        verified = last.get('post_send_list_verified',0)
+        reopened = last.get('post_send_reopened',0)
+        if verified or reopened:
+            text += f' • отправка в списке подтверждена {verified + reopened}'
         contact_pending = (result.get('last_pass') or {}).get('contact_delivery_pending',0)
         if contact_pending:
             text += f" • контактов ожидают TG {contact_pending}"

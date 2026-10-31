@@ -8,6 +8,13 @@ from conversation_engine import normalized
 
 MAX = r'(?:макс(?:а|е|ом)?|мак(?:а|е|ом)?|мах(?:а|е|ом)?|max)'
 APP = re.compile(r'\b'+MAX+r'\b',re.I)
+# Reports 9104352d port 5571 (v1.3.104): «Телеги нет, стёрла. Мах или вотсап» -
+# «телеги» is the GENITIVE of the «телега» slang (Telegram in any case form:
+# телеги/телеге/телегу/телегой...), and the old TG family ended at
+# телег[аеу], so the peer's own denial of Telegram was not even recognized
+# as a platform mention. The whole телег-stem family joins TG so the
+# absence clause scopes to its app exactly like «телеграма нет».
+TG = r'(?:телег[а-яё]*|telegram|тг)'
 PERSON = re.compile(r'\b(?:зовут|имя|брат|друг|сын|муж|парень|коллега|сказал|сказала|знакомый|кошк\w*|кот)\b',re.I)
 
 
@@ -23,7 +30,7 @@ def words(text):
 
 def max_selected(messages):
     positive=False
-    other_available=any(re.search(r'\b(?:'+WA+r'|телеграм\w*|тг)\s+есть\b',words(visible(m.get('text')))) for m in messages)
+    other_available=any(re.search(r'\b(?:'+WA+r'|'+TG+r')\s+есть\b',words(visible(m.get('text')))) for m in messages)
     for m in messages:
         text=visible(m.get('text'))
         if not APP.search(text):continue
@@ -40,7 +47,7 @@ def max_selected(messages):
                 or re.search(r'\bне\s+(?:хочу|могу|буду|пользуюсь|работает|сижу|общаюсь|переписываюсь)\s+(?:в\s+|на\s+|через\s+)?'+MAX+r'\b',value)
                 or re.search(r'\b'+MAX+r'\s+(?:у меня\s+)?(?:нет|нету|не\s+(?:работает|пользуюсь|буду|хочу|установлен\w*|сижу|общаюсь|переписываюсь))\b',value))
             if deny:return False
-            bare=re.fullmatch(r'(?:давай(?:те)?\s+)?(?:в\s+)?'+MAX,value)
+            bare=re.fullmatch(r'(?:давай(?:те)?\s+)?(?:в\s+)?'+MAX+r'(?:\s*,?\s*(?:или|и)\s+(?:'+MAX+r'|'+TG+r'|'+WA+r'|whats\s?app))*',value)
             before=re.search(r'\b(?:есть|(?:тольк[оа]|тока)|пользуюсь|сижу|общаюсь|переписываюсь|работает|установлен\w*|давай(?:те)?|можно|лучше|удобнее|предпочитаю)\b(?:\s+\w+){0,4}\s+'+MAX+r'\b',value)
             # Reports 70ce6153 port 5563 (v1.3.84): «Я в Максе сижу» inverted the
             # verb/app order, and the after-side verb list lacked сижу/общаюсь/
@@ -103,7 +110,8 @@ def unavailable(text):
         or re.search(r'\b(?:ни\s+того\s+ни\s+другого)\b',value))
 
 
-TG = r'(?:телеграм(?:м)?(?:а|е|ом|у)?|telegram|тг|телег[аеу])'
+# The Telegram label family lives at the top of the module (TG): the whole
+# телег-stem (telegram + the «телега» slang in ANY case form) plus telegram/тг.
 # Reports aPYyN7weMm (v1.3.78): «вотсап»/«вотапп»/«ватапп» misspellings were
 # outside the old WA list, so the peer's chosen messenger was not recognized
 # in the contact stage either. One shared spelling family now covers
@@ -138,6 +146,15 @@ def platform_signals(messages, app):
         negative |= bool(re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'(?:не\s+(?:очень\s+)?работает|нет|нету|не пользуюсь)\b',value)
             or re.search(r'\b(?:нет|нету|не\s+(?:очень\s+)?работает|не пользуюсь)\s+'+AVAIL_FILL+app+r'\b',value)
             or re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'работает\s+не\s+очень\b',value))
+        # Reports 9104352d port 5571 (v1.3.104): «Мах или вотсап» carries NO verb
+        # at all - a clause that is exactly a juxtaposition of app names (with
+        # «или»/«и»/comma, either order) is the peer OFFERING those apps, so it
+        # is a positive availability signal for EVERY app named in it. The
+        # negation patterns above still run first, so «ватсап не работает» and
+        # «телеги нет» stay negations, and a deny in another clause still wins.
+        juxtaposed=re.fullmatch(r'(?:давай(?:те)?\s+)?(?:в\s+)?(?:'+MAX+r'|'+TG+r'|whats\s?app|'+WA+r')'
+            +r'(?:\s*,?\s*(?:или|и)\s+(?:'+MAX+r'|'+TG+r'|whats\s?app|'+WA+r'))*'
+            +r'(?:\s+(?:есть|можно|давай(?:те)?))?[\s.!)]*',value)
         # Reports 9104352d port 5567 (v1.3.91): «Ватсап можно 89241810009…»
         # and «Вайцапе сижу» put the verb AFTER the app name. The app-first
         # positive list lacked можно/сижу/общаюсь/переписываюсь/пользуюсь/
@@ -157,6 +174,7 @@ def platform_signals(messages, app):
             or re.search(r'\b(?:есть|пользуюсь|давай(?:те)?|можно|лучше|удобнее|удобно|сижу|общаюсь|переписываюсь)\s+(?:в\s+)?'+app+r'\b',value)
             or re.search(r'\bработает\s+'+AVAIL_FILL+app+r'\b',value)
             or ownership
+            or juxtaposed
             or re.fullmatch(r'(?:я\s+)?(?:в\s+)?'+app,value))
     return positive and not negative, negative
 

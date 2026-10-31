@@ -374,7 +374,7 @@ class GuidedChain(Chain):
 def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
          greetings=(), notifier=None, progress=lambda _: None, pause=None,
          max_polls=360, deadline=None, contact_reader=None, until_waiting=False, exit_capture=None, contact_photo=None, snapshot_capture=None,
-         read_clock=time.monotonic):
+         read_clock=time.monotonic, quick_send_exit=False):
     """Monitor ONE open chat through both replies; all bodies remain in RAM.
 
     until_waiting=True is used by the inbox pass: once the chat needs a NEW
@@ -414,6 +414,16 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             raise HistoryReadBudgetExpired()
         soft_retries = 0
         budget_failures = 0
+        # v1.3.104 (S5GK7 monitors 660/664): the freshly opened chat may not be
+        # presented on the screen yet when its FIRST bound read runs - the
+        # read returns 'not-ready' with zero frames, or the observer detaches
+        # ('observer-stopped') while the presentation still animates. Both are
+        # entry shapes, not identity failures: up to two fresh SAME-bound
+        # retries (one second apart) give the chat the same bounded patience a
+        # human takes before backing out, so a new unread dialog is WORKED
+        # instead of «заходит и резко выходит». Identity/transport/schema
+        # failures never enter this counter and stay fatal exactly as before.
+        entry_retries = 0
         for attempt in range(MAX_READ_ATTEMPTS):
             if read_clock()>=read_deadline:deadline_expired()
             try:
@@ -455,10 +465,16 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 else:
                     # Keep the previous single read-only retry for other authored
                     # transient states. Identity/transport/schema failures never retry.
-                    if soft_retries or not transient_read_failure(error):
+                    from one_chat_device import verified_entry_retry
+                    if quick_send_exit and verified_entry_retry(error) and entry_retries < 2:
+                        entry_retries += 1
+                        delay = 1.0
+                        progress('Экран чата ещё не готов • повторяю только чтение; отправки нет.')
+                    elif soft_retries or not transient_read_failure(error):
                         raise
-                    soft_retries += 1
-                    delay = .5
+                    else:
+                        soft_retries += 1
+                        delay = .5
                 out['diagnostics']['read_retries'] += 1
                 from one_chat_device import verified_early_wrong_screen
                 progress('Экран чата ещё не подтверждён. Повторяю только чтение; отправки нет.' if verified_early_wrong_screen(failure) else
@@ -678,12 +694,17 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                     wait_reason='contact-clarification-sent'
                 if stage == 'wait-contact' and observed.get('followup') == 'outgoing-observed':
                     wait_reason='contact-followup-sent'
-                if leave_after_send_check and stage.startswith('pending-'):
-                    # The one quick check did not observe our outgoing: the
-                    # receipt keeps its unconfirmed status and the chat is
-                    # re-checked by the next pass (attention/unknown-recovery),
-                    # exactly like the former three-poll exhaustion - just
-                    # without sitting in the open chat between the checks.
+                if leave_after_send_check and quick_send_exit:
+                    # v1.3.104 «резко после этого делай шаг назад и проверяй уже
+                    # в личке на отправку»: the immediate verified Back IS the
+                    # post-send exit; the send's visual confirmation rides the
+                    # walk's own list-level row recheck (one read-only scan,
+                    # then a single reopen only if her message is still the
+                    # row's last). The receipts for the messages THIS run
+                    # answered stay pending in the journal exactly as the
+                    # unknown-recovery machinery expects, so owed() must not
+                    # re-flag them as unanswered work for THIS leave: the row
+                    # recheck owns their confirmation, in this pass.
                     wait_reason='outgoing-not-observed'
                 from assistant_reply_audit import synchronize, owed
                 synchronize(chain,before)
@@ -699,8 +720,12 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                         before=fresh
                         continue
                 remaining=owed(chain,who,before)
-                out['unanswered_messages']=len(remaining)
-                if remaining:
+                # v1.3.104: after the immediate post-send leave the receipts of
+                # the messages THIS run answered keep their pending status for
+                # the list-level row recheck to confirm; they are not
+                # re-reported as unanswered work of THIS leave.
+                out['unanswered_messages']=0 if leave_after_send_check and quick_send_exit else len(remaining)
+                if remaining and not (leave_after_send_check and quick_send_exit):
                     wait_reason='incoming-answer-pending'
                     if exit_capture is not None:
                         exit_capture([m['text'] if isinstance(m['text'],str) else '[нет текста]' for m in before['messages'] if m['id'] in remaining and m['sender']==who['peer']])
@@ -851,11 +876,22 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                       'pending-contact': 'Сверяю отправленное предложение с историей → затем следующий чат.'
                       }.get(stage, 'Проверяю подтверждённое состояние чата.'))
             # Inbox processing never waits for a new peer message. After send,
-            # a fresh bound read itself observes native/UI progress; with the
-            # v1.3.96 quick exit this ONE read is the whole post-send check,
-            # without the artificial 5s sleep and without further polls.
+            # the immediate verified Back IS the whole post-send story
+            # (v1.3.104 «резко после этого делай шаг назад и проверяй уже в
+            # личке на отправку»): no in-chat history re-read, no artificial
+            # 5s sleep, no further polls. The list-level send verification is
+            # the walk's own row recheck right after the Back; her reply (in
+            # that recheck or arriving after it) keeps its unanswered state and
+            # the NEXT pass re-opens the row by its unread badge.
             if stopped.is_set() or (not until_waiting and pause(5)):
                 break
+            if leave_after_send_check and quick_send_exit:
+                # The send-safety handshake is done: the next loop iteration
+                # hits the waiting-leave branch and returns. Skip the loop-tail
+                # full bound history read entirely - the Back happens right
+                # after the send and the list-level verification rides the
+                # walk's own row recheck instead of this in-chat re-read.
+                continue
             before = read()
         else:
             out.update(status='chain-paused', reason='wait-timeout')

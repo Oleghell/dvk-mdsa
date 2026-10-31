@@ -30,6 +30,14 @@ def nav(state, who=None, unread=True):
     return value
 
 
+def verify(waiting=1, handled=0):
+    # v1.3.104: the post-send list-level row recheck - one read-only scan whose
+    # waiting skip on the only permitted row is the send proof from the list.
+    value = nav('exhausted')
+    value['diagnostic'].update(waiting_rows_skipped=waiting, handled_rows_skipped=handled)
+    return value
+
+
 def msg(i, text, own=False, who=WHO):
     return dict(id=str(i), sender=who['account'] if own else who['peer'], text=text)
 
@@ -68,6 +76,8 @@ class Base(unittest.TestCase):
         self.nav = MagicMock(side_effect=navigations)
         from test_guided_chain import stable_snapshots
         self.reader = MagicMock(side_effect=stable_snapshots(reads))
+        # v1.3.104: quick_send_exit defaults OFF here; the repinned v1.3.104
+        # doctrine tests pass it explicitly (matching inbox.run()).
         return inbox.walk(self.settings, self.stop, self.approve, lambda _: None,
                           kwargs.pop('chain', None) or self.chain(), navigator=self.nav,
                           reader=self.reader, sender=kwargs.pop('sender', self.sender),
@@ -90,15 +100,21 @@ class Inbox(Base):
         hello = msg(1002, 'Привет')
         question = msg(1003, QUESTIONS[0], True)
         out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
-                        [snap(hello), snap(hello), snap(hello, question)])
+                        [snap(hello), snap(hello), snap(hello, question)], quick_send_exit=True)
         self.assertEqual(out['status'], 'inbox-completed')
         self.assertTrue(out['return_verified'])
         self.assertEqual(self.sent, [QUESTIONS[0]])
         self.assertEqual(self.approve.call_count, 1)
-        self.assertEqual(out['outcomes'], {'chain-waiting:wait-mood': 1})
+        # v1.3.104 repin: the send is followed by the immediate Back («шаг назад
+        # сразу»); with no further group in this single-chat pass the list-level
+        # verification stays with the deferral ladder's own recheck, so the
+        # outgoing is not observed inside the chat this pass and the honest
+        # leave reason is 'outgoing-not-observed'.
+        self.assertEqual(out['outcomes'], {'chain-waiting:outgoing-not-observed': 1})
         self.assertEqual(out['submission_calls'], 1)
         self.assertEqual(out['handler_returns'], 1)
-        self.assertEqual(out['outgoing_observed'], 1)
+        self.assertEqual(out['outgoing_observed'], 0)
+        self.assertEqual(out['post_send_checks'], 0)
         self.assertFalse(out['delivery_confirmed'])
         self.assertEqual([c.args[0] for c in self.nav.call_args_list], ['open', 'back', 'return'])
         self.assertTrue(self.nav.call_args_list[0].kwargs['unread_only'])
@@ -110,7 +126,7 @@ class Inbox(Base):
         hello = msg(1002, 'Взаимно')
         q = msg(1003, QUESTIONS[0], True)
         out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
-                        [snap(hello), snap(hello), snap(hello, q)])
+                        [snap(hello), snap(hello), snap(hello, q)], quick_send_exit=True)
         self.assertEqual(out['status'], 'inbox-completed')
         self.assertEqual(self.sent, [QUESTIONS[0]])
         self.assertEqual(out['confirmations'], 0)
@@ -134,10 +150,10 @@ class Inbox(Base):
         mood, c = msg(1004, 'Рабочее нормальное'), msg(1005, CONTACT_TEXT, True)
         contact = msg(1006, '@alex_test')
         cycle = lambda: [nav('opened', WHO), nav('returned', WHO), nav('search-ready')]
-        self.walk(cycle(), [snap(hello), snap(hello), snap(hello, q)])
-        self.walk(cycle(), [snap(hello, q, mood), snap(hello, q, mood), snap(hello, q, mood, c)])
+        self.walk(cycle(), [snap(hello), snap(hello), snap(hello, q)], quick_send_exit=True)
+        self.walk(cycle(), [snap(hello, q, mood), snap(hello, q, mood), snap(hello, q, mood, c)], quick_send_exit=True)
         out = self.walk(cycle(), [snap(hello, q, mood, c, contact),
-                                  snap(hello, q, mood, c, contact, name='Александр')])
+                                  snap(hello, q, mood, c, contact, name='Александр')], quick_send_exit=True)
         self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
         self.notifier.assert_called_once_with({'name': 'Александр', 'contacts': ['@alex_test']})
         self.assertEqual(out['contacts_forwarded'], 1)
@@ -150,7 +166,7 @@ class Inbox(Base):
         chain.bind(dict(identity=dict(WHO), messages=[msg(1001, GREETING, True)]), (GREETING,), approved=True)
         hello = msg(1002, 'ку')
         out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
-                        [snap(hello), snap(hello), snap(hello, msg(1003, QUESTIONS[0], True))], chain=chain)
+                        [snap(hello), snap(hello), snap(hello, msg(1003, QUESTIONS[0], True))], chain=chain, quick_send_exit=True)
         self.assertEqual(out['status'], 'inbox-completed')
         self.assertEqual(self.sent, [QUESTIONS[0]])
 
@@ -184,9 +200,13 @@ class Inbox(Base):
         hello = msg(1002, 'Привет')
         question = msg(1003, QUESTIONS[0], True)
         route = lambda: [nav('opened', WHO), nav('returned', WHO), nav('search-ready')]
-        first = self.walk(route(), [snap(hello), snap(hello), snap(hello, question)])
+        first = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
+                           [snap(hello), snap(hello), snap(hello, question)], quick_send_exit=True)
         second = self.walk(route(), [snap(hello, question)])
-        self.assertEqual((first['outgoing_observed'], second['outgoing_observed']), (1, 0))
+        # v1.3.104 repin: with the immediate Back the outgoing is no longer
+        # observed inside the sending chat; the NEXT pass's read observes it
+        # exactly once (0 + 1 - still counted once across passes).
+        self.assertEqual((first['outgoing_observed'], second['outgoing_observed']), (0, 1))
         self.assertEqual((second['submission_calls'], second['handler_returns']), (0, 0))
 
     def test_invalid_monitor_screen_is_rejected(self):
@@ -297,11 +317,14 @@ class Inbox(Base):
         hello, question = msg(1002, 'Взаимно'), msg(1003, QUESTIONS[0], True)
         route = lambda: [nav('exhausted'), nav('opened', WHO, unread=False),
                          nav('returned', WHO), nav('search-ready')]
-        first = self.walk(route(), [snap(hello), snap(hello), snap(hello, question)])
+        first = self.walk(route(), [snap(hello), snap(hello), snap(hello, question)], quick_send_exit=True)
         self.assertEqual(first['status'], 'inbox-completed')
         self.assertEqual(first['read_dialogs_checked'], 1)
         self.assertEqual([c.kwargs['unread_only'] for c in self.nav.call_args_list if c.args[0]=='open'], [True, False])
-        second = self.walk(route(), [snap(hello, question)])
+        # v1.3.104 repin: the unobserved question leaves the row ours-last with
+        # a pending receipt; the next pass's retry-marked open skips it as a
+        # waiting row (no badge, no new message) and the pass is done.
+        second = self.walk([nav('exhausted'), nav('search-ready')], [snap(hello, question)])
         self.assertEqual(second['submission_calls'], 0)
         self.assertEqual(self.sent, [QUESTIONS[0]])
 
@@ -310,13 +333,16 @@ class Inbox(Base):
         hello, question = msg(1002, 'Привет'), msg(1003, QUESTIONS[0], True)
         mood, contact = msg(1004, 'Хорошо'), msg(1005, CONTACT_TEXT, True)
         self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
-                  [snap(hello), snap(hello), snap(hello, question)])
-        out = self.walk([nav('exhausted'), nav('opened', WHO, unread=False),
-                         nav('returned', WHO), nav('search-ready')],
+                  [snap(hello), snap(hello), snap(hello, question)], quick_send_exit=True)
+        # v1.3.104 repin: the unobserved question keeps the chat an attention
+        # target with a pending receipt, so the recheck opens the row directly
+        # (her mood reply carries the badge) instead of the badge-less read
+        # round; the contact submission leaves immediately like every send.
+        out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
                         [snap(hello, question, mood), snap(hello, question, mood),
-                         snap(hello, question, mood, contact)])
+                         snap(hello, question, mood, contact)], quick_send_exit=True)
         self.assertEqual(out['status'], 'inbox-completed')
-        self.assertEqual(out['read_dialogs_checked'], 1)
+        self.assertEqual(out['read_dialogs_checked'], 0)
         self.assertEqual(self.sent, [QUESTIONS[0], CONTACT_TEXT])
 
     def test_manually_answered_read_chat_is_not_answered_again(self):
@@ -391,17 +417,20 @@ class Inbox(Base):
                  dict(identity=dict(OTHER), messages=[own, peer]),
                  dict(identity=dict(OTHER), messages=[own, peer, question])]
         out = self.walk([nav('opened', OTHER), nav('returned', OTHER), nav('exhausted'),
-                         nav('exhausted'), nav('search-ready')], reads)
+                         nav('exhausted'), nav('search-ready')], reads, quick_send_exit=True)
         self.assertEqual(out['status'], 'inbox-completed')
         self.assertEqual(out['operator_adopted'], 1)
         self.assertEqual(out['operator_rejected'], 0)
         self.assertEqual(self.sent, [QUESTIONS[0]])
         with self.store.read_connection() as db:
             self.assertEqual(db.execute('SELECT anchor_hash FROM operator_bindings').fetchall() and True, True)
+            # v1.3.104 repin: the immediate post-send leave keeps the action
+            # unobserved, so the stage stays 'pending-question' until the row
+            # recheck observes the outgoing.
             self.assertEqual(db.execute('SELECT stage FROM chain_dialogs WHERE peer=?', (OTHER['peer'],)).fetchall(),
-                             [('wait-mood',)])
+                             [('pending-question',)])
             self.assertEqual(db.execute('SELECT 1 FROM operator_rejects').fetchall(), [])
-        self.assertIn('chain-waiting:wait-mood', out['outcomes'])
+        self.assertIn('chain-waiting:outgoing-not-observed', out['outcomes'])
 
     def test_unread_evidence_is_required(self):
         self.journal()

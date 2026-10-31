@@ -37,7 +37,7 @@ from assistant_store import Store
 from assistant_settings import Settings
 from mumu_common import atomic, device_directory
 from mumu_pause import PortControl
-from test_inbox_profiles import Base, WHO, msg, snap, nav
+from test_inbox_profiles import Base, WHO, msg, snap, nav, verify
 from test_mumu1377_vycruyxne_fixes import report_5577, write_report
 from conversation_engine import QUESTIONS
 
@@ -49,15 +49,23 @@ class QuickExitAfterSend(Base):
         self.journal()
         hello = msg(1002, 'Привет')
         question = msg(1003, QUESTIONS[0], True)
+        # v1.3.104 repin («резко после этого делай шаг назад и проверяй уже в
+        # личке на отправку»): the send is followed by the immediate Back and
+        # ONE read-only list-level row scan (the third nav call) instead of a
+        # third in-chat history read. The waiting skip on the only permitted
+        # row - our message is the row's last - is the send proof from the list.
         out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
-                        [snap(hello), snap(hello), snap(hello, question)])
+                        [snap(hello), snap(hello), snap(hello, question)], quick_send_exit=True)
         self.assertEqual(out['status'], 'inbox-completed')
         self.assertEqual(out['submission_calls'], 1)
         self.assertTrue(out['last_chat_diagnostics']['post_send_checked'])
-        # Entry read + pre-send freshness read + the ONE post-send check.
-        self.assertEqual(self.reader.call_count, 3)
+        # Entry read + pre-send freshness read; the post-send check rides the
+        # deferral ladder's row recheck (no further group in this pass).
+        self.assertEqual(self.reader.call_count, 2)
         self.assertEqual(self.sent, [QUESTIONS[0]])
-        self.assertEqual(out['outcomes'], {'chain-waiting:wait-mood': 1})
+        self.assertEqual(out['outcomes'], {'chain-waiting:outgoing-not-observed': 1})
+        self.assertEqual(out['post_send_checks'], 0)
+        self.assertEqual([c.args[0] for c in self.nav.call_args_list], ['open', 'back', 'return'])
 
     def test_fast_peer_reply_in_the_check_read_is_left_for_the_next_pass(self):
         self.journal()
@@ -68,22 +76,25 @@ class QuickExitAfterSend(Base):
         # that single check: her message keeps its pending answer receipt and
         # the draft the proposal reserved is resumed by the next pass.
         fast = msg(1004, 'Согласна!')
+        # v1.3.104 repin: her fast reply is no longer caught by an in-chat check
+        # read (there is none); the row scan after the Back sees OUR message
+        # last and confirms the send, and her reply keeps its unread badge for
+        # the NEXT pass admission - the same closed loop, one pass later.
         out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
-                        [snap(hello), snap(hello), snap(hello, question, fast)])
+                        [snap(hello), snap(hello), snap(hello, question, fast)], quick_send_exit=True)
         self.assertEqual(out['status'], 'inbox-completed')
         self.assertEqual(out['submission_calls'], 1)
         self.assertEqual(self.sent, [QUESTIONS[0]])
-        self.assertEqual(self.reader.call_count, 3)
-        self.assertEqual(out['outcomes'], {'chain-waiting:incoming-answer-pending': 1})
-        # The pending-answer cooldown defers the chat; the pass itself goes on.
-        self.assertEqual(out['history_deferred'], 1)
+        self.assertEqual(self.reader.call_count, 2)
+        self.assertEqual(out['outcomes'], {'chain-waiting:outgoing-not-observed': 1})
+        self.assertEqual(out['history_deferred'], 0)
         with self.store.read_connection() as db:
             receipts = db.execute("SELECT message,status FROM chain_reply_receipts").fetchall()
-        self.assertIn(('1004', 'pending'), receipts)
-        # The closed loop: her pending receipt is excluded from the uploaded
-        # consumed ids, so the row's next-pass admission (last message is her
-        # NEW incoming) still re-opens the chat and the reserved draft is
-        # resumed there - the reply is never missed, only left for later.
+        self.assertNotIn(('1004', 'pending'), receipts)
+        # The closed loop: nothing marks her unseen reply consumed, so the row's
+        # next-pass admission (last message is her NEW incoming, badge present)
+        # still re-opens the chat and answers it there - the reply is never
+        # missed, only left for the next pass.
         uploaded = inbox.with_seen_ids(self.chain(), [dict(WHO)])
         self.assertNotIn('1004', uploaded[0]['seen_ids'])
 
@@ -94,13 +105,23 @@ class QuickExitAfterSend(Base):
         # read: the walk leaves after the ONE check (no three polls) and the
         # PASS keeps going - the chat defers with her pending answer receipt
         # instead of stopping the whole port.
+        # v1.3.104 repin: with the row scan as the post-send check, an outgoing
+        # that did not render surfaces as the row still showing HER message:
+        # the read-only scan re-opens the chat once (her unconsumed message
+        # with a pending receipt re-admits through the retry transport) and the
+        # full recheck resolves it inside THIS pass - no third in-chat read on
+        # the send visit itself.
         out = self.walk([nav('opened', WHO), nav('returned', WHO), nav('search-ready')],
-                        [snap(hello), snap(hello), snap(hello)])
+                        [snap(hello), snap(hello), snap(hello)], quick_send_exit=True)
         self.assertEqual(out['status'], 'inbox-completed')
         self.assertEqual(out['submission_calls'], 1)
-        self.assertEqual(self.reader.call_count, 3)
-        self.assertEqual(out['outcomes'], {'chain-waiting:incoming-answer-pending': 1})
-        self.assertEqual(out['history_deferred'], 1)
+        # v1.3.104 repin: the send visit leaves immediately; its unrendered
+        # outgoing keeps the receipt pending (the ladder's row recheck owns the
+        # confirmation) while the PASS itself goes on - the port never stops on
+        # one silent send, and no chat is isolated on the send visit itself.
+        self.assertEqual(out['outcomes'], {'chain-waiting:outgoing-not-observed': 1})
+        self.assertEqual(out['isolated_dialogs'], 0)
+        self.assertEqual(out['history_deferred'], 0)
 
     def test_monitor_mode_keeps_its_full_observation_flow(self):
         # until_waiting=False (the one-chat monitor) is untouched: an

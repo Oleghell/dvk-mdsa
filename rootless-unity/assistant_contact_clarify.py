@@ -1,10 +1,21 @@
 """One optional clarification after a peer explicitly chooses a messenger."""
 import re
-from assistant_contact_intent import TG, WA
+from assistant_contact_intent import TG, WA, MAX
 TEXT = 'Хорошо, напиши номер для WhatsApp или ник в Telegram, если тебе удобно.'
 PLATFORM = re.compile(r'\b(?:'+TG+'|'+WA+r')\b', re.I)
 CHOICE = re.compile(r'\b(?:давай(?:те)?|лучше|удобн\w*|предпочитаю|соглас\w*|напиши|пиши|найди|хочу|можно|есть|установлен[ао]?|пользуюсь)\b', re.I)
 NEGATIVE = re.compile(r'не\s+(?:хочу|надо|могу|пользуюсь|работает)|не\s*пиши|не\s*да[мю]', re.I)
+# Reports 9104352d port 5571 (v1.3.104): the clause-level app list. A clause
+# that is EXACTLY app names joined by «или»/«и»/comma («Мах или вотсап»,
+# «вотсап, телега») is a terse choice in EITHER order; the MAX spellings
+# (мах/мак) join the list so the mirrored order stays a choice too. The
+# whole-message fullmatch below keeps its former semantics verbatim.
+APPS = r'(?:'+MAX+r'|'+TG+r'|whats\s?app|'+WA+r')'
+APP_LIST = re.compile(r'(?:\s*,?\s*(?:или|и)\s+'+APPS+r')*', re.I)
+# A clause that only reports a platform ABSENCE («Телеги нет, стёрла»,
+# «телегу удалила», «ватсапа нет») may precede the terse choice; it names
+# the app plus an absence verb and never contains a question.
+ABSENT = re.compile(r'\b(?:нет|нету|не\s+пользуюсь|не\s+установлен\w*|ст[её]рл\w*|ст[её]рла|удалил\w*|удал[её]н\w*|сломал\w*|не\s+работает)\b', re.I)
 
 def chosen(messages):
     if max_selected(messages):return True
@@ -25,10 +36,24 @@ def chosen(messages):
     # assistant_contact_intent.WA so «вотсап»/«вотапп»-style replies behave the
     # same as «ватсап» here.
     from assistant_contact_intent import WA as _WA
-    apps=r'(?:тг|телеграм(?:м)?|телега|telegram|whats\s?app|'+_WA+')'
-    tail=(r'(?:[\s,/]+(?:или\s+)?(?:(?:макс|max)|'+apps+r'))*')
+    apps=r'(?:тг|телег[а-яё]*|telegram|whats\s?app|'+_WA+')'
+    tail=(r'(?:[\s,/]+(?:или\s+)?(?:(?:макс|max|мах|мак)|'+apps+r'))*')
     short = (re.fullmatch(r'\s*'+apps+tail+r'[.!)]*\s*', value, re.I)
-             or re.fullmatch(r'\s*(?:макс|max)'+tail+r'[.!)]*\s*', value, re.I))
+             or re.fullmatch(r'\s*(?:макс|max|мах|мак)'+tail+r'[.!)]*\s*', value, re.I))
+    # v1.3.104: the terse list may be ONE CLAUSE of a longer reply whose other
+    # clauses only report platform absence («Телеги нет, стёрла. Мах или
+    # вотсап»). Every non-list clause must be such an absence clause (an app
+    # plus an absence verb, no question, no negated consent) for the message
+    # to stay a choice; any off-topic clause keeps the old closed behavior.
+    if not short:
+        clauses=[clause.strip() for clause in re.split(r'[,;.!\n]+', value) if clause.strip()]
+        lists=[clause for clause in clauses
+               if re.fullmatch(r'\s*(?:'+APPS+r')'+APP_LIST.pattern+r'[.!)]*\s*', clause, re.I)]
+        rest=[clause for clause in clauses if clause not in lists]
+        short=bool(lists) and all(
+            re.search(r'\b(?:'+APPS+r'|номер|контакт|мессенджер)\b', clause, re.I)
+            and ABSENT.search(clause) and not re.search(r'[?？]', clause)
+            for clause in rest)
     return bool(PLATFORM.search(value) and (CHOICE.search(value) or short) and not NEGATIVE.search(value))
 
 MAX_TEXT = 'По какому номеру могу найти тебя в MAX, если тебе удобно?'

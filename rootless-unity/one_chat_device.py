@@ -330,6 +330,28 @@ def transient_read_failure(error):
                 'changing-last-message', 'view-not-ready'})
 
 
+def verified_entry_retry(error):
+    """v1.3.104: the chat-read shapes that mean «the screen was not there YET».
+
+    Reports S5GK7 monitors 660/664 (9104352d): a freshly opened unread chat's
+    FIRST bound read died with 'not-ready' (zero frames observed - the read
+    returned before any presentation tick) or 'observer-stopped' (the observer
+    detached mid-read, e.g. two frames into the last-message checkpoint), and
+    the whole inbox pass stopped at chat-bound-chat-read-failed - the user
+    watched the assistant open the new unread dialog and back out of it
+    without working. Both shapes carry NO identity or message proof (the
+    retry re-verifies identity from scratch), so a bounded fresh SAME-bound
+    retry is read-only and safe; identity/transport/schema failures never
+    match. The observer-stopped code is also in mumu_recovery RETRY_CODES
+    since v1.3.99, so a still-failing read keeps its port-level recovery.
+    """
+    value = safe_read_failure(error)
+    if value.get('error') == 'not-ready':
+        return (value.get('read_checkpoint') == 'not-checked' and value.get('wait_reason') == 'not-checked'
+                and value.get('identity_checkpoint') == 'not-checked' and value.get('scalar_state') == 'not-read')
+    return value.get('error') == 'observer-stopped'
+
+
 def verified_readonly_transport(error):
     from startup_failure import clean
     value=clean(getattr(error,'_dvk_failure',None))

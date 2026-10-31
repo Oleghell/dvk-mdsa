@@ -94,8 +94,13 @@ class Recovery(unittest.TestCase):
         after=fixtures.snapshot(('Привет',False),(self.action['text'],True));reads=iter([self.snapshot,self.snapshot,self.snapshot,self.snapshot,after]);sent=[]
         def sender(snapshot,text):sent.append(text);return dict(attempted=True,handler_returned=True)
         out=guide.walk(self.chain,fixtures.WHO,threading.Event(),lambda *a:True,lambda _:next(reads),sender,
-            approved=True,greetings=(fixtures.GREETING,),until_waiting=True,pause=lambda _:False)
-        self.assertEqual(out['reason'],'wait-mood',out['diagnostics']);self.assertEqual(sent,[self.action['text']])
+            approved=True,greetings=(fixtures.GREETING,),until_waiting=True,pause=lambda _:False,quick_send_exit=True)
+        # v1.3.104 repin: the walk leaves right after the returned send («шаг
+        # назад и проверяй уже в личке») - no third in-chat history read, so
+        # the outgoing stays unobserved BY DESIGN and the reason is the honest
+        # 'outgoing-not-observed' whose confirmation the list-level row recheck
+        # owns. The re-send protection itself is unchanged: one submission.
+        self.assertEqual(out['reason'],'outgoing-not-observed',out['diagnostics']);self.assertEqual(sent,[self.action['text']])
         self.assertEqual(out['submission_calls'],1);self.assertTrue(out['diagnostics']['post_send_checked'])
     def test_reported_seen_input_hint_is_bypassed_only_for_unspent_recovery(self):
         from assistant_inbox import with_seen_ids

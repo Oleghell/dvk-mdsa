@@ -22,7 +22,7 @@ def should_close(db, snapshot, stage, incoming, *, requested, max_choice=False, 
     if stage=='pending-followup':return True
     if not incoming:return False
     from assistant_contact_clarify import chosen
-    from assistant_contact_intent import visible,APP
+    from assistant_contact_intent import visible,APP,TG as _TG
     import re
     from assistant_contact_intent import WA as _WA_SPELLINGS
     for message in incoming:
@@ -40,7 +40,7 @@ def should_close(db, snapshot, stage, incoming, *, requested, max_choice=False, 
             # Reports aPYyN7weMm (v1.3.78): the whole WhatsApp spelling family
             # (вотсап/вотапп/…) keeps such clauses contact-related instead of
             # letting an unrecognized spelling close the chain as off-topic.
-            related=APP.search(clause) or re.search(r'телеграм|telegram|'+_WA_SPELLINGS+r'|whatsapp|\bтг\b|номер|контакт|мессенджер',clause)
+            related=APP.search(clause) or re.search(r'телег[а-яё]*|telegram|'+_WA_SPELLINGS+r'|whatsapp|\bтг\b|номер|контакт|мессенджер',clause)
             if personal or not (related or echo):return True
     choice=chosen(incoming)
     if stage=='pending-clarify':

@@ -67,13 +67,25 @@ ISOLATE = {'greeting-not-verified', 'send-outcome-unknown', 'outgoing-not-observ
 CONTINUE = {'chain-waiting', 'chain-completed', 'chain-needs-review', 'chain-paused'}
 
 
-def isolation_reason(result):
+def isolation_reason(result, *, quick_send_exit=False):
     """Only authored, identity-rechecked message failures may leave via verified back.
 
     Do not skip arbitrary ReadStopped/identity/device failures. The native reader
     still rejects unanchored local messages without reading their bodies.
     """
     reason = result['reason']
+    if quick_send_exit and reason == 'outgoing-not-observed' and result.get('submission_calls'):
+        # v1.3.104: the immediate post-send leave (quick_send_exit) is the
+        # DESIGNED exit after a returned send - its visual confirmation rides
+        # the list-level row recheck, not a quarantine. Only the poll-exhaustion
+        # form (no submission this run) keeps its manual-review isolation.
+        return None
+        # v1.3.104: the immediate post-send leave («шаг назад и проверяй уже в
+        # личке») is the DESIGNED exit after a returned send - its visual
+        # confirmation rides the list-level row recheck seconds later, not a
+        # quarantine. Only the poll-exhaustion form (no submission this run)
+        # keeps its manual-review isolation exactly as before.
+        return None
     if reason == 'chat-input-disabled':
         return reason if (result.get('diagnostics') or {}).get('input_disabled_verified') is True else None
     if reason == 'message-invalid':
@@ -709,11 +721,15 @@ def report():
                 terminal_row_markers=0,
                 workless_row_markers=0,
                 restored_target_rows=0,
+                post_send_checks=0,
+                post_send_list_verified=0,
+                post_send_list_unconfirmed=0,
+                post_send_reopened=0,
                 device_scope='MuMu-4-only', last_navigation=None, last_chat_diagnostics=None)
 
 
 def walk(settings, stopped, approve, progress, chain, *, navigator, reader, sender,
-         notifier=None, greetings=(), pause=None, entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None, exit_photo=None, exit_photo_sender=None, clock=time.time):
+         notifier=None, greetings=(), pause=None, entry='search', return_to='search', exit_notifier=None, pager=None, contact_photo=None, exit_photo=None, exit_photo_sender=None, clock=time.time, quick_send_exit=False):
     from assistant_navigation_check import safe_diagnostic
     if entry not in ('search', 'dialogs') or return_to not in ('search', 'dialogs'):
         raise ValueError('Invalid inbox screen')
@@ -848,6 +864,13 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             deny=deny_with_seen(chain, terminal_deny(chain))
             out['terminal_rows_deny']=len(deny)
         processed=set()
+        # v1.3.104 «резко после этого делай шаг назад и проверяй уже в личке на
+        # отправку»: chats whose fresh submission still needs its LIST-LEVEL
+        # verification. After the immediate verified Back the pass re-checks
+        # the row through one read-only scan: our outgoing as the row's last
+        # message is the send proof from the list; her message still last
+        # re-opens the chat once and finishes the pending work right now.
+        verify_pending=set()
         # v1.3.86: adoption mode stays on until the native scan revisits a chat
         # THIS pass already opened and deliberately left (a shared block, a
         # deliberate exclusion, a deferred read). Re-asking would cycle the
@@ -910,17 +933,46 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                             adopt_untracked=adopt_open, hidden=hidden_peers(chain, clock=clock))
             entry = 'dialogs'
             if selected['state'] == 'exhausted':
+                # v1.3.104: a queued post-send verification target that rode
+                # this scan without its row opening is settled here: our
+                # message as the row's LAST message (the waiting skip on a
+                # permitted row) is the list-level send proof; anything else
+                # (offscreen row, handled skip) leaves the confirmation to the
+                # deferral ladder's own recheck.
+                if verify_pending:
+                    exhausted_diagnostic = selected['diagnostic'] if isinstance(selected.get('diagnostic'), dict) else {}
+                    scanned = {(x['account'], x['peer']) for x in allowed}
+                    due = [key for key in verify_pending if key in scanned]
+                    for key in due:
+                        verify_pending.discard(key)
+                        if exhausted_diagnostic.get('waiting_rows_skipped', 0):
+                            out['post_send_list_verified'] += 1
+                        else:
+                            out['post_send_list_unconfirmed'] += 1
+                    if due and exhausted_diagnostic.get('waiting_rows_skipped', 0):
+                        progress('Отправка подтверждена по строке списка • последнее сообщение в чате наше.')
+                    elif due:
+                        progress('Отправку не видно в строке списка • проверю чат позже по расписанию.')
                 if group_kind == 'read':
                     reset_read_round(chain)  # Remaining targets may be offscreen.
                 groups.pop(0)
                 continue
             who = identity(selected['identity'])
+            # v1.3.104: this open IS the post-send list verification recheck -
+            # the row re-opened because her message is still last (the send did
+            # not land, or a genuinely new peer message arrived). The full
+            # read/proposal flow below finishes that pending work NOW.
+            verified_reopen = (who['account'], who['peer']) in verify_pending
+            if verified_reopen:
+                verify_pending.discard((who['account'], who['peer']))
+                out['post_send_reopened'] += 1
+                progress('Строка чата открыта повторно • подтверждаю отправку и новые сообщения.')
             # v1.3.90: the row's last message id the native needs-reply filter
             # judged for THIS selection. Captured before any Back overwrites
             # the last navigation diagnostic; used only as a skip-marker id.
             row_last = selected['diagnostic'].get('selected_message') \
                 if isinstance(selected.get('diagnostic'), dict) else None
-            if adopt_open and (who['account'], who['peer']) in processed:
+            if adopt_open and (who['account'], who['peer']) in processed and not verified_reopen:
                 # v1.3.86: the scan came back to a row this pass already handled.
                 # Switch the remaining opens to strict journal targets so the
                 # pass cannot cycle open→back on the same dialog; the row is
@@ -995,7 +1047,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 # gets the SAME answer, deferral, marker and pruning as every
                 # target - one productive visit closes the loop, ours-last then
                 # keeps the row a waiting row the native never re-opens.
-                if (who['account'], who['peer']) in processed or deliberate_exclusion(chain, who, clock=clock):
+                if ((who['account'], who['peer']) in processed and not verified_reopen) or deliberate_exclusion(chain, who, clock=clock):
                     leave_manual(who)
                     continue
                 out['restored_target_rows'] += 1
@@ -1028,7 +1080,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 lambda snapshot, text: sender(settings.adb, settings.folder, snapshot,
                                               stopped.is_set, text=text),
                 approved=True, greetings=greetings, notifier=notifier, progress=progress,
-                pause=pause, max_polls=8, until_waiting=True, snapshot_capture=capture_snapshot, exit_capture=lambda texts:exit_messages.__setitem__(slice(None),texts), contact_photo=contact_photo,
+                pause=pause, max_polls=8, until_waiting=True, quick_send_exit=quick_send_exit, snapshot_capture=capture_snapshot, exit_capture=lambda texts:exit_messages.__setitem__(slice(None),texts), contact_photo=contact_photo,
                 contact_reader=lambda expected: reader(settings.adb, settings.folder,
                                                        stopped.is_set, expected, read_name=True))
             result['diagnostics'].update(open_timing)
@@ -1037,7 +1089,8 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 chain.history_read_budget = adapted_read_budget(chain.history_read_budget, result['diagnostics'])
                 out['history_read_budget'] = chain.history_read_budget
             if result.get('submission_calls',0)>0 and result['reason'] in ('send-outcome-unknown','send-preflight-deferred','send-native-check-failed',
-                    'send-device-check-failed','send-validation-failed','outgoing-not-observed'):
+                    'send-device-check-failed','send-validation-failed') or (result.get('submission_calls',0)>0
+                    and result['reason']=='outgoing-not-observed' and not quick_send_exit):
                 # Retain earlier send failures even if later chats succeed. No
                 # identity, body, session ID or authorization token is copied.
                 from assistant_error_notify import diagnostic_json
@@ -1105,7 +1158,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             if deferred and not (result['status'] == 'chain-waiting' and deferred_valid):
                 out.update(status='inbox-stopped', reason='chat-bound-chat-read-failed')
                 return out
-            isolated_code = isolation_reason(result)
+            isolated_code = isolation_reason(result, quick_send_exit=quick_send_exit)
             isolated = isolated_code is not None
             if not isolated:
                 count(result['reason'] if result['status'] != 'chain-waiting' else result['status'] + ':' + result['reason'])
@@ -1125,7 +1178,13 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             from assistant_reply_audit import owed as owed_replies
             unanswered=owed_replies(chain,who,private_snapshot[0] if private_snapshot else None)
             result['unanswered_messages']=len(unanswered)
+            # v1.3.104: a visit that just SUBMITTED its answer does not raise the
+            # «ответ ещё не подтверждён» exit notice: the list-level row recheck
+            # right after the Back owns the confirmation, and a genuinely failed
+            # render is caught by that recheck's own reopen visit (whose notice
+            # then fires with submission_calls==0 exactly as before).
             notice_needed=(result['reason']!='contact-notification-queued' and not manually_blocked(chain.store,who) and not result['notifications']['accepted']
+                    and not (quick_send_exit and result['submission_calls'] and result['reason']=='outgoing-not-observed')
                     and (bool(unanswered) or not result['outgoing_observed_this_run'] or result['stages']['peer_contact']))
             exit_image=None;exit_image_status=None
             capture_needed=notice_needed and exit_notifier is not None and exit_photo is not None
@@ -1223,6 +1282,39 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 record_checked(chain, who)
             for group in groups:
                 group[0][:] = [x for x in group[0] if (x['account'], x['peer']) != (who['account'], who['peer'])]
+            # v1.3.104: a fresh submission that nobody has observed yet gets its
+            # list-level verification immediately after the Back - one read-only
+            # row scan through the retry-target transport (badge-less admission
+            # is exactly the promised «проверю позже» recheck, here due now).
+            # Our outgoing as the row's last message proves the send from the
+            # list; her message still last re-opens the chat once and finishes
+            # the pending work in THIS pass; a deferred/answer-pending result
+            # already owns its own ladder and never queues a duplicate check.
+            if (quick_send_exit and result['submission_calls'] and result['status'] != 'chain-completed'
+                    and not isolated
+                    and (who['account'], who['peer']) not in verify_pending
+                    and result['reason'] not in PAUSE_OUTCOMES):
+                # v1.3.104 «резко после этого делай шаг назад и проверяй уже в
+                # личке на отправку»: the send's visual confirmation rides the
+                # NEXT row scan of this pass as a merged RETRY target (the same
+                # badge-less admission the promised «проверю позже» recheck
+                # uses, due now): our outgoing as the row's last message proves
+                # the send from the list; her message still last re-opens the
+                # chat once and finishes the pending work right here. A pass
+                # with no further groups leaves the confirmation to the
+                # deferral ladder exactly as before. A deferred result already
+                # owns its own ladder step - the merged target only ADDS the
+                # immediate row glance without any extra navigation call.
+                from dialog_browser import targets as row_targets
+                verify_pending.add((who['account'], who['peer']))
+                live = next((index for index, group in enumerate(groups) if group[0]), None)
+                if live is not None:
+                    # Only a pass that still has live rows to scan merges the
+                    # verification target into its next open; a spent pass keeps
+                    # the confirmation with the deferral ladder's own recheck.
+                    out['post_send_checks'] += 1
+                    groups[live][0][:0] = row_targets([dict(account=who['account'], peer=who['peer'],
+                                                            chat=who['chat'], retry=True)])
             if result['reason'] in PAUSE_OUTCOMES and not isolated:
                 reason = 'needs-review'
                 break  # No further approval prompts in this pass after No/timeout.
@@ -1326,7 +1418,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
                     reader=partial(capture,read_latest=True,read_input=True,
                                    read_name=settings.contacts_enabled,read_name_optional=settings.contacts_enabled) if reader is None else reader,
                     sender=submit if sender is None else sender,
-                    notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,exit_photo=exit_photo,exit_photo_sender=exit_photo_sender,
+                    notifier=notifier, pause=pause, entry=entry, return_to=return_to, exit_notifier=exit_notifier, pager=pager,contact_photo=contact_photo,exit_photo=exit_photo,exit_photo_sender=exit_photo_sender, quick_send_exit=True,
                     greetings=prepared_greetings)
 
     with checkpoint('inbox-review'):
