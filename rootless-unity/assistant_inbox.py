@@ -375,6 +375,33 @@ def reset_read_round(chain):
         db.execute('DELETE FROM inbox_read_round')
 
 
+def deliberate_exclusion(chain, who, *, clock=time.time):
+    """v1.3.98: is this peer deliberately kept OUT of this round's targets?
+
+    The walk's adoption arm can still open a row that this round's group
+    lists no longer carry. Such a stray is read-only-left ONLY when a live
+    deliberate exclusion owns it - an ACTIVE history cooldown (the deferral
+    ladder re-admits the chat to finish the owed answer) or a reply-window
+    row. Both sources are exactly what hidden_peers() uploads in shared
+    mode; the plain single-port store has no hidden upload, so this check
+    is what keeps its cooling chats read-only there. Any OTHER tracked
+    stray - a chat that simply lost its target-list entry - is live work the
+    native filter just proved, and the walk processes it as a target.
+    Manual blocks and silences never reach here: the walk handles them
+    before any read.
+    """
+    who = identity(who)
+    from assistant_history_wait import instant
+    now = instant(clock)
+    with chain.store.read_connection() as db:
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inbox_history_deferrals'").fetchone() and db.execute(
+                'SELECT 1 FROM inbox_history_deferrals WHERE account=? AND peer=? AND retry_after>?',
+                (who['account'], who['peer'], now)).fetchone():
+            return True
+    from assistant_reply_window import reason
+    return reason(chain.store, who) is not None
+
+
 def hidden_peers(chain, *, clock=time.time):
     """v1.3.88: rows the native scan must refuse to open this round.
 
@@ -621,6 +648,7 @@ def report():
                 terminal_rows_deny=0,
                 terminal_row_markers=0,
                 workless_row_markers=0,
+                restored_target_rows=0,
                 device_scope='MuMu-4-only', last_navigation=None, last_chat_diagnostics=None)
 
 
@@ -865,13 +893,40 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 # the same row state was reopened on every later pass with live
                 # work. Its current last message id now becomes the durable skip
                 # marker - the row is skipped until a genuinely NEW message
-                # changes it. Active (non-terminal) strays never get one: a
-                # cooldown or reply window must re-admit them unchanged.
-                if row_last and terminal_marker(chain, who, row_last):
-                    out['terminal_row_markers'] += 1
-                    progress('Законченный чат пропущен до нового сообщения • маркер записан.')
-                leave_manual(who)
-                continue
+                # changes it; an older native without the id keeps the bounded
+                # 1.3.89 read-only leave (the stage gates the branch, not the
+                # marker's success).
+                if terminal_stage(chain, who) in TERMINAL:
+                    if row_last and terminal_marker(chain, who, row_last):
+                        out['terminal_row_markers'] += 1
+                        progress('Законченный чат пропущен до нового сообщения • маркер записан.')
+                    leave_manual(who)
+                    continue
+                # v1.3.98: a TRACKED chat the native needs-reply filter just
+                # proved carries live incoming work, and NO deliberate
+                # exclusion keeps it out of this round, did not lose finished
+                # work - it lost its TARGET LIST entry (the reported
+                # «почему при запуске оно заходит в прочитанные чаты когда
+                # этого не должно быть»: a tracked read chat the operator
+                # watched being re-entered twice on EVERY startup, zero
+                # submissions, zero markers, forever). The old unconditional
+                # read-only leave recorded NOTHING for such a row, so the next
+                # pass reset adoption and opened the same state again - an
+                # unbounded open→Back carousel that no cooldown ladder, no
+                # workless marker and no terminal deny could ever close, because
+                # the row was never visited by the chain at all. A chat already
+                # processed THIS pass keeps the read-only leave exactly as
+                # before: that revisit is the designed 1.3.86 adoption
+                # switch-off, not a gap. Every other stray without a LIVE
+                # exclusion falls through into the normal target flow below and
+                # gets the SAME answer, deferral, marker and pruning as every
+                # target - one productive visit closes the loop, ours-last then
+                # keeps the row a waiting row the native never re-opens.
+                if (who['account'], who['peer']) in processed or deliberate_exclusion(chain, who, clock=clock):
+                    leave_manual(who)
+                    continue
+                out['restored_target_rows'] += 1
+                progress('Диалог выпал из списка целей • обрабатываю его как активный чат.')
             progress(f'Читаю открытый диалог • {out["dialogs_opened"]}')
             if group_kind == 'read':
                 out['read_dialogs_checked'] += 1
