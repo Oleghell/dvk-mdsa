@@ -22,6 +22,7 @@ bounds.
 import json
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import dialog_models
@@ -31,6 +32,10 @@ from assistant_monitor import report as monitor_report
 from assistant_settings import Settings
 from assistant_inbox import report as inbox_report
 from test_assistant_dialogs import nav_result
+
+# CI runs the suite from the repository root, so sibling module sources are
+# resolved from THIS file's location, never from the current directory.
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def list_result():
@@ -85,7 +90,7 @@ class ScanPacing(unittest.TestCase):
         # 16 rows per callback the slow fixture tick must be slow enough to
         # trip the slice split (2.2s ticks -> a 64-row slice splits after 32
         # rows -> slices>3 for the 130-model list).
-        smoke = open('smoke_dialog_models.py', encoding='utf-8').read()
+        smoke = (ROOT / 'smoke_dialog_models.py').read_text(encoding='utf-8')
         self.assertIn("source.replace('batch<16&&','batch<1&&')", smoke)
         self.assertNotIn("source.replace('batch<4&&','batch<1&&')", smoke)
         self.assertIn('str(2.2 if slow else .003)', smoke)
@@ -182,7 +187,7 @@ class MonitorSkip(unittest.TestCase):
         self.assertEqual(self.inbox.call_count, 1)
 
     def test_source_pins_the_skip_and_its_bounds(self):
-        source = open('assistant_monitor.py', encoding='utf-8').read()
+        source = (ROOT / 'assistant_monitor.py').read_text(encoding='utf-8')
         self.assertIn("if entry != 'dialogs' or not list_verified:", source)
         self.assertIn('list_verified = False', source)
         self.assertIn('list_verified = True', source)
