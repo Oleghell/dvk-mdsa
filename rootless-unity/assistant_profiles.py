@@ -31,6 +31,29 @@ MAX_READ_RECOVERIES = 3
 # no more ankety are opened in vain. Qualification verdicts and successful
 # greetings never count against it - they are the pass's productive opens.
 MAX_FAILED_OPENS = 3
+# v1.3.102 (user report: «опять баг, прошло 14 анкет и не одному не написало,
+# сделай более жесткую проверку уже надоело это фиксить 5 сборок»): the
+# 1.3.100 total budget bound only FAILURE opens (unreadable model, chat that
+# never opened, unready history, exhausted submit frame). Every other
+# no-greeting outcome stayed completely unbounded: a clean qualification
+# verdict (friends>=50, existing chat, input disabled) and even a shared-peer
+# skip (another port's fresh claim, or a saturated pooler refusing reserve
+# AFTER the anketa was already opened and viewed) could legally walk the pass
+# through up to MAX_SCANNED opened ankety with zero greetings - the user's
+# «прошло 14 анкет и не одному не написало», five builds in a row. The strict
+# doctrine is now pass-wide and reason-blind: EVERY anketa opened without a
+# confirmed outgoing greeting spends the no-greet accounting, whatever its
+# reason. While the pass has not greeted anybody yet the bound is tight
+# (MAX_NO_GREET_OPENS=5: a zero-greeting pass has no business opening a sixth
+# anketa); once a greeting has landed the pass has proven it delivers, and
+# only a longer collapse streak (MAX_NO_GREET_STREAK=8) ends it. The stop is
+# graceful and honest - status 'profiles-completed' with reason
+# 'no-greet-limit' (the monitor schedules the next profile batch instead of
+# killing the port), the report keeps the full per-reason distribution, and
+# the 1.3.100 view protection (one anketa - one view per day) already keeps
+# the skipped girls from ever being re-opened.
+MAX_NO_GREET_OPENS = 5
+MAX_NO_GREET_STREAK = 8
 
 
 def report(limit):
@@ -38,7 +61,7 @@ def report(limit):
                 reason='not-started', profile_limit=limit, profiles_checked=0, qualified_profiles=0, scan_limit=MAX_SCANNED,
                 search_cycles=0, search_cycle_limit=MAX_SEARCH_CYCLES,
                 skipped_friends=0, skipped_existing_chat=0, skipped_unready_chat=0, skipped_input_disabled=0, skipped_unreadable=0, skipped_chat_not_opened=0, skipped_submit_frame_budget=0,
-                read_recovery_limit=MAX_READ_RECOVERIES, failed_open_limit=MAX_FAILED_OPENS, consecutive_read_recoveries=0, failed_opens=0, recovery_events=[], greetings_offered=0, shared_peer_skips=0,
+                read_recovery_limit=MAX_READ_RECOVERIES, failed_open_limit=MAX_FAILED_OPENS, consecutive_read_recoveries=0, failed_opens=0, no_greet_opens=0, no_greet_open_limit=MAX_NO_GREET_OPENS, no_greet_streak_limit=MAX_NO_GREET_STREAK, no_greet_limit_hit=False, recovery_events=[], greetings_offered=0, shared_peer_skips=0,
                 reservations_released=0,
                 greetings_sent=0, send_attempts=0, send_attempts_unknown=False, handlers_returned=0, outgoing_observed=None,
                 greetings_declined=0, city_changes=0, city_reservations_recovered=0, search_budget_rotations=0, last_profile_diagnostics=None,
@@ -134,6 +157,16 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
         config = load() if config is None else config
     session = Session(store)
     out['current_city'] = session.get('city')
+
+    def advance_no_greet():
+        """v1.3.102: every anketa opened without a confirmed greeting spends
+        the pass's no-greet accounting, whatever its reason - verdict, skip,
+        shared claim or failure. Returns True when the strict bound is hit
+        (tight while nobody was greeted, looser for a post-greeting streak)."""
+        out['no_greet_opens'] += 1
+        return out['no_greet_opens'] >= (MAX_NO_GREET_OPENS if out['handlers_returned'] == 0
+                                         else MAX_NO_GREET_STREAK)
+
     cycle_pending = False
     host_checkpoint = 'profile-start'
     try:
@@ -173,7 +206,7 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             if out['search_cycles'] >= MAX_SEARCH_CYCLES:
                 raise StateError('search-cycle-limit')
             greeting = config.greeting()
-            progress(f'Анкеты • подходящих {out["qualified_profiles"]}/{limit} • просмотрено {out["profiles_checked"]}')
+            progress(f'Анкеты • подходящих {out["qualified_profiles"]}/{limit} • просмотрено {out["profiles_checked"]} • без отправки {out["no_greet_opens"]}')
             offered = []
 
             def ask(pending, text, cancelled):
@@ -240,6 +273,23 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
             out['profiles_checked'] += 1
             if n['send_attempted'] and not n['send_handler_returned']:
                 raise StateError('send-outcome-unknown')
+            if n.get('shared_peer_skipped') and n['stage'] == 'navigation-ready':
+                # v1.3.102: a shared-peer skip is its own honest outcome, never
+                # a disguised «уже есть переписка» verdict. The anketa WAS
+                # opened and viewed (the reserve gate runs after the profile,
+                # friends read, chat open and empty-history verification), but
+                # another port's fresh claim or a saturated pooler refused the
+                # reservation, so no greeting may go out. It spends the strict
+                # no-greet accounting like every other opened-without-send
+                # anketa, and it no longer resets the failure streak. Only the
+                # READY form continues: a stopped shared skip keeps the honest
+                # profile-check-stopped flow below.
+                if not n['return_verified']:
+                    raise StateError('return-not-verified')
+                if advance_no_greet():
+                    out['no_greet_limit_hit'] = True
+                    break
+                continue
             # v1.3.92: an 'unavailable' friends read is a bounded failure skip
             # exactly like the read skips, so it must not reset the consecutive
             # recovery limit either (in the assistant cycle the close gate only
@@ -293,6 +343,9 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                             event['notification'] = 'unknown'
                     if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES or out['failed_opens'] >= MAX_FAILED_OPENS:
                         raise StateError('profile-recovery-limit')
+                    if advance_no_greet():
+                        out['no_greet_limit_hit'] = True
+                        break
                     continue
                 elif n['profile_read_skip_reason'] == 'submit-frame-budget':
                     # v1.3.99 (twelve ports at once): the ACKed greeting submit
@@ -340,6 +393,9 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                             event['notification'] = 'unknown'
                     if out['consecutive_read_recoveries'] >= MAX_READ_RECOVERIES or out['failed_opens'] >= MAX_FAILED_OPENS:
                         raise StateError('profile-recovery-limit')
+                    if advance_no_greet():
+                        out['no_greet_limit_hit'] = True
+                        break
                     continue
                 elif (n.get('profile_read_skip_reason') not in SKIP_REASONS or offered or n.get('error') != 'none' or
                         n.get('return_verified') is not True or n.get('chat_return_verified') is not True or
@@ -353,6 +409,9 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                     out['skipped_input_disabled'] += 1
                     out['consecutive_read_recoveries'] = 0
                     progress('Анкета пропущена: ввод недоступен. Возврат проверен. Продолжаю поиск.')
+                    if advance_no_greet():
+                        out['no_greet_limit_hit'] = True
+                        break
                     continue
                 out['skipped_unready_chat'] += 1
                 out['consecutive_read_recoveries'] += 1
@@ -405,7 +464,17 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                 raise StateError('return-not-verified')
             if n['send_handler_returned']:
                 out['qualified_profiles'] += 1
-        out.update(status='profiles-completed', reason='profile-limit', return_verified=True)
+                # v1.3.102: a confirmed greeting is the only thing that resets
+                # the strict no-greet accounting - the pass has proven it
+                # delivers, so only a longer collapse streak can end it later.
+                out['no_greet_opens'] = 0
+            elif advance_no_greet():
+                # The verdict exits (friends>=50, existing chat, unreadable
+                # model, unready history): an opened anketa with no greeting.
+                out['no_greet_limit_hit'] = True
+                break
+        out.update(status='profiles-completed',
+                   reason='no-greet-limit' if out['no_greet_limit_hit'] else 'profile-limit', return_verified=True)
     except Exception as error:
         from assistant_failure import category,evidence
         out.update(host_failure=category(error),host_checkpoint=host_checkpoint)

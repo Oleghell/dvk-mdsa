@@ -3,6 +3,7 @@ import copy
 import unittest
 from unittest.mock import MagicMock
 import assistant_pass
+import assistant_profiles as profiles
 import assistant_contact_followup as follow
 import assistant_contact_budget as budget
 import assistant_guided_chain as guided
@@ -29,12 +30,29 @@ class InputSkip(unittest.TestCase):
             with self.subTest(key=key,value=value),self.assertRaises(ValueError):assistant_pass.validate(v)
     def test_many_deleted_profiles_are_skips_not_port_recovery(self):
         notify=MagicMock()
+        # v1.3.102 repin: five input-disabled ankety in a row end the pass
+        # GRACEFULLY ('profiles-completed', reason 'no-greet-limit') - they
+        # stay skips (no recovery events, no failure budget spent), but a
+        # zero-greeting pass no longer opens a sixth anketa. The 6th cycle
+        # (the greeting) never runs; the strict no-greet bound fired first.
         values=[disabled() for _ in range(5)]+[cycle_result(send_attempted=True,send_handler_returned=True)]
         out,calls=self.go(values,notifier=notify)
-        self.assertEqual((out['status'],calls),('profiles-completed',6))
+        self.assertEqual((out['status'],calls),('profiles-completed',5))
+        self.assertEqual(out['reason'],'no-greet-limit')
         self.assertEqual(out['skipped_input_disabled'],5)
+        self.assertEqual(out['no_greet_opens'],profiles.MAX_NO_GREET_OPENS)
         self.assertEqual(out['consecutive_read_recoveries'],0)
+        self.assertEqual(out['failed_opens'],0)
         self.assertFalse(out['recovery_events']);notify.assert_not_called()
+        # Four in a row still leave room: the fifth cycle greets and the pass
+        # completes on the greeting limit exactly as before.
+        values=[disabled() for _ in range(4)]+[cycle_result(send_attempted=True,send_handler_returned=True)]
+        out,calls=self.go(values,notifier=notify)
+        self.assertEqual((out['status'],calls),('profiles-completed',5))
+        self.assertEqual(out['reason'],'profile-limit')
+        self.assertEqual(out['skipped_input_disabled'],4)
+        self.assertEqual(out['no_greet_opens'],0)
+        self.assertEqual(out['qualified_profiles'],1)
     def test_wrong_or_unknown_return_never_becomes_skip(self):
         for change in ({'chat_back_completed':False},{'return_verified':False},{'cleanup_failed':True}):
             v=disabled();v['navigation'].update(change)

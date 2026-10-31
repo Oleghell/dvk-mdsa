@@ -98,12 +98,15 @@ def summary(result):
         city = profiles['current_city']
         parts.append(f"Анкеты{(' (' + city + ')') if city else ''}: подходящих {profiles.get('qualified_profiles', 0)}/{profiles['profile_limit']}, просмотрено {profiles['profiles_checked']}, "
                      f"попыток приветствия {profiles['send_attempts']}, возвратов обработчика {profiles['handlers_returned']}, "
+                     f"подряд без приветствия {profiles.get('no_greet_opens', 0)}/{profiles.get('no_greet_open_limit', 0)}, "
                      f"открыто без отправки {profiles.get('failed_opens', 0)}/{profiles.get('failed_open_limit', 0)}, "
                      f"пропущено (50+ друзей) {profiles['skipped_friends']}, "
-                     f"пропущено (уже есть переписка) {profiles['skipped_existing_chat']}.")
+                     f"пропущено (уже есть переписка) {profiles['skipped_existing_chat']}, "
+                     f"ввод недоступен {profiles.get('skipped_input_disabled', 0)}, "
+                     f"занято другими портами {profiles.get('shared_peer_skips', 0)}.")
         if profiles.get('send_attempts_unknown'):
             parts.append('Цикл оборвался: число дополнительных попыток приветствия неизвестно.')
-        if profiles['status'] != 'profiles-completed':
+        if profiles['status'] != 'profiles-completed' or profiles.get('reason') != 'profile-limit':
             parts.append(PROFILE_REASONS.get(profiles['reason'], 'Анкеты остановлены: ' + profiles['reason'] + '.'))
     if inbox or profiles:
         parts.append('Доставка собеседнику не подтверждена; появление приветствий в истории не проверялось.'
@@ -130,6 +133,7 @@ INBOX_REASONS = {
     'cancelled': 'Остановлено.',
 }
 PROFILE_REASONS = {
+    'no-greet-limit': 'Подряд открытые анкеты не дали ни одного приветствия: проход по анкетам завершён, холостые просмотры дальше не расходуются. Причины пропусков — в сводке выше (50+ друзей / уже есть переписка / ввод недоступен / занято другими портами). Повторные просмотры этих анкет исключены на сутки; следующий проход — по расписанию.',
     'profile-recovery-limit': 'Лимит анкет без отправки: открытые анкеты не дали ни одного приветствия, и дальнейшие холостые просмотры остановлены. Повторные просмотры этих анкет исключены на сутки.',
     'profile-scan-limit': 'Достигнут предел просмотра 200 анкет. Подходящих недостаточно; продолжение — новым запуском.',
     'greeting-not-approved': 'Приветствие не подтверждено — оно не отправлялось.',
