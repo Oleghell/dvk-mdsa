@@ -10,10 +10,13 @@
 
 Команды:
     status   (по умолчанию) — размер базы, группы таблиц, топ-20 таблиц,
-               замороженные m<порт>__ таблицы, защитные реестры, здоровье;
+               замороженные m<порт>__ таблицы, фантомные строки каталога
+               _dvk_schema, защитные реестры, здоровье;
     clean    — удалить ТОЛЬКО замороженные старые таблицы m<порт>__
-               (журналы до миграции 1.3.53; приложение с 1.3.53 работает
-               только с таблицами пространств установок i<20hex>_m<порт>__),
+               (журналы до миграции 1.3.53; приложение с 1.3.53 пишет только
+               в таблицы пространств установок i<20hex>_m<порт>__), удалить
+               их фантомные строки из каталога _dvk_schema (иначе старт
+               ассистента умирает как cloud-schema-missing — v1.3.111),
                затем VACUUM ANALYZE; до/после по размеру;
     vacuum   — только VACUUM ANALYZE (сбор статистики, безопасно при
                работающем ассистенте);
@@ -76,6 +79,78 @@ def megabytes(size_bytes):
     return float(size_bytes) / (1024 * 1024)
 
 
+# v1.3.111 (отчёт dropmefiles NwkXSU2V): чистка 1.3.110 удаляла физические
+# таблицы m<порт>__, но оставляла их строки в каталоге _dvk_schema —
+# приложение видело фантомные имена через свой sqlite_master и каждый порт
+# умирал на старте как cloud-schema-missing (relation chain_dialogs).
+# Чистка теперь удаляет и строки каталога; заодно лечит фантомы от любого
+# другого ручного удаления таблиц.
+PHANTOM_COUNT = ("SELECT count(*) AS n FROM dvk_private._dvk_schema s"
+                 " WHERE NOT EXISTS (SELECT 1 FROM pg_class c"
+                 " JOIN pg_namespace n ON n.oid=c.relnamespace"
+                 " WHERE n.nspname='dvk_private' AND c.relname=s.name"
+                 " AND c.relkind='r')")
+PHANTOM_DELETE = ("DELETE FROM dvk_private._dvk_schema s"
+                  " WHERE NOT EXISTS (SELECT 1 FROM pg_class c"
+                  " JOIN pg_namespace n ON n.oid=c.relnamespace"
+                  " WHERE n.nspname='dvk_private' AND c.relname=s.name"
+                  " AND c.relkind='r')")
+SAFE_ROLE = re.compile(r'^[a-z][a-z0-9_]{0,62}$')
+
+
+def drop_sql(names):
+    """DROP-блок замороженных таблиц (одна транзакция, IF EXISTS)."""
+    return '\n'.join(f'DROP TABLE IF EXISTS dvk_private."{name}";' for name in names)
+
+
+def catalog_heal_script(owner):
+    """Транзакция удаления фантомных строк каталога от имени роли-владельца.
+
+    Management API работает от postgres: он АДМИНИСТРАТОР роли-владельца
+    каталога (обычно dvk_app_*), но без права SET. Внутри одной транзакции:
+    выдать себе SET, переключиться на владельца, удалить фантомы, вернуть
+    роль и исходные опции членства. Любая ошибка откатывает всё целиком.
+    Возвращает None, если имя роли выглядит подозрительно.
+    """
+    if not owner or not SAFE_ROLE.fullmatch(owner):
+        return None
+    return (f'BEGIN;\n'
+            f'GRANT {owner} TO postgres WITH SET TRUE;\n'
+            f'SET ROLE {owner};\n'
+            f'{PHANTOM_DELETE};\n'
+            f'RESET ROLE;\n'
+            f'GRANT {owner} TO postgres WITH SET FALSE;\n'
+            f'COMMIT;')
+
+
+def heal_catalog(token, reason='чистка'):
+    """Удаляет фантомные строки _dvk_schema; печатает результат.
+
+    Роль-владелец выясняется динамически. Если прав на переключение нет —
+    печатает предупреждение: фантомы уберёт первый запуск ассистента
+    1.3.111+ (self-heal при старте), но до этого старые версии могут падать.
+    """
+    phantoms = query(token, PHANTOM_COUNT)[0]['n']
+    if phantoms == 0:
+        print(f'Строк каталога без физических таблиц нет ({reason}).')
+        return
+    owner = query(token, "SELECT tableowner AS owner FROM pg_tables"
+                         " WHERE schemaname='dvk_private' AND tablename='_dvk_schema'")[0]['owner']
+    script = catalog_heal_script(owner)
+    if script is None:
+        print(f'!! Не удалось построить безопасный скрипт для роли {owner!r} — фантомы ({phantoms}) не удалены.')
+        print('   Их удалит первый запуск ассистента 1.3.111+ (self-heal каталога при старте).')
+        return
+    try:
+        query(token, script)
+        left = query(token, PHANTOM_COUNT)[0]['n']
+        print(f'Удалено фантомных строк каталога: {phantoms - left} из {phantoms} ({reason}); осталось {left}.')
+    except RuntimeError as error:
+        print(f'!! Не удалось удалить фантомные строки каталога ({phantoms}): {error}')
+        print('   Их удалит первый запуск ассистента 1.3.111+ (self-heal каталога при старте),')
+        print('   но версии 1.3.110 и старше на фантомах могут не стартовать.')
+
+
 def collect(token):
     """Одним пакетом read-only запросов собирает полное состояние базы."""
     data = {}
@@ -111,6 +186,7 @@ def collect(token):
     data['health'] = query(token, """
         SELECT (SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()) AS connections,
                (SELECT setting::bigint FROM pg_settings WHERE name='max_connections') AS max_connections""")
+    data['phantoms'] = query(token, PHANTOM_COUNT)
     return data
 
 
@@ -136,6 +212,13 @@ def show(data):
           f"статистика {registries['greeting_statistics']}")
     health = data['health'][0]
     print(f"Соединений: {health['connections']} из {health['max_connections']}")
+    phantoms = data['phantoms'][0]['n'] if data.get('phantoms') else 0
+    if phantoms:
+        print(f"\n!! Строк каталога _dvk_schema без физических таблиц: {phantoms}.")
+        print('   Это ломает старт ассистента 1.3.110 и старше (cloud-schema-missing);')
+        print('   лечится командой clean или первым запуском ассистента 1.3.111+.')
+    else:
+        print('\nКаталог _dvk_schema синхронен с физическими таблицами.')
     return percent
 
 
@@ -150,9 +233,12 @@ def clean(token):
     if len(names) > 500:
         sys.exit(f'Подозрительно много «замороженных» таблиц ({len(names)}) — остановка из безопасности.')
     before = query(token, "SELECT pg_database_size(current_database()) AS bytes")[0]['bytes']
-    drops = '\n'.join(f'DROP TABLE IF EXISTS dvk_private."{name}";' for name in names)
+    drops = drop_sql(names)
     query(token, f'BEGIN;\n{drops}\nCOMMIT;')
     print(f'Удалено {len(names)} замороженных таблиц m<порт>__.')
+    # Строки каталога для удалённых таблиц становятся фантомами — убираем сразу,
+    # иначе старт ассистента умирает на journal-initialization (v1.3.111).
+    heal_catalog(token, reason='после удаления таблиц')
     query(token, 'VACUUM ANALYZE;')
     print('VACUUM ANALYZE завершён.')
     after = query(token, "SELECT pg_database_size(current_database()) AS bytes")[0]['bytes']

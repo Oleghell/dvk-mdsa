@@ -18,7 +18,7 @@ from assistant_store import Store as BaseStore, StateError
 from assistant_config import check_text
 from cohort_pass import Store as LegacyStore
 from mumu_common import root_directory, port
-from cloud_database import connect,journal_initialization
+from cloud_database import connect,journal_initialization,heal_catalog
 
 TABLES = frozenset(('manual_actions profile_visits search_session city_rotation_used '
     'chain_send_authorizations chain_send_attempts chain_contact_media chain_contact_outbox chain_dialogs chain_review_reasons '
@@ -88,6 +88,15 @@ class SharedStore(BaseStore):
             db.execute('PRAGMA synchronous=FULL')
             db.execute('BEGIN IMMEDIATE')
             try:
+                # v1.3.111 (dropmefiles NwkXSU2V): heal the shared catalog BEFORE
+                # anything reads table names through sqlite_master. The 1.3.110
+                # cleanup dropped the physical legacy m<port>__* tables while their
+                # _dvk_schema rows stayed, backfill_contacts then authored
+                # INSERT ... SELECT FROM m<port>__chain_dialogs and EVERY port died
+                # at journal-initialization as cloud-schema-missing (relation
+                # chain_dialogs, operation write). One worker's start now repairs
+                # the catalog for every worker and installation on the dataset.
+                heal_catalog(db)
                 db.execute('''CREATE TABLE IF NOT EXISTS mumu_peer_claims(
                   peer TEXT PRIMARY KEY,device TEXT NOT NULL,account TEXT NOT NULL,
                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')

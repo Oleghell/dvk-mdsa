@@ -305,14 +305,26 @@ class Connection:
             self._run('INSERT INTO _dvk_schema(name,sqlite_sql) VALUES(%s,%s) ON CONFLICT(name) DO NOTHING',(name,sql))
             self.pending[name]=info;return Cursor(rowcount=-1)
         # Catalog checks refer only to our migrated schema, not auth/public.
+        # v1.3.111 (dropmefiles NwkXSU2V): the app-level sqlite_master view must
+        # mirror PHYSICAL reality, not the _dvk_schema catalog alone. The 1.3.110
+        # database cleanup dropped the legacy m<port>__* tables but left their
+        # catalog rows; peer-policy backfill then saw the phantom names and every
+        # port's journal-initialization died as cloud-schema-missing on its very
+        # first INSERT ... SELECT FROM a table PostgreSQL rejects with 42P01. The
+        # pg_class join keeps live semantics (another process's committed table
+        # stays visible) while a catalog row without its table never surfaces.
         if 'sqlite_master' in sql:
             match=re.fullmatch(r"\s*SELECT\s+(1|name)\s+FROM\s+sqlite_master\s+WHERE\s+(?:type\s*=\s*'table'\s*(?:AND\s*)?)?(?:name\s*=\s*(\?|'[a-z0-9_]+'))?\s*",sql,re.I)
             if match:
                 needle=match.group(2)
+                catalog=("SELECT s.name FROM _dvk_schema s"
+                         " JOIN pg_class c ON c.relname=s.name"
+                         " JOIN pg_namespace n ON n.oid=c.relnamespace"
+                         " WHERE n.nspname=%s AND c.relkind='r'")
                 if needle:
                     wanted=params[0] if needle=='?' and len(params)==1 else needle.strip("'")
-                    rows=self._run('SELECT name FROM _dvk_schema WHERE name=%s',(wanted,)).fetchall()
-                else:rows=self._run('SELECT name FROM _dvk_schema ORDER BY name').fetchall()
+                    rows=self._run(catalog+' AND s.name=%s',(SCHEMA,wanted)).fetchall()
+                else:rows=self._run(catalog+' ORDER BY s.name',(SCHEMA,)).fetchall()
                 return Cursor([(1 if match.group(1)=='1' else name,) for name, in rows])
         if self.read_only and not upper.startswith('SELECT'):raise CloudDatabaseError('cloud-readonly-violation')
         if not self.in_transaction and not upper.startswith('SELECT'):raise CloudDatabaseError('cloud-transaction-required')
@@ -400,7 +412,15 @@ def memory_snapshot(path,limit):
     with closing(readonly(path)) as source, closing(sqlite3.connect(':memory:')) as memory:
         source.execute('BEGIN');memory.execute('PRAGMA temp_store=MEMORY')
         total=0
-        for name,sql in source.raw.execute('SELECT name,sqlite_sql FROM _dvk_schema ORDER BY name'):
+        # v1.3.111 (dropmefiles NwkXSU2V): iterate only tables that physically
+        # exist. A manual drop or restored snapshot can leave _dvk_schema rows
+        # without their tables; the previous plain catalog iteration then SELECTed
+        # from a phantom and died mid-snapshot. The pg_class join skips phantoms.
+        for name,sql in source.raw.execute(
+                'SELECT s.name,s.sqlite_sql FROM _dvk_schema s'
+                ' JOIN pg_class c ON c.relname=s.name'
+                ' JOIN pg_namespace n ON n.oid=c.relnamespace'
+                " WHERE n.nspname=%s AND c.relkind='r' ORDER BY s.name",(SCHEMA,)):
             info=schema_info(sql);memory.execute(sql)
             cols=','.join(ident(x[1]) for x in info['columns'])
             with source.raw.cursor(name='snapshot_'+name) as cur:
@@ -414,6 +434,24 @@ def memory_snapshot(path,limit):
                     memory.executemany('INSERT INTO '+ident(name)+' VALUES('+','.join('?' for _ in info['columns'])+')',batch)
         memory.commit()
         yield memory
+
+def heal_catalog(db):
+    """v1.3.111 (dropmefiles NwkXSU2V): remove catalog rows whose physical table is gone.
+
+    The 1.3.110 cleanup dropped the physical legacy m<port>__* tables while
+    their _dvk_schema rows stayed: the app-level sqlite_master view reported
+    tables PostgreSQL rejects with 42P01, and every port died at
+    journal-initialization as cloud-schema-missing on relation chain_dialogs.
+    connect() already prunes the per-session cache against pg_class; this
+    heals the SHARED catalog itself under the caller's write transaction, so
+    one worker's start repairs the dataset for every other worker and every
+    installation on it. Local SQLite's sqlite_master is always physical truth
+    and returns untouched.
+    """
+    if not isinstance(db,Connection):return
+    db._run('DELETE FROM _dvk_schema s WHERE NOT EXISTS ('
+            'SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace '
+            'WHERE n.nspname=%s AND c.relname=s.name AND c.relkind=%s)',(SCHEMA,'r'))
 
 @contextmanager
 def journal_initialization():
