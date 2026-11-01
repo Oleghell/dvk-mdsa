@@ -17,7 +17,7 @@ from chat_core import InputError
 def bright_text_mask(crop):
     crop=crop.convert('RGB')
     mask=Image.new('L',crop.size,255)
-    mask.putdata([0 if min(rgb)>=180 else 255 for rgb in crop.get_flattened_data()])
+    mask.putdata([0 if min(rgb)>=180 else 255 for rgb in crop.getdata()])
     return ImageOps.expand(mask,border=15,fill=255).resize(((crop.width+30)*2,(crop.height+30)*2))
 
 def read_screen(image,roi):
