@@ -9,7 +9,15 @@ RETRY_CODES={'frame-budget','call-limit','frame-limit','transition-timeout','cal
     'selection-unavailable','screen-not-ready','wrong-screen','unexpected-screen','read-stopped',
     'native-transport-error','native-operation-cancelled','native-script-error','native-state-error',
     'native-process-unavailable','transport-error','device-timeout','readonly-list-updated',
-    'entry-binding-timeout','observer-stopped'}
+    'entry-binding-timeout','observer-stopped',
+    # v1.3.110 (zS5V monitors 708/711/712): the inbox pass, the profile pass's
+    # post-cycle bookkeeping and the guided chain all mark a transient shared
+    # cloud refusal as 'cloud-journal-transient' instead of journal-error; the
+    # supervisor runs its normal bounded recovery rounds (screen recheck, then
+    # a fresh pass) instead of leaving the port dead for a seconds-long
+    # pooler-pressure window. Journal blocks still win: BLOCK_CODES is checked
+    # first, and the soft exits never emit host_failure.
+    'cloud-journal-transient'}
 BLOCK_CODES={'city-claim-changed','profile-authorization-pending','profile-authorization-missing','profile-authorization-failed','profile-script-unavailable','unverified-host-failure','identity-changed','identity-not-bound','untracked-dialog','changed-dialog',
     'report-write-failed','message-not-approved','greeting-not-approved','cancelled',
     'journal-busy','journal-locked','journal-readonly','journal-storage-full','journal-io-error',

@@ -840,6 +840,14 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 except Exception as send_error:
                     from assistant_failure import category,evidence
                     out['diagnostics']['send_host_failure']=category(send_error)
+                    # v1.3.110 (zS5V monitor 708): the send arm's journal
+                    # refusal rides the closed database diagnostic into the
+                    # send_failure_event, so the next report names the exact
+                    # code/operation (lock-timeout vs capacity vs transport)
+                    # instead of the bare journal-error category.
+                    from cloud_database import diagnostic as database_diagnostic
+                    database=database_diagnostic(send_error)
+                    if database:out['diagnostics']['database']=database
                     native=evidence(send_error)
                     if native:out['diagnostics']['send_transport_failure']=native
                     from one_chat_device import ReadStopped

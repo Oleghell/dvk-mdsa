@@ -1407,15 +1407,36 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                        and not any(out[k] for k in ('history_deferred','history_cooldown_skipped','isolated_dialogs','review_pending'))))
     except Exception as error:
         from assistant_failure import category,evidence
+        # v1.3.110 (zS5V monitors 708/711): a TRANSIENT cloud refusal on the
+        # pass's own journal READS used to stop the whole inbox pass as
+        # host_failure=journal-error - the supervisor's BLOCK_CODES then kept
+        # the port dead until a human restart, exactly the port-killing shape
+        # v1.3.109 closed for the chat level (monitor 703) but left open here:
+        # 711 died at inbox-open on CloudDatabaseError('cloud-database-
+        # unavailable', operation='read'), 708 at inbox-prepare on the ROLLBACK
+        # cleanup of a failed read block (operation='rollback'). Read/catalog/
+        # rollback refusals prove no journal mutation was in flight - and a
+        # transport-failed ROLLBACK means the server discarded the whole
+        # transaction, so nothing unknown was committed - so the pass takes the
+        # same soft exit the guided chain uses: reason cloud-journal-transient,
+        # no host_failure, database diagnostic attached, and the supervisor's
+        # recovery route restarts the pass instead of burying the port.
+        # Write/commit/lock/connect refusals keep the hard stop exactly as
+        # before: a send outcome is never deferred.
+        from cloud_database import diagnostic as database_diagnostic, TRANSIENT_CODES
+        database=database_diagnostic(error)
+        if database:out['database']=database
+        if (database and database['code'] in TRANSIENT_CODES
+                and database['operation'] in ('read','catalog','rollback')
+                and not stopped.is_set()):
+            out.update(status='inbox-stopped', reason='cloud-journal-transient')
+            return out
         out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
         # v1.3.106 (eEP7SW): the authored ValueError texts are closed codes -
         # recording WHICH check fired turns the next 'validation-failed' stop
         # into a pinpointed line instead of a category the user cannot act on.
         if isinstance(error, ValueError) and str(error) in PREPARATION_VALIDATION_CODES:
             out['validation_reason'] = str(error)
-        from cloud_database import diagnostic as database_diagnostic
-        database=database_diagnostic(error)
-        if database:out['database']=database
         failure=evidence(error)
         if failure:out['last_navigation_failure']=failure
         n = out['last_navigation']

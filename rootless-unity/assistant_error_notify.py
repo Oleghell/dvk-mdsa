@@ -18,6 +18,12 @@ KNOWN = {'account-owned-by-other-scope','city-claim-changed','profile-authorizat
     'manual-review', 'telegram-outcome-unknown', 'contact-payload-blocked', 'telegram-disabled',
     'chat-check-stopped','navigation-check-stopped','unrecognized-diagnostic-code','bound-chat-read-failed', 'snapshot-validation-failed', 'binding-or-history-check-stopped',
     'recovery-unfinished',
+    # v1.3.110 (zS5V monitor 708): the closed failure_point labels the guided
+    # chain's send arm authors were masked to 'unrecognized-diagnostic-code'
+    # by this same whitelist - the cloud report hid the very code that named
+    # the broken step. All authored send/chain/AI/journal labels join the set.
+    'send-adapter-exception','send-handler-unconfirmed','guided-stage-changed','guided-send-already-reserved',
+    'ai-temporarily-unavailable','cloud-journal-transient',
     'send-outcome-unknown', 'outgoing-not-observed', 'return-not-verified', 'city-not-verified',
     'city-pool-exhausted', 'city-reservation-unresolved', 'city-no-alternative', 'search-cycle-limit', 'profile-scan-limit', 'profile-check-stopped',
     'device-or-journal-check-stopped', 'inbox-not-finished', 'profiles-not-finished',

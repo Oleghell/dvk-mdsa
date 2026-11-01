@@ -477,6 +477,30 @@ def walk(settings, stopped, approve, progress, store, *, cycle, city_next=None, 
                    reason='no-greet-limit' if out['no_greet_limit_hit'] else 'profile-limit', return_verified=True)
     except Exception as error:
         from assistant_failure import category,evidence
+        # v1.3.110 (zS5V monitor 712): the pass stopped DEAD at
+        # host_checkpoint=profile-journal / device-or-journal-check-stopped
+        # with host_failure=journal-error: the session.set('checked_at')
+        # BOOKKEEPING write that follows every completed native cycle hit a
+        # transient shared-pooler refusal, and the supervisor's BLOCK_CODES
+        # buried the port until a human restart. The failing checkpoints
+        # (profile-journal/profile-verify/city-journal) run strictly AFTER the
+        # cycle returned - cycle_pending is False, so the send outcome is
+        # already recorded by the cycle's own journal writes - and the only
+        # writes there are search_session bookkeeping (checked_at, city,
+        # city_changed_at). A transient refusal on those may leave a stale
+        # timestamp at worst, never an unknown send: the pass takes the
+        # cloud-journal-transient soft exit and the supervisor's recovery
+        # route restarts the batch instead of killing the port. Failures
+        # during the cycle itself (profile-cycle), the city claim writes
+        # (city-navigation) and every non-transient code keep the hard stop.
+        from cloud_database import diagnostic as database_diagnostic, TRANSIENT_CODES
+        database=database_diagnostic(error)
+        if database:out['database']=database
+        if (database and database['code'] in TRANSIENT_CODES and not cycle_pending
+                and host_checkpoint in ('profile-journal','profile-verify','city-journal')
+                and not stopped.is_set()):
+            out.update(status='profiles-stopped', reason='cloud-journal-transient')
+            return out
         out.update(host_failure=category(error),host_checkpoint=host_checkpoint)
         from run_preparation import clean as prepared
         failure=prepared(getattr(error,'_dvk_preparation',None)) or evidence(error)

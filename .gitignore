@@ -39,3 +39,6 @@ database-cloud-primary.json
 
 # Local frida native-suite build artifacts (run_native_tests.py).
 native-test-logs/
+
+# Local Supabase Management API token for DB_MAINTENANCE workflow.
+config/supabase-management.token
