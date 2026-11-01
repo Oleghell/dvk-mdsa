@@ -207,8 +207,12 @@ jobs:
 
         (cd release && sha256sum -c "$archive.sha256")
 
+        python3 .github/scripts/release_notes.py "$version" > release-notes.md
+
+        test -s release-notes.md
+
         gh release create "v$version" "release/$archive" "release/$archive.sha256" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
-        --title "DvkAssistant $version" --notes-file RELEASE_NOTES.md --latest
+        --title "DvkAssistant $version" --notes-file release-notes.md --latest
 
         '
 concurrency:
