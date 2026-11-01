@@ -1356,6 +1356,7 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 # owns its own ladder step - the merged target only ADDS the
                 # immediate row glance without any extra navigation call.
                 from dialog_browser import targets as row_targets
+                from dialog_browser import MAX_TARGETS as TRANSPORT_TARGETS
                 verify_pending.add((who['account'], who['peer']))
                 live = next((index for index, group in enumerate(groups) if group[0]), None)
                 if live is not None:
@@ -1363,8 +1364,27 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                     # verification target into its next open; a spent pass keeps
                     # the confirmation with the deferral ladder's own recheck.
                     out['post_send_checks'] += 1
-                    groups[live][0][:0] = row_targets([dict(account=who['account'], peer=who['peer'],
-                                                            chat=who['chat'], retry=True)])
+                    verification = row_targets([dict(account=who['account'], peer=who['peer'],
+                                                     chat=who['chat'], retry=True)])
+                    # v1.3.108 (M76yfk, monitors 688-694): the merged target must
+                    # respect the MAX_TARGETS transport bound. The 1.3.104 form
+                    # prepended UNCONDITIONALLY, so a live group holding a FULL
+                    # chunk (a journal with more than a thousand active bindings
+                    # chunks into 1000-entry groups) grew to 1001 journal targets,
+                    # and the next open's with_seen_ids() died inside its kwargs
+                    # preparation as ValueError('Invalid journal targets') - the
+                    # pass stopped right after ONE successful send
+                    # ('validation-failed', post_send_checks=1, the healthy
+                    # previous Back still in the report) on every port whose
+                    # journal crossed the bound. A full chunk keeps its own open;
+                    # the verification target rides its own one-target group in
+                    # front of it: the same single merged scan whenever there is
+                    # room, one bounded extra open only in the saturated case,
+                    # and the dead-port ValueError is structurally impossible.
+                    if len(groups[live][0]) + len(verification) <= TRANSPORT_TARGETS:
+                        groups[live][0][:0] = verification
+                    else:
+                        groups.insert(live, (verification, groups[live][1], groups[live][2]))
             if result['reason'] in PAUSE_OUTCOMES and not isolated:
                 reason = 'needs-review'
                 break  # No further approval prompts in this pass after No/timeout.
