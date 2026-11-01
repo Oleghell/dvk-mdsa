@@ -150,7 +150,11 @@ if(m->action>=200)return online_invoke(m,obj,args,exc);
  switch(m->action){
  case 10:
 #ifdef CITY_FIXTURE
- if(mode>=300){if(mode==346)slow();return active();}
+ /* 352 (xhcUe 701/702): the second root read while the picker is up burns
+    the 100ms budget - the observer preamble dies with JS phase query-city
+    and cityTextCommitted false; the first picker tick (wait-city) stays
+    fast so the death provably lands after the phase handover. */
+ if(mode>=300){if(mode==346)slow();if(mode==352&&phase==3){static int delayed=0;if(delayed++==1)slow();}return active();}
 #endif
  if(mode==77)slow();return mode>=80?&app_root:active();
  case 11:if(mode>=98)return NULL;if(mode==88)return &view;return (mode==72||phase!=1||mode==87)?NULL:&view;

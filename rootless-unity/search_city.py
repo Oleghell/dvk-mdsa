@@ -182,7 +182,15 @@ PHASE_CODE = r'''
     n.city_checkpoint='query';const input=fieldObject(current,s.cityInputField,s.searchField);
     if(!cityAttached(input,input))fail('screen-not-ready');
     const text=f.newString(Memory.allocUtf8String(cityWanted));if(text.isNull())fail('unexpected-object');own(text);
-    if(!state.cityTextCommitted){n.city_query_attempted=true;n.city_queries_started++;cityTransition(s.cityTextSet,input,cityArgs([text]));state.cityTextCommitted=true;n.city_query_text_completed=true;n.city_query_text_returns++;return;}
+    // v1.3.109 (xhcUe monitors 700/701/702): the attempted/started bookkeeping
+    // rides AFTER the setter invoke. The invoke is rejected BEFORE it runs when
+    // the frame budget dies between the (unchecked) native string/field reads
+    // and the setter's pre-invoke deadline check; counting that rejection as a
+    // started query left an unreturned query on every retry and stopped the
+    // whole city pass at 'city-not-verified'. The setter either runs (the
+    // tolerated transition overrun still commits both counters) or nothing
+    // mutated at all - the same counters, one truth.
+    if(!state.cityTextCommitted){cityTransition(s.cityTextSet,input,cityArgs([text]));n.city_query_attempted=true;n.city_queries_started++;state.cityTextCommitted=true;n.city_query_text_completed=true;n.city_query_text_returns++;return;}
     n.ui_text_read=true;if(cityString(call(s.cityTextGet,input))!==cityWanted)fail('city-query-changed');
     call(s.citySearch,current);n.city_query_completed=true;n.city_query_returns++;state.cityNext=Date.now()+1000;n.phase='scan-city';return;
    }
@@ -268,7 +276,22 @@ def build(city):
     # The wait-city tick is pure observation (no mutating entry can run there
     # after city_open_completed), so it joins the same bounded retry; the
     # cityFrameMutated guard still forbids retrying the invoke itself.
-    s = replace(s, "} catch(e){n.error=", "} catch(e){if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city'&&state.cityTextCommitted)||(n.phase==='scan-city'&&!n.city_select_attempted)||(n.phase==='wait-city'&&n.city_open_completed)||(n.phase==='wait-city-return'&&n.city_select_completed&&!n.apply_attempted)||(n.phase==='confirm-filters'&&n.city_form_verified&&!n.apply_attempted)||(n.phase==='wait-return'&&n.apply_completed&&n.city_select_completed&&n.city_form_verified))&&n.city_read_budget_retries<4){n.city_read_budget_retries++;if(n.phase==='scan-city'){state.cityFingerprint=null;n.city_scan_samples=0;}return;}n.error=")
+    # Reports xhcUe snapshots 700/701/702 (v1.3.109): the SAME one-slow-tick
+    # death hit the phase AFTER wait-city with cityTextCommitted still false -
+    # the picker resolved and its input discovered, then the 100ms budget died
+    # either in the observer preamble (city_checkpoint 'open-picker', monitors
+    # 701/702) or right before the text setter's pre-invoke check after the
+    # unchecked native string/field reads (city_checkpoint 'query', the setter
+    # never invoked, monitor 700). Both ticks are pure observation up to that
+    # point - no mutating entry ran, cityFrameMutated is false - and the old
+    # arm demanded cityTextCommitted, so neither shape ever retried: every
+    # profile pass on a loaded picker storm stopped at 'city-not-verified'
+    # (city_read_budget_retries=0) and the port burned all 8 recovery rounds.
+    # The query-city clause now covers the whole phase; the mutation doctrine
+    # is unchanged because the cityFrameMutated guard above still refuses any
+    # tick whose mutating invoke actually ran, and the setter's own tolerated
+    # transition overrun keeps committing before any later failure point.
+    s = replace(s, "} catch(e){n.error=", "} catch(e){if(e==='frame-budget'&&!cityFrameMutated&&((n.phase==='search'&&!n.open_completed)||(n.phase==='query-city')||(n.phase==='scan-city'&&!n.city_select_attempted)||(n.phase==='wait-city'&&n.city_open_completed)||(n.phase==='wait-city-return'&&n.city_select_completed&&!n.apply_attempted)||(n.phase==='confirm-filters'&&n.city_form_verified&&!n.apply_attempted)||(n.phase==='wait-return'&&n.apply_completed&&n.city_select_completed&&n.city_form_verified))&&n.city_read_budget_retries<4){n.city_read_budget_retries++;if(n.phase==='scan-city'){state.cityFingerprint=null;n.city_scan_samples=0;}return;}n.error=")
     # A repeated observation must release its old persisted handles, including
     # the origin captured immediately before a pre-invoke budget rejection.
     s = replace(s, 'const saveOnline=(key,obj)=>{const h=own(obj);',

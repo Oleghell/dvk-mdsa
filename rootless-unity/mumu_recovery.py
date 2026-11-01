@@ -36,6 +36,27 @@ MAX_RECOVERY_ROUNDS = 8
 # more generous bound than screen-recovery rounds, but never an infinite one.
 MAX_TRANSPORT_FAILURES = 30
 
+# Reports xhcUe snapshots 695/696/698 (v1.3.109): three ports died DEAD at
+# startup with dialog-list-not-verified and last_navigation_failure
+# {stage: script-load, error: startup-script-load-failed,
+#  error_type: OperationCancelledError} - the frida script load was cancelled
+# while the emulator was still raising its gadget, a transport-class death by
+# every existing classification (assistant_failure.category() maps
+# OperationCancelledError to 'native-operation-cancelled', which RETRY_CODES
+# already trusts), but the supervisor's dict walk only ever read the RAW
+# startup stage code 'startup-script-load-failed', matched neither set, and
+# left the port stopped forever. The walk now derives the same closed
+# transport class from the recorded error_type, so the evidence the report
+# already carries unlocks the recovery the class was always entitled to;
+# journal/identity/approval blocks still win (BLOCK_CODES is checked first).
+# Pinned to assistant_failure's table by test; duplicated so the supervisor's
+# plain-dict walk never imports the engine's failure layer.
+NATIVE_ERROR_CLASSES = {
+    'TransportError': 'native-transport-error', 'ServerNotRunningError': 'native-transport-error',
+    'ProtocolError': 'native-transport-error', 'TimedOutError': 'device-timeout',
+    'OperationCancelledError': 'native-operation-cancelled', 'RPCException': 'native-script-error',
+    'ProcessNotFoundError': 'native-process-unavailable', 'InvalidOperationError': 'native-state-error'}
+
 
 def recoverable(report):
     if report.get('status')!='stopped':return False
@@ -67,6 +88,12 @@ def recoverable(report):
                     or verified_identity_budget(value.get('last_read_failure'))))
             if not (current_transport or current_navigation or scan or current_read):codes.add('unverified-host-failure')
         if recoverable_adb(value):codes.add('native-transport-error')
+        # v1.3.109: the recorded transport exception class carries the retry
+        # right the raw startup stage code never spelled out.
+        name = value.get('error_type')
+        if type(name) is str:
+            native = NATIVE_ERROR_CLASSES.get(name)
+            if native:codes.add(native)
         for key in ('reason','error','host_failure'):
             v=value.get(key)
             if type(v) is str:codes.add(v)

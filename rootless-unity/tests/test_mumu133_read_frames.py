@@ -28,8 +28,11 @@ class ReadFrames(unittest.TestCase):
  def test_city_text_handler_returns_before_query_and_never_repeats(self):
   s=city.build('Псков')
   self.assertIn('if(!state.cityTextCommitted)',s)
-  self.assertIn('state.cityTextCommitted=true;n.city_query_text_completed=true;n.city_query_text_returns++;return;',s)
-  self.assertIn("(n.phase==='query-city'&&state.cityTextCommitted)",s)
+  self.assertIn("cityTransition(s.cityTextSet,input,cityArgs([text]));n.city_query_attempted=true;n.city_queries_started++;state.cityTextCommitted=true;n.city_query_text_completed=true;n.city_query_text_returns++;return;",s)
+  # v1.3.109: the whole query-city phase is a retriable observation until its
+  # mutating invoke actually runs; the committed-only clause is gone.
+  self.assertIn("(n.phase==='query-city')",s)
+  self.assertNotIn("(n.phase==='query-city'&&state.cityTextCommitted)",s)
   self.assertIn("if(!ex.readPointer().isNull())fail('managed-exception');if(fixedCancellationRequested)",s)
 
 class ContextBatch(guide.WholeChain):

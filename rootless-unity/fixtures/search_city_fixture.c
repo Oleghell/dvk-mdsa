@@ -106,7 +106,16 @@ static Object *city_field_object(Object *obj,Field *f){(void)obj;
  if(f==&query_field)return query_sent?input_text:NULL;return NULL;}
 static int city_string_length(void *s){return ((CityString *)s)->length;}
 static uint16_t *city_string_chars(void *s){return ((CityString *)s)->chars;}
-API Object *il2cpp_string_new(const char *text){if(mode==351&&!strcmp(text,"Missing"))return (Object *)&missing_string;if(strcmp(text,"Pskov"))return NULL;return (Object *)&wanted_string;}
+API Object *il2cpp_string_new(const char *text){
+ /* 353/354 (xhcUe 700): the string allocation is an UNCHECKED direct native
+    call; burning 200ms there leaves the budget dead when the text setter's
+    pre-invoke deadline check runs, so the setter is rejected before it ever
+    invokes (city_query_attempted false after the v1.3.109 bookkeeping move,
+    no mutation ran). 353 recovers on the retried tick; 354 always burns and
+    pins the bounded 4-retry stop with zero setter invocations. */
+ if(mode==353){static int delayed=0;if(!delayed++)slow();}
+ if(mode==354)slow();
+ if(mode==351&&!strcmp(text,"Missing"))return (Object *)&missing_string;if(strcmp(text,"Pskov"))return NULL;return (Object *)&wanted_string;}
 API void il2cpp_field_static_get_value(Field *f,int *out){*out=f==&enum_field?1:-1;}
 API Type *il2cpp_class_enum_basetype(Class *c){return c==&cc[4]?&tint:NULL;}
 API int fixture_city_texts(void){return city_text_calls;}

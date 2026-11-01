@@ -371,6 +371,33 @@ class GuidedChain(Chain):
             from assistant_send_safety import authorize
             return authorize(db,who,action)
 
+def transient_journal_deferral(error, diagnostics):
+    """v1.3.109 (xhcUe monitor 703): a transient cloud READ refusal defers the chat.
+
+    The dropmefiles xhcUe snapshot 703 stopped a whole port at
+    inbox-pass-stopped / chat-binding-or-history-check-stopped with
+    host_failure=journal-error: 188 journal reads (30.8 s) into the shared
+    session pooler's pressure window ONE read raised
+    CloudDatabaseError('cloud-database-unavailable', operation='read'), the
+    generic handler classified it as journal-error, and the supervisor's
+    BLOCK_CODES kept the port dead until a human restart - for a refusal the
+    database layer itself marks TRANSIENT ('may recover within seconds').
+    Only the read-side operations of a chain run that provably has NO send in
+    flight may take the deferral exit (the same shape the AI backend's
+    'ai-temporarily-unavailable' uses): the chat is left via the verified
+    Back and the history deferral ladder re-checks it later. Writes, commits,
+    locks, non-transient codes and any attempted/returned submission keep the
+    hard stop exactly as before - a send outcome is never deferred.
+    """
+    from cloud_database import diagnostic as database_diagnostic, TRANSIENT_CODES
+    database = database_diagnostic(error)
+    if not database or database['code'] not in TRANSIENT_CODES or database['operation'] not in ('read', 'catalog'):
+        return None
+    if diagnostics.get('submission_attempted') is True or diagnostics.get('submission_returned') is True:
+        return None
+    return database
+
+
 def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
          greetings=(), notifier=None, progress=lambda _: None, pause=None,
          max_polls=360, deadline=None, contact_reader=None, until_waiting=False, exit_capture=None, contact_photo=None, snapshot_capture=None,
@@ -922,6 +949,13 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
             out['diagnostics']['greeting_anchor_failure']=anchor
         out.update(status='chain-needs-review', reason='greeting-not-verified')
     except Exception as error:
+        database = transient_journal_deferral(error, out['diagnostics'])
+        if database:
+            out['diagnostics']['database'] = database
+            out['diagnostics']['failure_point'] = 'cloud-journal-transient'
+            out.update(status='chain-cancelled' if stopped.is_set() else 'chain-waiting',
+                       reason='cancelled' if stopped.is_set() else 'cloud-journal-transient')
+            return out
         if (isinstance(error,StateError) and str(error)=='chat-input-disabled'
                 and out['diagnostics'].get('input_disabled_verified') is True):
             out['diagnostics']['failure_point']='chat-input-disabled'

@@ -1179,6 +1179,11 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                 progress('Глобальный запрет собеседника • строка диалога не открывается до нового сообщения.')
             deferred = result['reason'] in ('history-loading-timeout','history-read-budget-timeout','history-snapshot-too-large','send-preflight-deferred')
             ai_deferred=result['reason']=='ai-temporarily-unavailable'
+            # v1.3.109 (xhcUe 703): a transient cloud READ refusal is the
+            # journal-side twin of the AI deferral - the chat is left via the
+            # verified Back and the history deferral ladder re-checks it when
+            # the shared pooler window has passed; the pass keeps moving.
+            cloud_deferred=result['reason']=='cloud-journal-transient'
             answer_deferred=result['reason']=='incoming-answer-pending'
             photo_deferred=(result['reason']=='contact-photo-unavailable' and result['status']=='chain-waiting')
             evidence = result['diagnostics']
@@ -1268,10 +1273,11 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
             timed(result['diagnostics'], 'back', call, 'back', expected=who)
             # Only a successful, SAME-chat back may make a read failure local.
             # Do not change chain stage, reservations, consumed messages or review state.
-            if deferred or ai_deferred or answer_deferred or photo_deferred:
+            if deferred or ai_deferred or answer_deferred or photo_deferred or cloud_deferred:
                 history_wait.defer(chain.store,who,clock=clock)
                 out['history_deferred'] += 1
                 progress('Контакт сохранён. Проверю фото позже, продолжаю другие чаты.' if photo_deferred else
+                         'Общая база была занята при чтении журнала. Проверю этот чат позже.' if cloud_deferred else
                          'ИИ не дал проверенный ответ. Проверю чат позже.' if ai_deferred else 'Отправки не было. Проверю чат позже.' if result['reason']=='send-preflight-deferred' else 'Не удалось дочитать историю. Вернулся в личку; проверю этот чат позже.')
             else:
                 history_wait.clear(chain.store,who)
@@ -1320,14 +1326,14 @@ def walk(settings, stopped, approve, progress, chain, *, navigator, reader, send
                     and not result['outgoing_observed_this_run']
                     and not result['stages']['peer_contact']
                     and not unanswered
-                    and not (deferred or ai_deferred or answer_deferred or photo_deferred)
+                    and not (deferred or ai_deferred or answer_deferred or photo_deferred or cloud_deferred)
                     and not manually_blocked(chain.store, who)
                     and workless_marker(chain, who, row_last)):
                 out['workless_row_markers'] += 1
                 progress('Обработанный диалог не открывается до нового сообщения • маркер записан.')
             out['dialogs_processed'] += 1
             processed.add((who['account'],who['peer']))
-            if not deferred and not ai_deferred and not answer_deferred and not photo_deferred and not unanswered:
+            if not deferred and not ai_deferred and not answer_deferred and not photo_deferred and not cloud_deferred and not unanswered:
                 host_checkpoint = 'inbox-record'
                 record_checked(chain, who)
             for group in groups:
