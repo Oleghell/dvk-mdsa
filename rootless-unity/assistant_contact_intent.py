@@ -8,6 +8,14 @@ from conversation_engine import normalized
 
 MAX = r'(?:макс(?:а|е|ом)?|мак(?:а|е|ом)?|мах(?:а|е|ом)?|max)'
 APP = re.compile(r'\b'+MAX+r'\b',re.I)
+# v1.3.112 (9104352d, ADB 5555): «Дааай в тг» closed the live chain as
+# declined - the peer was ASKING for the exchange in Telegram, an engagement
+# move, but the give-request verbs sat outside every consent list, so neither
+# platform_signals() nor clarify.CHOICE() recognized the choice and the
+# contact-only policy closed the chain «без нового ответа». The elongated
+# «дааай» spelling family and the toss-verb synonyms (скинь/сбрось/кинь)
+# join the consent vocabulary everywhere the «давай» family already lives.
+GIVE = r'(?:переда+й(?:те)?|да+й(?:те)?|скин(?:ь|ьте)|сброс(?:ь|ьте)|кин(?:ь|ьте)|остав(?:ь|ьте))(?:\s+(?:свой|мне|сюда|туда))?'
 # Reports 9104352d port 5571 (v1.3.104): «Телеги нет, стёрла. Мах или вотсап» -
 # «телеги» is the GENITIVE of the «телега» slang (Telegram in any case form:
 # телеги/телеге/телегу/телегой...), and the old TG family ended at
@@ -47,8 +55,8 @@ def max_selected(messages):
                 or re.search(r'\bне\s+(?:хочу|могу|буду|пользуюсь|работает|сижу|общаюсь|переписываюсь)\s+(?:в\s+|на\s+|через\s+)?'+MAX+r'\b',value)
                 or re.search(r'\b'+MAX+r'\s+(?:у меня\s+)?(?:нет|нету|не\s+(?:работает|пользуюсь|буду|хочу|установлен\w*|сижу|общаюсь|переписываюсь))\b',value))
             if deny:return False
-            bare=re.fullmatch(r'(?:давай(?:те)?\s+)?(?:в\s+)?'+MAX+r'(?:\s*,?\s*(?:или|и)\s+(?:'+MAX+r'|'+TG+r'|'+WA+r'|whats\s?app))*',value)
-            before=re.search(r'\b(?:есть|(?:тольк[оа]|тока)|пользуюсь|сижу|общаюсь|переписываюсь|работает|установлен\w*|давай(?:те)?|можно|лучше|удобнее|предпочитаю)\b(?:\s+\w+){0,4}\s+'+MAX+r'\b',value)
+            bare=re.fullmatch(r'(?:(?:давай(?:те)?|'+GIVE+r')\s+)?(?:в\s+)?'+MAX+r'(?:\s*,?\s*(?:или|и)\s+(?:'+MAX+r'|'+TG+r'|'+WA+r'|whats\s?app))*',value)
+            before=re.search(r'\b(?:есть|(?:тольк[оа]|тока)|пользуюсь|сижу|общаюсь|переписываюсь|работает|установлен\w*|давай(?:те)?|'+GIVE+r'|можно|лучше|удобнее|предпочитаю)\b(?:\s+\w+){0,4}\s+'+MAX+r'\b',value)
             # Reports 70ce6153 port 5563 (v1.3.84): «Я в Максе сижу» inverted the
             # verb/app order, and the after-side verb list lacked сижу/общаюсь/
             # переписываюсь/пользуюсь/давай/лучше/предпочитаю. The choice was not
@@ -170,8 +178,8 @@ def platform_signals(messages, app):
         # joins the positives; the negation patterns above still win, so
         # «у меня нет ватсапа» stays unavailable.
         ownership=re.search(r'\bу\s+меня\s+(?:есть\s+)?(?:тольк[оа]\s+|тока\s+)?(?:в\s+)?'+app+r'\b',value)
-        positive |= bool(re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'(?:есть|работает|живой|жива|жив|живое|лучше|удобнее|удобно|можно|пользуюсь|сижу|общаюсь|переписываюсь|давай(?:те)?)\b',value)
-            or re.search(r'\b(?:есть|пользуюсь|давай(?:те)?|можно|лучше|удобнее|удобно|сижу|общаюсь|переписываюсь)\s+(?:в\s+)?'+app+r'\b',value)
+        positive |= bool(re.search(r'\b'+app+r'\s+'+AVAIL_FILL+r'(?:есть|работает|живой|жива|жив|живое|лучше|удобнее|удобно|можно|пользуюсь|сижу|общаюсь|переписываюсь|давай(?:те)?|'+GIVE+r')\b',value)
+            or re.search(r'\b(?:есть|пользуюсь|давай(?:те)?|'+GIVE+r'|можно|лучше|удобнее|удобно|сижу|общаюсь|переписываюсь)\s+(?:в\s+)?'+app+r'\b',value)
             or re.search(r'\bработает\s+'+AVAIL_FILL+app+r'\b',value)
             or ownership
             or juxtaposed

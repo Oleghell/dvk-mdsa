@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Готовый воркфлоу обслуживания базы Supabase проекта DvkAssistant (dvk-spam).
+"""Готовый воркфлоу обслуживания базы Supabase проекта DvkAssistant (dvk).
+
+С 1.3.112 база мигрирована в новый проект dvk (dnfytjvlljkxvmnkbelh);
+старый dvk-spam остаётся резервной копией.
 
 Работает через Management API (только HTTPS, без зависимостей). Токен
 читается по приоритету:
@@ -41,7 +44,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-PROJECT = 'gkmyipjiodjlxnsjvkxs'          # dvk-spam, eu-west-1
+PROJECT = 'dnfytjvlljkxvmnkbelh'          # dvk (новый проект, eu-west-1)
 REGION = 'eu-west-1'
 URL = f'https://api.supabase.com/v1/projects/{PROJECT}/database/query'
 LIMIT_BYTES = 500 * 1024 * 1024            # free-план

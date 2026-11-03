@@ -165,7 +165,7 @@ def run_pass(settings,stopped,progress=lambda text:None, *, store=None,navigator
         # Credentials are loaded only on explicit Start with the saved opt-in.
         if settings.contacts_enabled:
             if notifier is None:
-                token,chat_id=telegram_notify.load()
+                token,chat_id=telegram_notify.contact_credentials()
                 notifier=lambda payload:telegram_notify.send_contact(token,chat_id,payload)
         else:notifier=None
         chain=Chain(Store() if store is None else store,contact_notifications=notifier is not None)

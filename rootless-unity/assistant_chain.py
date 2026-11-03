@@ -96,6 +96,7 @@ class Chain:
         store.ensure_tables(
                 'CREATE TABLE IF NOT EXISTS chain_contact_media(chat TEXT PRIMARY KEY,payload BLOB NOT NULL)',
                 'CREATE TABLE IF NOT EXISTS chain_contact_outbox(chat TEXT PRIMARY KEY,message TEXT,payload BLOB NOT NULL,status TEXT NOT NULL)',
+                'CREATE TABLE IF NOT EXISTS chain_media_attempts(chat TEXT PRIMARY KEY,attempts INTEGER NOT NULL)',
                 'CREATE TABLE IF NOT EXISTS chain_dialogs(account TEXT,peer TEXT,chat TEXT UNIQUE,greeting TEXT,stage TEXT,salt TEXT,PRIMARY KEY(account,peer))',
                 'CREATE TABLE IF NOT EXISTS chain_review_reasons(chat TEXT PRIMARY KEY,reason TEXT NOT NULL)',
                 'CREATE TABLE IF NOT EXISTS chain_seen(chat TEXT,message TEXT,fingerprint TEXT,PRIMARY KEY(chat,message))',
@@ -364,6 +365,22 @@ class Chain:
         with self.store.read_connection() as db:
             return db.execute('SELECT 1 FROM chain_contact_media WHERE chat=?',(who['chat'],)).fetchone() is not None
 
+    # v1.3.112 (B7ZK5): a contact whose verified profile photo keeps failing
+    # must not sit in 'photo-required' limbo forever - after this many failed
+    # captures the contact is delivered WITHOUT the photo. The photo stays
+    # best-effort: any later success simply attaches it again.
+    MEDIA_ATTEMPT_LIMIT = 3
+    def media_attempts(self,who):
+        with self.store.read_connection() as db:
+            row=db.execute('SELECT attempts FROM chain_media_attempts WHERE chat=?',(who['chat'],)).fetchone()
+            return row[0] if row else 0
+    def media_exhausted(self,who):
+        return self.media_attempts(who)>=self.MEDIA_ATTEMPT_LIMIT
+    def record_media_failure(self,who):
+        who=identity(who)
+        with self.store.connection() as db:
+            db.execute('INSERT INTO chain_media_attempts VALUES(?,1) ON CONFLICT(chat) DO UPDATE SET attempts=attempts+1',(who['chat'],))
+
     def prepare_media(self,who,capture):
         self.authorized(who)
         if self.has_media(who):return
@@ -408,7 +425,7 @@ class Chain:
                 db.execute("UPDATE chain_contact_outbox SET status='blocked' WHERE chat=?", (who['chat'],))
                 return 'blocked'
             photo=db.execute('SELECT payload FROM chain_contact_media WHERE chat=?',(who['chat'],)).fetchone()
-            if self.media_required and photo is None:return 'photo-required'
+            if self.media_required and photo is None and not self.media_exhausted(who):return 'photo-required'
             if photo is not None:
                 try:
                     data['photo']=self.unseal(photo[0])

@@ -43,7 +43,8 @@ class Telegram(unittest.TestCase):
             self.assertTrue(p.send_contact(TOKEN,'98765',
                                            {'name':'Александр','contacts':['@alex_test']}))
         body=parse_qs(requests[0].data.decode())
-        self.assertEqual(body['text'],['Новый контакт!\nИмя: Александр\nКонтакт: @alex_test'])
+        # v1.3.112: the contact itself and nothing else - no header, no name.
+        self.assertEqual(body['text'],['@alex_test'])
     def test_no_redirect(self):self.assertIsNone(p.NoRedirect().redirect_request(None,None,None,None,None,None))
     def test_invalid_credentials(self):
         for token,chat in [('bad','1'),(TOKEN,'0'),(TOKEN,'https://evil'),(TOKEN+'\n','1')]:

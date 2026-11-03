@@ -84,19 +84,22 @@ class Profiles(unittest.TestCase):
     def device(self):
         dev=MagicMock();dev.screen.return_value=png();return dev
 
-    def test_wrong_profile_and_failed_chat_read_never_back(self):
-        dev=self.device();chat=MagicMock(side_effect=[g.snapshot(),RuntimeError(),RuntimeError()])
+    def test_wrong_profile_and_failed_chat_read_back_once_then_verify(self):
+        # v1.3.112 (B7ZK5): the recovery Back rides the same doctrine as the
+        # success path - exactly one keyevent, then the verified re-check; the
+        # still-failing chat keeps the hard profile-return stop.
+        dev=self.device();chat=MagicMock(side_effect=[g.snapshot(),RuntimeError(),RuntimeError(),RuntimeError(),RuntimeError()])
         with self.assertRaisesRegex(StateError,'profile-return-not-verified'):
             capture_profile('adb','folder',g.WHO,device_factory=lambda *a:dev,chat_reader=chat,
                 profile_reader=MagicMock(side_effect=StateError('profile-not-verified')))
-        self.assertNotIn(call(['shell','input','keyevent','4']),dev.run.call_args_list)
+        self.assertEqual(dev.run.call_args_list.count(call(['shell','input','keyevent','4'])),1)
 
-    def test_noop_tap_transient_read_failure_never_back(self):
+    def test_noop_tap_transient_read_failure_recovers_by_verified_back(self):
         dev=self.device();chat=MagicMock(side_effect=[g.snapshot(),RuntimeError(),g.snapshot()])
         with self.assertRaisesRegex(StateError,'profile-photo-unavailable'):
             capture_profile('adb','folder',g.WHO,device_factory=lambda *a:dev,chat_reader=chat,
                 profile_reader=MagicMock(side_effect=StateError('profile-not-verified')))
-        self.assertNotIn(call(['shell','input','keyevent','4']),dev.run.call_args_list)
+        self.assertEqual(dev.run.call_args_list.count(call(['shell','input','keyevent','4'])),1)
 
     def test_wrong_chat_after_single_verified_back_stops(self):
         dev=self.device();wrong=copy.deepcopy(g.snapshot());wrong['identity']['peer']='999'

@@ -24,7 +24,8 @@ class ContextContact(unittest.TestCase):
         with patch.object(telegram_notify,'send',return_value=True) as send:
             self.assertTrue(telegram_notify.send_contact('token','chat',payload('Тест',[CANDIDATE])))
         text=send.call_args.args[2]
-        self.assertIn(CANDIDATE,text);self.assertIn('не подтверждены',text)
+        # v1.3.112: the message body is the contact alone, plus stripped.
+        self.assertEqual(text,CANDIDATE)
         self.assertNotIn('+'+CANDIDATE,text)
 
     def test_negative_third_party_quoted_codes_still_rejected(self):

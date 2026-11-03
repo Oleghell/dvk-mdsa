@@ -73,8 +73,7 @@ def recoverable(report):
     elif reason=='inbox-pass-stopped':nodes=[report.get('last_pass')]
     elif reason in {'profile-pass-stopped','profile-repeat-stopped'}:nodes=[report.get('last_profile_run')]
     else:nodes=[report]
-    codes=set()
-    def visit(value):
+    def visit(value,codes):
         if type(value) is not dict:return
         if value.get('status') in {'completed','inbox-completed','profiles-completed','inbox-empty'}:return
         from startup_failure import recoverable_adb
@@ -106,9 +105,26 @@ def recoverable(report):
             v=value.get(key)
             if type(v) is str:codes.add(v)
         for key in ('inbox','profiles','last_navigation','last_navigation_failure','last_preparation_failure','last_profile_diagnostics','last_read_failure','last_chat_diagnostics','last_city_navigation'):
-            visit(value.get(key))
-    for node in nodes:visit(node)
-    return not bool(codes & BLOCK_CODES) and bool(codes & RETRY_CODES)
+            visit(value.get(key),codes)
+    codes=set()
+    for node in nodes:visit(node,codes)
+    blocked=codes & BLOCK_CODES
+    # v1.3.112 (B7ZK5 monitor 719): the STARTUP dialog-list navigation can die
+    # at wait-back with 'identity-changed' - the app transitioned its top-level
+    # tabs while the closeChat Back was still landing, before ANY chat was
+    # opened this run (passes_completed=0). No chat identity exists to protect:
+    # the supervisor's own repair already reads whatever screen IS present,
+    # durably skips exactly that chat and issues one verified Back, or runs a
+    # fresh list pass. The exemption is scoped to the startup list reason AND
+    # to identity-changed that lives only in the startup navigation nodes: a
+    # chat-level pass report carrying identity-changed keeps the hard block.
+    if reason=='dialog-list-not-verified' and blocked=={'identity-changed'}:
+        chat_codes=set()
+        visit(report.get('last_pass'),chat_codes)
+        visit(report.get('initial_run'),chat_codes)
+        if not (chat_codes & BLOCK_CODES):
+            blocked=set();codes.add('wrong-screen')
+    return not bool(blocked) and bool(codes & RETRY_CODES)
 
 
 class Repair:

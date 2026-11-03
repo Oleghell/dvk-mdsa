@@ -53,6 +53,80 @@ def png_size(data):
     if not ended or not has_pixels or pos!=len(data):raise StateError('profile-photo-invalid')
     return dimensions
 
+
+# v1.3.112: the profile screenshot carries the phone's status bar (time and
+# battery) in its top rows. The operator-facing copy is cropped before the
+# Telegram upload; whole scanlines only, so bit depth and color type never
+# change. Pure stdlib: the packaged assistant carries no Pillow.
+_CHANNELS={0:1,2:3,3:1,4:2,6:4}
+def _paeth(a,b,c):
+    p=a+b-c;pa=abs(p-a);pb=abs(p-b);pc=abs(p-c)
+    if pa<=pb and pa<=pc:return a
+    if pb<=pc:return b
+    return c
+def _defilter(raw,width,height,stride,unit):
+    rows=[];previous=bytes(stride)
+    for y in range(height):
+        f=raw[y*(stride+1)];line=bytearray(raw[y*(stride+1)+1:(y+1)*(stride+1)])
+        if f==0:pass
+        elif f==1:
+            for i in range(unit,stride):line[i]=(line[i]+line[i-unit])&255
+        elif f==2:
+            for i in range(stride):line[i]=(line[i]+previous[i])&255
+        elif f==3:
+            for i in range(stride):
+                a=line[i-unit] if i>=unit else 0
+                line[i]=(line[i]+((a+previous[i])>>1))&255
+        elif f==4:
+            for i in range(stride):
+                a=line[i-unit] if i>=unit else 0
+                b=previous[i];c=previous[i-unit] if i>=unit else 0
+                line[i]=(line[i]+_paeth(a,b,c))&255
+        else:raise StateError('profile-photo-invalid')
+        rows.append(bytes(line));previous=rows[-1]
+    return rows
+def _chunk(kind,data):
+    return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)
+def crop_top(image,fraction=.05):
+    """Remove the top fraction of scanlines; return a valid PNG or raise.
+
+    Screenshots written by `screencap -p` use filter 0 rows, so the common
+    path is pure slicing. Any other filter set takes the full spec unfilter.
+    Interlaced input is returned unchanged (never a wrong crop); the caller
+    decides whether an uncropped image may leave the host.
+    """
+    if not isinstance(image,bytes):raise StateError('profile-photo-invalid')
+    width,height=png_size(image)
+    drop=int(height*fraction+0.5)
+    # Keep the result inside the verified 200..5000 envelope of png_size.
+    drop=max(0,min(drop,height-200))
+    if drop<1:return image
+    pos=8;header=None;idat=[]
+    while pos+12<=len(image):
+        n=struct.unpack('>I',image[pos:pos+4])[0];kind=image[pos+4:pos+8]
+        end=pos+12+n;value=image[pos+8:pos+8+n]
+        if kind==b'IHDR':header=struct.unpack('>IIBBBBB',value)
+        elif kind==b'IDAT':idat.append(value)
+        pos=end
+    if header is None or not idat:raise StateError('profile-photo-invalid')
+    width,height,depth,color,compression,filter_method,interlace=header
+    if interlace!=0 or compression!=0 or filter_method!=0:return image
+    channels=_CHANNELS.get(color)
+    if channels is None or depth not in (8,16):return image
+    bpp=width*channels*(depth//8);unit=max(1,channels*(depth//8))
+    raw=zlib.decompress(b''.join(idat))
+    if len(raw)!=height*(bpp+1):raise StateError('profile-photo-invalid')
+    filters={raw[y*(bpp+1)] for y in range(height)}
+    if filters=={0}:
+        rows=[raw[y*(bpp+1)+1:(y+1)*(bpp+1)] for y in range(drop,height)]
+    else:
+        rows=_defilter(raw,width,height,bpp,unit)[drop:]
+    payload=b''.join(b'\x00'+row for row in rows)
+    out=(b'\x89PNG\r\n\x1a\n'+_chunk(b'IHDR',struct.pack('>IIBBBBB',width,height-drop,depth,color,0,0,0))
+         +_chunk(b'IDAT',zlib.compress(payload,6))+_chunk(b'IEND',b''))
+    png_size(out)
+    return out
+
 class Device:
     def __init__(self,executable,folder,cancelled=lambda:False):
         self.adb=TargetOnlyAdb(executable,Path(folder).resolve(strict=True));self.boot=preflight(self.adb);self.cancelled=cancelled
@@ -182,7 +256,25 @@ def capture_profile(executable,folder,who,cancelled=lambda:False,*,device_factor
                 if profile_reader(executable,folder,who,cancelled) is not True:raise StateError('profile-not-verified')
                 profile_verified=True
             except Exception:
-                check_chat()
+                # B7ZK5 (monitors 714/720/721, ADB 5555): the tap happened, the
+                # native profile verification failed AND the chat check failed -
+                # the app sits mid-transition or on the unverified profile, and
+                # the old code raised ProfileReturnUnverified straight from the
+                # second check_chat(), stopping the WHOLE inbox pass every run.
+                # One VERIFIED Back recovers the bound chat: it is the same
+                # fixed keyevent the success path already uses, followed by a
+                # proof of where the UI landed before any further pass action.
+                # A Back failure or an unverified result keeps today's hard
+                # stop; a verified chat turns the photo loss into the soft
+                # 'contact-photo-unavailable' deferral and the pass continues.
+                try:
+                    back_attempted=True
+                    device.run(['shell','input','keyevent','4']);back_completed=True;device.pause()
+                except Exception as error:
+                    if cancelled():raise StateError('cancelled')
+                    raise ProfileReturnUnverified(error,checkpoint='profile-back-call',
+                        back_attempted=True,back_completed=back_completed) from None
+                check_chat('profile-after-back',retries=2)
                 raise StateError('profile-photo-unavailable') from None
     if profile_verified:
         # Latest proof is the exact native profile AFTER the PNG. Do not run a

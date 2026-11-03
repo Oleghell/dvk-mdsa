@@ -155,7 +155,7 @@ def launch(self_check=False):
         try:
             notifier = None
             if notify:
-                token, chat_id = telegram_notify.load()
+                token, chat_id = telegram_notify.contact_credentials()
                 notifier = lambda payload: telegram_notify.send_contact(token, chat_id, payload)
             result = run_chain(executable, directory, stopped,
                                lambda text: events.put(('preview-progress', text)), notifier=notifier)

@@ -1,10 +1,13 @@
 """One optional clarification after a peer explicitly chooses a messenger."""
 import re
-from assistant_contact_intent import TG, WA, MAX
+from assistant_contact_intent import TG, WA, MAX, GIVE
 TEXT = 'Хорошо, напиши номер для WhatsApp или ник в Telegram, если тебе удобно.'
 PLATFORM = re.compile(r'\b(?:'+TG+'|'+WA+r')\b', re.I)
-CHOICE = re.compile(r'\b(?:давай(?:те)?|лучше|удобн\w*|предпочитаю|соглас\w*|напиши|пиши|найди|хочу|можно|есть|установлен[ао]?|пользуюсь)\b', re.I)
-NEGATIVE = re.compile(r'не\s+(?:хочу|надо|могу|пользуюсь|работает)|не\s*пиши|не\s*да[мю]', re.I)
+# v1.3.112 (9104352d, ADB 5555): «Дааай в тг» - the give-request family joins
+# CHOICE so the peer's ask for OUR contact reads as the messenger choice it
+# is; the chain then sends one app-specific clarification instead of closing.
+CHOICE = re.compile(r'\b(?:'+GIVE+r'|давай(?:те)?|лучше|удобн\w*|предпочитаю|соглас\w*|напиши|пиши|найди|хочу|можно|есть|установлен[ао]?|пользуюсь)\b', re.I)
+NEGATIVE = re.compile(r'не\s+(?:хочу|надо|могу|пользуюсь|работает|да+й(?:те)?|переда+й(?:те)?|скин\w*|сброс\w*|кин\w*|оставля\w*)|не\s*пиши|не\s*да[мю]', re.I)
 # Reports 9104352d port 5571 (v1.3.104): the clause-level app list. A clause
 # that is EXACTLY app names joined by «или»/«и»/comma («Мах или вотсап»,
 # «вотсап, телега») is a terse choice in EITHER order; the MAX spellings

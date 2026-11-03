@@ -49,8 +49,10 @@ class ContactPolicy(unittest.TestCase):
         with patch.object(telegram_notify, 'send', return_value=True) as send:
             self.assertTrue(telegram_notify.send_contact('token', '123', data))
         text = send.call_args.args[2]
-        self.assertIn('Анна', text)
-        self.assertIn('@myhandle', text)
+        # v1.3.112: the message body is the contact alone; the name rides the
+        # profile photo, never the text.
+        self.assertEqual(text, '@myhandle')
+        self.assertNotIn('Анна', text)
         self.assertNotIn('identity', text)
         with patch.object(telegram_notify, 'send') as send:
             with self.assertRaises(telegram_notify.TelegramError):

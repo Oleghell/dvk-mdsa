@@ -36,7 +36,12 @@ WHATSAPP_FAMILY = r'в(?:[ао]й?|п)(?:т\s*[сц]|тс|тц|ц|с|т|сс)?а
 # (пиши/напиши/звони/набери/стучись/жду/мне/сюда) are stripped from the
 # remainder exactly like «вот/держи/давай»; third-party and off-topic
 # remainders are still refused by the gates above.
-LABELS = re.compile(r'\b(?:телеграм\w*|телег[аеу]|тг|telegram|whatsapp|'+WHATSAPP_FAMILY+r'|макс(?:е|ом)?|мак(?:е|ом)?|мах(?:е|ом)?|max|телефон|номер|контакт|вот|держи|это|в|на|да|ага|можно|у|есть|давай(?:те)?|или|напиши(?:те)?|пиши(?:те)?|мне|звони(?:те)?|набери(?:те)?|набирай(?:те)?|стучись|стучитесь|сюда|жду|зови(?:те)?)\b', re.I)
+GIVE = r'(?:переда+й(?:те)?|да+й(?:те)?|скин(?:ь|ьте)|сброс(?:ь|ьте)|кин(?:ь|ьте)|остав(?:ь|ьте))(?:\s+(?:свой|мне|сюда|туда))?'
+# v1.3.112: the give-request family («Дааай в тг 89…») strips from the
+# ownership remainder exactly like «давай/вот/держи», and «свой» is the
+# reflexive filler of «оставь свой номер» - both attribute the peer's own
+# contact instead of refusing it.
+LABELS = re.compile(r'\b(?:телеграм\w*|телег[аеу]|тг|telegram|whatsapp|'+WHATSAPP_FAMILY+r'|макс(?:е|ом)?|мак(?:е|ом)?|мах(?:е|ом)?|max|телефон|номер|контакт|вот|держи|это|в|на|да|ага|можно|у|есть|давай(?:те)?|'+GIVE+r'|свой|или|напиши(?:те)?|пиши(?:те)?|мне|звони(?:те)?|набери(?:те)?|набирай(?:те)?|стучись|стучитесь|сюда|жду|зови(?:те)?)\b', re.I)
 PUNCTUATION = re.compile(r'^[\s:;,!.()—\-🙂😊👍]*$')
 
 

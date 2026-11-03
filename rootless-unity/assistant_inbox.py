@@ -1466,7 +1466,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, store=None, navi
         return dict(report(), status='inbox-cancelled', reason='cancelled')
     with checkpoint('inbox-contacts'):
         if notifier is None and settings.contacts_enabled:
-            token, chat_id = telegram_notify.load()
+            token, chat_id = telegram_notify.contact_credentials()
             notifier = lambda payload: telegram_notify.send_contact(token, chat_id, payload)
     with checkpoint('inbox-ai'):
         from assistant_ai import responder as make_responder

@@ -23,15 +23,40 @@ class PhotoRecovery(Base):
         self.assertEqual(detail['last_read_failure']['error'],'transition-timeout')
         self.assertNotEqual(str(caught.exception),'profile-return-not-verified')
 
-    def test_after_tap_unknown_return_still_stops_and_never_blind_backs(self):
+    def test_after_tap_unknown_return_backs_once_then_verifies_or_stops(self):
+        # B7ZK5 (monitors 714/720/721): the tap happened, BOTH the native
+        # profile verification and the chat check failed - exactly ONE
+        # recovery Back is issued and the re-checked chat decides the exit:
+        # still-unverified keeps the hard stop, a verified chat turns the
+        # photo loss into the soft 'contact-photo-unavailable' deferral.
         dev=MagicMock();dev.screen.return_value=png()
         with self.assertRaises(ProfileReturnUnverified) as caught:
             capture_profile('adb','folder',WHO,device_factory=lambda *a:dev,
-                chat_reader=MagicMock(side_effect=[snap(),timeout(),timeout()]),
+                chat_reader=MagicMock(side_effect=[snap(),timeout(),timeout(),timeout(),timeout()]),
                 profile_reader=MagicMock(side_effect=StateError('profile-not-verified')))
-        self.assertNotIn(call(['shell','input','keyevent','4']),dev.run.call_args_list)
+        self.assertEqual(dev.run.call_args_list.count(call(['shell','input','keyevent','4'])),1)
         self.assertTrue(caught.exception.diagnostic['action_attempted'])
         self.assertEqual(str(caught.exception),'profile-return-not-verified')
+
+    def test_verified_back_after_failed_photo_is_a_soft_photo_deferral(self):
+        dev=MagicMock();dev.screen.return_value=png()
+        with self.assertRaises(StateError) as caught:
+            capture_profile('adb','folder',WHO,device_factory=lambda *a:dev,
+                chat_reader=MagicMock(side_effect=[snap(),timeout(),snap(),snap(),snap()]),
+                profile_reader=MagicMock(side_effect=StateError('profile-not-verified')))
+        self.assertEqual(str(caught.exception),'profile-photo-unavailable')
+        self.assertEqual(dev.run.call_args_list.count(call(['shell','input','keyevent','4'])),1)
+
+    def test_back_call_failure_keeps_the_hard_profile_return_stop(self):
+        dev=MagicMock();dev.screen.return_value=png()
+        dev.run=MagicMock(side_effect=[None,StateError('profile-device-unavailable')])
+        with self.assertRaises(ProfileReturnUnverified) as caught:
+            capture_profile('adb','folder',WHO,device_factory=lambda *a:dev,
+                chat_reader=MagicMock(side_effect=[snap(),timeout()]),
+                profile_reader=MagicMock(side_effect=StateError('profile-not-verified')))
+        self.assertEqual(caught.exception.diagnostic['photo_checkpoint'],'profile-back-call')
+        self.assertTrue(caught.exception.diagnostic['chat_back_attempted'])
+        self.assertFalse(caught.exception.diagnostic['chat_back_completed'])
 
     def saved(self):
         self.store=SharedStore(self.path if hasattr(self,'path') else self.store.path,

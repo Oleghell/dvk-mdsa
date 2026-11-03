@@ -666,7 +666,11 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                 return out
             if stage == 'done':
                 progress('Контакт получен • сохранён в очереди.')
-                if chain.media_required and notifier is not None:
+                # v1.3.112 (B7ZK5): a photo-exhausted chat skips the capture
+                # entirely - the contact is delivered without the photo after
+                # MEDIA_ATTEMPT_LIMIT verified failures instead of deferring
+                # the notification forever.
+                if chain.media_required and notifier is not None and not chain.media_exhausted(who):
                     try:
                         host_checkpoint='chat-contact-photo'
                         progress('Контакт получен • получаю проверенное фото профиля.')
@@ -676,6 +680,11 @@ def walk(chain, who, stopped, approve, reader, sender, *, approved=False,
                         if isinstance(error, (ProfilePhotoNotStarted, ProfileReturnUnverified)):
                             out['diagnostics']['photo_failure']=error.diagnostic
                         if str(error) in ('profile-return-not-verified','cancelled'):raise
+                        try:
+                            chain.record_media_failure(who)
+                            out['diagnostics']['media_attempts']=chain.media_attempts(who)
+                        except Exception:
+                            pass
                         out.update(status='chain-waiting',reason='contact-photo-unavailable')
                         return out
                 host_checkpoint='chat-contact-notify'
@@ -1076,7 +1085,7 @@ def run(settings, stopped, approve, progress=lambda _: None, *, approved=False,
             if not settings.contacts_enabled:
                 raise StateError('telegram-disabled')
             if notifier is None:
-                token, chat_id = telegram_notify.load()
+                token, chat_id = telegram_notify.contact_credentials()
                 notifier = lambda payload: telegram_notify.send_contact(token, chat_id, payload)
             greetings = load().greetings if greetings is None else greetings
             reader = capture if reader is None else reader
